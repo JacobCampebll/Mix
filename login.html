@@ -18,31 +18,29 @@
      CLAUDE.md "never expose keys client-side, proxy instead" rule — that
      rule is about secret keys (the "service_role" key). NEVER put the
      service_role key in this file or any browser-facing code.
-  3. Authentication -> Providers: make sure "Email" is enabled (it's still
-     Supabase's email/password provider under the hood — see ACCESS MODEL
-     below for why the technician never sees or types an email).
-  4. Authentication -> Providers -> Email -> turn OFF "Confirm email".
-     This is MANDATORY, not just for local testing: technician accounts use
-     a made-up @technicians.mix.local address (see below) with no real
-     inbox behind it, ever. If "Confirm email" is on, Supabase sends a
-     confirmation link to that fake address, nobody receives it, and the
-     account is stuck unconfirmed forever.
-  5. Run supabase/schema.sql (repo root) in the Supabase SQL Editor to
-     create the `technicians` / `technician_plant_access` tables and their
-     RLS policies. Then use scripts/build_technician_seed.py to turn the
-     roster spreadsheets into seed files and import those via Table Editor
-     or SQL Editor.
+  3. Authentication -> Providers -> Email -> turn OFF "Secure email change".
+     MANDATORY, not optional: that setting requires confirming an email
+     change from both the OLD and NEW address, and every technician's old
+     address is a fabricated one with no real inbox (see ACCESS MODEL). If
+     it's on, the onboarding flow below can never complete.
+  4. Run supabase/schema.sql (repo root) in the Supabase SQL Editor to
+     create the tables, RLS policies, and functions this page calls.
+  5. Bulk-provision technician accounts (an admin action against the
+     database directly — not something this page does). Each technician
+     needs: an auth.users row with email `${sm_id}@technicians.mix.local`
+     and a shared temporary password, already linked via
+     technicians.user_id. See the "Login flow" note in supabase/schema.sql.
 
   ACCESS MODEL: technicians are identified by SM ID (e.g. "jcavanah"), not
-  email — the roster has no email addresses at all. Supabase Auth's
-  password provider still needs *some* email internally, so this page
-  fabricates one from the SM ID (CONFIG.AUTH.emailDomain, below) that the
-  technician never sees or types — they only ever enter their SM ID and a
-  password, for both sign-up and sign-in. Signing up also claims their
-  pre-seeded `technicians` row by stamping this account's user_id onto it —
-  first come, first served, and only once (see claim_technician() in
-  supabase/schema.sql). From then on, RLS scopes everything they can see to
-  their own AMP plant numbers and current certifications.
+  email — the roster has no email addresses at all. Accounts are
+  bulk-provisioned (not self-signed-up) with a fabricated email Supabase
+  Auth's password provider needs internally, and a shared temporary
+  password. A technician's first sign-in uses SM ID + that temp password;
+  this page then walks them through setting a real email (confirmed via a
+  real link Supabase sends) and a real password, tracked by
+  technicians.onboarded. After that, they sign in with their real email +
+  their own password, and Supabase's normal "forgot password" flow works
+  since there's now a real address on file.
 -->
 
 <style>
@@ -97,27 +95,6 @@
     color: var(--muted);
     font-size: 0.875rem;
     margin: 0 0 20px;
-  }
-  .tabs {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 18px;
-    border-bottom: 1px solid var(--border);
-  }
-  .tab {
-    flex: 1;
-    background: none;
-    border: none;
-    padding: 8px 4px;
-    font-size: 0.9rem;
-    color: var(--muted);
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-  }
-  .tab.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
-    font-weight: 600;
   }
   label {
     display: block;
@@ -222,32 +199,50 @@
     <h1>Sign in</h1>
     <p class="subtitle">Mix — DesignBook / PlantBook</p>
 
-    <div class="tabs">
-      <button class="tab active" data-mode="signin">Sign in</button>
-      <button class="tab" data-mode="signup">Sign up</button>
-    </div>
-
     <form id="authForm">
-      <label for="smId">SM ID</label>
-      <input id="smId" type="text" autocomplete="username" placeholder="e.g. jcavanah" required>
+      <label for="loginId">SM ID or email</label>
+      <input id="loginId" type="text" autocomplete="username" placeholder="e.g. jcavanah" required>
+      <p class="hint">Use your SM ID for your first sign-in. Once you've set up your account, sign in with your email instead.</p>
 
       <label for="password">Password</label>
       <input id="password" type="password" autocomplete="current-password" required>
-
-      <div id="confirmPasswordField" class="hidden">
-        <label for="confirmPassword">Confirm password</label>
-        <input id="confirmPassword" type="password" autocomplete="new-password">
-      </div>
-
-      <p id="signupHint" class="hint hidden">
-        Your SM ID is from the technician roster — it links your login to your
-        certifications and assigned plants. You don't need an email address.
-      </p>
 
       <button type="submit" class="primary" id="submitBtn">Sign in</button>
     </form>
 
     <div class="status" id="status"></div>
+  </div>
+
+  <div id="onboardEmailView" class="hidden">
+    <h1>Set up your account</h1>
+    <p class="subtitle">First, enter your real email address. We'll send a link to confirm it.</p>
+
+    <form id="onboardEmailForm">
+      <label for="realEmail">Email</label>
+      <input id="realEmail" type="email" autocomplete="email" required>
+      <button type="submit" class="primary" id="onboardEmailSubmitBtn">Send confirmation</button>
+    </form>
+
+    <div class="status" id="onboardEmailStatus"></div>
+    <button class="secondary" id="onboardEmailSignOutBtn">Sign out</button>
+  </div>
+
+  <div id="onboardPasswordView" class="hidden">
+    <h1>Choose your password</h1>
+    <p class="subtitle">Email confirmed. Now set the password you'll use going forward.</p>
+
+    <form id="onboardPasswordForm">
+      <label for="newPassword">New password</label>
+      <input id="newPassword" type="password" autocomplete="new-password" required>
+
+      <label for="confirmNewPassword">Confirm password</label>
+      <input id="confirmNewPassword" type="password" autocomplete="new-password" required>
+
+      <button type="submit" class="primary" id="onboardPasswordSubmitBtn">Set password</button>
+    </form>
+
+    <div class="status" id="onboardPasswordStatus"></div>
+    <button class="secondary" id="onboardPasswordSignOutBtn">Sign out</button>
   </div>
 
   <div id="sessionView" class="session-card hidden">
@@ -270,9 +265,10 @@
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3eXN4aGNtdmhrY2p4bWphcmtkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3NTE0MDUsImV4cCI6MjEwMzMyNzQwNX0.K_YKefS3p6W2ZVjEw8El88a_7y_SnLaYNnzF7BA3WKc",
     AUTH: {
       // Supabase's password provider needs an email internally; the
-      // technician never sees this. sm_id -> `${sm_id}@emailDomain`,
-      // always lowercased + trimmed first so casing/whitespace typed at
-      // sign-in always reconstructs the same address used at sign-up.
+      // technician never sees this until they set their own during
+      // onboarding. sm_id -> `${sm_id}@emailDomain`, always lowercased +
+      // trimmed first so casing/whitespace typed at sign-in always
+      // reconstructs the same address used at provisioning.
       emailDomain: "technicians.mix.local",
     },
   };
@@ -291,43 +287,62 @@
     return `${smId}@${CONFIG.AUTH.emailDomain}`;
   }
 
+  function isTempEmail(email) {
+    return (email || "").toLowerCase().endsWith("@" + CONFIG.AUTH.emailDomain);
+  }
+
+  // Accepts either an SM ID (reconstructs the fabricated address) or a
+  // real email typed directly (once a technician has onboarded, that's
+  // what they'll have and use).
+  function resolveSignInEmail(raw) {
+    const trimmed = (raw || "").trim();
+    if (trimmed.includes("@")) return trimmed.toLowerCase();
+    return smIdToEmail(normalizeSmId(trimmed));
+  }
+
   const statusEl = document.getElementById("status");
   const authView = document.getElementById("authView");
+  const onboardEmailView = document.getElementById("onboardEmailView");
+  const onboardEmailForm = document.getElementById("onboardEmailForm");
+  const realEmailInput = document.getElementById("realEmail");
+  const onboardEmailSubmitBtn = document.getElementById("onboardEmailSubmitBtn");
+  const onboardEmailStatusEl = document.getElementById("onboardEmailStatus");
+  const onboardEmailSignOutBtn = document.getElementById("onboardEmailSignOutBtn");
+  const onboardPasswordView = document.getElementById("onboardPasswordView");
+  const onboardPasswordForm = document.getElementById("onboardPasswordForm");
+  const newPasswordInput = document.getElementById("newPassword");
+  const confirmNewPasswordInput = document.getElementById("confirmNewPassword");
+  const onboardPasswordSubmitBtn = document.getElementById("onboardPasswordSubmitBtn");
+  const onboardPasswordStatusEl = document.getElementById("onboardPasswordStatus");
+  const onboardPasswordSignOutBtn = document.getElementById("onboardPasswordSignOutBtn");
   const sessionView = document.getElementById("sessionView");
   const sessionWho = document.getElementById("sessionWho");
   const sessionMeta = document.getElementById("sessionMeta");
   const sessionAccess = document.getElementById("sessionAccess");
   const form = document.getElementById("authForm");
-  const smIdInput = document.getElementById("smId");
+  const loginIdInput = document.getElementById("loginId");
   const passwordInput = document.getElementById("password");
-  const confirmPasswordField = document.getElementById("confirmPasswordField");
-  const confirmPasswordInput = document.getElementById("confirmPassword");
-  const signupHint = document.getElementById("signupHint");
   const submitBtn = document.getElementById("submitBtn");
-  const tabs = document.querySelectorAll(".tab");
   const signOutBtn = document.getElementById("signOutBtn");
-
-  let mode = "signin"; // "signin" | "signup"
 
   function setStatus(message, kind) {
     statusEl.textContent = message || "";
     statusEl.className = "status" + (kind ? " " + kind : "");
   }
-
-  function applyMode(newMode) {
-    mode = newMode;
-    tabs.forEach((t) => t.classList.toggle("active", t.dataset.mode === mode));
-    confirmPasswordField.classList.toggle("hidden", mode !== "signup");
-    confirmPasswordInput.required = mode === "signup";
-    signupHint.classList.toggle("hidden", mode !== "signup");
-    passwordInput.autocomplete = mode === "signup" ? "new-password" : "current-password";
-    submitBtn.textContent = mode === "signin" ? "Sign in" : "Create account";
-    setStatus("");
+  function setOnboardEmailStatus(message, kind) {
+    onboardEmailStatusEl.textContent = message || "";
+    onboardEmailStatusEl.className = "status" + (kind ? " " + kind : "");
+  }
+  function setOnboardPasswordStatus(message, kind) {
+    onboardPasswordStatusEl.textContent = message || "";
+    onboardPasswordStatusEl.className = "status" + (kind ? " " + kind : "");
   }
 
-  tabs.forEach((tab) => {
-    tab.addEventListener("click", () => applyMode(tab.dataset.mode));
-  });
+  function showOnly(view) {
+    [authView, onboardEmailView, onboardPasswordView, sessionView].forEach((v) =>
+      v.classList.toggle("hidden", v !== view)
+    );
+  }
 
   if (!isConfigured) {
     setStatus(
@@ -341,59 +356,47 @@
       CONFIG.SUPABASE_ANON_KEY
     );
 
-    // Claims a technicians row for the current signed-in user, via the
-    // claim_technician() Postgres function (see supabase/schema.sql). That
-    // has to be a function rather than a plain UPDATE + RLS policy:
-    // Postgres requires a row to pass the table's SELECT policy before an
-    // UPDATE can even see it, and an unclaimed row (user_id is null) can
-    // never pass "user_id = auth.uid()" — so a plain UPDATE policy silently
-    // updates 0 rows, always. claim_technician() is SECURITY DEFINER,
-    // bypassing that catch-22 without exposing the unclaimed roster via a
-    // loosened SELECT policy. Succeeds only once per SM ID — whoever claims
-    // it first gets it, and nobody can re-claim it after.
-    async function claimTechnicianRow(smId) {
-      const { data, error } = await supabase.rpc("claim_technician", { p_sm_id: smId });
-
-      if (error) return { ok: false, message: error.message };
-      if (!data || data.length === 0) {
-        return {
-          ok: false,
-          message: "SM ID not found, or already linked to another account.",
-        };
-      }
-      return { ok: true, technician: data[0] };
-    }
-
-    // Shows the right one of: sign-in/sign-up form, or the signed-in view.
+    // Shows the right view: sign-in, one of the two onboarding steps, or
+    // the signed-in session view. technicians.onboarded (not the email
+    // domain alone) is the source of truth for "is this technician fully
+    // set up" - the email domain is only used to figure out *which*
+    // onboarding step they're resuming into, since onboarding can be
+    // abandoned partway (e.g. they confirm the new email, then close the
+    // tab before choosing a password) and needs to pick back up correctly
+    // next time they sign in.
     async function refreshView(session) {
       if (!session || !session.user) {
-        authView.classList.remove("hidden");
-        sessionView.classList.add("hidden");
+        showOnly(authView);
         return;
       }
 
       const { data: tech } = await supabase
         .from("technicians")
-        .select("sm_id, first_name, last_name, company")
+        .select("sm_id, first_name, last_name, company, onboarded")
         .eq("user_id", session.user.id)
         .maybeSingle();
 
       if (!tech) {
-        // Shouldn't normally happen (claim runs right after sign-up, and
-        // "Confirm email" must stay off per the setup comment above) — but
-        // if it does, there's no real inbox to wait on, so say so plainly
-        // rather than showing a "check your email" dead end.
-        authView.classList.remove("hidden");
-        sessionView.classList.add("hidden");
+        // Every real technician account is bulk-provisioned already linked
+        // (see supabase/schema.sql) - this shouldn't normally happen.
+        showOnly(authView);
         setStatus(
-          "Signed in, but not linked to a technician yet. Try signing up again with your SM ID, or check that Supabase Auth's \"Confirm email\" is off.",
+          "Signed in, but this account isn't linked to a technician. Contact an admin.",
           "error"
         );
         return;
       }
 
-      authView.classList.add("hidden");
-      sessionView.classList.remove("hidden");
+      if (!tech.onboarded) {
+        if (isTempEmail(session.user.email)) {
+          showOnly(onboardEmailView);
+        } else {
+          showOnly(onboardPasswordView);
+        }
+        return;
+      }
+
+      showOnly(sessionView);
       sessionWho.textContent = `${tech.first_name} ${tech.last_name} — ${tech.company}`;
       sessionMeta.textContent = `SM ID: ${tech.sm_id}`;
 
@@ -422,53 +425,25 @@
     }
 
     supabase.auth.getSession().then(({ data }) => refreshView(data.session));
+    // Fires on sign-in, sign-out, and after updateUser() (email/password
+    // change) - including the moment a technician clicks the email
+    // confirmation link and lands back here, which is what advances them
+    // from the "enter your email" step to the "choose your password" step
+    // with no extra code needed here.
     supabase.auth.onAuthStateChange((_event, session) => refreshView(session));
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const smId = normalizeSmId(smIdInput.value);
+      const email = resolveSignInEmail(loginIdInput.value);
       const password = passwordInput.value;
-      const email = smIdToEmail(smId);
 
       submitBtn.disabled = true;
       setStatus("Working…");
 
       try {
-        if (mode === "signin") {
-          const { error } = await supabase.auth.signInWithPassword({ email, password });
-          if (error) throw error;
-          setStatus("Signed in.", "success");
-        } else {
-          if (password !== confirmPasswordInput.value) {
-            throw new Error("Passwords don't match.");
-          }
-
-          const { data, error } = await supabase.auth.signUp({ email, password });
-          if (error) throw error;
-
-          if (data.session) {
-            const result = await claimTechnicianRow(smId);
-            if (result.ok) {
-              setStatus(
-                `Account created and linked to ${result.technician.first_name} ${result.technician.last_name}.`,
-                "success"
-              );
-            } else {
-              setStatus(
-                `Account created, but couldn't link SM ID yet: ${result.message}`,
-                "error"
-              );
-            }
-          } else {
-            // No immediate session means Supabase Auth is waiting on email
-            // confirmation - which will never arrive, since this address
-            // isn't real. See the setup comment: "Confirm email" must be off.
-            setStatus(
-              "Account created, but no active session came back. Check that Supabase Auth's \"Confirm email\" setting is turned off.",
-              "error"
-            );
-          }
-        }
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        setStatus("Signed in.", "success");
       } catch (err) {
         setStatus(err.message || "Something went wrong.", "error");
       } finally {
@@ -476,13 +451,63 @@
       }
     });
 
-    signOutBtn.addEventListener("click", async () => {
+    onboardEmailForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const newEmail = realEmailInput.value.trim();
+
+      onboardEmailSubmitBtn.disabled = true;
+      setOnboardEmailStatus("Sending confirmation…");
+
+      try {
+        const { error } = await supabase.auth.updateUser({ email: newEmail });
+        if (error) throw error;
+        setOnboardEmailStatus(
+          "Check your email and click the confirmation link — this page will move on automatically once you do.",
+          "success"
+        );
+      } catch (err) {
+        setOnboardEmailStatus(err.message || "Something went wrong.", "error");
+      } finally {
+        onboardEmailSubmitBtn.disabled = false;
+      }
+    });
+
+    onboardPasswordForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const newPassword = newPasswordInput.value;
+
+      if (newPassword !== confirmNewPasswordInput.value) {
+        setOnboardPasswordStatus("Passwords don't match.", "error");
+        return;
+      }
+
+      onboardPasswordSubmitBtn.disabled = true;
+      setOnboardPasswordStatus("Setting password…");
+
+      try {
+        const { error: pwError } = await supabase.auth.updateUser({ password: newPassword });
+        if (pwError) throw pwError;
+
+        const { error: markError } = await supabase.rpc("mark_technician_onboarded");
+        if (markError) throw markError;
+
+        const { data } = await supabase.auth.getSession();
+        await refreshView(data.session);
+      } catch (err) {
+        setOnboardPasswordStatus(err.message || "Something went wrong.", "error");
+      } finally {
+        onboardPasswordSubmitBtn.disabled = false;
+      }
+    });
+
+    async function signOut() {
       await supabase.auth.signOut();
       setStatus("Signed out.");
-    });
+    }
+    signOutBtn.addEventListener("click", signOut);
+    onboardEmailSignOutBtn.addEventListener("click", signOut);
+    onboardPasswordSignOutBtn.addEventListener("click", signOut);
   }
-
-  applyMode("signin");
 </script>
 
 </body>

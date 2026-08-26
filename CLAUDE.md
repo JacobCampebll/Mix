@@ -127,28 +127,41 @@ one column:
 
 - **The roster has no email addresses at all** — technicians are identified
   purely by SM ID (e.g. `jcavanah`). Supabase Auth's password provider still
-  needs *some* email internally, so `login.html` fabricates one from the SM
-  ID (`${sm_id}@technicians.mix.local`) that the technician never sees or
-  types — they only ever enter SM ID + password, for both sign-up and
-  sign-in. This means "Confirm email" must stay OFF in Supabase Auth
-  **permanently**, not just for testing — that fake address has no real
-  inbox, ever, so a confirmation link sent to it can never be clicked.
-- `technicians.user_id` bridges the Supabase Auth account to the roster
-  identity. Signing up calls `claim_technician(sm_id)` (a Postgres function,
-  not a plain UPDATE policy — see the "found the hard way" note above for
-  why) to stamp `user_id = auth.uid()` onto the matching pre-seeded
-  `technicians` row, but only while that row's `user_id` is still null.
-  Nobody can claim someone else's SM ID, and an SM ID can't be reclaimed
-  once linked. The function also trims/lowercases the SM ID server-side
-  (login.html does too, client-side) so `JCavanah`, ` jcavanah `, and
-  `jcavanah` all resolve to the same account.
-- **This is not yet identity-verified.** Right now the only thing gating
-  who can claim `jcavanah`'s row is *knowing the string* `jcavanah` — and
-  SM IDs look guessable (often first-initial + last name). Nothing today
-  stops someone from signing up as a technician they aren't. Before this
-  goes to real users, add a real check at claim time (e.g. confirm a second
-  roster field like last name, or an admin-issued one-time code per
-  technician) — flagging this here so it isn't forgotten before rollout.
+  needs *some* email internally, so accounts get a fabricated one
+  (`${sm_id}@technicians.mix.local`) the technician never sees until they
+  onboard.
+- **Accounts are bulk-provisioned, not self-signed-up.** All 376 technician
+  auth accounts were created directly (an admin action against the
+  database, done once — see `technicians.user_id` being set at the same
+  time as the `auth.users` row, no separate claim step for this
+  population) with the fabricated email and a **shared temporary
+  password**. `claim_technician(sm_id)` still exists for onboarding anyone
+  added to the roster *after* this initial rollout, but isn't part of the
+  normal flow anymore.
+- **Onboarding, forced on first real sign-in.** A technician's first
+  sign-in uses SM ID + the temp password. `login.html` checks
+  `technicians.onboarded`: if false, it walks them through setting a real
+  email (confirmed via a real link Supabase sends — requires "Secure email
+  change" turned OFF in Supabase Auth, since the old/fake address can never
+  confirm anything) and then a real password, calling
+  `mark_technician_onboarded()` (same SECURITY DEFINER pattern as
+  `claim_technician()`) once both are done. Which of the two onboarding
+  steps to resume into is decided by whether the account's current email is
+  still the fake one, not by a step counter — so abandoning onboarding
+  partway and coming back later resumes correctly. After onboarding, sign-in
+  uses their real email + their own password, and Supabase's normal
+  "forgot password" flow works since there's now a real address on file.
+- **Known, accepted tradeoff during rollout**: every account starts with
+  the *same* temp password, and that password is now written down in this
+  file and in chat history. Until a technician onboards, anyone who knows
+  or guesses their SM ID can sign in as them. Get people onboarded quickly,
+  and don't publish this repo (or this chat) somewhere the temp password
+  becomes public knowledge beyond your own team.
+- Supabase's free-tier email sending is rate-limited to a handful of
+  emails/hour — nowhere near enough to onboard 376 people in a reasonable
+  window. A custom SMTP provider (Resend, SendGrid, etc.) needs to be wired
+  into Supabase Auth settings before rolling this out broadly, or
+  onboarding will stall on rate-limit errors partway through.
 - Which plants (AMP numbers) a technician can see comes from
   `technician_plant_access`, a normalized (sm_id, amp_number) table — not
   the horizontal `AMP 1..AMP N` columns the roster spreadsheet uses for

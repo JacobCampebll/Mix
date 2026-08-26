@@ -27,25 +27,48 @@
 --                               DesignBook/PlantBook table's RLS should
 --                               query - never hand-roll the expiry logic
 --                               again elsewhere.
---   claim_technician(sm_id)   - the only way a session can ever write to
---                               technicians.user_id. See "Why a function,
---                               not a policy" below - a plain UPDATE policy
---                               cannot do this safely.
+--   claim_technician(sm_id)      - links a technicians row to an auth
+--                                  account by SM ID. Was the self-serve
+--                                  sign-up path; not used by the current
+--                                  bootstrap flow (all 376 accounts were
+--                                  bulk-provisioned already-linked - see
+--                                  below), but kept for onboarding any
+--                                  technician added to the roster later.
+--   mark_technician_onboarded()  - the only way a session can ever set
+--                                  technicians.onboarded to true. Same
+--                                  SECURITY DEFINER reasoning as
+--                                  claim_technician() - see that note.
 --
--- Login flow this supports (see login.html):
---   1. A technician signs up with their SM ID + password - no email. The
---      roster has no email addresses at all, so login.html fabricates one
---      Supabase Auth's password provider needs internally
---      (`${sm_id}@technicians.mix.local`) that the technician never sees.
---   2. Once a session exists, the app calls
---      supabase.rpc('claim_technician', { p_sm_id }) which links this
---      account to the matching technicians row - but only while that row's
---      user_id is still null. First person to claim an SM ID gets it;
---      nobody can claim someone else's, and nobody can re-claim an
---      already-linked one.
---   3. From then on, RLS lets that user read their own technicians,
+-- Login flow this supports (see login.html) - NOT self-serve sign-up:
+--   1. All 376 technician accounts were bulk-provisioned directly (an
+--      admin action, done once against this database - not exposed to the
+--      browser) with a fabricated email (`${sm_id}@technicians.mix.local`,
+--      since the roster has no real emails) and a shared temporary
+--      password. Each account's technicians.user_id was set at the same
+--      time, so no self-serve claim step is needed for this population.
+--   2. A technician's first sign-in uses SM ID + the temp password.
+--      login.html checks technicians.onboarded - false means: prompt for
+--      a real email, wait for them to confirm it (supabase.auth.updateUser
+--      email flow), then prompt for a real password
+--      (supabase.auth.updateUser password flow), then call
+--      mark_technician_onboarded(). Onboarding restarts from wherever it
+--      left off if they abandon it partway (checked by whether their
+--      Auth email still ends in the fake domain, not by a separate step
+--      counter).
+--   3. Once onboarded, they sign in with their real email + their own
+--      password going forward, and Supabase's normal "forgot password"
+--      email flow works, since the account now has a real, confirmed
+--      address on file.
+--   4. From then on, RLS lets that user read their own technicians,
 --      technician_plant_access, and technician_capabilities rows - and
 --      nothing else's.
+--
+-- Required Supabase Auth settings for the onboarding email step to ever
+-- complete: Authentication -> Providers -> Email -> turn OFF "Secure email
+-- change". That setting, when on, requires confirming an email change from
+-- BOTH the old and new address - and technicians' old address is the fake
+-- one, which can never confirm anything. With it off, only the new address
+-- needs to confirm, which is exactly the onboarding step above.
 --
 -- Access rule (as specified): plant_tech alone -> PlantBook only.
 -- mix_design_tech (which nobody holds without plant_tech, but is checked
@@ -82,6 +105,7 @@ create table if not exists technicians (
   company        text not null,
   certifications text,
   user_id        uuid unique references auth.users(id),
+  onboarded      boolean not null default false,
   created_at     timestamptz not null default now()
 );
 
@@ -216,6 +240,33 @@ $$;
 revoke all on function claim_technician(text) from public;
 revoke execute on function claim_technician(text) from anon;
 grant execute on function claim_technician(text) to authenticated;
+
+-- Marks the caller's own technicians row as onboarded, once they've set a
+-- real email and a real password (see login.html). No arguments and no
+-- target other than "whoever is calling this" - there's nothing here for a
+-- caller to point at someone else's row with, unlike claim_technician().
+create or replace function mark_technician_onboarded()
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    return false;
+  end if;
+
+  update technicians
+  set onboarded = true
+  where user_id = auth.uid();
+
+  return found;
+end;
+$$;
+
+revoke all on function mark_technician_onboarded() from public;
+revoke execute on function mark_technician_onboarded() from anon;
+grant execute on function mark_technician_onboarded() to authenticated;
 
 -- No insert/update/delete policies exist for anon/authenticated on any of
 -- the three tables beyond claim_technician() above -- bulk seeding and
