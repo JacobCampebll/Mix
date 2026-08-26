@@ -86,6 +86,13 @@ TBD — cite the governing spec section when encoding a limit in code.
 
 ### Gotchas found the hard way
 - (Log real bugs here so the other person does not rediscover them.)
+- Supabase's **anon/public key** is not a secret like a normal API key — it is
+  meant to ship in client-side JS (Supabase's own docs do this). Access
+  control comes from Row Level Security (RLS) policies on your tables, not
+  from hiding this key. So it's fine to put it directly in a `CONFIG` block
+  in a single-file app; it does NOT need a Netlify Function proxy. The
+  **service_role key** is the real secret — that one must never leave a
+  Netlify Function/env var, ever.
 
 ## Conventions for changing this file
 

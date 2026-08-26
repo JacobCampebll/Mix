@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mix — Sign in</title>
+
+<!--
+  SETUP (one-time, do this before this page will work):
+
+  1. Create a project at https://supabase.com (free tier is fine).
+  2. Project Settings -> API: copy "Project URL" and the "anon public" key
+     into CONFIG.SUPABASE_URL / CONFIG.SUPABASE_ANON_KEY below.
+     The anon key is DESIGNED to be public/client-side — Supabase's own
+     docs ship it in browser JS. It is not a secret like a normal API key;
+     access control is enforced by Row Level Security (RLS) policies on
+     your tables, not by hiding this key. So this does NOT violate the
+     CLAUDE.md "never expose keys client-side, proxy instead" rule — that
+     rule is about secret keys (the "service_role" key). NEVER put the
+     service_role key in this file or any browser-facing code.
+  3. Authentication -> Providers: make sure "Email" is enabled.
+  4. Authentication -> URL Configuration: set "Site URL" to wherever this
+     page is deployed on Netlify (e.g. https://your-site.netlify.app),
+     and add it to "Redirect URLs" too — magic links won't come back to
+     the right place otherwise.
+  5. Optional for local testing: Authentication -> Providers -> Email ->
+     turn OFF "Confirm email" so sign-up logs you in immediately instead
+     of waiting on a confirmation email.
+-->
+
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f5f4;
+    --panel: #ffffff;
+    --border: #ddd;
+    --text: #1a1a1a;
+    --muted: #666;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --error: #b91c1c;
+    --success: #15803d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #18181b;
+      --panel: #242427;
+      --border: #3a3a3d;
+      --text: #f0f0f0;
+      --muted: #a0a0a0;
+      --accent: #3b82f6;
+      --accent-hover: #60a5fa;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 16px;
+  }
+  .card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 24px;
+  }
+  h1 {
+    font-size: 1.25rem;
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 0.875rem;
+    margin: 0 0 20px;
+  }
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 8px 4px;
+    font-size: 0.9rem;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+  }
+  label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin: 12px 0 4px;
+  }
+  input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.95rem;
+  }
+  input:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .row label {
+    margin: 0;
+  }
+  button.primary {
+    width: 100%;
+    margin-top: 18px;
+    padding: 11px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.primary:hover { background: var(--accent-hover); }
+  button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
+  button.link {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: 0;
+    margin-top: 14px;
+    display: block;
+  }
+  .status {
+    margin-top: 14px;
+    font-size: 0.85rem;
+    min-height: 1.2em;
+  }
+  .status.error { color: var(--error); }
+  .status.success { color: var(--success); }
+  .session-card {
+    text-align: center;
+  }
+  .session-card .email {
+    font-weight: 600;
+    margin: 8px 0 20px;
+    word-break: break-all;
+  }
+  button.secondary {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div class="card" id="card">
+  <div id="authView">
+    <h1>Sign in</h1>
+    <p class="subtitle">Mix — DesignBook / PlantBook</p>
+
+    <div class="tabs">
+      <button class="tab active" data-mode="signin">Sign in</button>
+      <button class="tab" data-mode="signup">Sign up</button>
+      <button class="tab" data-mode="magic">Magic link</button>
+    </div>
+
+    <form id="authForm">
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="email" required>
+
+      <div id="passwordField">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password">
+      </div>
+
+      <button type="submit" class="primary" id="submitBtn">Sign in</button>
+    </form>
+
+    <div class="status" id="status"></div>
+  </div>
+
+  <div id="sessionView" class="session-card hidden">
+    <h1>Signed in</h1>
+    <div class="email" id="sessionEmail"></div>
+    <button class="secondary" id="signOutBtn">Sign out</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  // ---- CONFIG -------------------------------------------------------
+  // Fill these in once the Supabase project exists (see setup comment
+  // at the top of this file). Nothing else in this file should need
+  // to change for basic email/password + magic-link auth.
+  const CONFIG = {
+    SUPABASE_URL: "https://YOUR-PROJECT.supabase.co",
+    SUPABASE_ANON_KEY: "YOUR-ANON-PUBLIC-KEY",
+    AUTH: {
+      enablePassword: true,
+      enableMagicLink: true,
+      // Where Supabase sends the user back after a magic-link click.
+      // Must be added to Supabase Auth -> URL Configuration -> Redirect URLs.
+      redirectTo: window.location.origin + window.location.pathname,
+    },
+  };
+  // ---------------------------------------------------------------------
+
+  const isConfigured =
+    CONFIG.SUPABASE_URL.startsWith("https://") &&
+    !CONFIG.SUPABASE_URL.includes("YOUR-PROJECT") &&
+    !CONFIG.SUPABASE_ANON_KEY.includes("YOUR-ANON");
+
+  const statusEl = document.getElementById("status");
+  const authView = document.getElementById("authView");
+  const sessionView = document.getElementById("sessionView");
+  const sessionEmail = document.getElementById("sessionEmail");
+  const form = document.getElementById("authForm");
+  const emailInput = document.getElementById("email");
+  const passwordInput = document.getElementById("password");
+  const passwordField = document.getElementById("passwordField");
+  const submitBtn = document.getElementById("submitBtn");
+  const tabs = document.querySelectorAll(".tab");
+  const signOutBtn = document.getElementById("signOutBtn");
+
+  let mode = "signin"; // "signin" | "signup" | "magic"
+
+  function setStatus(message, kind) {
+    statusEl.textContent = message || "";
+    statusEl.className = "status" + (kind ? " " + kind : "");
+  }
+
+  function applyMode(newMode) {
+    mode = newMode;
+    tabs.forEach((t) => t.classList.toggle("active", t.dataset.mode === mode));
+    passwordField.classList.toggle("hidden", mode === "magic");
+    passwordInput.required = mode !== "magic";
+    submitBtn.textContent =
+      mode === "signin" ? "Sign in" : mode === "signup" ? "Create account" : "Send magic link";
+    setStatus("");
+  }
+
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => applyMode(tab.dataset.mode));
+  });
+
+  if (!isConfigured) {
+    setStatus(
+      "CONFIG.SUPABASE_URL / SUPABASE_ANON_KEY are still placeholders — see the setup comment at the top of login.html.",
+      "error"
+    );
+    submitBtn.disabled = true;
+  } else {
+    const supabase = window.supabase.createClient(
+      CONFIG.SUPABASE_URL,
+      CONFIG.SUPABASE_ANON_KEY
+    );
+
+    function showSession(session) {
+      if (session && session.user) {
+        authView.classList.add("hidden");
+        sessionView.classList.remove("hidden");
+        sessionEmail.textContent = session.user.email;
+      } else {
+        authView.classList.remove("hidden");
+        sessionView.classList.add("hidden");
+      }
+    }
+
+    supabase.auth.getSession().then(({ data }) => showSession(data.session));
+    supabase.auth.onAuthStateChange((_event, session) => showSession(session));
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
+
+      submitBtn.disabled = true;
+      setStatus("Working…");
+
+      try {
+        if (mode === "signin") {
+          const { error } = await supabase.auth.signInWithPassword({ email, password });
+          if (error) throw error;
+          setStatus("Signed in.", "success");
+        } else if (mode === "signup") {
+          const { error } = await supabase.auth.signUp({ email, password });
+          if (error) throw error;
+          setStatus("Account created. Check your email if confirmation is required.", "success");
+        } else {
+          const { error } = await supabase.auth.signInWithOtp({
+            email,
+            options: { emailRedirectTo: CONFIG.AUTH.redirectTo },
+          });
+          if (error) throw error;
+          setStatus("Magic link sent — check your email.", "success");
+        }
+      } catch (err) {
+        setStatus(err.message || "Something went wrong.", "error");
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+
+    signOutBtn.addEventListener("click", async () => {
+      await supabase.auth.signOut();
+      setStatus("Signed out.");
+    });
+  }
+
+  applyMode("signin");
+</script>
+
+</body>
+</html>
