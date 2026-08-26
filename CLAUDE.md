@@ -128,21 +128,39 @@ one column:
 - Login is by **email** (Supabase Auth — `login.html`). The roster's real
   identity is the **SM ID** (e.g. `jcavanah`), which has no email attached.
 - `technicians.user_id` bridges them. A technician signs up with email +
-  password + their SM ID; the app then claims their pre-seeded `technicians`
-  row by stamping `user_id = auth.uid()` onto it — but only while that row's
-  `user_id` is still null (first claim wins, enforced by an RLS `with check`,
-  not just app logic — see `supabase/schema.sql`). Nobody can claim someone
-  else's SM ID, and an SM ID can't be reclaimed once linked.
+  password + their SM ID; the app then calls `claim_technician(sm_id)` (a
+  Postgres function, not a plain UPDATE policy — see the "found the hard
+  way" note above for why) to stamp `user_id = auth.uid()` onto their
+  pre-seeded `technicians` row, but only while that row's `user_id` is
+  still null. Nobody can claim someone else's SM ID, and an SM ID can't be
+  reclaimed once linked.
 - Which plants (AMP numbers) a technician can see comes from
   `technician_plant_access`, a normalized (sm_id, amp_number) table — not
   the horizontal `AMP 1..AMP N` columns the roster spreadsheet uses for
-  human readability. Any future table holding real DesignBook/PlantBook data
-  should scope its RLS policy off this same join, keyed on
-  `auth.uid() -> technicians.user_id -> sm_id -> technician_plant_access.amp_number`.
-- The roster spreadsheet is the source of truth, not the database. When it
-  changes, regenerate with `scripts/build_technician_seed.py` and re-import
-  the CSVs via Supabase's Table Editor. The CSVs contain real names — they
-  are gitignored, never commit them.
+  human readability.
+- **Certifications gate which book(s) a technician can use, not just which
+  plants.** Two cert types: `plant_tech` (everyone has this — it's earned
+  first) and `mix_design_tech` (earned later, implies plant_tech-level
+  competency). Plant Tech alone -> PlantBook only. Both certs -> PlantBook
+  *and* DesignBook. This lives in `technician_certifications`
+  (sm_id, cert_type, expires_on) plus a `technician_capabilities` view that
+  computes `can_access_plantbook` / `can_access_designbook` gated on the
+  cert being **currently unexpired** — a lapsed cert loses that access
+  until the roster is updated and re-seeded, it doesn't stay granted
+  forever just because the row exists. `login.html` already queries this
+  view and shows the two badges post-login as a preview of what the
+  real app will gate.
+- Any future table holding real DesignBook/PlantBook data should scope its
+  RLS off `technician_capabilities` (the plantbook/designbook yes-or-no
+  gate) and `technician_plant_access` (which AMP numbers) — both already
+  resolve from `auth.uid()` the same way, so join or reuse rather than
+  re-deriving the logic a third time.
+- The roster spreadsheets are the source of truth, not the database. When
+  either changes, regenerate with `scripts/build_technician_seed.py`
+  (it now takes *both* the Technician Plant Access file and the original
+  per-cert roster file — see its docstring) and re-import via Supabase's
+  Table Editor or SQL Editor. The generated CSVs/SQL contain real names —
+  they are gitignored, never commit them.
 
 ## Conventions for changing this file
 

@@ -172,8 +172,31 @@
   .session-card .email {
     color: var(--muted);
     font-size: 0.85rem;
-    margin: 0 0 20px;
+    margin: 0 0 16px;
     word-break: break-all;
+  }
+  .badges {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .badge.granted {
+    background: color-mix(in srgb, var(--success) 18%, transparent);
+    color: var(--success);
+  }
+  .badge.denied {
+    background: color-mix(in srgb, var(--muted) 18%, transparent);
+    color: var(--muted);
+    text-decoration: line-through;
   }
   button.secondary {
     width: 100%;
@@ -241,6 +264,7 @@
     <h1>Signed in</h1>
     <div class="who" id="sessionWho"></div>
     <div class="email" id="sessionEmail"></div>
+    <div class="badges" id="sessionAccess"></div>
     <button class="secondary" id="signOutBtn">Sign out</button>
   </div>
 </div>
@@ -283,6 +307,7 @@
   const sessionView = document.getElementById("sessionView");
   const sessionWho = document.getElementById("sessionWho");
   const sessionEmail = document.getElementById("sessionEmail");
+  const sessionAccess = document.getElementById("sessionAccess");
   const form = document.getElementById("authForm");
   const emailInput = document.getElementById("email");
   const passwordInput = document.getElementById("password");
@@ -382,6 +407,29 @@
         sessionWho.textContent = `${tech.first_name} ${tech.last_name} — ${tech.company}`;
         sessionEmail.textContent = `${session.user.email} (SM ID: ${tech.sm_id})`;
         localStorage.removeItem(PENDING_SM_ID_KEY);
+
+        // technician_capabilities (see supabase/schema.sql) is what decides
+        // which book(s) this technician can see: Plant Tech alone -> only
+        // PlantBook; Plant Tech + Mix Design Tech -> both. Gated on the
+        // certification currently being unexpired, not just held at some
+        // point - a lapsed cert drops that access until the roster is
+        // updated and re-seeded. This is the same query the eventual
+        // DesignBook/PlantBook app should run to decide what to show.
+        const { data: caps } = await supabase
+          .from("technician_capabilities")
+          .select("can_access_plantbook, can_access_designbook")
+          .eq("user_id", session.user.id)
+          .maybeSingle();
+
+        sessionAccess.innerHTML = "";
+        const badge = (label, granted) => {
+          const el = document.createElement("span");
+          el.className = "badge " + (granted ? "granted" : "denied");
+          el.textContent = label;
+          return el;
+        };
+        sessionAccess.appendChild(badge("PlantBook", caps?.can_access_plantbook));
+        sessionAccess.appendChild(badge("DesignBook", caps?.can_access_designbook));
       } else {
         sessionView.classList.add("hidden");
         linkView.classList.remove("hidden");
