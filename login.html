@@ -429,8 +429,8 @@
         el.textContent = label;
         return el;
       };
-      sessionAccess.appendChild(badge("PlantBook", caps?.can_access_plantbook));
       sessionAccess.appendChild(badge("DesignBook", caps?.can_access_designbook));
+      sessionAccess.appendChild(badge("PlantBook", caps?.can_access_plantbook));
     }
 
     supabase.auth.getSession().then(({ data }) => refreshView(data.session));
