@@ -94,6 +94,12 @@ TBD — cite the governing spec section when encoding a limit in code.
   **service_role key** is the real secret — that one must never leave a
   Netlify Function/env var, ever.
 
+  **RLS must be enabled on every table before the anon key ships — no
+  exceptions.** The anon key is only safe *because* RLS is on. With RLS off,
+  that key hands anyone who views source full read/write access to the whole
+  database. Enabling RLS with no policy denies everything by default, which
+  is the safe starting point: turn it on first, then add policies.
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
