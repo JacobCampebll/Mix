@@ -100,6 +100,30 @@ TBD — cite the governing spec section when encoding a limit in code.
   database. Enabling RLS with no policy denies everything by default, which
   is the safe starting point: turn it on first, then add policies.
 
+### Technician login & plant access
+
+Login identity and plant-access scoping are two different keys, bridged by
+one column:
+
+- Login is by **email** (Supabase Auth — `login.html`). The roster's real
+  identity is the **SM ID** (e.g. `jcavanah`), which has no email attached.
+- `technicians.user_id` bridges them. A technician signs up with email +
+  password + their SM ID; the app then claims their pre-seeded `technicians`
+  row by stamping `user_id = auth.uid()` onto it — but only while that row's
+  `user_id` is still null (first claim wins, enforced by an RLS `with check`,
+  not just app logic — see `supabase/schema.sql`). Nobody can claim someone
+  else's SM ID, and an SM ID can't be reclaimed once linked.
+- Which plants (AMP numbers) a technician can see comes from
+  `technician_plant_access`, a normalized (sm_id, amp_number) table — not
+  the horizontal `AMP 1..AMP N` columns the roster spreadsheet uses for
+  human readability. Any future table holding real DesignBook/PlantBook data
+  should scope its RLS policy off this same join, keyed on
+  `auth.uid() -> technicians.user_id -> sm_id -> technician_plant_access.amp_number`.
+- The roster spreadsheet is the source of truth, not the database. When it
+  changes, regenerate with `scripts/build_technician_seed.py` and re-import
+  the CSVs via Supabase's Table Editor. The CSVs contain real names — they
+  are gitignored, never commit them.
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
