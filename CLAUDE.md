@@ -23,9 +23,10 @@ than leaving it in a conversation.
 
 ## Architecture conventions
 
-- **Single-file HTML apps.** One `.html` file per app: markup, CSS, and JS
-  together. No build step, no bundler, no framework unless there is a specific
-  reason.
+- **Single-file HTML app.** One `.html` file: markup, CSS, and JS together. No
+  build step, no bundler, no framework unless there is a specific reason.
+- **DesignBook and PlantBook are two views of one app**, not two apps. One
+  file, one deploy, shared CONFIG and styling. See "Working in one file" below.
 - **CONFIG block at the top.** Every app opens with a single `CONFIG` object
   holding all tunable values — endpoints, thresholds, spec limits, plant lists,
   feature flags. No magic numbers buried in functions.
@@ -36,6 +37,28 @@ than leaving it in a conversation.
   loaded at runtime, with BM25 retrieval when search is needed.
 - **No localStorage in artifacts.** In-memory state only for anything that will
   run inside Claude. Standalone Netlify apps may use localStorage.
+
+## Working in one file
+
+Both collaborators edit the same `.html`. That is a merge-conflict machine
+unless we are deliberate about it:
+
+- **Own your view.** Each view's markup, CSS, and JS stays in one contiguous
+  block, fenced by a banner comment. Stay out of the other view's block.
+
+  ```html
+  <!-- ===== DESIGNBOOK ===== -->
+  ...
+  <!-- ===== END DESIGNBOOK ===== -->
+  ```
+
+- **Shared ground gets its own commit.** CONFIG, utility functions, and global
+  styles belong to both of us. Change them in a small, separate commit so the
+  other person can pull past it cleanly.
+- **Pull before you start. Push as soon as it works.** Long-running local edits
+  are what become conflicts. Small and often beats big and clean.
+- **Say what you reached into.** If a commit touches anything outside your own
+  view, put that in the commit message.
 
 ## Python conventions
 
