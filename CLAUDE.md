@@ -1,7 +1,7 @@
 # Mix — project conventions
 
-<!-- FILL IN: one or two sentences on what this repo is and who uses it. -->
-Purpose: TBD.
+Purpose: a shared web app covering KYTC's AMAW and MixPack workbooks, now known
+as **DesignBook** and **PlantBook**. A joint effort between KYTC and contractors.
 
 Collaborators: two people working from separate Claude accounts against this
 shared repo. Neither can see the other's chats — this file is the shared
@@ -49,9 +49,12 @@ than leaving it in a conversation.
 
 ## Domain notes
 
-<!-- FILL IN as the project develops. Suggested headings below. -->
+<!-- FILL IN as the project develops. -->
 
-### Mix designs / JMFs
+### DesignBook
+TBD.
+
+### PlantBook
 TBD.
 
 ### Specifications and tolerances
