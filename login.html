@@ -18,28 +18,31 @@
      CLAUDE.md "never expose keys client-side, proxy instead" rule — that
      rule is about secret keys (the "service_role" key). NEVER put the
      service_role key in this file or any browser-facing code.
-  3. Authentication -> Providers: make sure "Email" is enabled.
-  4. Authentication -> URL Configuration: set "Site URL" to wherever this
-     page is deployed on Netlify (e.g. https://your-site.netlify.app),
-     and add it to "Redirect URLs" too — magic links won't come back to
-     the right place otherwise.
-  5. Optional for local testing: Authentication -> Providers -> Email ->
-     turn OFF "Confirm email" so sign-up logs you in immediately instead
-     of waiting on a confirmation email.
-  6. Run supabase/schema.sql (repo root) in the Supabase SQL Editor to
+  3. Authentication -> Providers: make sure "Email" is enabled (it's still
+     Supabase's email/password provider under the hood — see ACCESS MODEL
+     below for why the technician never sees or types an email).
+  4. Authentication -> Providers -> Email -> turn OFF "Confirm email".
+     This is MANDATORY, not just for local testing: technician accounts use
+     a made-up @technicians.mix.local address (see below) with no real
+     inbox behind it, ever. If "Confirm email" is on, Supabase sends a
+     confirmation link to that fake address, nobody receives it, and the
+     account is stuck unconfirmed forever.
+  5. Run supabase/schema.sql (repo root) in the Supabase SQL Editor to
      create the `technicians` / `technician_plant_access` tables and their
      RLS policies. Then use scripts/build_technician_seed.py to turn the
-     roster spreadsheet into CSVs and import those via Table Editor.
+     roster spreadsheets into seed files and import those via Table Editor
+     or SQL Editor.
 
-  ACCESS MODEL: a technician signs up with email + password + their SM ID
-  (e.g. "jcavanah", from the roster spreadsheet). The SM ID claims their
+  ACCESS MODEL: technicians are identified by SM ID (e.g. "jcavanah"), not
+  email — the roster has no email addresses at all. Supabase Auth's
+  password provider still needs *some* email internally, so this page
+  fabricates one from the SM ID (CONFIG.AUTH.emailDomain, below) that the
+  technician never sees or types — they only ever enter their SM ID and a
+  password, for both sign-up and sign-in. Signing up also claims their
   pre-seeded `technicians` row by stamping this account's user_id onto it —
-  first come, first served, and only once (see supabase/schema.sql). From
-  then on, RLS scopes everything they can see to their own AMP plant
-  numbers via `technician_plant_access`. If sign-up doesn't get an
-  immediate session (email confirmation required), the SM ID they typed is
-  remembered locally and the "link your account" step runs after they
-  confirm and sign in.
+  first come, first served, and only once (see claim_technician() in
+  supabase/schema.sql). From then on, RLS scopes everything they can see to
+  their own AMP plant numbers and current certifications.
 -->
 
 <style>
@@ -169,7 +172,7 @@
     margin: 8px 0 4px;
     word-break: break-all;
   }
-  .session-card .email {
+  .session-card .meta {
     color: var(--muted);
     font-size: 0.85rem;
     margin: 0 0 16px;
@@ -222,23 +225,24 @@
     <div class="tabs">
       <button class="tab active" data-mode="signin">Sign in</button>
       <button class="tab" data-mode="signup">Sign up</button>
-      <button class="tab" data-mode="magic">Magic link</button>
     </div>
 
     <form id="authForm">
-      <label for="email">Email</label>
-      <input id="email" type="email" autocomplete="email" required>
+      <label for="smId">SM ID</label>
+      <input id="smId" type="text" autocomplete="username" placeholder="e.g. jcavanah" required>
 
-      <div id="passwordField">
-        <label for="password">Password</label>
-        <input id="password" type="password" autocomplete="current-password">
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+
+      <div id="confirmPasswordField" class="hidden">
+        <label for="confirmPassword">Confirm password</label>
+        <input id="confirmPassword" type="password" autocomplete="new-password">
       </div>
 
-      <div id="smIdField" class="hidden">
-        <label for="smId">SM ID</label>
-        <input id="smId" type="text" autocomplete="off" placeholder="e.g. jcavanah">
-        <p class="hint">From the technician roster — this links your login to your certifications and assigned plants.</p>
-      </div>
+      <p id="signupHint" class="hint hidden">
+        Your SM ID is from the technician roster — it links your login to your
+        certifications and assigned plants. You don't need an email address.
+      </p>
 
       <button type="submit" class="primary" id="submitBtn">Sign in</button>
     </form>
@@ -246,24 +250,10 @@
     <div class="status" id="status"></div>
   </div>
 
-  <div id="linkView" class="hidden">
-    <h1>Link your account</h1>
-    <p class="subtitle">One more step — enter your SM ID to connect your certifications and plants.</p>
-
-    <form id="linkForm">
-      <label for="linkSmId">SM ID</label>
-      <input id="linkSmId" type="text" autocomplete="off" placeholder="e.g. jcavanah" required>
-      <button type="submit" class="primary" id="linkSubmitBtn">Link account</button>
-    </form>
-
-    <div class="status" id="linkStatus"></div>
-    <button class="secondary" id="linkSignOutBtn">Sign out</button>
-  </div>
-
   <div id="sessionView" class="session-card hidden">
     <h1>Signed in</h1>
     <div class="who" id="sessionWho"></div>
-    <div class="email" id="sessionEmail"></div>
+    <div class="meta" id="sessionMeta"></div>
     <div class="badges" id="sessionAccess"></div>
     <button class="secondary" id="signOutBtn">Sign out</button>
   </div>
@@ -273,72 +263,65 @@
 <script>
   // ---- CONFIG -------------------------------------------------------
   // Fill these in once the Supabase project exists (see setup comment
-  // at the top of this file). Nothing else in this file should need
-  // to change for basic email/password + magic-link auth.
+  // at the top of this file).
   const CONFIG = {
     SUPABASE_URL: "https://iwysxhcmvhkcjxmjarkd.supabase.co",
     SUPABASE_ANON_KEY:
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3eXN4aGNtdmhrY2p4bWphcmtkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3NTE0MDUsImV4cCI6MjEwMzMyNzQwNX0.K_YKefS3p6W2ZVjEw8El88a_7y_SnLaYNnzF7BA3WKc",
     AUTH: {
-      enablePassword: true,
-      enableMagicLink: true,
-      // Where Supabase sends the user back after a magic-link click.
-      // Must be added to Supabase Auth -> URL Configuration -> Redirect URLs.
-      redirectTo: window.location.origin + window.location.pathname,
+      // Supabase's password provider needs an email internally; the
+      // technician never sees this. sm_id -> `${sm_id}@emailDomain`,
+      // always lowercased + trimmed first so casing/whitespace typed at
+      // sign-in always reconstructs the same address used at sign-up.
+      emailDomain: "technicians.mix.local",
     },
   };
   // ---------------------------------------------------------------------
-
-  const PENDING_SM_ID_KEY = "mix_pending_sm_id";
 
   const isConfigured =
     CONFIG.SUPABASE_URL.startsWith("https://") &&
     !CONFIG.SUPABASE_URL.includes("YOUR-PROJECT") &&
     !CONFIG.SUPABASE_ANON_KEY.includes("YOUR-ANON");
 
+  function normalizeSmId(raw) {
+    return (raw || "").trim().toLowerCase();
+  }
+
+  function smIdToEmail(smId) {
+    return `${smId}@${CONFIG.AUTH.emailDomain}`;
+  }
+
   const statusEl = document.getElementById("status");
   const authView = document.getElementById("authView");
-  const linkView = document.getElementById("linkView");
-  const linkForm = document.getElementById("linkForm");
-  const linkSmIdInput = document.getElementById("linkSmId");
-  const linkSubmitBtn = document.getElementById("linkSubmitBtn");
-  const linkStatusEl = document.getElementById("linkStatus");
-  const linkSignOutBtn = document.getElementById("linkSignOutBtn");
   const sessionView = document.getElementById("sessionView");
   const sessionWho = document.getElementById("sessionWho");
-  const sessionEmail = document.getElementById("sessionEmail");
+  const sessionMeta = document.getElementById("sessionMeta");
   const sessionAccess = document.getElementById("sessionAccess");
   const form = document.getElementById("authForm");
-  const emailInput = document.getElementById("email");
-  const passwordInput = document.getElementById("password");
-  const passwordField = document.getElementById("passwordField");
-  const smIdField = document.getElementById("smIdField");
   const smIdInput = document.getElementById("smId");
+  const passwordInput = document.getElementById("password");
+  const confirmPasswordField = document.getElementById("confirmPasswordField");
+  const confirmPasswordInput = document.getElementById("confirmPassword");
+  const signupHint = document.getElementById("signupHint");
   const submitBtn = document.getElementById("submitBtn");
   const tabs = document.querySelectorAll(".tab");
   const signOutBtn = document.getElementById("signOutBtn");
 
-  let mode = "signin"; // "signin" | "signup" | "magic"
+  let mode = "signin"; // "signin" | "signup"
 
   function setStatus(message, kind) {
     statusEl.textContent = message || "";
     statusEl.className = "status" + (kind ? " " + kind : "");
   }
 
-  function setLinkStatus(message, kind) {
-    linkStatusEl.textContent = message || "";
-    linkStatusEl.className = "status" + (kind ? " " + kind : "");
-  }
-
   function applyMode(newMode) {
     mode = newMode;
     tabs.forEach((t) => t.classList.toggle("active", t.dataset.mode === mode));
-    passwordField.classList.toggle("hidden", mode === "magic");
-    passwordInput.required = mode !== "magic";
-    smIdField.classList.toggle("hidden", mode !== "signup");
-    smIdInput.required = mode === "signup";
-    submitBtn.textContent =
-      mode === "signin" ? "Sign in" : mode === "signup" ? "Create account" : "Send magic link";
+    confirmPasswordField.classList.toggle("hidden", mode !== "signup");
+    confirmPasswordInput.required = mode === "signup";
+    signupHint.classList.toggle("hidden", mode !== "signup");
+    passwordInput.autocomplete = mode === "signup" ? "new-password" : "current-password";
+    submitBtn.textContent = mode === "signin" ? "Sign in" : "Create account";
     setStatus("");
   }
 
@@ -358,9 +341,9 @@
       CONFIG.SUPABASE_ANON_KEY
     );
 
-    // Attempts to claim a technicians row for the current signed-in user, via
-    // the claim_technician() Postgres function (see supabase/schema.sql).
-    // That has to be a function rather than a plain UPDATE + RLS policy:
+    // Claims a technicians row for the current signed-in user, via the
+    // claim_technician() Postgres function (see supabase/schema.sql). That
+    // has to be a function rather than a plain UPDATE + RLS policy:
     // Postgres requires a row to pass the table's SELECT policy before an
     // UPDATE can even see it, and an unclaimed row (user_id is null) can
     // never pass "user_id = auth.uid()" — so a plain UPDATE policy silently
@@ -369,10 +352,7 @@
     // loosened SELECT policy. Succeeds only once per SM ID — whoever claims
     // it first gets it, and nobody can re-claim it after.
     async function claimTechnicianRow(smId) {
-      const trimmed = (smId || "").trim();
-      if (!trimmed) return { ok: false, message: "Enter your SM ID." };
-
-      const { data, error } = await supabase.rpc("claim_technician", { p_sm_id: trimmed });
+      const { data, error } = await supabase.rpc("claim_technician", { p_sm_id: smId });
 
       if (error) return { ok: false, message: error.message };
       if (!data || data.length === 0) {
@@ -384,11 +364,10 @@
       return { ok: true, technician: data[0] };
     }
 
-    // Shows the right one of: sign-in form / link-your-SM-ID step / signed-in view.
+    // Shows the right one of: sign-in/sign-up form, or the signed-in view.
     async function refreshView(session) {
       if (!session || !session.user) {
         authView.classList.remove("hidden");
-        linkView.classList.add("hidden");
         sessionView.classList.add("hidden");
         return;
       }
@@ -399,43 +378,47 @@
         .eq("user_id", session.user.id)
         .maybeSingle();
 
-      authView.classList.add("hidden");
-
-      if (tech) {
-        linkView.classList.add("hidden");
-        sessionView.classList.remove("hidden");
-        sessionWho.textContent = `${tech.first_name} ${tech.last_name} — ${tech.company}`;
-        sessionEmail.textContent = `${session.user.email} (SM ID: ${tech.sm_id})`;
-        localStorage.removeItem(PENDING_SM_ID_KEY);
-
-        // technician_capabilities (see supabase/schema.sql) is what decides
-        // which book(s) this technician can see: Plant Tech alone -> only
-        // PlantBook; Plant Tech + Mix Design Tech -> both. Gated on the
-        // certification currently being unexpired, not just held at some
-        // point - a lapsed cert drops that access until the roster is
-        // updated and re-seeded. This is the same query the eventual
-        // DesignBook/PlantBook app should run to decide what to show.
-        const { data: caps } = await supabase
-          .from("technician_capabilities")
-          .select("can_access_plantbook, can_access_designbook")
-          .eq("user_id", session.user.id)
-          .maybeSingle();
-
-        sessionAccess.innerHTML = "";
-        const badge = (label, granted) => {
-          const el = document.createElement("span");
-          el.className = "badge " + (granted ? "granted" : "denied");
-          el.textContent = label;
-          return el;
-        };
-        sessionAccess.appendChild(badge("PlantBook", caps?.can_access_plantbook));
-        sessionAccess.appendChild(badge("DesignBook", caps?.can_access_designbook));
-      } else {
+      if (!tech) {
+        // Shouldn't normally happen (claim runs right after sign-up, and
+        // "Confirm email" must stay off per the setup comment above) — but
+        // if it does, there's no real inbox to wait on, so say so plainly
+        // rather than showing a "check your email" dead end.
+        authView.classList.remove("hidden");
         sessionView.classList.add("hidden");
-        linkView.classList.remove("hidden");
-        const pending = localStorage.getItem(PENDING_SM_ID_KEY);
-        if (pending) linkSmIdInput.value = pending;
+        setStatus(
+          "Signed in, but not linked to a technician yet. Try signing up again with your SM ID, or check that Supabase Auth's \"Confirm email\" is off.",
+          "error"
+        );
+        return;
       }
+
+      authView.classList.add("hidden");
+      sessionView.classList.remove("hidden");
+      sessionWho.textContent = `${tech.first_name} ${tech.last_name} — ${tech.company}`;
+      sessionMeta.textContent = `SM ID: ${tech.sm_id}`;
+
+      // technician_capabilities (see supabase/schema.sql) is what decides
+      // which book(s) this technician can see: Plant Tech alone -> only
+      // PlantBook; Plant Tech + Mix Design Tech -> both. Gated on the
+      // certification currently being unexpired, not just held at some
+      // point - a lapsed cert drops that access until the roster is
+      // updated and re-seeded. This is the same query the eventual
+      // DesignBook/PlantBook app should run to decide what to show.
+      const { data: caps } = await supabase
+        .from("technician_capabilities")
+        .select("can_access_plantbook, can_access_designbook")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+
+      sessionAccess.innerHTML = "";
+      const badge = (label, granted) => {
+        const el = document.createElement("span");
+        el.className = "badge " + (granted ? "granted" : "denied");
+        el.textContent = label;
+        return el;
+      };
+      sessionAccess.appendChild(badge("PlantBook", caps?.can_access_plantbook));
+      sessionAccess.appendChild(badge("DesignBook", caps?.can_access_designbook));
     }
 
     supabase.auth.getSession().then(({ data }) => refreshView(data.session));
@@ -443,9 +426,9 @@
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const email = emailInput.value.trim();
+      const smId = normalizeSmId(smIdInput.value);
       const password = passwordInput.value;
-      const smId = smIdInput.value.trim();
+      const email = smIdToEmail(smId);
 
       submitBtn.disabled = true;
       setStatus("Working…");
@@ -455,15 +438,15 @@
           const { error } = await supabase.auth.signInWithPassword({ email, password });
           if (error) throw error;
           setStatus("Signed in.", "success");
-        } else if (mode === "signup") {
+        } else {
+          if (password !== confirmPasswordInput.value) {
+            throw new Error("Passwords don't match.");
+          }
+
           const { data, error } = await supabase.auth.signUp({ email, password });
           if (error) throw error;
 
-          if (smId) localStorage.setItem(PENDING_SM_ID_KEY, smId);
-
           if (data.session) {
-            // Email confirmation is off, so we already have a session —
-            // claim the technician row right now.
             const result = await claimTechnicianRow(smId);
             if (result.ok) {
               setStatus(
@@ -477,18 +460,14 @@
               );
             }
           } else {
+            // No immediate session means Supabase Auth is waiting on email
+            // confirmation - which will never arrive, since this address
+            // isn't real. See the setup comment: "Confirm email" must be off.
             setStatus(
-              "Account created. Check your email to confirm, then sign in to finish linking your SM ID.",
-              "success"
+              "Account created, but no active session came back. Check that Supabase Auth's \"Confirm email\" setting is turned off.",
+              "error"
             );
           }
-        } else {
-          const { error } = await supabase.auth.signInWithOtp({
-            email,
-            options: { emailRedirectTo: CONFIG.AUTH.redirectTo },
-          });
-          if (error) throw error;
-          setStatus("Magic link sent — check your email.", "success");
         }
       } catch (err) {
         setStatus(err.message || "Something went wrong.", "error");
@@ -497,27 +476,10 @@
       }
     });
 
-    linkForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      linkSubmitBtn.disabled = true;
-      setLinkStatus("Linking…");
-      const result = await claimTechnicianRow(linkSmIdInput.value);
-      if (result.ok) {
-        setLinkStatus("");
-        const { data } = await supabase.auth.getSession();
-        await refreshView(data.session);
-      } else {
-        setLinkStatus(result.message, "error");
-      }
-      linkSubmitBtn.disabled = false;
-    });
-
-    async function signOut() {
+    signOutBtn.addEventListener("click", async () => {
       await supabase.auth.signOut();
       setStatus("Signed out.");
-    }
-    signOutBtn.addEventListener("click", signOut);
-    linkSignOutBtn.addEventListener("click", signOut);
+    });
   }
 
   applyMode("signin");

@@ -125,15 +125,30 @@ TBD — cite the governing spec section when encoding a limit in code.
 Login identity and plant-access scoping are two different keys, bridged by
 one column:
 
-- Login is by **email** (Supabase Auth — `login.html`). The roster's real
-  identity is the **SM ID** (e.g. `jcavanah`), which has no email attached.
-- `technicians.user_id` bridges them. A technician signs up with email +
-  password + their SM ID; the app then calls `claim_technician(sm_id)` (a
-  Postgres function, not a plain UPDATE policy — see the "found the hard
-  way" note above for why) to stamp `user_id = auth.uid()` onto their
-  pre-seeded `technicians` row, but only while that row's `user_id` is
-  still null. Nobody can claim someone else's SM ID, and an SM ID can't be
-  reclaimed once linked.
+- **The roster has no email addresses at all** — technicians are identified
+  purely by SM ID (e.g. `jcavanah`). Supabase Auth's password provider still
+  needs *some* email internally, so `login.html` fabricates one from the SM
+  ID (`${sm_id}@technicians.mix.local`) that the technician never sees or
+  types — they only ever enter SM ID + password, for both sign-up and
+  sign-in. This means "Confirm email" must stay OFF in Supabase Auth
+  **permanently**, not just for testing — that fake address has no real
+  inbox, ever, so a confirmation link sent to it can never be clicked.
+- `technicians.user_id` bridges the Supabase Auth account to the roster
+  identity. Signing up calls `claim_technician(sm_id)` (a Postgres function,
+  not a plain UPDATE policy — see the "found the hard way" note above for
+  why) to stamp `user_id = auth.uid()` onto the matching pre-seeded
+  `technicians` row, but only while that row's `user_id` is still null.
+  Nobody can claim someone else's SM ID, and an SM ID can't be reclaimed
+  once linked. The function also trims/lowercases the SM ID server-side
+  (login.html does too, client-side) so `JCavanah`, ` jcavanah `, and
+  `jcavanah` all resolve to the same account.
+- **This is not yet identity-verified.** Right now the only thing gating
+  who can claim `jcavanah`'s row is *knowing the string* `jcavanah` — and
+  SM IDs look guessable (often first-initial + last name). Nothing today
+  stops someone from signing up as a technician they aren't. Before this
+  goes to real users, add a real check at claim time (e.g. confirm a second
+  roster field like last name, or an admin-issued one-time code per
+  technician) — flagging this here so it isn't forgotten before rollout.
 - Which plants (AMP numbers) a technician can see comes from
   `technician_plant_access`, a normalized (sm_id, amp_number) table — not
   the horizontal `AMP 1..AMP N` columns the roster spreadsheet uses for

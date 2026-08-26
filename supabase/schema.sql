@@ -33,7 +33,10 @@
 --                               cannot do this safely.
 --
 -- Login flow this supports (see login.html):
---   1. A technician signs up with email + password + their SM ID.
+--   1. A technician signs up with their SM ID + password - no email. The
+--      roster has no email addresses at all, so login.html fabricates one
+--      Supabase Auth's password provider needs internally
+--      (`${sm_id}@technicians.mix.local`) that the technician never sees.
 --   2. Once a session exists, the app calls
 --      supabase.rpc('claim_technician', { p_sm_id }) which links this
 --      account to the matching technicians row - but only while that row's
@@ -197,10 +200,14 @@ begin
     return;
   end if;
 
+  -- trim/lowercase here too, not just in login.html - every sm_id in the
+  -- seeded data is already lowercase, so this is the same normalization
+  -- the client does before calling, applied again server-side in case some
+  -- other caller doesn't bother.
   return query
   update technicians t
   set user_id = auth.uid()
-  where t.sm_id = p_sm_id
+  where t.sm_id = lower(trim(p_sm_id))
     and t.user_id is null
   returning t.sm_id, t.first_name, t.last_name, t.company;
 end;
