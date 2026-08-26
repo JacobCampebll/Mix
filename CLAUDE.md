@@ -4,10 +4,10 @@ Purpose: a shared web app replacing KYTC's MixPack and AMAW workbooks, now known
 as **DesignBook** and **PlantBook** respectively. A joint effort between KYTC and
 contractors.
 
-Collaborators: two people working from separate Claude accounts against this
-shared repo. Neither can see the other's chats — this file is the shared
-context. If you learn something durable about the project, add it here rather
-than leaving it in a conversation.
+Collaborators: **Jacob** and **Andrew**, working from separate Claude accounts
+against this shared repo. Neither can see the other's chats — this file is the
+shared context. If you learn something durable about the project, add it here
+rather than leaving it in a conversation.
 
 ## Ground rules for Claude Code
 
