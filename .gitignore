@@ -1,0 +1,49 @@
+# ---- Secrets: never commit these ----
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets.json
+config.local.js
+credentials*.json
+
+# ---- Netlify ----
+.netlify/
+netlify/functions/**/.env
+
+# ---- Node ----
+node_modules/
+npm-debug.log*
+yarn-error.log*
+package-lock.json.bak
+.npm/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# ---- Office / data temp files ----
+~$*.xlsx
+~$*.xlsm
+~$*.docx
+*.tmp
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Editors ----
+.vscode/
+.idea/
+*.swp
+
+# ---- Claude Code local state ----
+.claude/settings.local.json
