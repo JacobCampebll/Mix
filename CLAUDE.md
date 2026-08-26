@@ -100,6 +100,26 @@ TBD — cite the governing spec section when encoding a limit in code.
   database. Enabling RLS with no policy denies everything by default, which
   is the safe starting point: turn it on first, then add policies.
 
+- **An UPDATE (or DELETE) policy alone cannot "claim" a row for a user who
+  doesn't own it yet — this silently updates 0 rows, always, and looks like
+  it's just not working.** Postgres requires a row to pass the table's
+  SELECT policy before an UPDATE can even see it to modify it. If your SELECT
+  policy is `user_id = auth.uid()`, an unclaimed row (`user_id is null`) can
+  never pass that check — `null = auth.uid()` is never true — so a
+  first-claim-wins UPDATE policy like `using (user_id is null) with check
+  (user_id = auth.uid())` never actually fires. No error, no exception, just
+  an update that silently touches 0 rows every single time. Found this by
+  testing the claim flow with a rolled-back transaction against the real
+  schema before ever pointing a real user at it — the fix is a
+  `SECURITY DEFINER` function (bypasses RLS internally, so it can see and
+  update the unclaimed row) instead of loosening the SELECT policy (which
+  would expose the whole unclaimed roster to any authenticated user). See
+  `claim_technician()` in `supabase/schema.sql` for the working pattern —
+  and note it still needs `revoke execute ... from anon` explicitly, since a
+  newly created function is otherwise callable by `anon` too (Supabase's
+  database linter / `get_advisors` catches this — run it after any DDL
+  change, not just once).
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by

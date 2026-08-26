@@ -333,34 +333,30 @@
       CONFIG.SUPABASE_ANON_KEY
     );
 
-    // Attempts to claim a technicians row for the current signed-in user.
-    // Succeeds only once per SM ID (see supabase/schema.sql's RLS policy) —
-    // whoever claims it first gets it, and nobody can re-claim it after.
+    // Attempts to claim a technicians row for the current signed-in user, via
+    // the claim_technician() Postgres function (see supabase/schema.sql).
+    // That has to be a function rather than a plain UPDATE + RLS policy:
+    // Postgres requires a row to pass the table's SELECT policy before an
+    // UPDATE can even see it, and an unclaimed row (user_id is null) can
+    // never pass "user_id = auth.uid()" — so a plain UPDATE policy silently
+    // updates 0 rows, always. claim_technician() is SECURITY DEFINER,
+    // bypassing that catch-22 without exposing the unclaimed roster via a
+    // loosened SELECT policy. Succeeds only once per SM ID — whoever claims
+    // it first gets it, and nobody can re-claim it after.
     async function claimTechnicianRow(smId) {
       const trimmed = (smId || "").trim();
       if (!trimmed) return { ok: false, message: "Enter your SM ID." };
 
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError || !userData.user) {
-        return { ok: false, message: "Not signed in." };
-      }
-
-      const { data, error } = await supabase
-        .from("technicians")
-        .update({ user_id: userData.user.id })
-        .eq("sm_id", trimmed)
-        .is("user_id", null)
-        .select("sm_id, first_name, last_name")
-        .maybeSingle();
+      const { data, error } = await supabase.rpc("claim_technician", { p_sm_id: trimmed });
 
       if (error) return { ok: false, message: error.message };
-      if (!data) {
+      if (!data || data.length === 0) {
         return {
           ok: false,
           message: "SM ID not found, or already linked to another account.",
         };
       }
-      return { ok: true, technician: data };
+      return { ok: true, technician: data[0] };
     }
 
     // Shows the right one of: sign-in form / link-your-SM-ID step / signed-in view.
