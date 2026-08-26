@@ -26,6 +26,20 @@
   5. Optional for local testing: Authentication -> Providers -> Email ->
      turn OFF "Confirm email" so sign-up logs you in immediately instead
      of waiting on a confirmation email.
+  6. Run supabase/schema.sql (repo root) in the Supabase SQL Editor to
+     create the `technicians` / `technician_plant_access` tables and their
+     RLS policies. Then use scripts/build_technician_seed.py to turn the
+     roster spreadsheet into CSVs and import those via Table Editor.
+
+  ACCESS MODEL: a technician signs up with email + password + their SM ID
+  (e.g. "jcavanah", from the roster spreadsheet). The SM ID claims their
+  pre-seeded `technicians` row by stamping this account's user_id onto it —
+  first come, first served, and only once (see supabase/schema.sql). From
+  then on, RLS scopes everything they can see to their own AMP plant
+  numbers via `technician_plant_access`. If sign-up doesn't get an
+  immediate session (email confirmation required), the SM ID they typed is
+  remembered locally and the "link your account" step runs after they
+  confirm and sign in.
 -->
 
 <style>
@@ -121,14 +135,10 @@
     outline: 2px solid var(--accent);
     outline-offset: -1px;
   }
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 12px;
-  }
-  .row label {
-    margin: 0;
+  .hint {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-top: 4px;
   }
   button.primary {
     width: 100%;
@@ -144,16 +154,6 @@
   }
   button.primary:hover { background: var(--accent-hover); }
   button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
-  button.link {
-    background: none;
-    border: none;
-    color: var(--accent);
-    font-size: 0.8rem;
-    cursor: pointer;
-    padding: 0;
-    margin-top: 14px;
-    display: block;
-  }
   .status {
     margin-top: 14px;
     font-size: 0.85rem;
@@ -164,9 +164,15 @@
   .session-card {
     text-align: center;
   }
-  .session-card .email {
+  .session-card .who {
     font-weight: 600;
-    margin: 8px 0 20px;
+    margin: 8px 0 4px;
+    word-break: break-all;
+  }
+  .session-card .email {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin: 0 0 20px;
     word-break: break-all;
   }
   button.secondary {
@@ -178,6 +184,7 @@
     color: var(--text);
     font-size: 0.9rem;
     cursor: pointer;
+    margin-top: 10px;
   }
   .hidden { display: none; }
 </style>
@@ -204,14 +211,35 @@
         <input id="password" type="password" autocomplete="current-password">
       </div>
 
+      <div id="smIdField" class="hidden">
+        <label for="smId">SM ID</label>
+        <input id="smId" type="text" autocomplete="off" placeholder="e.g. jcavanah">
+        <p class="hint">From the technician roster — this links your login to your certifications and assigned plants.</p>
+      </div>
+
       <button type="submit" class="primary" id="submitBtn">Sign in</button>
     </form>
 
     <div class="status" id="status"></div>
   </div>
 
+  <div id="linkView" class="hidden">
+    <h1>Link your account</h1>
+    <p class="subtitle">One more step — enter your SM ID to connect your certifications and plants.</p>
+
+    <form id="linkForm">
+      <label for="linkSmId">SM ID</label>
+      <input id="linkSmId" type="text" autocomplete="off" placeholder="e.g. jcavanah" required>
+      <button type="submit" class="primary" id="linkSubmitBtn">Link account</button>
+    </form>
+
+    <div class="status" id="linkStatus"></div>
+    <button class="secondary" id="linkSignOutBtn">Sign out</button>
+  </div>
+
   <div id="sessionView" class="session-card hidden">
     <h1>Signed in</h1>
+    <div class="who" id="sessionWho"></div>
     <div class="email" id="sessionEmail"></div>
     <button class="secondary" id="signOutBtn">Sign out</button>
   </div>
@@ -237,6 +265,8 @@
   };
   // ---------------------------------------------------------------------
 
+  const PENDING_SM_ID_KEY = "mix_pending_sm_id";
+
   const isConfigured =
     CONFIG.SUPABASE_URL.startsWith("https://") &&
     !CONFIG.SUPABASE_URL.includes("YOUR-PROJECT") &&
@@ -244,12 +274,21 @@
 
   const statusEl = document.getElementById("status");
   const authView = document.getElementById("authView");
+  const linkView = document.getElementById("linkView");
+  const linkForm = document.getElementById("linkForm");
+  const linkSmIdInput = document.getElementById("linkSmId");
+  const linkSubmitBtn = document.getElementById("linkSubmitBtn");
+  const linkStatusEl = document.getElementById("linkStatus");
+  const linkSignOutBtn = document.getElementById("linkSignOutBtn");
   const sessionView = document.getElementById("sessionView");
+  const sessionWho = document.getElementById("sessionWho");
   const sessionEmail = document.getElementById("sessionEmail");
   const form = document.getElementById("authForm");
   const emailInput = document.getElementById("email");
   const passwordInput = document.getElementById("password");
   const passwordField = document.getElementById("passwordField");
+  const smIdField = document.getElementById("smIdField");
+  const smIdInput = document.getElementById("smId");
   const submitBtn = document.getElementById("submitBtn");
   const tabs = document.querySelectorAll(".tab");
   const signOutBtn = document.getElementById("signOutBtn");
@@ -261,11 +300,18 @@
     statusEl.className = "status" + (kind ? " " + kind : "");
   }
 
+  function setLinkStatus(message, kind) {
+    linkStatusEl.textContent = message || "";
+    linkStatusEl.className = "status" + (kind ? " " + kind : "");
+  }
+
   function applyMode(newMode) {
     mode = newMode;
     tabs.forEach((t) => t.classList.toggle("active", t.dataset.mode === mode));
     passwordField.classList.toggle("hidden", mode === "magic");
     passwordInput.required = mode !== "magic";
+    smIdField.classList.toggle("hidden", mode !== "signup");
+    smIdInput.required = mode === "signup";
     submitBtn.textContent =
       mode === "signin" ? "Sign in" : mode === "signup" ? "Create account" : "Send magic link";
     setStatus("");
@@ -287,24 +333,75 @@
       CONFIG.SUPABASE_ANON_KEY
     );
 
-    function showSession(session) {
-      if (session && session.user) {
-        authView.classList.add("hidden");
-        sessionView.classList.remove("hidden");
-        sessionEmail.textContent = session.user.email;
-      } else {
+    // Attempts to claim a technicians row for the current signed-in user.
+    // Succeeds only once per SM ID (see supabase/schema.sql's RLS policy) —
+    // whoever claims it first gets it, and nobody can re-claim it after.
+    async function claimTechnicianRow(smId) {
+      const trimmed = (smId || "").trim();
+      if (!trimmed) return { ok: false, message: "Enter your SM ID." };
+
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError || !userData.user) {
+        return { ok: false, message: "Not signed in." };
+      }
+
+      const { data, error } = await supabase
+        .from("technicians")
+        .update({ user_id: userData.user.id })
+        .eq("sm_id", trimmed)
+        .is("user_id", null)
+        .select("sm_id, first_name, last_name")
+        .maybeSingle();
+
+      if (error) return { ok: false, message: error.message };
+      if (!data) {
+        return {
+          ok: false,
+          message: "SM ID not found, or already linked to another account.",
+        };
+      }
+      return { ok: true, technician: data };
+    }
+
+    // Shows the right one of: sign-in form / link-your-SM-ID step / signed-in view.
+    async function refreshView(session) {
+      if (!session || !session.user) {
         authView.classList.remove("hidden");
+        linkView.classList.add("hidden");
         sessionView.classList.add("hidden");
+        return;
+      }
+
+      const { data: tech } = await supabase
+        .from("technicians")
+        .select("sm_id, first_name, last_name, company")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+
+      authView.classList.add("hidden");
+
+      if (tech) {
+        linkView.classList.add("hidden");
+        sessionView.classList.remove("hidden");
+        sessionWho.textContent = `${tech.first_name} ${tech.last_name} — ${tech.company}`;
+        sessionEmail.textContent = `${session.user.email} (SM ID: ${tech.sm_id})`;
+        localStorage.removeItem(PENDING_SM_ID_KEY);
+      } else {
+        sessionView.classList.add("hidden");
+        linkView.classList.remove("hidden");
+        const pending = localStorage.getItem(PENDING_SM_ID_KEY);
+        if (pending) linkSmIdInput.value = pending;
       }
     }
 
-    supabase.auth.getSession().then(({ data }) => showSession(data.session));
-    supabase.auth.onAuthStateChange((_event, session) => showSession(session));
+    supabase.auth.getSession().then(({ data }) => refreshView(data.session));
+    supabase.auth.onAuthStateChange((_event, session) => refreshView(session));
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const email = emailInput.value.trim();
       const password = passwordInput.value;
+      const smId = smIdInput.value.trim();
 
       submitBtn.disabled = true;
       setStatus("Working…");
@@ -315,9 +412,32 @@
           if (error) throw error;
           setStatus("Signed in.", "success");
         } else if (mode === "signup") {
-          const { error } = await supabase.auth.signUp({ email, password });
+          const { data, error } = await supabase.auth.signUp({ email, password });
           if (error) throw error;
-          setStatus("Account created. Check your email if confirmation is required.", "success");
+
+          if (smId) localStorage.setItem(PENDING_SM_ID_KEY, smId);
+
+          if (data.session) {
+            // Email confirmation is off, so we already have a session —
+            // claim the technician row right now.
+            const result = await claimTechnicianRow(smId);
+            if (result.ok) {
+              setStatus(
+                `Account created and linked to ${result.technician.first_name} ${result.technician.last_name}.`,
+                "success"
+              );
+            } else {
+              setStatus(
+                `Account created, but couldn't link SM ID yet: ${result.message}`,
+                "error"
+              );
+            }
+          } else {
+            setStatus(
+              "Account created. Check your email to confirm, then sign in to finish linking your SM ID.",
+              "success"
+            );
+          }
         } else {
           const { error } = await supabase.auth.signInWithOtp({
             email,
@@ -333,10 +453,27 @@
       }
     });
 
-    signOutBtn.addEventListener("click", async () => {
+    linkForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      linkSubmitBtn.disabled = true;
+      setLinkStatus("Linking…");
+      const result = await claimTechnicianRow(linkSmIdInput.value);
+      if (result.ok) {
+        setLinkStatus("");
+        const { data } = await supabase.auth.getSession();
+        await refreshView(data.session);
+      } else {
+        setLinkStatus(result.message, "error");
+      }
+      linkSubmitBtn.disabled = false;
+    });
+
+    async function signOut() {
       await supabase.auth.signOut();
       setStatus("Signed out.");
-    });
+    }
+    signOutBtn.addEventListener("click", signOut);
+    linkSignOutBtn.addEventListener("click", signOut);
   }
 
   applyMode("signin");
