@@ -35,6 +35,14 @@ env/
 ~$*.docx
 *.tmp
 
+# ---- Personnel data: real names/IDs, never commit ----
+# (source roster spreadsheets and the CSVs scripts/build_technician_seed.py
+# generates from them for Supabase import)
+*roster*.xlsx
+*Plant_Access*.xlsx
+technicians_seed.csv
+technician_plant_access_seed.csv
+
 # ---- OS ----
 .DS_Store
 Thumbs.db
