@@ -120,6 +120,46 @@ TBD — cite the governing spec section when encoding a limit in code.
   database linter / `get_advisors` catches this — run it after any DDL
   change, not just once).
 
+- **Hand-inserting rows into `auth.users` looks fine and isn't.** A raw
+  `INSERT` that passes every RLS check, has a correctly-verifying bcrypt
+  password (`encrypted_password = crypt('password', encrypted_password)`
+  returns true), and reads back with all the right values can still fail
+  real sign-in with a generic, misleading error — because none of that
+  exercises Supabase Auth's actual `/token` endpoint, only the row's shape.
+  Two real GoTrue requirements a hand-built row will get wrong by default:
+  `instance_id` must be the zero UUID (`00000000-...-000000000000`), not
+  `null` — a null row is invisible to GoTrue's lookup, and the failure
+  surfaces as ordinary `invalid_credentials`, indistinguishable from a
+  wrong password. And `confirmation_token`, `recovery_token`,
+  `email_change_token_new`, `email_change`, `email_change_token_current`,
+  `phone_change`, `phone_change_token`, and `reauthentication_token` must
+  all be `''` (empty string), not `null` — GoTrue's Go code scans these
+  into plain strings, and a null crashes that scan with a 500 ("converting
+  NULL to string is unsupported"), which only shows up *after* the
+  instance_id issue is fixed and the row is actually found. Both were only
+  caught by testing a real sign-in through a real deployed page — a SQL-only
+  check of the row, however thorough, cannot catch either one. Both are
+  already fixed in `supabase/bootstrap_technicians.sql`; if you ever
+  hand-build a user row again instead of running that script, budget time
+  to re-discover both.
+
+- **The onboarding email-confirmation link redirects to Supabase's "Site
+  URL" setting, not to wherever the technician actually is.** Left at the
+  default (`localhost`), every confirmation click leads to a real "this
+  site can't be reached" error on a real device — even though the
+  confirmation itself already succeeded server-side before the broken
+  redirect happens. Site URL (and Redirect URLs) must be updated every
+  time the deployed URL changes, not just set once.
+
+- **Sign-in identifier changes after onboarding, on purpose — decided,
+  not a bug.** A technician signs in with their SM ID before onboarding,
+  and their real email after (the SM ID stops resolving to anything the
+  moment their real email is confirmed, since that's when the account's
+  actual Supabase Auth email changes). We considered making SM ID work
+  permanently post-onboarding too and deliberately chose not to — the
+  hint text on the sign-in form covers it instead. Don't "fix" this
+  without checking this note first.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by

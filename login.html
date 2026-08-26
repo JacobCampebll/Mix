@@ -23,13 +23,22 @@
      change from both the OLD and NEW address, and every technician's old
      address is a fabricated one with no real inbox (see ACCESS MODEL). If
      it's on, the onboarding flow below can never complete.
-  4. Run supabase/schema.sql (repo root) in the Supabase SQL Editor to
+  4. Authentication -> URL Configuration -> set "Site URL" to wherever this
+     page is actually deployed (e.g. https://your-site.netlify.app), and
+     add the same URL + "/**" to "Redirect URLs". ALSO MANDATORY: the
+     onboarding email-confirmation link redirects to whatever Site URL
+     says, regardless of where the technician actually is — left at the
+     default (localhost), every confirmation click leads to a browser
+     error ("this site can't be reached") on a real device, even though
+     the confirmation itself already succeeded server-side by that point.
+     Update this every time the deployed URL changes.
+  5. Run supabase/schema.sql (repo root) in the Supabase SQL Editor to
      create the tables, RLS policies, and functions this page calls.
-  5. Bulk-provision technician accounts (an admin action against the
-     database directly — not something this page does). Each technician
-     needs: an auth.users row with email `${sm_id}@technicians.mix.local`
-     and a shared temporary password, already linked via
-     technicians.user_id. See the "Login flow" note in supabase/schema.sql.
+  6. Run supabase/bootstrap_technicians.sql to bulk-provision technician
+     accounts (an admin action against the database directly — not
+     something this page does, and not something to reinvent by hand:
+     see that file's header for two non-obvious GoTrue quirks it already
+     works around).
 
   ACCESS MODEL: technicians are identified by SM ID (e.g. "jcavanah"), not
   email — the roster has no email addresses at all. Accounts are
