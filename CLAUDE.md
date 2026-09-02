@@ -5,7 +5,8 @@ as **DesignBook** and **PlantBook** respectively. A joint effort between KYTC an
 contractors.
 
 Live at **https://kytcmix.netlify.app** (Netlify project `kytcmix`), deployed
-automatically from `main`. `/` redirects to `login.html`.
+automatically from `main`. Pages are served from `public/`; `/` redirects to
+`login.html`.
 
 Collaborators: **Jacob** and **Andrew**, working from separate Claude accounts
 against this shared repo. Neither can see the other's chats — this file is the
@@ -42,7 +43,11 @@ rather than leaving it in a conversation.
   page, because self-contained means no shared import. If the Supabase project
   moves or the palette changes, every page needs the edit — grep, do not
   assume one file covers it.
-- **Netlify static hosting.** Each `.html` file deploys as-is.
+- **Netlify static hosting.** Each `.html` file deploys as-is. **Served pages
+  live in `public/`, which is the Netlify publish directory** — only what is
+  in there is reachable on the web. `docs/`, `supabase/` and `scripts/` stay
+  out of it deliberately; they are repo content, not site content. A new page
+  goes in `public/` or it will not be served.
 - **Netlify Functions as API-key proxies.** Any third-party API call goes
   through a function in `netlify/functions/`. The browser never sees a key.
 - **Client-side JSON knowledge bases.** Reference data ships as a JSON file
