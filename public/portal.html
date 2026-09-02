@@ -369,14 +369,44 @@
     let last = "lookup failed";
     for (let attempt = 0; attempt <= (cfg.retries || 0); attempt++) {
       try {
-        const { data, error } = await sb.functions.invoke(cfg.fn, { body });
-        if (!error) return { ok: true, mixes: normalizeMixes(data), raw: data };
-        last = error.message || "lookup failed";
+        const data = await invokeLookup(cfg.fn, body);
+        return { ok: true, mixes: normalizeMixes(data), raw: data };
       } catch (err) {
         last = err.message || "lookup failed";
       }
     }
     return { ok: false, reason: last, mixes: [] };
+  }
+
+  // Calls the Edge Function with a plain fetch instead of
+  // sb.functions.invoke(). supabase-js adds an `x-client-info` header to
+  // every request, and kytc-lookup's CORS allow-list is
+  // "content-type, authorization, apikey" - so the browser's preflight
+  // fails and the POST is never sent. (Diagnosed from the function's own
+  // logs: OPTIONS 200 after OPTIONS 200, never a POST. curl passed because
+  // curl doesn't preflight.) Sending only the three allowed headers gets
+  // through today; if the function's allow-list later gains x-client-info,
+  // this still works. Uses the signed-in user's JWT, falling back to the
+  // anon key, the same as invoke() would.
+  async function invokeLookup(fn, body) {
+    const { data } = await sb.auth.getSession();
+    const token = (data && data.session && data.session.access_token) || CONFIG.SUPABASE_ANON_KEY;
+    const res = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/${fn}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": CONFIG.SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch (_) {}
+    if (!res.ok) {
+      throw new Error((json && (json.message || json.error)) || `HTTP ${res.status}`);
+    }
+    return json;
   }
 
   function renderMixes(result) {
