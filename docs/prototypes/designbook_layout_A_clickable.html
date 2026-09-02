@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DesignBook — Layout A (clickable prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F2F1EC; --panel:#FFFFFF; --ink:#182430; --muted:#6E7580;
+    --line:#DAD7CE; --accent:#2B5C82; --accent-soft:#E1EAF0;
+    --flag:#B5721F; --flag-soft:#F5E8D4; --ok:#3F7A56; --ok-soft:#E3EFE7;
+    --radius:6px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:'IBM Plex Sans',sans-serif; font-size:14px; line-height:1.5;}
+  h1,h2,h3{font-family:'Space Grotesk',sans-serif; font-weight:600; margin:0;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  a{color:inherit;}
+
+  .topbar{position:sticky; top:0; z-index:10; background:var(--paper); border-bottom:1px solid var(--line); padding:14px 32px; display:flex; align-items:center; gap:16px;}
+  .wordmark{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:18px; letter-spacing:.02em;}
+  .wordmark span{color:var(--accent);}
+  .mixid{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--muted); border:1px solid var(--line); border-radius:4px; padding:3px 8px;}
+  .pill{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em; padding:4px 10px; border-radius:20px; border:1px solid; transition:.15s;}
+  .pill.draft{background:var(--flag-soft); color:var(--flag); border-color:var(--flag);}
+  .pill.review{background:var(--accent-soft); color:var(--accent); border-color:var(--accent);}
+  .pill.released,.pill.approved{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
+  .spacer{flex:1;}
+  .savedstate{font-size:12px; color:var(--muted);}
+
+  .layout{max-width:1220px; margin:0 auto; display:grid; grid-template-columns:200px minmax(0,1fr) 240px; gap:28px; padding:28px 32px 80px;}
+
+  .nav{position:sticky; top:66px; align-self:start; padding-left:4px;}
+  .navtitle{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:14px;}
+  .navlist{list-style:none; margin:0; padding:0; position:relative;}
+  .navlist::before{content:''; position:absolute; left:5px; top:6px; bottom:6px; width:1px; background:var(--line);}
+  .navitem{display:flex; align-items:center; gap:10px; padding:7px 0; font-size:13px; color:var(--muted); position:relative; text-decoration:none; cursor:pointer;}
+  .navitem.current{color:var(--ink); font-weight:500;}
+  .tick{width:11px; height:11px; border-radius:50%; border:1.5px solid var(--accent); background:var(--panel); flex-shrink:0; z-index:1; transition:.15s;}
+  .tick.filled{background:var(--accent);}
+  .tick.partial{background:linear-gradient(90deg,var(--accent) 50%, var(--panel) 50%);}
+
+  .section{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:22px 24px; margin-bottom:20px; scroll-margin-top:80px;}
+  .section.flash{border-color:var(--accent);}
+  .section-head{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line);}
+  .section-tag{font-size:10px; color:var(--muted); border:1px solid var(--line); border-radius:3px; padding:2px 7px; letter-spacing:.03em;}
+
+  .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
+  .field label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:5px;}
+  .field label .opt{text-transform:none; letter-spacing:0; color:var(--muted); opacity:.7;}
+  .box, input.box, select.box{border:1px solid var(--line); background:#FCFCFA; border-radius:var(--radius); padding:8px 10px; font-size:13px; min-height:34px; color:var(--ink); width:100%; font-family:'IBM Plex Sans',sans-serif; display:block;}
+  .box.mono, input.box.mono, select.box.mono{font-family:'IBM Plex Mono',monospace; color:var(--accent);}
+  .box:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-soft);}
+  .box.empty-req{border-color:var(--flag); background:var(--flag-soft);}
+
+  .rowlist{display:flex; flex-direction:column; gap:8px;}
+  .rowitem{display:grid; grid-template-columns:1.4fr 1.2fr 1fr .8fr .8fr auto; gap:10px; align-items:end; padding:10px; border:1px solid var(--line); border-radius:var(--radius); background:#FCFCFA;}
+  .rowitem label{font-size:10px; color:var(--muted); text-transform:uppercase; display:block; margin-bottom:4px;}
+  .rmbtn{background:none; border:1px solid var(--line); border-radius:4px; color:var(--muted); font-size:14px; cursor:pointer; height:34px; width:34px;}
+  .rmbtn:hover{border-color:var(--flag); color:var(--flag);}
+  .addrow{display:flex; align-items:center; gap:8px; padding:10px; border:1px dashed var(--accent); border-radius:var(--radius); color:var(--accent); font-size:13px; justify-content:center; cursor:pointer; background:none; width:100%; font-family:'IBM Plex Sans',sans-serif;}
+  .addrow:hover{background:var(--accent-soft);}
+
+  .sieverow{display:grid; grid-template-columns:repeat(7,1fr); gap:8px;}
+  .sieve{border:1px solid var(--line); border-radius:var(--radius); background:#FCFCFA; padding:8px 6px; text-align:center;}
+  .sieve .sz{font-size:11px; color:var(--muted); margin-bottom:4px;}
+  .sieve input{width:100%; border:none; background:none; text-align:center; font-family:'IBM Plex Mono',monospace; font-size:13px; color:var(--accent); padding:2px;}
+  .sieve input:focus{outline:none;}
+  .chartblock{margin-top:14px; height:110px; border:1px dashed var(--line); border-radius:var(--radius); background:repeating-linear-gradient(135deg, #FCFCFA, #FCFCFA 9px, #ECEAE1 9px, #ECEAE1 10px); display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:12px;}
+
+  .timeline{display:flex; align-items:center; gap:0; margin:6px 0 18px;}
+  .tstep{display:flex; flex-direction:column; align-items:center; flex:1; position:relative;}
+  .tstep .dot{width:14px; height:14px; border-radius:50%; border:2px solid var(--line); background:var(--panel); margin-bottom:6px; z-index:1; transition:.2s;}
+  .tstep.done .dot{border-color:var(--ok); background:var(--ok);}
+  .tstep.current .dot{border-color:var(--accent); background:var(--accent);}
+  .tstep .tl{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em;}
+  .tstep.done .tl,.tstep.current .tl{color:var(--ink);}
+  .tline{position:absolute; top:6px; left:-50%; width:100%; height:2px; background:var(--line); z-index:0; transition:.2s;}
+  .tstep.done .tline{background:var(--ok);}
+  .tstep:first-child .tline{display:none;}
+
+  .stagebtn{font-family:'IBM Plex Sans',sans-serif; font-size:13px; padding:9px 16px; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer;}
+  .stagebtn:disabled{opacity:.4; cursor:default; background:var(--muted); border-color:var(--muted);}
+
+  .auditlog{margin-top:14px; border-top:1px solid var(--line); padding-top:12px; display:flex; flex-direction:column; gap:6px;}
+  .auditrow{font-size:12px; color:var(--muted); display:flex; gap:10px;}
+  .auditrow .ts{font-family:'IBM Plex Mono',monospace; color:var(--ink);}
+
+  .valpanel{position:sticky; top:66px; align-self:start; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px;}
+  .valpanel h3{font-size:13px; margin-bottom:4px;}
+  .valpanel .sub{font-size:11px; color:var(--muted); margin-bottom:14px;}
+  .vitem{display:flex; gap:8px; padding:8px 0; border-top:1px solid var(--line); font-size:12px; cursor:pointer;}
+  .vitem:first-of-type{border-top:none;}
+  .vitem .flag{width:6px; height:6px; border-radius:50%; background:var(--flag); margin-top:5px; flex-shrink:0;}
+  .vitem a{color:var(--accent); text-decoration:underline; text-underline-offset:2px;}
+  .allclear{font-size:12px; color:var(--ok); display:flex; gap:8px; align-items:center;}
+  .allclear .dot2{width:6px; height:6px; border-radius:50%; background:var(--ok);}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wordmark">Design<span>Book</span></div>
+  <div class="mixid">MIX ID · 07210-AMD-260447</div>
+  <div class="pill draft" id="statuspill">Draft</div>
+  <div class="spacer"></div>
+  <div class="savedstate" id="savedstate">Autosaved just now</div>
+</div>
+
+<div class="layout">
+
+  <nav class="nav">
+    <div class="navtitle">Sections</div>
+    <ul class="navlist" id="navlist">
+      <li class="navitem" data-target="header"><span class="tick" data-tick="header"></span>Header &amp; submittal</li>
+      <li class="navitem" data-target="design-data"><span class="tick" data-tick="design-data"></span>Design data</li>
+      <li class="navitem" data-target="aggregate"><span class="tick" data-tick="aggregate"></span>Aggregate blend</li>
+      <li class="navitem" data-target="gradation"><span class="tick" data-tick="gradation"></span>Gradation</li>
+      <li class="navitem" data-target="performance"><span class="tick" data-tick="performance"></span>Performance testing</li>
+      <li class="navitem" data-target="recycle"><span class="tick" data-tick="recycle"></span>Recycle / KYCT data</li>
+      <li class="navitem" data-target="status"><span class="tick" data-tick="status"></span>Status &amp; validation</li>
+    </ul>
+  </nav>
+
+  <main>
+
+    <section class="section" id="header" data-section="header" data-label="Header &amp; submittal">
+      <div class="section-head"><h2>Header &amp; submittal</h2><span class="section-tag mono">t_smpl · discipline</span></div>
+      <div class="grid">
+        <div class="field"><label>County</label><input class="box req" value="Bourbon"></div>
+        <div class="field"><label>Submittal type</label>
+          <select class="box req">
+            <option>Mix design spreadsheet</option>
+            <option>Revision</option>
+            <option>Verification</option>
+          </select>
+        </div>
+        <div class="field"><label>Total tons</label><input class="box mono req" value="2450"></div>
+        <div class="field"><label>Depth (mm)</label><input class="box mono req" value="50"></div>
+        <div class="field"><label>Binder grade</label><input class="box mono req" value="PG64-22"></div>
+        <div class="field"><label>RAP note <span class="opt">(optional)</span></label><input class="box" value=""></div>
+      </div>
+    </section>
+
+    <section class="section" id="design-data" data-section="design-data" data-label="Design data">
+      <div class="section-head"><h2>Design data</h2><span class="section-tag mono">t_superpave</span></div>
+      <div class="grid">
+        <div class="field"><label>AC (%)</label><input class="box mono req" value="5.2"></div>
+        <div class="field"><label>Gmm ini</label><input class="box mono req" value="2.481"></div>
+        <div class="field"><label>AV (%)</label><input class="box mono req" value="4.0"></div>
+        <div class="field"><label>VMA (%)</label><input class="box mono req" value="14.1"></div>
+        <div class="field"><label>VFA (%)</label><input class="box mono req" value="71.6"></div>
+        <div class="field"><label>UW (lbs/ft³)</label><input class="box mono req" value="148.2"></div>
+        <div class="field"><label>MSG</label><input class="box mono req" value="2.634"></div>
+        <div class="field"><label>ESAL class</label>
+          <select class="box req">
+            <option>3 – 10M</option>
+            <option>&lt;0.3M</option>
+            <option>0.3 – 3M</option>
+            <option>10 – 30M</option>
+          </select>
+        </div>
+        <div class="field"><label>Designer</label><input class="box req" value="J. Smith"></div>
+      </div>
+    </section>
+
+    <section class="section" id="aggregate" data-section="aggregate" data-label="Aggregate blend">
+      <div class="section-head"><h2>Aggregate blend</h2><span class="section-tag mono">t_bit_conc_mixblnd</span></div>
+      <div class="rowlist" id="aggregate-rows">
+        <div class="rowitem">
+          <div><label>Producer</label><input class="box req" value="Rogers Group"></div>
+          <div><label>Type &amp; size</label><input class="box req" value="Dolomite #8"></div>
+          <div><label>Mat. code</label><input class="box mono req" value="10400"></div>
+          <div><label>% blend</label><input class="box mono req" value="62.0"></div>
+          <div><label>Gsb</label><input class="box mono req" value="2.71"></div>
+          <button class="rmbtn" title="Remove component">×</button>
+        </div>
+        <div class="rowitem">
+          <div><label>Producer</label><input class="box req" value="Rogers Group"></div>
+          <div><label>Type &amp; size</label><input class="box req" value="Nat. Sand"></div>
+          <div><label>Mat. code</label><input class="box mono req" value="21015"></div>
+          <div><label>% blend</label><input class="box mono req" value="28.0"></div>
+          <div><label>Gsb</label><input class="box mono req" value="2.64"></div>
+          <button class="rmbtn" title="Remove component">×</button>
+        </div>
+        <div class="rowitem">
+          <div><label>Producer</label><input class="box req" value="Rogers Group"></div>
+          <div><label>Type &amp; size</label><input class="box req" value="RAP"></div>
+          <div><label>Mat. code</label><input class="box mono req" value="90210"></div>
+          <div><label>% blend</label><input class="box mono req" value="10.0"></div>
+          <div><label>Gsb</label><input class="box mono req" value="2.58"></div>
+          <button class="rmbtn" title="Remove component">×</button>
+        </div>
+      </div>
+      <button class="addrow" id="add-aggregate" style="margin-top:8px;">+ add aggregate component (up to 6)</button>
+    </section>
+
+    <section class="section" id="gradation" data-section="gradation" data-label="Gradation">
+      <div class="section-head"><h2>Gradation</h2><span class="section-tag mono">t_tst_rslt_dtl</span></div>
+      <div class="sieverow">
+        <div class="sieve"><div class="sz">3/4"</div><input class="req" placeholder="e.g. 100" value=""></div>
+        <div class="sieve"><div class="sz">1/2"</div><input class="req" placeholder="e.g. 94" value=""></div>
+        <div class="sieve"><div class="sz">3/8"</div><input class="req" placeholder="e.g. 85" value=""></div>
+        <div class="sieve"><div class="sz">#4</div><input class="req" placeholder="e.g. 58" value=""></div>
+        <div class="sieve"><div class="sz">#8</div><input class="req" placeholder="e.g. 37" value=""></div>
+        <div class="sieve"><div class="sz">#50</div><input class="req" placeholder="e.g. 11" value=""></div>
+        <div class="sieve"><div class="sz">#200</div><input class="req" placeholder="e.g. 4.8" value=""></div>
+      </div>
+      <div class="chartblock">0.45 power chart — auto-generated from sieve values above</div>
+    </section>
+
+    <section class="section" id="performance" data-section="performance" data-label="Performance testing">
+      <div class="section-head"><h2>Performance testing</h2><span class="section-tag mono">t_tst_rslt_dtl · TSR / Hamburg / CT</span></div>
+      <div class="grid" style="margin-bottom:14px;">
+        <div class="field"><label>TSR (%)</label><input class="box mono req" placeholder="e.g. 82.4" value=""></div>
+        <div class="field"><label>Hamburg made with</label>
+          <select class="box req">
+            <option value="">— select —</option>
+            <option>Job mix</option>
+            <option>Lab mix</option>
+          </select>
+        </div>
+        <div class="field"><label>Hamburg SIP (left)</label><input class="box mono req" placeholder="e.g. 14200" value=""></div>
+      </div>
+      <div class="rowlist" id="ct-rows"></div>
+      <button class="addrow" id="add-ct" style="margin-top:8px;">+ add CT specimen (up to 8)</button>
+    </section>
+
+    <section class="section" id="recycle" data-section="recycle" data-label="Recycle / KYCT data">
+      <div class="section-head"><h2>Recycle / KYCT data</h2><span class="section-tag mono">t_tst_rslt_dtl</span></div>
+      <div class="grid">
+        <div class="field"><label>RAP (%)</label><input class="box mono req" placeholder="e.g. 10.0" value=""></div>
+        <div class="field"><label>RAS (%)</label><input class="box mono req" placeholder="e.g. 0.0" value=""></div>
+        <div class="field"><label>Virgin AC (%)</label><input class="box mono req" placeholder="e.g. 4.7" value=""></div>
+        <div class="field"><label>% additive / type <span class="opt">(optional)</span></label><input class="box" value=""></div>
+      </div>
+    </section>
+
+    <section class="section" id="status" data-section="status" data-label="Status &amp; validation">
+      <div class="section-head"><h2>Status &amp; validation</h2><span class="section-tag mono">workflow</span></div>
+      <div class="timeline" id="timeline">
+        <div class="tstep current" data-stage="Draft"><div class="tline"></div><div class="dot"></div><div class="tl">Draft</div></div>
+        <div class="tstep" data-stage="Internal Review"><div class="tline"></div><div class="dot"></div><div class="tl">Internal review</div></div>
+        <div class="tstep" data-stage="Released"><div class="tline"></div><div class="dot"></div><div class="tl">Released</div></div>
+        <div class="tstep" data-stage="Approved"><div class="tline"></div><div class="dot"></div><div class="tl">Approved</div></div>
+      </div>
+      <button class="stagebtn" id="advance-stage">Move to internal review →</button>
+      <div class="auditlog" id="auditlog">
+        <div class="auditrow"><span class="ts">08/25 09:14</span> Design data entered — j.smith</div>
+        <div class="auditrow"><span class="ts">08/26 13:02</span> Aggregate blend updated — j.smith</div>
+      </div>
+    </section>
+
+  </main>
+
+  <aside class="valpanel">
+    <h3>Outstanding items</h3>
+    <div class="sub" id="valsub">Live — updates as you fill the form</div>
+    <div id="vallist"></div>
+  </aside>
+
+</div>
+
+<script>
+(function(){
+  var ctTemplateFilled = {producer:null, specimen:'CT #1', l75:'0.041', m75:'62.1', gf:'1840', index:'74.2'};
+  var ctCount = 0;
+
+  function makeCTRow(prefill){
+    ctCount++;
+    var row = document.createElement('div');
+    row.className = 'rowitem';
+    row.style.gridTemplateColumns = '1fr 1fr 1fr 1fr 1fr auto';
+    row.innerHTML =
+      '<div><label>Specimen</label><input class="box req mono" value="'+(prefill?('CT #'+ctCount):'')+'" placeholder="CT #'+ctCount+'"></div>'+
+      '<div><label>l75</label><input class="box req mono" value="'+(prefill?prefill.l75:'')+'" placeholder="e.g. 0.041"></div>'+
+      '<div><label>m75</label><input class="box req mono" value="'+(prefill?prefill.m75:'')+'" placeholder="e.g. 62.1"></div>'+
+      '<div><label>Gf</label><input class="box req mono" value="'+(prefill?prefill.gf:'')+'" placeholder="e.g. 1840"></div>'+
+      '<div><label>Index</label><input class="box req mono" value="'+(prefill?prefill.index:'')+'" placeholder="e.g. 74.2"></div>'+
+      '<button class="rmbtn" title="Remove specimen">×</button>';
+    row.querySelector('.rmbtn').addEventListener('click', function(){
+      row.remove();
+      recompute();
+    });
+    return row;
+  }
+
+  document.getElementById('ct-rows').appendChild(makeCTRow(ctTemplateFilled));
+
+  document.getElementById('add-ct').addEventListener('click', function(){
+    var rows = document.getElementById('ct-rows');
+    if (rows.children.length >= 8) return;
+    var row = makeCTRow(null);
+    rows.appendChild(row);
+    recompute();
+  });
+
+  document.getElementById('add-aggregate').addEventListener('click', function(){
+    var rows = document.getElementById('aggregate-rows');
+    if (rows.children.length >= 6) return;
+    var row = document.createElement('div');
+    row.className = 'rowitem';
+    row.innerHTML =
+      '<div><label>Producer</label><input class="box req" value="" placeholder="Producer"></div>'+
+      '<div><label>Type &amp; size</label><input class="box req" value="" placeholder="Type &amp; size"></div>'+
+      '<div><label>Mat. code</label><input class="box mono req" value="" placeholder="Mat. code"></div>'+
+      '<div><label>% blend</label><input class="box mono req" value="" placeholder="%"></div>'+
+      '<div><label>Gsb</label><input class="box mono req" value="" placeholder="Gsb"></div>'+
+      '<button class="rmbtn" title="Remove component">×</button>';
+    row.querySelector('.rmbtn').addEventListener('click', function(){
+      row.remove();
+      recompute();
+    });
+    rows.appendChild(row);
+    recompute();
+  });
+
+  document.querySelectorAll('#aggregate-rows .rmbtn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      btn.closest('.rowitem').remove();
+      recompute();
+    });
+  });
+
+  var stages = ['Draft','Internal Review','Released','Approved'];
+  var stageBtnLabels = ['Move to internal review →','Release to Department →','Mark approved →', null];
+  var stageIdx = 0;
+  var pill = document.getElementById('statuspill');
+  var advBtn = document.getElementById('advance-stage');
+  var log = document.getElementById('auditlog');
+
+  function renderStage(){
+    pill.textContent = stages[stageIdx];
+    pill.className = 'pill ' + ['draft','review','released','approved'][stageIdx];
+    document.querySelectorAll('#timeline .tstep').forEach(function(el, i){
+      el.classList.remove('done','current');
+      if (i < stageIdx) el.classList.add('done');
+      if (i === stageIdx) el.classList.add('current');
+    });
+    if (stageIdx >= stages.length - 1){
+      advBtn.disabled = true;
+      advBtn.textContent = 'Fully approved';
+    } else {
+      advBtn.disabled = false;
+      advBtn.textContent = stageBtnLabels[stageIdx];
+    }
+  }
+
+  advBtn.addEventListener('click', function(){
+    if (stageIdx >= stages.length - 1) return;
+    stageIdx++;
+    renderStage();
+    var row = document.createElement('div');
+    row.className = 'auditrow';
+    row.innerHTML = '<span class="ts">just now</span> Moved to '+stages[stageIdx]+' — a.jones';
+    log.insertBefore(row, log.firstChild);
+  });
+
+  renderStage();
+
+  var sections = Array.prototype.slice.call(document.querySelectorAll('.section'));
+  var navItems = Array.prototype.slice.call(document.querySelectorAll('.navitem'));
+
+  navItems.forEach(function(item){
+    item.addEventListener('click', function(){
+      var id = item.getAttribute('data-target');
+      var sec = document.getElementById(id);
+      sec.scrollIntoView({behavior:'smooth', block:'start'});
+      sec.classList.add('flash');
+      setTimeout(function(){ sec.classList.remove('flash'); }, 900);
+    });
+  });
+
+  function recompute(){
+    var outstanding = [];
+    sections.forEach(function(sec){
+      var id = sec.getAttribute('data-section');
+      if (id === 'status') return;
+      var reqs = sec.querySelectorAll('.req');
+      var total = reqs.length;
+      var filled = 0;
+      reqs.forEach(function(el){
+        var v = (el.value || '').trim();
+        if (v.length > 0){ filled++; el.classList.remove('empty-req'); }
+      });
+      var tick = document.querySelector('[data-tick="'+id+'"]');
+      if (tick){
+        tick.classList.remove('filled','partial');
+        if (total > 0 && filled === total) tick.classList.add('filled');
+        else if (filled > 0) tick.classList.add('partial');
+      }
+      if (filled < total){
+        outstanding.push({id:id, label:sec.getAttribute('data-label'), missing: total - filled});
+      }
+    });
+
+    var vallist = document.getElementById('vallist');
+    var valsub = document.getElementById('valsub');
+    if (outstanding.length === 0){
+      valsub.textContent = 'All required fields complete';
+      vallist.innerHTML = '<div class="allclear"><span class="dot2"></span>Ready to move to internal review</div>';
+    } else {
+      valsub.textContent = outstanding.length + ' section(s) with incomplete fields';
+      vallist.innerHTML = outstanding.map(function(o){
+        return '<div class="vitem" data-jump="'+o.id+'"><span class="flag"></span><span><a>'+o.label+'</a> — '+o.missing+' field(s) missing</span></div>';
+      }).join('');
+      vallist.querySelectorAll('.vitem').forEach(function(el){
+        el.addEventListener('click', function(){
+          var id = el.getAttribute('data-jump');
+          var sec = document.getElementById(id);
+          sec.scrollIntoView({behavior:'smooth', block:'start'});
+          var firstEmpty = sec.querySelector('.req');
+          Array.prototype.slice.call(sec.querySelectorAll('.req')).forEach(function(f){
+            if ((f.value||'').trim().length === 0 && firstEmpty === sec.querySelector('.req')) firstEmpty = f;
+          });
+          if (firstEmpty) setTimeout(function(){ firstEmpty.focus(); }, 400);
+        });
+      });
+    }
+  }
+
+  document.addEventListener('input', function(e){
+    if (e.target.classList && (e.target.classList.contains('box') || e.target.classList.contains('req') || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')){
+      recompute();
+      document.getElementById('savedstate').textContent = 'Autosaved just now';
+    }
+  });
+  document.addEventListener('change', function(e){
+    if (e.target.tagName === 'SELECT'){ recompute(); }
+  });
+
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      if (entry.isIntersecting){
+        var id = entry.target.id;
+        navItems.forEach(function(n){ n.classList.toggle('current', n.getAttribute('data-target') === id); });
+      }
+    });
+  }, {rootMargin:'-40% 0px -50% 0px', threshold:0});
+  sections.forEach(function(s){ io.observe(s); });
+
+  recompute();
+})();
+</script>
+
+</body>
+</html>

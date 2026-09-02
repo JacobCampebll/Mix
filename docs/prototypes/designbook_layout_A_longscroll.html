@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DesignBook — Layout A: Long Scroll</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F2F1EC; --panel:#FFFFFF; --ink:#182430; --muted:#6E7580;
+    --line:#DAD7CE; --accent:#2B5C82; --accent-soft:#E1EAF0;
+    --flag:#B5721F; --flag-soft:#F5E8D4; --ok:#3F7A56; --ok-soft:#E3EFE7;
+    --radius:6px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:'IBM Plex Sans',sans-serif; font-size:14px; line-height:1.5;}
+  h1,h2,h3{font-family:'Space Grotesk',sans-serif; font-weight:600; margin:0;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  a{color:inherit;}
+
+  .topbar{position:sticky; top:0; z-index:10; background:var(--paper); border-bottom:1px solid var(--line); padding:14px 32px; display:flex; align-items:center; gap:16px;}
+  .wordmark{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:18px; letter-spacing:.02em;}
+  .wordmark span{color:var(--accent);}
+  .mixid{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--muted); border:1px solid var(--line); border-radius:4px; padding:3px 8px;}
+  .pill{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em; padding:4px 10px; border-radius:20px; background:var(--flag-soft); color:var(--flag); border:1px solid var(--flag);}
+  .spacer{flex:1;}
+  .savedstate{font-size:12px; color:var(--muted);}
+
+  .layout{max-width:1220px; margin:0 auto; display:grid; grid-template-columns:200px minmax(0,1fr) 240px; gap:28px; padding:28px 32px 80px;}
+
+  /* left ledger rail */
+  .nav{position:sticky; top:66px; align-self:start; padding-left:4px;}
+  .navtitle{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:14px;}
+  .navlist{list-style:none; margin:0; padding:0; position:relative;}
+  .navlist::before{content:''; position:absolute; left:5px; top:6px; bottom:6px; width:1px; background:var(--line);}
+  .navitem{display:flex; align-items:center; gap:10px; padding:7px 0; font-size:13px; color:var(--muted); position:relative;}
+  .navitem.done{color:var(--ink);}
+  .navitem.active{color:var(--ink); font-weight:500;}
+  .tick{width:11px; height:11px; border-radius:50%; border:1.5px solid var(--accent); background:var(--panel); flex-shrink:0; z-index:1;}
+  .tick.filled{background:var(--accent);}
+  .tick.partial{background:linear-gradient(90deg,var(--accent) 50%, var(--panel) 50%);}
+
+  /* main sections */
+  .section{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:22px 24px; margin-bottom:20px; scroll-margin-top:80px;}
+  .section-head{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line);}
+  .section-tag{font-size:10px; color:var(--muted); border:1px solid var(--line); border-radius:3px; padding:2px 7px; letter-spacing:.03em;}
+
+  .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
+  .field label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:5px;}
+  .field .box{border:1px solid var(--line); background:#FCFCFA; border-radius:var(--radius); padding:8px 10px; font-size:13px; min-height:34px; display:flex; align-items:center; color:var(--ink);}
+  .field .box.mono{color:var(--accent);}
+
+  .rowlist{display:flex; flex-direction:column; gap:8px;}
+  .rowitem{display:grid; grid-template-columns:1.4fr 1.2fr 1fr .8fr .8fr auto; gap:10px; align-items:center; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius); background:#FCFCFA; font-size:13px;}
+  .rowitem .rlabel{font-size:10px; color:var(--muted); text-transform:uppercase; display:block; margin-bottom:2px;}
+  .addrow{display:flex; align-items:center; gap:8px; padding:10px; border:1px dashed var(--accent); border-radius:var(--radius); color:var(--accent); font-size:13px; justify-content:center; cursor:pointer;}
+
+  .sieverow{display:grid; grid-template-columns:repeat(7,1fr); gap:8px;}
+  .sieve{border:1px solid var(--line); border-radius:var(--radius); background:#FCFCFA; padding:8px 6px; text-align:center;}
+  .sieve .sz{font-size:11px; color:var(--muted); margin-bottom:4px;}
+  .sieve .pv{font-size:13px; font-family:'IBM Plex Mono',monospace; color:var(--accent);}
+  .chartblock{margin-top:14px; height:120px; border:1px dashed var(--line); border-radius:var(--radius); background:repeating-linear-gradient(135deg, #FCFCFA, #FCFCFA 9px, #ECEAE1 9px, #ECEAE1 10px); display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:12px;}
+
+  .timeline{display:flex; align-items:center; gap:0; margin:6px 0 4px;}
+  .tstep{display:flex; flex-direction:column; align-items:center; flex:1; position:relative;}
+  .tstep .dot{width:14px; height:14px; border-radius:50%; border:2px solid var(--line); background:var(--panel); margin-bottom:6px; z-index:1;}
+  .tstep.done .dot{border-color:var(--ok); background:var(--ok);}
+  .tstep.current .dot{border-color:var(--accent); background:var(--accent);}
+  .tstep .tl{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em;}
+  .tstep.done .tl,.tstep.current .tl{color:var(--ink);}
+  .tline{position:absolute; top:6px; left:-50%; width:100%; height:2px; background:var(--line); z-index:0;}
+  .tstep.done .tline{background:var(--ok);}
+  .tstep:first-child .tline{display:none;}
+
+  .auditlog{margin-top:14px; border-top:1px solid var(--line); padding-top:12px; display:flex; flex-direction:column; gap:6px;}
+  .auditrow{font-size:12px; color:var(--muted); display:flex; gap:10px;}
+  .auditrow .ts{font-family:'IBM Plex Mono',monospace; color:var(--ink);}
+
+  /* right validation rail */
+  .valpanel{position:sticky; top:66px; align-self:start; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px;}
+  .valpanel h3{font-size:13px; margin-bottom:4px;}
+  .valpanel .sub{font-size:11px; color:var(--muted); margin-bottom:14px;}
+  .vitem{display:flex; gap:8px; padding:8px 0; border-top:1px solid var(--line); font-size:12px;}
+  .vitem:first-of-type{border-top:none;}
+  .vitem .flag{width:6px; height:6px; border-radius:50%; background:var(--flag); margin-top:5px; flex-shrink:0;}
+  .vitem a{color:var(--accent); text-decoration:underline; text-underline-offset:2px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wordmark">Design<span>Book</span></div>
+  <div class="mixid">MIX ID · 07210-AMD-260447</div>
+  <div class="pill">Draft</div>
+  <div class="spacer"></div>
+  <div class="savedstate">Autosaved 2 min ago</div>
+</div>
+
+<div class="layout">
+
+  <nav class="nav">
+    <div class="navtitle">Sections</div>
+    <ul class="navlist">
+      <li class="navitem done"><span class="tick filled"></span>Header &amp; submittal</li>
+      <li class="navitem done"><span class="tick filled"></span>Design data</li>
+      <li class="navitem active"><span class="tick partial"></span>Aggregate blend</li>
+      <li class="navitem"><span class="tick"></span>Gradation</li>
+      <li class="navitem"><span class="tick"></span>Performance testing</li>
+      <li class="navitem"><span class="tick"></span>Recycle / KYCT data</li>
+      <li class="navitem"><span class="tick"></span>Status &amp; validation</li>
+    </ul>
+  </nav>
+
+  <main>
+
+    <section class="section" id="header">
+      <div class="section-head"><h2>Header &amp; submittal</h2><span class="section-tag mono">t_smpl · discipline</span></div>
+      <div class="grid">
+        <div class="field"><label>County</label><div class="box">Bourbon</div></div>
+        <div class="field"><label>Submittal type</label><div class="box">Mix design spreadsheet</div></div>
+        <div class="field"><label>Total tons</label><div class="box mono">2,450</div></div>
+        <div class="field"><label>Depth (mm)</label><div class="box mono">50</div></div>
+        <div class="field"><label>Binder grade</label><div class="box mono">PG64-22</div></div>
+        <div class="field"><label>RAP note</label><div class="box">—</div></div>
+      </div>
+    </section>
+
+    <section class="section" id="design-data">
+      <div class="section-head"><h2>Design data</h2><span class="section-tag mono">t_superpave</span></div>
+      <div class="grid">
+        <div class="field"><label>AC (%)</label><div class="box mono">5.2</div></div>
+        <div class="field"><label>Gmm ini</label><div class="box mono">2.481</div></div>
+        <div class="field"><label>AV (%)</label><div class="box mono">4.0</div></div>
+        <div class="field"><label>VMA (%)</label><div class="box mono">14.1</div></div>
+        <div class="field"><label>VFA (%)</label><div class="box mono">71.6</div></div>
+        <div class="field"><label>UW (lbs/ft³)</label><div class="box mono">148.2</div></div>
+        <div class="field"><label>MSG</label><div class="box mono">2.634</div></div>
+        <div class="field"><label>ESAL class</label><div class="box">3 – 10M</div></div>
+        <div class="field"><label>Designer</label><div class="box">—</div></div>
+      </div>
+    </section>
+
+    <section class="section" id="aggregate">
+      <div class="section-head"><h2>Aggregate blend</h2><span class="section-tag mono">t_bit_conc_mixblnd</span></div>
+      <div class="rowlist">
+        <div class="rowitem">
+          <div><span class="rlabel">Producer</span>Rogers Group</div>
+          <div><span class="rlabel">Type &amp; size</span>Dolomite #8</div>
+          <div><span class="rlabel">Mat. code</span>10400</div>
+          <div><span class="rlabel">% blend</span>62.0</div>
+          <div><span class="rlabel">Gsb</span>2.71</div>
+          <div>⋮</div>
+        </div>
+        <div class="rowitem">
+          <div><span class="rlabel">Producer</span>Rogers Group</div>
+          <div><span class="rlabel">Type &amp; size</span>Nat. Sand</div>
+          <div><span class="rlabel">Mat. code</span>21015</div>
+          <div><span class="rlabel">% blend</span>28.0</div>
+          <div><span class="rlabel">Gsb</span>2.64</div>
+          <div>⋮</div>
+        </div>
+        <div class="rowitem">
+          <div><span class="rlabel">Producer</span>Rogers Group</div>
+          <div><span class="rlabel">Type &amp; size</span>RAP</div>
+          <div><span class="rlabel">Mat. code</span>90210</div>
+          <div><span class="rlabel">% blend</span>10.0</div>
+          <div><span class="rlabel">Gsb</span>2.58</div>
+          <div>⋮</div>
+        </div>
+        <div class="addrow">+ add aggregate component (up to 6)</div>
+      </div>
+    </section>
+
+    <section class="section" id="gradation">
+      <div class="section-head"><h2>Gradation</h2><span class="section-tag mono">t_tst_rslt_dtl</span></div>
+      <div class="sieverow">
+        <div class="sieve"><div class="sz">3/4"</div><div class="pv">100</div></div>
+        <div class="sieve"><div class="sz">1/2"</div><div class="pv">94</div></div>
+        <div class="sieve"><div class="sz">3/8"</div><div class="pv">85</div></div>
+        <div class="sieve"><div class="sz">#4</div><div class="pv">58</div></div>
+        <div class="sieve"><div class="sz">#8</div><div class="pv">37</div></div>
+        <div class="sieve"><div class="sz">#50</div><div class="pv">11</div></div>
+        <div class="sieve"><div class="sz">#200</div><div class="pv">4.8</div></div>
+      </div>
+      <div class="chartblock">0.45 power chart — auto-generated from sieve values above</div>
+    </section>
+
+    <section class="section" id="performance">
+      <div class="section-head"><h2>Performance testing</h2><span class="section-tag mono">t_tst_rslt_dtl · TSR / Hamburg / CT</span></div>
+      <div class="grid" style="margin-bottom:14px;">
+        <div class="field"><label>TSR (%)</label><div class="box mono">82.4</div></div>
+        <div class="field"><label>Hamburg made with</label><div class="box">Job mix</div></div>
+        <div class="field"><label>Hamburg SIP (left)</label><div class="box mono">14,200</div></div>
+      </div>
+      <div class="rowlist">
+        <div class="rowitem" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr auto;">
+          <div><span class="rlabel">Specimen</span>CT #1</div>
+          <div><span class="rlabel">l75</span>0.041</div>
+          <div><span class="rlabel">m75</span>62.1</div>
+          <div><span class="rlabel">Gf</span>1,840</div>
+          <div><span class="rlabel">Index</span>74.2</div>
+          <div>⋮</div>
+        </div>
+        <div class="addrow">+ add CT specimen (up to 8)</div>
+      </div>
+    </section>
+
+    <section class="section" id="recycle">
+      <div class="section-head"><h2>Recycle / KYCT data</h2><span class="section-tag mono">t_tst_rslt_dtl</span></div>
+      <div class="grid">
+        <div class="field"><label>RAP (%)</label><div class="box mono">10.0</div></div>
+        <div class="field"><label>RAS (%)</label><div class="box mono">0.0</div></div>
+        <div class="field"><label>Virgin AC (%)</label><div class="box mono">4.7</div></div>
+        <div class="field"><label>% additive / type</label><div class="box">—</div></div>
+      </div>
+    </section>
+
+    <section class="section" id="status">
+      <div class="section-head"><h2>Status &amp; validation</h2><span class="section-tag mono">workflow</span></div>
+      <div class="timeline">
+        <div class="tstep done"><div class="tline"></div><div class="dot"></div><div class="tl">Draft</div></div>
+        <div class="tstep current"><div class="tline"></div><div class="dot"></div><div class="tl">Internal review</div></div>
+        <div class="tstep"><div class="tline"></div><div class="dot"></div><div class="tl">Released</div></div>
+        <div class="tstep"><div class="tline"></div><div class="dot"></div><div class="tl">Approved</div></div>
+      </div>
+      <div class="auditlog">
+        <div class="auditrow"><span class="ts">08/25 09:14</span> Design data entered — j.smith</div>
+        <div class="auditrow"><span class="ts">08/26 13:02</span> Aggregate blend updated — j.smith</div>
+        <div class="auditrow"><span class="ts">08/27 08:40</span> Moved to internal review — a.jones</div>
+      </div>
+    </section>
+
+  </main>
+
+  <aside class="valpanel">
+    <h3>Outstanding items</h3>
+    <div class="sub">3 items before this can be released</div>
+    <div class="vitem"><span class="flag"></span><a href="#aggregate">Aggregate blend</a> — Gsb missing on component 3</div>
+    <div class="vitem"><span class="flag"></span><a href="#gradation">Gradation</a> — result exceeds JMF tolerance at #8</div>
+    <div class="vitem"><span class="flag"></span><a href="#recycle">Recycle data</a> — virgin AC not yet confirmed</div>
+  </aside>
+
+</div>
+
+</body>
+</html>
