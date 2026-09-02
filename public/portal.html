@@ -223,6 +223,22 @@
     // (Standalone Netlify app, so localStorage is allowed per CLAUDE.md.)
     JOB_STORAGE_KEY: "mix_portal_job",
 
+    // AMP number -> human plant name, for the Plant dropdown.
+    //
+    // technician_plant_access stores only (sm_id, amp_number) — there is no
+    // plant name anywhere in supabase/schema.sql, so there is nothing to
+    // join to. This map is the interim source. An AMP number missing from
+    // here still works: the dropdown falls back to showing the bare number,
+    // so an unmapped plant is never hidden or blocked.
+    //
+    // Names here match `plant_name` on the Allen JMF records, keyed by the
+    // JMF's `contractor_producer_no`. This belongs in a `plants` table
+    // (amp_number primary key, name) once one exists — at that point delete
+    // this map rather than letting the two drift.
+    PLANT_NAMES: {
+      AMP070302: "The Allen Company @ Boonesborough",
+    },
+
     // Fallback only: used if a technician has no technician_plant_access
     // rows at all, so the page is still testable. Empty = show a warning
     // and disable Generate instead of inventing plants.
@@ -234,6 +250,13 @@
      ================================================================== */
   const $ = (id) => document.getElementById(id);
   const state = { tech: null, caps: null, plants: [], job: null };
+
+  // Values here come from the database, so they are escaped before being
+  // interpolated into markup rather than trusted.
+  const esc = (v) =>
+    String(v).replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+    );
 
   // NOTE: this client is named `sb`, not `supabase`, on purpose. The CDN
   // bundle declares its global as `var supabase`, so a top-level
@@ -312,9 +335,16 @@
   function renderPlants() {
     const list = state.plants.length ? state.plants : CONFIG.PLANT_FALLBACK;
     const sel = $("plant");
+    // The option VALUE stays the bare AMP number - it is what travels to
+    // designbook.html as ?plant= and what a saved design will key on. Only
+    // the label gains the name, and only when we have one.
+    const label = (amp) => {
+      const name = CONFIG.PLANT_NAMES[amp];
+      return name ? `${amp} — ${name}` : amp;
+    };
     sel.innerHTML =
       `<option value="">— select plant —</option>` +
-      list.map((p) => `<option value="${p}">${p}</option>`).join("");
+      list.map((p) => `<option value="${esc(p)}">${esc(label(p))}</option>`).join("");
 
     if (!list.length) {
       sel.disabled = true;
