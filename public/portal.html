@@ -223,21 +223,6 @@
     // (Standalone Netlify app, so localStorage is allowed per CLAUDE.md.)
     JOB_STORAGE_KEY: "mix_portal_job",
 
-    // AMP number -> human plant name, for the Plant dropdown.
-    //
-    // The real source is the `plants` table (supabase/plants.sql). This map
-    // is only a fallback for AMP numbers that table does not have yet, so
-    // the dropdown stays useful before it is seeded. Resolution order is
-    // plants table, then this map, then the bare AMP number — an unmapped
-    // plant is never hidden or blocked.
-    //
-    // Prefer adding names to the `plants` table over growing this map: the
-    // table is shared by every page, this map would have to be duplicated
-    // into each one.
-    PLANT_NAMES: {
-      AMP070302: "The Allen Company @ Boonesboro",
-    },
-
     // Fallback only: used if a technician has no technician_plant_access
     // rows at all, so the page is still testable. Empty = show a warning
     // and disable Generate instead of inventing plants.
@@ -305,8 +290,8 @@
   // Reads the plants table if it exists. It may not: supabase/plants.sql is
   // a separate migration from schema.sql. A missing table errors rather than
   // hanging, and the error is deliberately swallowed - the dropdown falls
-  // back to CONFIG.PLANT_NAMES and then to bare AMP numbers, so the Portal
-  // works either side of that migration being run.
+  // back to bare AMP numbers, so the Portal works either side of that
+  // migration being run.
   async function loadPlantNames() {
     const { data } = await sb.from("plants").select("amp_number, name");
     const map = {};
@@ -349,8 +334,11 @@
     // The option VALUE stays the bare AMP number - it is what travels to
     // designbook.html as ?plant= and what a saved design will key on. Only
     // the label gains the name, and only when we have one.
+    // Names come from the plants table (supabase/plants.sql), which is the
+    // single source. An AMP number missing from it renders as the bare
+    // number rather than being hidden or blocked.
     const label = (amp) => {
-      const name = state.plantNames[amp] || CONFIG.PLANT_NAMES[amp];
+      const name = state.plantNames[amp];
       return name ? `${amp} — ${name}` : amp;
     };
     sel.innerHTML =

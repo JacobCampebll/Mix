@@ -263,6 +263,24 @@ one column:
   Table Editor or SQL Editor. The generated CSVs/SQL contain real names —
   they are gitignored, never commit them.
 
+### Plants
+
+- **`plants` (`supabase/plants.sql`) is the single source for AMP number to
+  plant name.** `technician_plant_access` holds only `(sm_id, amp_number)`;
+  it has no name to join to, which is why this table exists. It is applied
+  and seeded on the live project. Add a new plant there — never in a page's
+  `CONFIG`, which would need copying into every page. A page resolves a
+  label as plants table, then the bare AMP number, so an unseeded plant
+  degrades rather than disappearing.
+- **Plant names are read-all reference data**, not per-technician data:
+  the RLS policy is `to authenticated using (true)`. Scoping reads to a
+  technician's own plants would stop their dropdown labelling a plant they
+  are about to be assigned. There is no write policy — seeding is an admin
+  action.
+- The spelling is **Boonesboro**. The JMF corpus carries it both ways
+  (`plant_name` says Boonesborough, the aggregate producer entry says
+  Boonesboro); Boonesboro is what people expect.
+
 ### Pages downstream of login
 
 - **No session plumbing is needed between pages.** The Supabase JS client
