@@ -4,6 +4,9 @@ Purpose: a shared web app replacing KYTC's MixPack and AMAW workbooks, now known
 as **DesignBook** and **PlantBook** respectively. A joint effort between KYTC and
 contractors.
 
+Live at **https://kytcmix.netlify.app** (Netlify project `kytcmix`), deployed
+automatically from `main`. `/` redirects to `login.html`.
+
 Collaborators: **Jacob** and **Andrew**, working from separate Claude accounts
 against this shared repo. Neither can see the other's chats — this file is the
 shared context. If you learn something durable about the project, add it here
