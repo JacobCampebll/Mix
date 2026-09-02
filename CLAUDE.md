@@ -230,6 +230,29 @@ one column:
   Table Editor or SQL Editor. The generated CSVs/SQL contain real names —
   they are gitignored, never commit them.
 
+### Pages downstream of login
+
+- **No session plumbing is needed between pages.** The Supabase JS client
+  persists its session in `localStorage`, scoped to the origin, so any
+  same-site page can call `supabase.auth.getSession()` and already have
+  whatever `login.html` established. Deploy every page to the same Netlify
+  site and do not invent a token hand-off or a shared-state module.
+- **Capability checks belong at page load, not just on the button.** Every
+  page is directly linkable, so a gate applied only to the link that
+  navigates there is not a gate. `portal.html` and `designbook.html` each
+  re-check `can_access_designbook` independently on load. This is UX gating
+  either way — the real boundary is RLS.
+- **The DesignBook form renders from `CONFIG.SECTIONS`.** That schema is the
+  single source for the markup, the xlsx extractor, the validation rail and
+  the save payload. Adding or renaming a field means editing the schema only.
+  Do not hand-write field markup back in — four independent copies of one
+  field list is four chances to drift.
+- **Extracted workbook values are shown as provisional, on purpose.** Legacy
+  MixPack imports tint prefilled fields and print the source cell
+  (`from Sheet1!C14`) underneath, and ship `extracted_from` in the save
+  payload. An extracted value is a starting point for a human, never an
+  authority. Keep that visible in any future importer.
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
