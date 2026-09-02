@@ -116,6 +116,23 @@ TBD — cite the governing spec section when encoding a limit in code.
   database. Enabling RLS with no policy denies everything by default, which
   is the safe starting point: turn it on first, then add policies.
 
+- **Never name a top-level `const` `supabase` on a page that loads the
+  supabase-js CDN bundle.** The UMD bundle declares its global as
+  `var supabase`. A script-top-level `const supabase = window.supabase
+  .createClient(...)` collides with that var binding, and the collision is
+  a **`SyntaxError: Identifier 'supabase' has already been declared`**
+  raised at script-instantiation time — so *not one line* of that inline
+  script ever runs. There is no console-visible failure inside your code,
+  no half-executed state: the page just sits on its static markup forever.
+  It cost real time because the symptom ("stuck on Loading…") looks like a
+  hung `await` or an RLS problem, and the page's own error handling can
+  never fire. `login.html` was immune only by accident — its
+  `const supabase` sits inside an `else { }` block, so it is block-scoped.
+  `portal.html` and `designbook.html` had it at top level and were both
+  completely dead. The client is now named `sb` in both, with a comment
+  saying why. Diagnose this class of bug by checking whether *static*
+  markup the script should have rewritten is still showing.
+
 - **An UPDATE (or DELETE) policy alone cannot "claim" a row for a user who
   doesn't own it yet — this silently updates 0 rows, always, and looks like
   it's just not working.** Postgres requires a row to pass the table's

@@ -468,7 +468,14 @@ const state = {
   inspected: [],
 };
 
-const supabase = window.supabase.createClient(
+// NOTE: this client is named `sb`, not `supabase`, on purpose. The CDN
+// bundle declares its global as `var supabase`, so a top-level
+// `const supabase = ...` here collides with it and throws
+// "Identifier 'supabase' has already been declared" at script-
+// instantiation time - which kills the ENTIRE inline script before a
+// single line runs. The page then sits on its static markup forever.
+// Do not rename this back.
+const sb = window.supabase.createClient(
   CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY
 );
 
@@ -1028,7 +1035,7 @@ function enterForm() {
 async function boot(session) {
   if (!session || !session.user) return toLogin();
   try {
-    const { data: tech } = await supabase
+    const { data: tech } = await sb
       .from("technicians")
       .select("sm_id, first_name, last_name, company, onboarded")
       .eq("user_id", session.user.id)
@@ -1045,7 +1052,7 @@ async function boot(session) {
     show("portalLink", true);
     show("signOutLink", true);
 
-    const { data: caps } = await supabase
+    const { data: caps } = await sb
       .from("technician_capabilities")
       .select("can_access_plantbook, can_access_designbook")
       .eq("user_id", session.user.id)
@@ -1081,7 +1088,7 @@ async function boot(session) {
 
 wireDrop();
 $("portalLink").addEventListener("click", toPortal);
-$("signOutLink").addEventListener("click", async () => { await supabase.auth.signOut(); toLogin(); });
+$("signOutLink").addEventListener("click", async () => { await sb.auth.signOut(); toLogin(); });
 $("saveBtn").addEventListener("click", saveDesign);
 $("skipUpload").addEventListener("click", () => {
   state.mode = "new";
@@ -1089,8 +1096,8 @@ $("skipUpload").addEventListener("click", () => {
   audit(`Blank design started — ${state.tech.sm_id}`);
 });
 
-supabase.auth.getSession().then(({ data }) => boot(data.session));
-supabase.auth.onAuthStateChange((event, session) => {
+sb.auth.getSession().then(({ data }) => boot(data.session));
+sb.auth.onAuthStateChange((event, session) => {
   if (event === "SIGNED_OUT" || !session) toLogin();
 });
 </script>

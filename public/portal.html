@@ -235,7 +235,14 @@
   const $ = (id) => document.getElementById(id);
   const state = { tech: null, caps: null, plants: [], job: null };
 
-  const supabase = window.supabase.createClient(
+  // NOTE: this client is named `sb`, not `supabase`, on purpose. The CDN
+  // bundle declares its global as `var supabase`, so a top-level
+  // `const supabase = ...` here collides with it and throws
+  // "Identifier 'supabase' has already been declared" at script-
+  // instantiation time - which kills the ENTIRE inline script before a
+  // single line runs. The page then sits on its static markup forever.
+  // Do not rename this back.
+  const sb = window.supabase.createClient(
     CONFIG.SUPABASE_URL,
     CONFIG.SUPABASE_ANON_KEY
   );
@@ -257,7 +264,7 @@
   /* ---- data ---- */
   // Same three reads login.html's session view does, plus plant access.
   async function loadTechnician(userId) {
-    const { data: tech, error } = await supabase
+    const { data: tech, error } = await sb
       .from("technicians")
       .select("sm_id, first_name, last_name, company, onboarded")
       .eq("user_id", userId)
@@ -266,7 +273,7 @@
     return tech;
   }
   async function loadCapabilities(userId) {
-    const { data } = await supabase
+    const { data } = await sb
       .from("technician_capabilities")
       .select("can_access_plantbook, can_access_designbook")
       .eq("user_id", userId)
@@ -274,7 +281,7 @@
     return data || { can_access_plantbook: false, can_access_designbook: false };
   }
   async function loadPlants(smId) {
-    const { data } = await supabase
+    const { data } = await sb
       .from("technician_plant_access")
       .select("amp_number")
       .eq("sm_id", smId);
@@ -397,7 +404,7 @@
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
+    await sb.auth.signOut();
     toLogin();
   }
 
@@ -448,9 +455,9 @@
   $("backLink").addEventListener("click", () => { setStatus($("portalStatus"), ""); showOnly("portalView"); });
   $("signOutLink").addEventListener("click", signOut);
 
-  supabase.auth.getSession().then(({ data }) => boot(data.session));
+  sb.auth.getSession().then(({ data }) => boot(data.session));
   // Catches sign-out in another tab so this page doesn't sit on stale data.
-  supabase.auth.onAuthStateChange((event, session) => {
+  sb.auth.onAuthStateChange((event, session) => {
     if (event === "SIGNED_OUT" || !session) toLogin();
   });
 </script>
