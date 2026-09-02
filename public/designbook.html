@@ -309,6 +309,21 @@ const CONFIG = {
   LOGIN_URL: "login.html",
   PORTAL_URL: "portal.html",
 
+  // Mix chosen on the Sub Portal. ?mix= carries the kytc-lookup signature
+  // ("CL3 ASPH SURF 0.38A PG64-22"); the Portal also parks the full record
+  // in localStorage under this key. Same string as portal.html's
+  // CONFIG.MIX_LOOKUP.storageKey - shared ground, change both.
+  MIX_HANDOFF_KEY: "mix_portal_selected_mix",
+  // Which form fields a chosen mix pre-fills. Values land through the same
+  // path as a workbook import: tinted, with a "from …" note, editable, and
+  // recorded in extracted_from - a starting point for a human, never an
+  // authority. Never overwrites a value the workbook already supplied.
+  MIX_PREFILL: {
+    binder_grade: (m) => m.binder_grade,
+    total_tons:   (m) => m.total_quantity,
+    county:       (m) => m.county,
+  },
+
   // Mix Design Tech cert (unexpired), from technician_capabilities.
   REQUIRES_CAPABILITY: "can_access_designbook",
 
@@ -463,7 +478,9 @@ const state = {
   job: null,         // { cid, letting, plant }
   tech: null,
   stageIdx: 0,
-  sources: {},       // fieldKey -> cell address it was extracted from
+  sources: {},       // fieldKey -> where it came from (cell address, or the mix lookup)
+  mix: null,         // { signature, binder_grade, total_quantity, unit, mix_class, layer,
+                     //   nominal_size, county, lines, source } or null
   extracted: null,   // { scalars, tables } from the workbook, if any
   inspected: [],
 };
@@ -851,6 +868,7 @@ async function handleFile(file) {
     const { scalars, sources } = extractScalars(grids);
     state.extracted = { scalars, tables: extractTables(grids) };
     state.sources = sources;
+    applyMixPrefill();   // fills only what the workbook left blank
     state.inspected = inspect(grids);
 
     $("inspector").textContent =
@@ -899,7 +917,15 @@ function saveDesign() {
     sm_id: state.tech.sm_id,           // RLS scopes off this + auth.uid()
     origin: state.mode,                // "legacy" | "new"
     stage: CONFIG.STAGES[state.stageIdx].key,
-    extracted_from: state.sources,     // field -> source cell, for audit
+    extracted_from: state.sources,     // field -> source cell / lookup, for audit
+    mix: state.mix ? {
+      signature: state.mix.signature,
+      mix_class: state.mix.mix_class,
+      layer: state.mix.layer,
+      nominal_size: state.mix.nominal_size,
+      binder_grade: state.mix.binder_grade,
+      bid_lines: state.mix.lines,
+    } : null,
     values,
     rows: tables,
     saved_at: new Date().toISOString(),
@@ -1015,7 +1041,65 @@ function readParams() {
   return {
     mode: p.get("mode") === "legacy" ? "legacy" : "new",
     job: cid && letting && plant ? { cid, letting, plant } : null,
+    mix: p.get("mix") || null,
   };
+}
+
+/* ---------- mix selection -> pre-fill ---------- */
+function titleCase(v) {
+  return String(v || "").toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase());
+}
+
+// The signature alone still tells us a lot: "CL3 ASPH SURF 0.38A PG64-22"
+// -> class 3, SURF layer, 0.38A, PG64-22. Used when the localStorage
+// handoff is missing or belongs to a different job.
+function parseSignature(sig) {
+  const m = /^CL(\d)\s+ASPH\s+([A-Z]+)\s+([\d.]+[A-Z]?)\s+(PG\d{2}-\d{2})$/i.exec(sig || "");
+  const pg = /PG\d{2}-\d{2}/i.exec(sig || "");
+  return {
+    mix_class: m ? Number(m[1]) : null,
+    layer: m ? m[2].toUpperCase() : null,
+    nominal_size: m ? m[3] : null,
+    binder_grade: m ? m[4].toUpperCase() : (pg ? pg[0].toUpperCase() : null),
+  };
+}
+
+function loadMixContext(job, signature) {
+  if (!signature) return null;
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem(CONFIG.MIX_HANDOFF_KEY) || "null"); } catch (_) {}
+
+  const matches = stored && stored.signature === signature && stored.cid === job.cid;
+  const raw = matches && stored.mix ? stored.mix : null;
+  const parsed = parseSignature(signature);
+  return {
+    signature,
+    mix_class:      raw ? raw.mix_class     ?? parsed.mix_class      : parsed.mix_class,
+    layer:          raw ? raw.layer         ?? parsed.layer          : parsed.layer,
+    nominal_size:   raw ? raw.nominal_size  ?? parsed.nominal_size   : parsed.nominal_size,
+    binder_grade:   raw ? raw.binder_grade  ?? parsed.binder_grade   : parsed.binder_grade,
+    total_quantity: raw ? raw.total_quantity : null,
+    unit:           raw ? raw.unit : null,
+    county:         matches && stored.county ? titleCase(stored.county) : null,
+    lines:          raw ? (raw.instances || []).map((i) => i.line_no).filter(Boolean) : [],
+    source:         raw ? `kytc-lookup · contract ${job.cid}` : "mix selection",
+  };
+}
+
+// Merge the mix into the same place a workbook import lands, so it renders
+// tinted with a source note and ships in extracted_from. Workbook values win:
+// a key that already has a value is left alone.
+function applyMixPrefill() {
+  const m = state.mix;
+  if (!m) return;
+  if (!state.extracted) state.extracted = { scalars: {}, tables: {} };
+  Object.entries(CONFIG.MIX_PREFILL).forEach(([key, pick]) => {
+    const v = pick(m);
+    if (v === null || v === undefined || v === "") return;
+    if (!isBlank(state.extracted.scalars[key])) return;
+    state.extracted.scalars[key] = v;
+    state.sources[key] = m.source;
+  });
 }
 
 function enterForm() {
@@ -1026,8 +1110,11 @@ function enterForm() {
   $("outLetting").textContent = state.job.letting;
   $("outPlant").textContent = state.job.plant;
   // Mix ID isn't assigned yet — it should come from the DesignBook table's
-  // identity once that exists. Until then, show the job it belongs to.
-  $("mixid").textContent = `JOB · ${state.job.cid} · ${state.job.plant}`;
+  // identity once that exists. Until then, show the chosen mix if there is
+  // one, else the job it belongs to.
+  $("mixid").textContent = state.mix
+    ? `${state.mix.signature} · ${state.job.cid}`
+    : `JOB · ${state.job.cid} · ${state.job.plant}`;
   $("savedstate").textContent = "Not saved yet";
   renderForm();
 }
@@ -1064,7 +1151,7 @@ async function boot(session) {
       return;
     }
 
-    const { mode, job } = readParams();
+    const { mode, job, mix } = readParams();
     if (!job) {
       msg($("gateMsg"),
         "No job selected. Start from the Portal so a contract, letting date, and plant come with you.", "error");
@@ -1073,6 +1160,8 @@ async function boot(session) {
 
     state.mode = mode;
     state.job = job;
+    state.mix = loadMixContext(job, mix);
+    applyMixPrefill();
 
     if (mode === "legacy") {
       show("gateCard", false);

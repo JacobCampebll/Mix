@@ -242,6 +242,13 @@
       // and return 546 WORKER_RESOURCE_LIMIT. Observed roughly one call in
       // three. It succeeds on a retry, so retry once before reporting.
       retries: 1,
+      // The chosen mix's full kytc-lookup record is handed to
+      // designbook.html through localStorage under this key, so DesignBook
+      // can pre-fill binder grade, tonnage and county without re-calling
+      // the (slow, flaky) function. ?mix= carries only the signature;
+      // DesignBook checks the stored record matches it before trusting it.
+      // Same string lives in designbook.html's CONFIG - shared ground.
+      storageKey: "mix_portal_selected_mix",
     },
 
     // Remember the last job locally so a reload doesn't re-type it.
@@ -258,7 +265,7 @@
      LOGIC — state, data loading, rendering, wiring.
      ================================================================== */
   const $ = (id) => document.getElementById(id);
-  const state = { tech: null, caps: null, plants: [], plantNames: {}, job: null, mixes: [], mix: "" };
+  const state = { tech: null, caps: null, plants: [], plantNames: {}, job: null, mixes: [], mix: "", mixHeader: null };
 
   // Values here come from the database, so they are escaped before being
   // interpolated into markup rather than trusted.
@@ -349,6 +356,7 @@
           id: String(m.signature),
           label: String(m.signature) + amount,
           lines: (m.instances || []).map((i) => i.line_no).filter(Boolean),
+          raw: m,
         };
       });
   }
@@ -482,6 +490,7 @@
         // from - renderSub runs again on every Generate.
         if (!state.job || state.job.cid !== j.cid) return;
         state.mixes = result.mixes;
+        state.mixHeader = (result.raw && result.raw.header) || null;
         renderMixes(result);
       });
     }
@@ -532,7 +541,19 @@
     // state.job stays the three job keys; mix rides alongside so nothing
     // downstream that reads cid/letting/plant has to change.
     const params = { ...state.job };
-    if (state.mix) params.mix = state.mix;
+    if (state.mix) {
+      params.mix = state.mix;
+      const chosen = state.mixes.find((m) => m.id === state.mix);
+      try {
+        localStorage.setItem(CONFIG.MIX_LOOKUP.storageKey, JSON.stringify({
+          cid: state.job.cid,
+          letting: state.job.letting,
+          signature: state.mix,
+          mix: chosen ? chosen.raw : null,
+          county: state.mixHeader ? state.mixHeader.county : null,
+        }));
+      } catch (_) { /* storage unavailable - DesignBook falls back to parsing the signature */ }
+    }
     const q = new URLSearchParams(params).toString();
     if (!url) {
       setStatus(
