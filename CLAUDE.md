@@ -277,6 +277,18 @@ one column:
   technician's own plants would stop their dropdown labelling a plant they
   are about to be assigned. There is no write policy — seeding is an admin
   action.
+- **Central Office Materials reviewers see every plant.** The 12 KYTC
+  Central Office people hold both certs but have no
+  `technician_plant_access` rows — correct, they review rather than
+  produce. `technicians.all_plants` marks them, and the view
+  **`technician_effective_plant_access`** (`supabase/effective_plant_access.sql`)
+  is a technician's own access rows plus every plant when that flag is set.
+  **Pages and RLS query the view, never the raw access table**, so "all
+  plants" is derived in exactly one place. It is a flag, not 1,560 inserted
+  rows, because inserted rows would vanish on the next roster re-seed and
+  would miss plants added later. The seed script sets the flag by company.
+  Applied live 2026-09-02; Andrew and Tate resolve to 130 plants, a
+  contractor tech still resolves to only their own.
 - The spelling is **Boonesboro**. The JMF corpus carries it both ways
   (`plant_name` says Boonesborough, the aggregate producer entry says
   Boonesboro); Boonesboro is what people expect.

@@ -183,6 +183,14 @@ def main():
             )
         )
         f.write("\non conflict (sm_id) do nothing;\n")
+        # Central Office Materials reviewers see every plant (see
+        # supabase/effective_plant_access.sql). Set the flag by company so a
+        # re-seed that adds a new Central Office person grants it too,
+        # instead of someone remembering to flip it by hand.
+        f.write(
+            "\nupdate technicians set all_plants = true\n"
+            " where company = 'Central Office Materials' and not all_plants;\n"
+        )
 
     with open(access_sql, "w", encoding="utf-8") as f:
         f.write("insert into technician_plant_access (sm_id, amp_number)\nvalues\n")

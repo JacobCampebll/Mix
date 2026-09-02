@@ -305,7 +305,7 @@
   async function loadTechnician(userId) {
     const { data: tech, error } = await sb
       .from("technicians")
-      .select("sm_id, first_name, last_name, company, onboarded")
+      .select("sm_id, first_name, last_name, company, onboarded, all_plants")
       .eq("user_id", userId)
       .maybeSingle();
     if (error) throw error;
@@ -428,9 +428,13 @@
         : `No mix designs found on contract ${state.job.cid}.`;
   }
 
+  // technician_effective_plant_access (supabase/effective_plant_access.sql)
+  // is a technician's own technician_plant_access rows, plus every plant
+  // when technicians.all_plants is set (Central Office reviewers). One
+  // query, one rule - never re-derive "all plants" in page code.
   async function loadPlants(smId) {
     const { data } = await sb
-      .from("technician_plant_access")
+      .from("technician_effective_plant_access")
       .select("amp_number")
       .eq("sm_id", smId);
     const amps = (data || []).map((r) => r.amp_number);
@@ -479,6 +483,9 @@
       $("generateBtn").disabled = true;
       $("plantHint").textContent =
         "No plants are assigned to your SM ID in technician_plant_access. Contact an admin.";
+    } else if (state.tech && state.tech.all_plants) {
+      $("plantHint").textContent =
+        `All ${list.length} plants — Central Office access.`;
     } else {
       $("plantHint").textContent =
         `${list.length} plant${list.length === 1 ? "" : "s"} assigned to you.`;
