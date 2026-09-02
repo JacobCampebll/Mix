@@ -182,6 +182,20 @@
     background: color-mix(in srgb, var(--success) 18%, transparent);
     color: var(--success);
   }
+  a.badge.granted {
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.05s;
+  }
+  a.badge.granted:hover {
+    background: color-mix(in srgb, var(--success) 34%, transparent);
+  }
+  a.badge.granted:active { transform: translateY(1px); }
+  .badge-hint {
+    color: var(--muted);
+    font-size: 0.78rem;
+    margin: -12px 0 16px;
+  }
   .badge.denied {
     background: color-mix(in srgb, var(--muted) 18%, transparent);
     color: var(--muted);
@@ -259,6 +273,7 @@
     <div class="who" id="sessionWho"></div>
     <div class="meta" id="sessionMeta"></div>
     <div class="badges" id="sessionAccess"></div>
+    <p class="badge-hint" id="sessionHint" hidden></p>
     <button class="secondary" id="signOutBtn">Sign out</button>
   </div>
 </div>
@@ -269,6 +284,9 @@
   // Fill these in once the Supabase project exists (see setup comment
   // at the top of this file).
   const CONFIG = {
+    // Where a granted badge sends you. portal.html sits beside this file
+    // in public/, so a bare relative path is correct.
+    PORTAL_URL: "portal.html",
     SUPABASE_URL: "https://iwysxhcmvhkcjxmjarkd.supabase.co",
     SUPABASE_ANON_KEY:
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3eXN4aGNtdmhrY2p4bWphcmtkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3NTE0MDUsImV4cCI6MjEwMzMyNzQwNX0.K_YKefS3p6W2ZVjEw8El88a_7y_SnLaYNnzF7BA3WKc",
@@ -328,6 +346,7 @@
   const sessionWho = document.getElementById("sessionWho");
   const sessionMeta = document.getElementById("sessionMeta");
   const sessionAccess = document.getElementById("sessionAccess");
+  const sessionHint = document.getElementById("sessionHint");
   const form = document.getElementById("authForm");
   const loginIdInput = document.getElementById("loginId");
   const passwordInput = document.getElementById("password");
@@ -423,14 +442,28 @@
         .maybeSingle();
 
       sessionAccess.innerHTML = "";
-      const badge = (label, granted) => {
-        const el = document.createElement("span");
+      // A granted badge is the way into the app - it links to the Portal
+      // with ?book= so the Portal knows which book was chosen. A denied
+      // badge stays an inert span: nothing to click through to.
+      const badge = (label, granted, book) => {
+        const el = document.createElement(granted ? "a" : "span");
         el.className = "badge " + (granted ? "granted" : "denied");
         el.textContent = label;
+        if (granted) {
+          el.href = `${CONFIG.PORTAL_URL}?book=${book}`;
+          el.title = `Open ${label}`;
+        }
         return el;
       };
-      sessionAccess.appendChild(badge("DesignBook", caps?.can_access_designbook));
-      sessionAccess.appendChild(badge("PlantBook", caps?.can_access_plantbook));
+      const canDesign = !!caps?.can_access_designbook;
+      const canPlant = !!caps?.can_access_plantbook;
+      sessionAccess.appendChild(badge("DesignBook", canDesign, "designbook"));
+      sessionAccess.appendChild(badge("PlantBook", canPlant, "plantbook"));
+
+      sessionHint.hidden = false;
+      sessionHint.textContent = (canDesign || canPlant)
+        ? "Choose a book above to continue."
+        : "No current certification grants access to either book. Contact an admin.";
     }
 
     supabase.auth.getSession().then(({ data }) => refreshView(data.session));
