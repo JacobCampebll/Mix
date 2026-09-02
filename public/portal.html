@@ -233,12 +233,15 @@
     // is null the dropdown stays hidden and the Sub Portal behaves exactly
     // as it did before - the feature is off, not broken.
     MIX_LOOKUP: {
-      fn: null,
-      // Sent as the request body: { [param]: "252112" }.
-      param: "contract_id",
+      fn: "kytc-lookup",
       // A mix is optional. Set true to block Legacy Upload / Build New
       // until one is chosen.
       required: false,
+      // The function parses the contract PDF from transportation.ky.gov on
+      // every call, so a cold start can exceed the worker's compute budget
+      // and return 546 WORKER_RESOURCE_LIMIT. Observed roughly one call in
+      // three. It succeeds on a retry, so retry once before reporting.
+      retries: 1,
     },
 
     // Remember the last job locally so a reload doesn't re-type it.
@@ -321,36 +324,51 @@
     return map;
   }
 
-  // The Edge Function's exact response shape is not pinned down here on
-  // purpose: this accepts the handful of shapes such a function usually
-  // returns, so wiring it up is a name in CONFIG rather than a rewrite. If
-  // Andrew's function returns something else, this is the ONE place to
-  // change - everything downstream works off {id, label}.
-  function normalizeMixes(payload) {
-    const arr = Array.isArray(payload) ? payload
-      : payload && (payload.mixes || payload.data || payload.results || payload.rows);
-    if (!Array.isArray(arr)) return [];
-    return arr.map((m) => {
-      if (typeof m === "string") return { id: m, label: m };
-      const id = m.id ?? m.mix_id ?? m.mix_id_num ?? m.jmf_id ?? m.bid_code ?? "";
-      const label = m.label ?? m.mix_type_string ?? m.mix_description ??
-                    m.description ?? m.name ?? String(id);
-      return { id: String(id), label: String(label) };
-    }).filter((m) => m.id || m.label);
+  // kytc-lookup wants MM/DD/YYYY; the date input gives YYYY-MM-DD.
+  function toUsDate(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+    return m ? `${m[2]}/${m[3]}/${m[1]}` : iso;
   }
 
-  async function loadMixes(cid) {
+  // kytc-lookup returns the parsed contract; the mixes are in
+  // `required_mix_designs`, each with a `signature` like
+  // "CL3 ASPH SURF 0.38A PG64-22" plus quantity and the bid-code instances
+  // it came from. The signature is unique within a contract, so it is used
+  // as the option value.
+  function normalizeMixes(payload) {
+    const arr = payload && payload.required_mix_designs;
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((m) => m && m.signature)
+      .map((m) => {
+        const qty = Number(m.total_quantity);
+        const amount = Number.isFinite(qty)
+          ? ` — ${qty.toLocaleString()} ${m.unit || ""}`.trimEnd()
+          : "";
+        return {
+          id: String(m.signature),
+          label: String(m.signature) + amount,
+          lines: (m.instances || []).map((i) => i.line_no).filter(Boolean),
+        };
+      });
+  }
+
+  async function loadMixes(cid, letting) {
     const cfg = CONFIG.MIX_LOOKUP;
     if (!cfg.fn) return { ok: false, reason: "off", mixes: [] };
-    try {
-      const { data, error } = await sb.functions.invoke(cfg.fn, {
-        body: { [cfg.param]: cid },
-      });
-      if (error) return { ok: false, reason: error.message || "lookup failed", mixes: [] };
-      return { ok: true, mixes: normalizeMixes(data) };
-    } catch (err) {
-      return { ok: false, reason: err.message || "lookup failed", mixes: [] };
+
+    const body = { contract_id: cid, letting_date: toUsDate(letting) };
+    let last = "lookup failed";
+    for (let attempt = 0; attempt <= (cfg.retries || 0); attempt++) {
+      try {
+        const { data, error } = await sb.functions.invoke(cfg.fn, { body });
+        if (!error) return { ok: true, mixes: normalizeMixes(data), raw: data };
+        last = error.message || "lookup failed";
+      } catch (err) {
+        last = err.message || "lookup failed";
+      }
     }
+    return { ok: false, reason: last, mixes: [] };
   }
 
   function renderMixes(result) {
@@ -366,10 +384,10 @@
     state.mix = sel.value;
 
     $("mixHint").textContent = !result.ok
-      ? `Couldn't load mixes for this contract (${result.reason}). You can still continue.`
+      ? `Couldn't load mixes (${result.reason}). You can still continue.`
       : state.mixes.length
-        ? `${state.mixes.length} mix${state.mixes.length === 1 ? "" : "es"} on contract ${state.job.cid}.`
-        : `No mixes found for contract ${state.job.cid}.`;
+        ? `${state.mixes.length} mix design${state.mixes.length === 1 ? "" : "s"} required on contract ${state.job.cid}.`
+        : `No mix designs found on contract ${state.job.cid}.`;
   }
 
   async function loadPlants(smId) {
@@ -459,7 +477,7 @@
       $("mixField").classList.remove("hidden");
       $("mixHint").textContent = "Looking up mixes…";
       $("mixSelect").disabled = true;
-      loadMixes(j.cid).then((result) => {
+      loadMixes(j.cid, j.letting).then((result) => {
         // Ignore a response for a contract the user has since changed away
         // from - renderSub runs again on every Generate.
         if (!state.job || state.job.cid !== j.cid) return;
