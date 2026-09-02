@@ -33,15 +33,14 @@
   markup, the xlsx extractor, the validation rail, and the save payload.
   Here the schema below is the single source of truth for all four.
 
-  To add or rename a field, edit CONFIG.SECTIONS. To make the xlsx
-  extractor find it, add strings to that field's `labels` array —
-  extraction is label-anchored, never cell-address-based (per CLAUDE.md),
-  because MixPack moves between revisions.
-
-  The `labels` arrays are still GUESSES — written without a real MixPack
-  in hand. Open a real one in ?mode=legacy and expand "Workbook
-  inspector" at the bottom: it lists every label-ish cell with its
-  address. Copy the real wording in.
+  To add or rename a field, edit CONFIG.SECTIONS. To make the legacy
+  MixPack import fill it, add its source cell to CONFIG.LEGACY.CELLS (per
+  version). The importer is FIXED-CELL and VERSIONED, not label-hunting:
+  the KYTC MixPack's Design Data layout is identical in Ver 11.x and 12.1,
+  only Recycle Data moved, and every address was verified against a real
+  workbook of each version (docs/legacy-mixpack-map.md). After an upload,
+  expand "Import log" at the bottom: every field, its source cell, the
+  value found, and why a miss is a miss.
 
   Nothing writes to Supabase yet — there is no DesignBook table in
   supabase/schema.sql (only the technician tables). Save builds the
@@ -273,7 +272,7 @@
     <div id="sections"></div>
 
     <details id="inspectorWrap" class="hidden">
-      <summary>Workbook inspector — every label-ish cell found, with addresses</summary>
+      <summary>Import log — version, sheets, every field with its source cell and what was found</summary>
       <pre id="inspector"></pre>
     </details>
     <details id="payloadWrap" class="hidden">
@@ -337,7 +336,153 @@ const CONFIG = {
   ],
 
   // How far right of a label to look for its value during extraction.
-  SCAN_RIGHT: 6,
+  // ---- Legacy MixPack import: fixed cells, versioned ----
+  // Where a value lives in a KYTC MixPack. Derived from kytc_mixpack_migrator.py
+  // plus a cell-by-cell audit of a real Ver 11.2 and a real Ver 12.1 workbook
+  // (docs/legacy-mixpack-map.md). Every entry is a sheet + address - no label
+  // hunting. Design Data is identical in both versions; Recycle Data moved.
+  // 12.1 turned many summary cells into formulas whose cached value is EMPTY
+  // in a file that came through the migrator; the fallback chains exist for
+  // that, and a miss is reported as "not-cached" rather than silently blank.
+  LEGACY: {
+    // Resolve sheets by CONTENT, never by name. SheetJS drops the two
+    // "0.45 Power Chart" chartsheets but keeps their names, so every worksheet
+    // after them is filed under the wrong name (wb.Sheets["TSR"] is really
+    // KYCT Data; ["Chart Data"] is really the 15-cell discipline tab).
+    // Every probe listed must match.
+    FINGERPRINTS: {
+      designData: [["A8", /^CONTRACT ID/i], ["U3", /^Ver\s/i]],
+      recycle:    [["A7", /RECYCLE|SECTION 409/i]],
+      tsr:        [["A7", /Tensile Strength Retained/i]],
+      hamburg:    [["G28", /^SIP$/i], ["F13", /^MADE WITH/i]],
+      kyct:       [["A21", /^CTIndex$/i]],
+      perfSpec:   [["A7", /Performance Specimen Fabrication/i]],
+      chartData:  [["AO2", /^AMP/i]],
+    },
+    SHEET_NAMES: {
+      designData: "Design Data", recycle: "Recycle Data", tsr: "TSR",
+      hamburg: "Hamburg Data", kyct: "KYCT Data",
+      perfSpec: "Performance Specimens", chartData: "Chart Data",
+    },
+    // KYTC ESAL class number -> the form's range option, in order.
+    ESAL_CLASS_TO_OPTION: { 1: "<0.3M", 2: "0.3 – 3M", 3: "3 – 10M", 4: "10 – 30M", 5: ">30M" },
+
+    // Scalar fields: ordered candidate chains [sheetKey, address]; the first
+    // non-empty wins and the import log says which one it was.
+    CELLS: {
+      "11.x": {
+        county:         [["designData", "K10"]],
+        submittal_type: [["designData", "R10"]],
+        total_tons:     [["designData", "Q12"]],
+        depth_mm:       [["designData", "K20"]],
+        binder_grade:   [["designData", "C18"]],
+        rap_note:       [["designData", "A19"], ["recycle", "C27"]],
+        ac_pct:         [["designData", "B49"], ["designData", "O63"], ["designData", "U56"]],
+        gmm_ini:        [["designData", "O59"], ["designData", "P49"]],
+        av_pct:         [["designData", "O61"], ["designData", "J49"]],
+        vma_pct:        [["designData", "O57"], ["designData", "M49"]],
+        vfa_pct:        [["designData", "O56"], ["designData", "N49"]],
+        uw:             [["designData", "O62"], ["designData", "H49"]],
+        msg:            [["designData", "O65"], ["designData", "I49"], ["designData", "R28"]],
+        esal:           [["designData", "H20"]],
+        designer:       [["designData", "K16"]],
+        tsr_pct:        [["designData", "O72"], ["tsr", "G57"]],
+        hamburg_sip:    [["hamburg", "J28"]],
+        additive_pct:   [["designData", "O74"]],
+        additive_type:  [["designData", "O75"]],
+        rap_pct:        [["recycle", "K12"]],
+        virgin_ac:      [["recycle", "J24"]],
+      },
+      "12.1": {
+        county:         [["designData", "K10"]],
+        submittal_type: [["designData", "R10"]],
+        total_tons:     [["designData", "Q12"]],
+        depth_mm:       [["designData", "K20"]],
+        binder_grade:   [["designData", "C18"]],
+        rap_note:       [["recycle", "F18"]],
+        ac_pct:         [["designData", "B49"], ["designData", "O63"], ["designData", "U56"]],
+        gmm_ini:        [["designData", "O59"], ["designData", "P49"]],
+        av_pct:         [["designData", "O61"], ["designData", "J49"]],
+        vma_pct:        [["designData", "O57"], ["designData", "M49"]],
+        vfa_pct:        [["designData", "O56"], ["designData", "N49"]],
+        uw:             [["designData", "O62"], ["designData", "H49"]],
+        msg:            [["designData", "O65"], ["designData", "I49"], ["designData", "R28"]],
+        esal:           [["designData", "H20"]],
+        designer:       [["designData", "K16"]],
+        tsr_pct:        [["designData", "O72"], ["tsr", "G57"]],
+        hamburg_sip:    [["hamburg", "J28"]],
+        additive_pct:   [["designData", "O74"]],
+        additive_type:  [["designData", "O75"]],
+        rap_pct:        [["recycle", "N12"]],
+        virgin_ac:      [],   // 12.1 removed the Recycle calculator block (J17-J25)
+      },
+    },
+    // Gradation: JMF column T, keyed by the form's own sieve labels. Same in both.
+    SIEVES: { '3/4"': ["designData", "T18"], '1/2"': ["designData", "T19"], '3/8"': ["designData", "T20"],
+              "#4": ["designData", "T22"], "#8": ["designData", "T23"], "#50": ["designData", "T26"], "#200": ["designData", "T28"] },
+    // Aggregate blend: Design Data rows 23-28, stop at the first blank producer.
+    AGGREGATE: { sheet: "designData", firstRow: 23, lastRow: 28, stopOn: "C",
+                 columns: { producer: "C", type_size: "J", mat_code: "H", pct_blend: "M", gsb: "L" } },
+    // Recycle table, per version: RAS detection and the rap_pct fallback.
+    RECYCLE_TABLE: {
+      "11.x": { sheet: "recycle", firstRow: 12, lastRow: 16, type: "I", pct: "K" },
+      "12.1": { sheet: "recycle", firstRow: 12, lastRow: 16, type: "L", pct: "N" },
+    },
+    // IDEAL-CT specimens: label in the odd column, value one column right.
+    // Row 21 (CTIndex) is the hand-entered row the migrator carries over.
+    CT: { sheet: "kyct", labelCols: ["A", "C", "E", "G", "I", "K", "M", "O"],
+          rows: { specimen: 22, l75: 14, m75: 18, gf: 20, index: 21 } },
+    // Values that identify the JOB, not the design: checked against the
+    // Portal's context and flagged if they disagree - never written to the form.
+    CONTEXT: {
+      plant:   [["chartData", "AO2"], ["designData", "Q14"]],
+      mixType: [["chartData", "W14"], ["designData", "O8"]],
+    },
+    // Legacy values with no home in the form. Read and REPORTED, never dropped.
+    UNMAPPED: [
+      ["Contract ID", "designData", "C8"], ["Letting date", "designData", "H8"],
+      ["Contact phone", "designData", "K8"], ["SM ID num.", "designData", "C10"],
+      ["Mix ID num.", "designData", "H10"], ["Fed/State #", "designData", "C12"],
+      ["Lab unit", "designData", "H12"], ["Test method", "designData", "K12"],
+      ["Proj. (item)", "designData", "C14"], ["Date received", "designData", "H14"],
+      ["Date released", "designData", "H16"], ["Binder source & loc.", "designData", "A17"],
+      ["Binder prod. #", "designData", "H18"], ["Mix/comp temp", "designData", "K18"],
+      ["Corr. factor", "designData", "H19"], ["Binder code", "designData", "C20"],
+      ["Mix mat. code", "designData", "Q16"],
+      ["Coarse agg. angularity", "designData", "O52"], ["Fine agg. angularity", "designData", "O53"],
+      ["Flat & elongated", "designData", "O54"], ["Clay content (SE)", "designData", "O55"],
+      ["D/A ratio", "designData", "O58"], ["%Gmm @ Nmax", "designData", "O60"],
+      ["% Effective AC", "designData", "O64"], ["% Absorbed AC", "designData", "O66"],
+      ["Gsb (blend)", "designData", "O67"], ["Gse", "designData", "O68"],
+      ["Film thickness", "designData", "O69"], ["Specimen weight", "designData", "O70"],
+      ["TSR weight", "designData", "O71"], ["% TSR with additive", "designData", "O73"],
+      ["Ref: County", "designData", "T52"], ["Ref: Mix ID #", "designData", "T53"],
+      ["Ref: Binder", "designData", "T54"], ["Ref: Date released", "designData", "U55"],
+      ["Ref: Design AC %", "designData", "U56"], ["Ref: Job complete?", "designData", "U57"],
+      ['Sieve 2"', "designData", "T15"], ['Sieve 1 1/2"', "designData", "T16"],
+      ['Sieve 1"', "designData", "T17"], ['Sieve 1/4"', "designData", "T21"],
+      ["Sieve #16", "designData", "T24"], ["Sieve #30", "designData", "T25"], ["Sieve #100", "designData", "T27"],
+      ["Hamburg made with (binder)", "hamburg", "H13"],
+      ["Hamburg max deformation, left", "hamburg", "J26"], ["Hamburg pass # at max, left", "hamburg", "J27"],
+      ["Hamburg SIP, right", "hamburg", "M28"],
+      ["KYCT row 29 (peak load / displacement pairs)", "kyct", "A29"],
+    ],
+    UNMAPPED_BY_VERSION: {
+      "11.x": [
+        ["Recycle producer", "recycle", "C12"], ["Recycle mat. code", "recycle", "G12"],
+        ["Recycle type", "recycle", "I12"], ["RAP AC %", "recycle", "L12"],
+        ["Recycle MSG #1", "recycle", "M12"], ["Recycle MSG #2", "recycle", "N12"],
+        ["Recycle avg MSG", "recycle", "O12"], ["Recycle Gsb", "recycle", "P12"],
+        ["Target eff. AC % in mix", "recycle", "J17"], ["Total AC from recycle", "recycle", "J23"],
+        ["% Eff. replacement", "recycle", "J25"],
+      ],
+      "12.1": [
+        ["Recycle producer", "recycle", "F12"], ["Recycle mat. code", "recycle", "J12"],
+        ["Recycle type", "recycle", "L12"],
+        ["Performance approval (12.1 only)", "perfSpec", "A47"],
+      ],
+    },
+  },
 
   /* ---- THE FORM ------------------------------------------------
      Single source of truth for markup, xlsx extraction, the
@@ -352,58 +497,41 @@ const CONFIG = {
 
      Field props: key, label, type (text|number|select|date),
        req (counts toward completeness), options (for select),
-       labels (strings the xlsx extractor hunts for), mono (styling).
-     `labels` ARE GUESSES — see the header comment.
+       mono (styling). Where a legacy MixPack supplies the value is NOT
+       here — see CONFIG.LEGACY, keyed by these same field keys.
      -------------------------------------------------------------- */
   SECTIONS: [
     {
       id: "header", label: "Header & submittal", tag: "t_smpl · discipline", type: "grid",
       fields: [
-        { key: "county",         label: "County",        type: "text",   req: true,
-          labels: ["county"] },
+        { key: "county",         label: "County",        type: "text",   req: true },
         { key: "submittal_type", label: "Submittal type", type: "select", req: true,
-          options: ["Mix design spreadsheet", "Field change", "Annual renewal"],
-          labels: ["submittal type", "submittal"] },
-        { key: "total_tons",     label: "Total tons",    type: "number", req: true, mono: true,
-          labels: ["total tons", "estimated tons", "tons"] },
-        { key: "depth_mm",       label: "Depth (mm)",    type: "number", req: true, mono: true,
-          labels: ["depth"] },
-        { key: "binder_grade",   label: "Binder grade",  type: "text",   req: true, mono: true,
-          labels: ["binder grade", "pg binder", "asphalt grade", "binder"] },
-        { key: "rap_note",       label: "RAP note",      type: "text",   req: false,
-          labels: ["rap note", "rap comment"] },
+          options: ["Mix design spreadsheet", "Field change", "Annual renewal"] },
+        { key: "total_tons",     label: "Total tons",    type: "number", req: true, mono: true },
+        { key: "depth_mm",       label: "Depth (mm)",    type: "number", req: true, mono: true },
+        { key: "binder_grade",   label: "Binder grade",  type: "text",   req: true, mono: true },
+        { key: "rap_note",       label: "RAP note",      type: "text",   req: false },
       ],
     },
     {
       id: "design-data", label: "Design data", tag: "t_superpave", type: "grid",
       fields: [
-        { key: "ac_pct",   label: "AC (%)",         type: "number", req: true, mono: true,
-          labels: ["optimum asphalt", "asphalt content", "ac (%)", "% ac", "ac content"] },
-        { key: "gmm_ini",  label: "Gmm ini",        type: "number", req: true, mono: true,
-          labels: ["gmm ini", "gmm initial", "gmm"] },
-        { key: "av_pct",   label: "AV (%)",         type: "number", req: true, mono: true,
-          labels: ["air voids", "av (%)", "% air voids"] },
-        { key: "vma_pct",  label: "VMA (%)",        type: "number", req: true, mono: true,
-          labels: ["vma"] },
-        { key: "vfa_pct",  label: "VFA (%)",        type: "number", req: true, mono: true,
-          labels: ["vfa"] },
-        { key: "uw",       label: "UW (lbs/ft³)",   type: "number", req: true, mono: true,
-          labels: ["unit weight", "uw"] },
-        { key: "msg",      label: "MSG",            type: "number", req: true, mono: true,
-          labels: ["msg", "maximum specific gravity", "rice"] },
+        { key: "ac_pct",   label: "AC (%)",         type: "number", req: true, mono: true },
+        { key: "gmm_ini",  label: "Gmm ini",        type: "number", req: true, mono: true },
+        { key: "av_pct",   label: "AV (%)",         type: "number", req: true, mono: true },
+        { key: "vma_pct",  label: "VMA (%)",        type: "number", req: true, mono: true },
+        { key: "vfa_pct",  label: "VFA (%)",        type: "number", req: true, mono: true },
+        { key: "uw",       label: "UW (lbs/ft³)",   type: "number", req: true, mono: true },
+        { key: "msg",      label: "MSG",            type: "number", req: true, mono: true },
         { key: "esal",     label: "ESAL class",     type: "select", req: true,
-          options: ["<0.3M", "0.3 – 3M", "3 – 10M", "10 – 30M", ">30M"],
-          labels: ["esal", "traffic level"] },
-        { key: "designer", label: "Designer",       type: "text",   req: true,
-          labels: ["designer", "designed by"] },
+          options: ["<0.3M", "0.3 – 3M", "3 – 10M", "10 – 30M", ">30M"] },
+        { key: "designer", label: "Designer",       type: "text",   req: true },
       ],
     },
     {
       id: "aggregate", label: "Aggregate blend", tag: "t_bit_conc_mixblnd", type: "rows",
       rows: {
         key: "aggregate", max: 6, addLabel: "+ add aggregate component (up to 6)",
-        // Header cells that identify this table in the workbook.
-        tableHeaders: ["producer", "% blend"],
         grid: "1.4fr 1.2fr 1fr .8fr .8fr auto",
         columns: [
           { key: "producer",  label: "Producer",     type: "text",   req: true },
@@ -431,17 +559,13 @@ const CONFIG = {
       id: "performance", label: "Performance testing",
       tag: "t_tst_rslt_dtl · TSR / Hamburg / CT", type: "grid",
       fields: [
-        { key: "tsr_pct",      label: "TSR (%)",             type: "number", req: true, mono: true,
-          labels: ["tsr"] },
+        { key: "tsr_pct",      label: "TSR (%)",             type: "number", req: true, mono: true },
         { key: "hamburg_with", label: "Hamburg made with",   type: "select", req: true,
-          options: ["Job mix", "Lab mix"],
-          labels: ["hamburg made with", "hamburg mix"] },
-        { key: "hamburg_sip",  label: "Hamburg SIP (left)",  type: "number", req: true, mono: true,
-          labels: ["hamburg sip", "stripping inflection", "sip"] },
+          options: ["Job mix", "Lab mix"] },
+        { key: "hamburg_sip",  label: "Hamburg SIP (left)",  type: "number", req: true, mono: true },
       ],
       rows: {
         key: "ct", max: 8, addLabel: "+ add CT specimen (up to 8)",
-        tableHeaders: ["l75", "m75"],
         grid: "1fr 1fr 1fr 1fr 1fr auto",
         columns: [
           { key: "specimen", label: "Specimen", type: "text",   req: true, mono: true },
@@ -455,14 +579,10 @@ const CONFIG = {
     {
       id: "recycle", label: "Recycle / KYCT data", tag: "t_tst_rslt_dtl", type: "grid",
       fields: [
-        { key: "rap_pct",      label: "RAP (%)",          type: "number", req: true, mono: true,
-          labels: ["rap (%)", "% rap", "rap percent"] },
-        { key: "ras_pct",      label: "RAS (%)",          type: "number", req: true, mono: true,
-          labels: ["ras (%)", "% ras", "ras percent"] },
-        { key: "virgin_ac",    label: "Virgin AC (%)",    type: "number", req: true, mono: true,
-          labels: ["virgin ac", "virgin asphalt"] },
-        { key: "additive",     label: "% additive / type", type: "text",  req: false,
-          labels: ["additive"] },
+        { key: "rap_pct",      label: "RAP (%)",          type: "number", req: true, mono: true },
+        { key: "ras_pct",      label: "RAS (%)",          type: "number", req: true, mono: true },
+        { key: "virgin_ac",    label: "Virgin AC (%)",    type: "number", req: true, mono: true },
+        { key: "additive",     label: "% additive / type", type: "text",  req: false },
       ],
     },
     { id: "status", label: "Status & validation", tag: "workflow", type: "status" },
@@ -482,7 +602,7 @@ const state = {
   mix: null,         // { signature, binder_grade, total_quantity, unit, mix_class, layer,
                      //   nominal_size, county, lines, source } or null
   extracted: null,   // { scalars, tables } from the workbook, if any
-  inspected: [],
+  legacy: null,      // full import result: version, sheet resolution, per-field log, unmapped, context
 };
 
 // NOTE: this client is named `sb`, not `supabase`, on purpose. The CDN
@@ -505,11 +625,6 @@ function toLogin() { location.replace(CONFIG.LOGIN_URL); }
 function toPortal() { location.href = CONFIG.PORTAL_URL; }
 
 /* ---------- field helpers ---------- */
-function allFields() {
-  const out = [];
-  CONFIG.SECTIONS.forEach((s) => (s.fields || []).forEach((f) => out.push({ section: s.id, ...f })));
-  return out;
-}
 function sieveKey(label) { return "sieve_" + label.replace(/[^0-9a-z]/gi, ""); }
 
 /* ---------- markup, rendered from CONFIG.SECTIONS ---------- */
@@ -739,31 +854,6 @@ function sheetGrids(wb) {
   }));
 }
 
-function inspect(grids) {
-  const out = [];
-  grids.forEach(({ name, rows }) => {
-    rows.forEach((row, r) => {
-      (row || []).forEach((cell, c) => {
-        if (isBlank(cell) || typeof cell === "number") return;
-        const t = String(cell).trim();
-        if (t.length > 60) return;
-        out.push(`${addr(name, r, c).padEnd(18)} ${t}`);
-      });
-    });
-  });
-  return out;
-}
-
-function valueNear(rows, r, c) {
-  const row = rows[r] || [];
-  for (let i = 1; i <= CONFIG.SCAN_RIGHT; i++) {
-    if (!isBlank(row[c + i])) return { v: row[c + i], where: [r, c + i] };
-  }
-  const below = rows[r + 1] || [];
-  if (!isBlank(below[c])) return { v: below[c], where: [r + 1, c] };
-  return null;
-}
-
 function coerce(v, type) {
   if (type === "number") {
     const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ""));
@@ -774,125 +864,275 @@ function coerce(v, type) {
     const d = new Date(v);
     return isNaN(d) ? String(v).trim() : d.toISOString().slice(0, 10);
   }
-  return String(v).trim();
+  // Cells can carry embedded line breaks (e.g. "Haydon Materials\r\nAirport RD").
+  return String(v).replace(/\s+/g, " ").trim();
 }
 
-function extractScalars(grids) {
-  const scalars = {}, sources = {};
-  const targets = allFields()
-    .filter((f) => f.labels && f.labels.length)
-    .map((f) => ({ key: f.key, type: f.type, wanted: f.labels.map(norm) }));
+/* LEGACY-IMPORT-BEGIN — pure: (workbook, context) -> result. No DOM in here. */
 
-  // Sieves too: the label hunted for is the sieve text itself.
-  CONFIG.SECTIONS.filter((s) => s.type === "sieves").forEach((s) =>
-    s.sieves.forEach((sv) =>
-      targets.push({ key: sieveKey(sv.label), type: "number", wanted: [norm(sv.label)] })));
+// One cell, with WHY it is empty when it is. A formula whose cached value is
+// missing is a different problem from a cell nobody filled in.
+function legacyCell(ws, addr) {
+  const c = ws && ws[addr];
+  if (!c) return { status: "empty", value: null };
+  let v = c.v;
+  if (v instanceof Date) v = isNaN(v) ? null : v.toISOString().slice(0, 10);
+  if (v === undefined || v === null || String(v).trim() === "") {
+    return { status: c.f !== undefined ? "not-cached" : "empty", value: null };
+  }
+  return { status: "found", value: v };
+}
 
-  targets.forEach((t) => {
-    outer:
-    for (const { name, rows } of grids) {
-      for (let r = 0; r < rows.length; r++) {
-        const row = rows[r] || [];
-        for (let c = 0; c < row.length; c++) {
-          const cell = row[c];
-          if (isBlank(cell) || typeof cell === "number") continue;
-          if (!t.wanted.some((w) => w && norm(cell).includes(w))) continue;
-          const hit = valueNear(rows, r, c);
-          if (!hit) continue;
-          const val = coerce(hit.v, t.type);
-          if (val === "") continue;
-          scalars[t.key] = val;
-          sources[t.key] = addr(name, hit.where[0], hit.where[1]);
-          break outer;
-        }
+function resolveLegacySheets(wb) {
+  const L = CONFIG.LEGACY, out = {}, log = [];
+  Object.entries(L.FINGERPRINTS).forEach(([key, probes]) => {
+    let hit = null;
+    for (const name of wb.SheetNames) {
+      const ws = wb.Sheets[name];
+      if (ws && probes.every(([addr, re]) => re.test(String(legacyCell(ws, addr).value ?? "")))) { hit = name; break; }
+    }
+    const display = L.SHEET_NAMES[key];
+    if (hit) { out[key] = wb.Sheets[hit]; log.push({ sheet: display, via: `fingerprint → SheetJS "${hit}"`, ok: true }); }
+    else if (wb.Sheets[display]) { out[key] = wb.Sheets[display]; log.push({ sheet: display, via: "by name — UNVERIFIED (fingerprint failed)", ok: false }); }
+    else { out[key] = null; log.push({ sheet: display, via: "not found", ok: false }); }
+  });
+  return { sheets: out, log };
+}
+
+function detectLegacyVersion(S) {
+  const votes = [];
+  const u3 = legacyCell(S.designData, "U3").value;
+  if (u3) votes.push({ signal: `Design Data!U3 = "${u3}"`, version: /12\.1/.test(String(u3)) ? "12.1" : "11.x" });
+  if (S.perfSpec) {
+    const a47 = String(legacyCell(S.perfSpec, "A47").value ?? "");
+    votes.push({ signal: `Performance Specimens!A47 ${a47 ? `= "${a47}"` : "empty"}`, version: /performance approval/i.test(a47) ? "12.1" : "11.x" });
+  }
+  if (S.recycle) {
+    const a11 = String(legacyCell(S.recycle, "A11").value ?? ""), d11 = String(legacyCell(S.recycle, "D11").value ?? "");
+    if (/RECYCLE PROD/i.test(d11)) votes.push({ signal: "Recycle Data header at D11", version: "12.1" });
+    else if (/RECYCLE PROD/i.test(a11)) votes.push({ signal: "Recycle Data header at A11", version: "11.x" });
+  }
+  const n12 = votes.filter((v) => v.version === "12.1").length, n11 = votes.length - n12;
+  return { version: n12 > n11 ? "12.1" : "11.x", label: u3 ? String(u3) : "(no version cell)", votes,
+           unanimous: votes.length >= 2 && (n12 === 0 || n11 === 0) };
+}
+
+function legacyFieldDef(key) {
+  for (const s of CONFIG.SECTIONS) { const f = (s.fields || []).find((x) => x.key === key); if (f) return f; }
+  return null;
+}
+
+function extractLegacy(wb, ctx) {
+  const L = CONFIG.LEGACY;
+  const { sheets: S, log: sheetLog } = resolveLegacySheets(wb);
+  const ver = detectLegacyVersion(S);
+  const cells = L.CELLS[ver.version];
+  const src = (key, addr) => `${L.SHEET_NAMES[key]}!${addr}`;
+  const scalars = {}, sources = {}, log = [], unmapped = [], context = [];
+  const tables = { aggregate: [], ct: [] };
+
+  function chase(chain) {
+    const tried = [];
+    for (const [sk, addr] of chain) {
+      const r = legacyCell(S[sk], addr);
+      tried.push({ source: src(sk, addr), status: S[sk] ? r.status : "sheet-missing" });
+      if (r.status === "found") return { value: r.value, source: src(sk, addr), tried };
+    }
+    return { value: null, source: chain.length ? src(chain[0][0], chain[0][1]) : "(no source in this version)", tried };
+  }
+  function whyMissing(tried) {
+    if (!tried.length) return "no source cell in this MixPack version";
+    if (tried.every((t) => t.status === "not-cached")) return "formula, no cached value — open and save in Excel, or enter by hand";
+    if (tried.some((t) => t.status === "not-cached")) return "empty; a fallback was a formula with no cached value";
+    if (tried.every((t) => t.status === "sheet-missing")) return "sheet not found in workbook";
+    return "not entered in the workbook";
+  }
+  function put(key, value, source, note) {
+    scalars[key] = value; sources[key] = source;
+    log.push({ field: key, source, value, status: "found", note: note || "" });
+  }
+  function miss(key, r, note) {
+    const allUncached = r.tried.length && r.tried.every((t) => t.status === "not-cached");
+    log.push({ field: key, source: r.source, value: null, status: allUncached ? "not-cached" : "missing", note: note || whyMissing(r.tried) });
+  }
+
+  const plain = ["county", "total_tons", "depth_mm", "binder_grade", "rap_note", "ac_pct", "gmm_ini", "av_pct",
+                 "vma_pct", "vfa_pct", "uw", "msg", "designer", "tsr_pct", "hamburg_sip", "virgin_ac"];
+  plain.forEach((key) => {
+    const r = chase(cells[key] || []);
+    if (r.value === null) return miss(key, r);
+    const def = legacyFieldDef(key), v = coerce(r.value, def ? def.type : "text");
+    if (v === "") return miss(key, r, "value present but not usable as a " + (def ? def.type : "text"));
+    const fb = r.tried.length > 1 && r.tried[0].source !== r.source ? `fallback (primary ${r.tried[0].source} was ${r.tried[0].status})` : "";
+    put(key, v, r.source, fb);
+  });
+
+  { // submittal_type: a legacy string that isn't a form option is reported, never forced
+    const r = chase(cells.submittal_type), def = legacyFieldDef("submittal_type");
+    if (r.value === null) miss("submittal_type", r);
+    else {
+      const opt = (def.options || []).find((o) => norm(o) === norm(r.value));
+      if (opt) put("submittal_type", opt, r.source);
+      else { log.push({ field: "submittal_type", source: r.source, value: r.value, status: "unmapped-value", note: "legacy wording is not one of the form's options; left blank" });
+             unmapped.push({ label: "Submittal type (legacy wording)", source: r.source, value: r.value }); }
+    }
+  }
+  { // esal: KYTC class number -> range option
+    const r = chase(cells.esal);
+    if (r.value === null) miss("esal", r);
+    else {
+      const cls = parseInt(String(r.value).trim(), 10), opt = L.ESAL_CLASS_TO_OPTION[cls];
+      if (opt) put("esal", opt, r.source, `ESAL class ${cls} → "${opt}"`);
+      else { log.push({ field: "esal", source: r.source, value: r.value, status: "unmapped-value", note: "not a class 1-5" });
+             unmapped.push({ label: "ESAL class (unrecognised)", source: r.source, value: r.value }); }
+    }
+  }
+  { // additive: "% — type"
+    const rp = chase(cells.additive_pct), rt = chase(cells.additive_type);
+    const pct = rp.value === null ? "" : coerce(rp.value, "number"), typ = rt.value === null ? "" : String(rt.value).trim();
+    const source = `${rp.source} + ${rt.source}`;
+    if (pct === "" && typ === "") miss("additive", { source, tried: [...rp.tried, ...rt.tried] });
+    else put("additive", pct !== "" && typ !== "" ? `${pct} — ${typ}` : (typ || pct), source);
+  }
+
+  Object.entries(L.SIEVES).forEach(([label, [sk, addr]]) => {   // gradation
+    const key = sieveKey(label), r = legacyCell(S[sk], addr), source = src(sk, addr);
+    const v = r.status === "found" ? coerce(r.value, "number") : "";
+    if (v !== "") put(key, v, source, `sieve ${label}`);
+    else log.push({ field: key, source, value: r.value, status: r.status === "not-cached" ? "not-cached" : "missing",
+                    note: `sieve ${label}` + (r.status === "found" ? " — non-numeric (e.g. N / A)" : "") });
+  });
+
+  { // aggregate blend rows
+    const A = L.AGGREGATE, ws = S[A.sheet], spec = CONFIG.SECTIONS.find((x) => x.rows && x.rows.key === "aggregate").rows;
+    let uncachedMat = 0;
+    for (let r = A.firstRow; r <= A.lastRow && tables.aggregate.length < spec.max; r++) {
+      if (legacyCell(ws, `${A.stopOn}${r}`).status !== "found") break;
+      const row = {};
+      spec.columns.forEach((col) => {
+        const c = legacyCell(ws, `${A.columns[col.key]}${r}`);
+        row[col.key] = c.status === "found" ? coerce(c.value, col.type) : "";
+        if (col.key === "mat_code" && c.status === "not-cached") uncachedMat++;
+      });
+      tables.aggregate.push(row);
+    }
+    log.push({ field: "aggregate rows", source: `${L.SHEET_NAMES[A.sheet]}!${A.stopOn}${A.firstRow}:${A.lastRow}`, value: tables.aggregate.length,
+               status: tables.aggregate.length ? "found" : "missing", note: uncachedMat ? `${uncachedMat} MAT. CODE cell(s) are formulas with no cached value` : "" });
+  }
+
+  { // rap_pct / ras_pct
+    const r = chase(cells.rap_pct);
+    if (r.value !== null && coerce(r.value, "number") !== "") put("rap_pct", coerce(r.value, "number"), r.source);
+    else {
+      const rapRow = tables.aggregate.find((a) => /\bRAP\b/i.test(a.type_size || ""));
+      if (rapRow && rapRow.pct_blend !== "") put("rap_pct", rapRow.pct_blend, `${L.SHEET_NAMES[L.AGGREGATE.sheet]} aggregate row (${rapRow.type_size})`, "fallback: RAP row of the aggregate blend");
+      else miss("rap_pct", r);
+    }
+    const T = L.RECYCLE_TABLE[ver.version], ws = S[T.sheet]; let ras = null, rasSrc = null;
+    for (let rr = T.firstRow; rr <= T.lastRow; rr++) {
+      const t = legacyCell(ws, `${T.type}${rr}`);
+      if (t.status === "found" && /\bRAS\b/i.test(String(t.value))) {
+        const pv = legacyCell(ws, `${T.pct}${rr}`);
+        if (pv.status === "found") { ras = coerce(pv.value, "number"); rasSrc = src(T.sheet, `${T.pct}${rr}`); break; }
       }
     }
+    if (ras !== null && ras !== "") put("ras_pct", ras, rasSrc);
+    else log.push({ field: "ras_pct", source: `${L.SHEET_NAMES[T.sheet]}!${T.type}${T.firstRow}:${T.lastRow}`, value: null, status: "missing", note: "no recycle row of type RAS" });
+  }
+
+  { // IDEAL-CT specimens
+    const C = L.CT, ws = S[C.sheet], spec = CONFIG.SECTIONS.find((x) => x.rows && x.rows.key === "ct").rows;
+    let skipped = 0, uncached = 0;
+    C.labelCols.forEach((lc, i) => {
+      if (tables.ct.length >= spec.max) return;
+      const vc = String.fromCharCode(lc.charCodeAt(0) + 1), row = {};
+      spec.columns.forEach((col) => {
+        if (col.key === "specimen") { const c = legacyCell(ws, `${vc}${C.rows.specimen}`); row.specimen = c.status === "found" ? String(c.value).trim() : `CT #${i + 1}`; return; }
+        const c = legacyCell(ws, `${vc}${C.rows[col.key]}`);
+        if (c.status === "not-cached") uncached++;
+        row[col.key] = c.status === "found" ? coerce(c.value, "number") : "";
+      });
+      const live = ["l75", "m75", "gf", "index"].map((k) => row[k]).filter((v) => v !== "" && Number(v) !== 0);
+      if (!live.length) { skipped++; return; }
+      tables.ct.push(row);
+    });
+    log.push({ field: "CT specimens", source: `${L.SHEET_NAMES[C.sheet]} rows ${Object.values(C.rows).join("/")}`, value: tables.ct.length,
+               status: tables.ct.length ? "found" : "missing",
+               note: `${skipped} blank/zero specimen slot(s) skipped` + (uncached ? `; ${uncached} l75/m75/Gf cell(s) not cached` : "") });
+  }
+
+  { // job context checks — flagged, never written into the form
+    const plant = chase(L.CONTEXT.plant), mix = chase(L.CONTEXT.mixType);
+    const wbPlant = plant.value === null ? null : String(plant.value).trim().toUpperCase();
+    const jobPlant = ctx && ctx.job && ctx.job.plant ? String(ctx.job.plant).trim().toUpperCase() : null;
+    context.push({ what: "plant", workbook: wbPlant, job: jobPlant, source: plant.source,
+                   status: !wbPlant ? "unknown" : !jobPlant ? "no job plant" : wbPlant === jobPlant ? "match" : "MISMATCH" });
+    const wbMix = mix.value === null ? null : String(mix.value).trim();
+    const jobMix = ctx && ctx.mix && ctx.mix.signature ? ctx.mix.signature : null;
+    context.push({ what: "mix type", workbook: wbMix, job: jobMix, source: mix.source,
+                   status: !wbMix ? "unknown" : !jobMix ? "no mix chosen" : norm(wbMix).includes(norm(jobMix)) ? "match" : "MISMATCH" });
+  }
+
+  [...L.UNMAPPED, ...(L.UNMAPPED_BY_VERSION[ver.version] || [])].forEach(([label, sk, addr]) => {
+    const r = legacyCell(S[sk], addr);
+    if (r.status === "found") unmapped.push({ label, source: src(sk, addr), value: r.value });
   });
-  return { scalars, sources };
+
+  return { version: ver, sheets: sheetLog, scalars, sources, tables, log, unmapped, context };
 }
 
-// Repeating tables: find a row that contains this table's identifying
-// headers, map each column by its header text, then read down until a
-// fully blank row. Column order in the workbook doesn't have to match ours.
-function extractTables(grids) {
-  const tables = {};
-  CONFIG.SECTIONS.forEach((s) => {
-    if (!s.rows) return;
-    const spec = s.rows;
-    const need = spec.tableHeaders.map(norm);
-
-    for (const { rows } of grids) {
-      for (let r = 0; r < rows.length; r++) {
-        const row = (rows[r] || []).map(norm);
-        if (!need.every((n) => row.some((cell) => cell.includes(n)))) continue;
-
-        // Map our column keys to workbook column indices via header text.
-        const colIdx = {};
-        spec.columns.forEach((col) => {
-          const want = norm(col.label).replace(/\s*&\s*/g, " ");
-          const i = row.findIndex((cell) =>
-            cell && (cell.includes(norm(col.label)) || cell.includes(want) || cell.includes(norm(col.key))));
-          if (i >= 0) colIdx[col.key] = i;
-        });
-        if (Object.keys(colIdx).length < 2) continue;
-
-        const out = [];
-        for (let rr = r + 1; rr < rows.length && out.length < spec.max; rr++) {
-          const dataRow = rows[rr] || [];
-          const vals = {};
-          let any = false;
-          spec.columns.forEach((col) => {
-            const i = colIdx[col.key];
-            const raw = i === undefined ? null : dataRow[i];
-            const v = isBlank(raw) ? "" : coerce(raw, col.type);
-            vals[col.key] = v;
-            if (v !== "") any = true;
-          });
-          if (!any) break;
-          out.push(vals);
-        }
-        if (out.length) { tables[spec.key] = out; return; }
-      }
-    }
+function renderLegacyLog(res, fileName) {
+  const pad = (s, n) => String(s ?? "").padEnd(n), lines = [];
+  lines.push(`MixPack import — ${fileName}`);
+  lines.push(`Version: ${res.version.version}  (${res.version.label})${res.version.unanimous ? "" : "  ⚠ version signals disagree"}`);
+  res.version.votes.forEach((v) => lines.push(`  ${pad(v.version, 5)} ${v.signal}`));
+  lines.push("", "Sheets resolved:");
+  res.sheets.forEach((s) => lines.push(`  ${s.ok ? "✓" : "✗"} ${pad(s.sheet, 22)} ${s.via}`));
+  lines.push("", `Fields   ${pad("field", 15)} ${pad("source", 29)} ${pad("value", 23)} status`);
+  res.log.forEach((l) => {
+    const val = l.value === null || l.value === undefined ? "—" : String(l.value).slice(0, 22);
+    lines.push(`  ${pad(l.field, 15)} ${pad(l.source, 29)} ${pad(val, 23)} ${l.status}${l.note ? "  · " + l.note : ""}`);
   });
-  return tables;
+  lines.push("", "Job context checks:");
+  res.context.forEach((c) => lines.push(`  ${pad(c.what, 9)} workbook=${c.workbook ?? "—"}  job=${c.job ?? "—"}  → ${c.status}  (${c.source})`));
+  lines.push("", `Legacy values with no home in this form (${res.unmapped.length}) — reported, not dropped:`);
+  res.unmapped.forEach((u) => lines.push(`  ${pad(u.label, 40)} ${pad(u.source, 22)} ${String(u.value).slice(0, 44)}`));
+  return lines.join("\n");
 }
+/* LEGACY-IMPORT-END */
 
 async function handleFile(file) {
   if (!file) return;
   msg($("uploadMsg"), `Reading ${file.name}…`);
   try {
     const wb = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
-    const grids = sheetGrids(wb);
+    const res = extractLegacy(wb, { job: state.job, mix: state.mix });
 
-    const { scalars, sources } = extractScalars(grids);
-    state.extracted = { scalars, tables: extractTables(grids) };
-    state.sources = sources;
+    state.extracted = { scalars: res.scalars, tables: res.tables };
+    state.sources = res.sources;
+    state.legacy = res;
     applyMixPrefill();   // fills only what the workbook left blank
-    state.inspected = inspect(grids);
 
-    $("inspector").textContent =
-      `Sheets: ${wb.SheetNames.join(", ")}\n\n` + state.inspected.join("\n");
+    $("inspector").textContent = renderLegacyLog(res, file.name);
     show("inspectorWrap", true);
+    if (window.console && console.table) { console.table(res.log); console.table(res.context); }
 
-    const found = Object.keys(scalars).length;
-    const rowsFound = Object.values(state.extracted.tables)
-      .reduce((n, t) => n + t.length, 0);
+    const found = res.log.filter((l) => l.status === "found").length;
+    const notCached = res.log.filter((l) => l.status === "not-cached").length;
+    const mismatch = res.context.filter((c) => c.status === "MISMATCH");
 
     enterForm();
-    msg($("saveMsg"),
-      `Prefilled ${found} field(s) and ${rowsFound} row(s) from ${file.name}. Check every one.`,
-      found ? "warn" : "error");
-    audit(`Prefilled from ${file.name} — ${state.tech.sm_id}`);
+    let summary = `${res.version.label}: prefilled ${found} field(s), ${res.tables.aggregate.length} aggregate row(s), ` +
+                  `${res.tables.ct.length} CT specimen(s) from ${file.name}. Check every value.`;
+    if (notCached) summary += ` ${notCached} value(s) are formulas with no cached result — open the workbook in Excel and save it, or enter them by hand.`;
+    if (mismatch.length) summary += ` ⚠ Workbook ${mismatch.map((m) => m.what).join(" and ")} does not match this job.`;
+    msg($("saveMsg"), summary, mismatch.length ? "error" : (found ? "warn" : "error"));
+    audit(`Prefilled from ${file.name} (${res.version.label}) — ${state.tech.sm_id}`);
   } catch (err) {
     msg($("uploadMsg"), err.message || "Couldn't read that file.", "error");
   }
 }
 
-/* ---------- save ---------- */
-// No DesignBook table exists in supabase/schema.sql yet, so this builds
-// and surfaces the payload rather than pretending to persist. Write the
-// table + RLS against this exact object.
 function saveDesign() {
   const values = {};
   document.querySelectorAll("[data-field]").forEach((el) => {
@@ -918,6 +1158,11 @@ function saveDesign() {
     origin: state.mode,                // "legacy" | "new"
     stage: CONFIG.STAGES[state.stageIdx].key,
     extracted_from: state.sources,     // field -> source cell / lookup, for audit
+    legacy_import: state.legacy ? {
+      version: state.legacy.version.label,
+      context: state.legacy.context,
+      unmapped: state.legacy.unmapped,
+    } : null,
     mix: state.mix ? {
       signature: state.mix.signature,
       mix_class: state.mix.mix_class,

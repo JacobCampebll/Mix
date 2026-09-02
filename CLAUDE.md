@@ -133,6 +133,34 @@ TBD — cite the governing spec section when encoding a limit in code.
   saying why. Diagnose this class of bug by checking whether *static*
   markup the script should have rewritten is still showing.
 
+- **SheetJS misfiles every worksheet that comes after a chartsheet.** KYTC
+  MixPacks carry two `0.45 Power Chart` *chartsheets*. SheetJS 0.18.5 drops
+  them but keeps their names in `SheetNames`, so each later worksheet is
+  filed under the name two slots earlier — `wb.Sheets["TSR"]` is really
+  KYCT Data, `["Chart Data"]` is really the 15-cell `discipline` tab, and
+  `Chart Data!W14`/`AO2` read as `undefined`. This is why the first legacy
+  importer found garbage. **Never trust a sheet name from SheetJS on these
+  files; resolve by content fingerprint** (`CONFIG.LEGACY.FINGERPRINTS` in
+  `designbook.html`). Sheets before the chartsheets are unaffected.
+
+- **A 12.1 MixPack that came through the migrator has no cached values for
+  its formula cells.** 12.1 turned the Design Value column (`O56–O75`),
+  aggregate MAT. CODE and the row-49 averages into formulas; the migrator
+  skips formula cells, so SheetJS reads them blank (`<f>` present, `<v/>`
+  empty). A natively-saved 12.1 file has them. The import log reports
+  this as `not-cached` with the remedy (open and save in Excel), which is
+  a different problem from "not entered" — do not merge the two.
+
+- **The legacy MixPack importer is fixed-cell and versioned on purpose** —
+  a deliberate exception to "anchor on labels, not cell addresses". That
+  rule is for Python scripts reading assorted KYTC workbooks. For the
+  MixPack specifically, Design Data's layout is identical in Ver 11.x and
+  12.1, only Recycle Data moved, and every address was verified against a
+  real workbook of each version (`docs/legacy-mixpack-map.md`). A label
+  hunt was tried first and was wrong. Add a new field's source to
+  `CONFIG.LEGACY.CELLS` per version; anything a MixPack holds that the form
+  has no field for goes in `UNMAPPED` so it is reported, never dropped.
+
 - **An UPDATE (or DELETE) policy alone cannot "claim" a row for a user who
   doesn't own it yet — this silently updates 0 rows, always, and looks like
   it's just not working.** Postgres requires a row to pass the table's
