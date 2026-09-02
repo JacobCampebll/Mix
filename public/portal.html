@@ -95,6 +95,7 @@
               letter-spacing:.05em; margin-bottom:2px;}
   .chip span{font-size:14px; font-weight:500;}
 
+  .mixfield{margin-bottom:20px;}
   .choices{display:flex; gap:12px; flex-wrap:wrap;}
   .choice{flex:1; min-width:180px; padding:22px 16px; border-radius:8px;
           border:1px solid var(--line); background:#FCFCFA; color:var(--ink);
@@ -166,6 +167,12 @@
     <div class="chip"><small>Plant</small><span id="outPlant"></span></div>
   </div>
 
+  <div class="field mixfield hidden" id="mixField">
+    <label for="mixSelect">Mix Selection</label>
+    <select id="mixSelect"><option value="">— select mix —</option></select>
+    <div class="hint" id="mixHint"></div>
+  </div>
+
   <div class="choices">
     <button class="choice" id="legacyBtn">Legacy Upload<small id="legacyNote"></small></button>
     <button class="choice" id="buildNewBtn">Build New<small id="buildNewNote"></small></button>
@@ -219,6 +226,21 @@
     },
     DEFAULT_BOOK: "designbook",
 
+    // Mix selection on the Sub Portal, populated by a Supabase Edge Function
+    // that takes a contract ID and returns the mixes on that contract.
+    //
+    // Set `fn` to the deployed function's name to switch this on. While it
+    // is null the dropdown stays hidden and the Sub Portal behaves exactly
+    // as it did before - the feature is off, not broken.
+    MIX_LOOKUP: {
+      fn: null,
+      // Sent as the request body: { [param]: "252112" }.
+      param: "contract_id",
+      // A mix is optional. Set true to block Legacy Upload / Build New
+      // until one is chosen.
+      required: false,
+    },
+
     // Remember the last job locally so a reload doesn't re-type it.
     // (Standalone Netlify app, so localStorage is allowed per CLAUDE.md.)
     JOB_STORAGE_KEY: "mix_portal_job",
@@ -233,7 +255,7 @@
      LOGIC — state, data loading, rendering, wiring.
      ================================================================== */
   const $ = (id) => document.getElementById(id);
-  const state = { tech: null, caps: null, plants: [], plantNames: {}, job: null };
+  const state = { tech: null, caps: null, plants: [], plantNames: {}, job: null, mixes: [], mix: "" };
 
   // Values here come from the database, so they are escaped before being
   // interpolated into markup rather than trusted.
@@ -297,6 +319,57 @@
     const map = {};
     (data || []).forEach((r) => { map[r.amp_number] = r.name; });
     return map;
+  }
+
+  // The Edge Function's exact response shape is not pinned down here on
+  // purpose: this accepts the handful of shapes such a function usually
+  // returns, so wiring it up is a name in CONFIG rather than a rewrite. If
+  // Andrew's function returns something else, this is the ONE place to
+  // change - everything downstream works off {id, label}.
+  function normalizeMixes(payload) {
+    const arr = Array.isArray(payload) ? payload
+      : payload && (payload.mixes || payload.data || payload.results || payload.rows);
+    if (!Array.isArray(arr)) return [];
+    return arr.map((m) => {
+      if (typeof m === "string") return { id: m, label: m };
+      const id = m.id ?? m.mix_id ?? m.mix_id_num ?? m.jmf_id ?? m.bid_code ?? "";
+      const label = m.label ?? m.mix_type_string ?? m.mix_description ??
+                    m.description ?? m.name ?? String(id);
+      return { id: String(id), label: String(label) };
+    }).filter((m) => m.id || m.label);
+  }
+
+  async function loadMixes(cid) {
+    const cfg = CONFIG.MIX_LOOKUP;
+    if (!cfg.fn) return { ok: false, reason: "off", mixes: [] };
+    try {
+      const { data, error } = await sb.functions.invoke(cfg.fn, {
+        body: { [cfg.param]: cid },
+      });
+      if (error) return { ok: false, reason: error.message || "lookup failed", mixes: [] };
+      return { ok: true, mixes: normalizeMixes(data) };
+    } catch (err) {
+      return { ok: false, reason: err.message || "lookup failed", mixes: [] };
+    }
+  }
+
+  function renderMixes(result) {
+    const sel = $("mixSelect");
+    const field = $("mixField");
+    if (!CONFIG.MIX_LOOKUP.fn) { field.classList.add("hidden"); return; }
+    field.classList.remove("hidden");
+
+    sel.innerHTML = `<option value="">— select mix —</option>` +
+      state.mixes.map((m) => `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join("");
+    sel.disabled = !state.mixes.length;
+    sel.value = state.mixes.some((m) => m.id === state.mix) ? state.mix : "";
+    state.mix = sel.value;
+
+    $("mixHint").textContent = !result.ok
+      ? `Couldn't load mixes for this contract (${result.reason}). You can still continue.`
+      : state.mixes.length
+        ? `${state.mixes.length} mix${state.mixes.length === 1 ? "" : "es"} on contract ${state.job.cid}.`
+        : `No mixes found for contract ${state.job.cid}.`;
   }
 
   async function loadPlants(smId) {
@@ -381,6 +454,19 @@
 
     setStatus($("subStatus"), "");
     showOnly("subPortalView");
+
+    if (CONFIG.MIX_LOOKUP.fn) {
+      $("mixField").classList.remove("hidden");
+      $("mixHint").textContent = "Looking up mixes…";
+      $("mixSelect").disabled = true;
+      loadMixes(j.cid).then((result) => {
+        // Ignore a response for a contract the user has since changed away
+        // from - renderSub runs again on every Generate.
+        if (!state.job || state.job.cid !== j.cid) return;
+        state.mixes = result.mixes;
+        renderMixes(result);
+      });
+    }
   }
 
   function restoreJob() {
@@ -419,8 +505,17 @@
     const cap = capabilityFor(routeName);
     if (!cap.allowed) { setStatus($("subStatus"), cap.label, "error"); return; }
 
+    if (CONFIG.MIX_LOOKUP.fn && CONFIG.MIX_LOOKUP.required && !state.mix) {
+      setStatus($("subStatus"), "Choose a mix first.", "error");
+      return;
+    }
+
     const url = CONFIG.ROUTES[routeName];
-    const q = new URLSearchParams(state.job).toString();
+    // state.job stays the three job keys; mix rides alongside so nothing
+    // downstream that reads cid/letting/plant has to change.
+    const params = { ...state.job };
+    if (state.mix) params.mix = state.mix;
+    const q = new URLSearchParams(params).toString();
     if (!url) {
       setStatus(
         $("subStatus"),
@@ -480,6 +575,10 @@
   document.title = "Mix — " + book.label + " Portal";
   $("generateBtn").addEventListener("click", generate);
   $("contractId").addEventListener("keydown", (e) => { if (e.key === "Enter") $("lettingDate").focus(); });
+  $("mixSelect").addEventListener("change", (e) => {
+    state.mix = e.target.value;
+    setStatus($("subStatus"), "");
+  });
   $("legacyBtn").addEventListener("click", () => go("legacyUpload"));
   $("buildNewBtn").addEventListener("click", () => go("buildNew"));
   $("backLink").addEventListener("click", () => { setStatus($("portalStatus"), ""); showOnly("portalView"); });
