@@ -24,14 +24,22 @@ rather than leaving it in a conversation.
 
 ## Architecture conventions
 
-- **Single-file HTML app.** One `.html` file: markup, CSS, and JS together. No
-  build step, no bundler, no framework unless there is a specific reason.
-- **DesignBook and PlantBook are two views of one app**, not two apps. One
-  file, one deploy, shared CONFIG and styling. See "Working in one file" below.
-- **CONFIG block at the top.** Every app opens with a single `CONFIG` object
+- **Self-contained pages, no build step.** Each page is one `.html` file with
+  its markup, CSS, and JS inline. No bundler, no framework unless there is a
+  specific reason. The app is several such pages on one Netlify site —
+  `login.html`, `portal.html`, `designbook.html` — not one single file.
+- **DesignBook and PlantBook are two views of one page**, not two pages. They
+  belong in `designbook.html`, sharing its schema renderer, CONFIG and styling.
+  See "Working in one file" below, which applies within any page you share.
+- **CONFIG block at the top.** Every page opens with a single `CONFIG` object
   holding all tunable values — endpoints, thresholds, spec limits, plant lists,
   feature flags. No magic numbers buried in functions.
-- **Netlify static hosting.** The `.html` file deploys as-is.
+- **Some CONFIG values are duplicated across pages on purpose.**
+  `SUPABASE_URL`, `SUPABASE_ANON_KEY` and the theme tokens appear in every
+  page, because self-contained means no shared import. If the Supabase project
+  moves or the palette changes, every page needs the edit — grep, do not
+  assume one file covers it.
+- **Netlify static hosting.** Each `.html` file deploys as-is.
 - **Netlify Functions as API-key proxies.** Any third-party API call goes
   through a function in `netlify/functions/`. The browser never sees a key.
 - **Client-side JSON knowledge bases.** Reference data ships as a JSON file
