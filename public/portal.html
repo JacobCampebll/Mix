@@ -225,18 +225,17 @@
 
     // AMP number -> human plant name, for the Plant dropdown.
     //
-    // technician_plant_access stores only (sm_id, amp_number) — there is no
-    // plant name anywhere in supabase/schema.sql, so there is nothing to
-    // join to. This map is the interim source. An AMP number missing from
-    // here still works: the dropdown falls back to showing the bare number,
-    // so an unmapped plant is never hidden or blocked.
+    // The real source is the `plants` table (supabase/plants.sql). This map
+    // is only a fallback for AMP numbers that table does not have yet, so
+    // the dropdown stays useful before it is seeded. Resolution order is
+    // plants table, then this map, then the bare AMP number — an unmapped
+    // plant is never hidden or blocked.
     //
-    // Names here match `plant_name` on the Allen JMF records, keyed by the
-    // JMF's `contractor_producer_no`. This belongs in a `plants` table
-    // (amp_number primary key, name) once one exists — at that point delete
-    // this map rather than letting the two drift.
+    // Prefer adding names to the `plants` table over growing this map: the
+    // table is shared by every page, this map would have to be duplicated
+    // into each one.
     PLANT_NAMES: {
-      AMP070302: "The Allen Company @ Boonesborough",
+      AMP070302: "The Allen Company @ Boonesboro",
     },
 
     // Fallback only: used if a technician has no technician_plant_access
@@ -249,7 +248,7 @@
      LOGIC — state, data loading, rendering, wiring.
      ================================================================== */
   const $ = (id) => document.getElementById(id);
-  const state = { tech: null, caps: null, plants: [], job: null };
+  const state = { tech: null, caps: null, plants: [], plantNames: {}, job: null };
 
   // Values here come from the database, so they are escaped before being
   // interpolated into markup rather than trusted.
@@ -303,6 +302,18 @@
       .maybeSingle();
     return data || { can_access_plantbook: false, can_access_designbook: false };
   }
+  // Reads the plants table if it exists. It may not: supabase/plants.sql is
+  // a separate migration from schema.sql. A missing table errors rather than
+  // hanging, and the error is deliberately swallowed - the dropdown falls
+  // back to CONFIG.PLANT_NAMES and then to bare AMP numbers, so the Portal
+  // works either side of that migration being run.
+  async function loadPlantNames() {
+    const { data } = await sb.from("plants").select("amp_number, name");
+    const map = {};
+    (data || []).forEach((r) => { map[r.amp_number] = r.name; });
+    return map;
+  }
+
   async function loadPlants(smId) {
     const { data } = await sb
       .from("technician_plant_access")
@@ -339,7 +350,7 @@
     // designbook.html as ?plant= and what a saved design will key on. Only
     // the label gains the name, and only when we have one.
     const label = (amp) => {
-      const name = CONFIG.PLANT_NAMES[amp];
+      const name = state.plantNames[amp] || CONFIG.PLANT_NAMES[amp];
       return name ? `${amp} — ${name}` : amp;
     };
     sel.innerHTML =
@@ -459,6 +470,7 @@
       state.tech = tech;
       state.caps = await loadCapabilities(session.user.id);
       state.plants = await loadPlants(tech.sm_id);
+      state.plantNames = await loadPlantNames();
 
       renderWho();
       renderPlants();
