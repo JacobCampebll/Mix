@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mix — Portal</title>
+
+<!--
+  Portal — the job-selection gate a technician hits after signing in.
+
+  Sits downstream of login.html and shares its session: the Supabase JS
+  client persists the session in localStorage per-origin, so once
+  login.html signs someone in, this page picks up that same session with
+  no token passing, no query params, no second sign-in. Deploy both files
+  to the same Netlify site and it just works. If there is no session (or
+  onboarding isn't finished), this page bounces back to login.html.
+
+  SETUP: none beyond login.html's setup. Same Supabase project, same anon
+  key, same tables. The anon key below is the public/client-side key by
+  design — access control comes from RLS, not from hiding it. Never put
+  the service_role key in this file.
+
+  DATA THIS PAGE READS (all already in supabase/schema.sql):
+    technicians                — name, company, sm_id, onboarded
+    technician_capabilities    — can_access_plantbook / can_access_designbook
+    technician_plant_access    — which AMP numbers fill the Plant dropdown
+
+  NOTE FOR THE OTHER COLLABORATOR: this is a new file and touches nothing
+  in login.html. Shared ground it duplicates on purpose (SUPABASE_URL /
+  ANON_KEY in CONFIG) is the one thing to keep in sync if the project
+  ever moves.
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Theme tokens shared with designbook.html (Layout A). Keep in sync. */
+  :root{
+    --paper:#F2F1EC; --panel:#FFFFFF; --ink:#182430; --muted:#6E7580;
+    --line:#DAD7CE; --accent:#2B5C82; --accent-soft:#E1EAF0;
+    --flag:#B5721F; --flag-soft:#F5E8D4; --ok:#3F7A56; --ok-soft:#E3EFE7;
+    --bad:#9B2C2C; --radius:6px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; min-height:100vh; padding:0; background:var(--paper); color:var(--ink);
+       font-family:'IBM Plex Sans',sans-serif; font-size:14px; line-height:1.5;}
+  h1,h2,h3{font-family:'Space Grotesk',sans-serif; font-weight:600; margin:0;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .hidden{display:none !important;}
+
+  .topbar{position:sticky; top:0; z-index:10; background:var(--paper);
+          border-bottom:1px solid var(--line); padding:14px 32px;
+          display:flex; align-items:center; gap:16px; flex-wrap:wrap;}
+  .wordmark{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:18px; letter-spacing:.02em;}
+  .wordmark span{color:var(--accent);}
+  .crumb{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--muted);
+         border:1px solid var(--line); border-radius:4px; padding:3px 8px;}
+  .spacer{flex:1;}
+  .who{font-size:12px; color:var(--muted); text-align:right; line-height:1.5;}
+  .who a{color:var(--muted); cursor:pointer; text-decoration:underline; text-underline-offset:2px;}
+  .badges{display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; margin-top:4px;}
+  .badge{font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase;
+         letter-spacing:.05em; padding:3px 9px; border-radius:20px; border:1px solid;}
+  .badge.granted{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
+  .badge.denied{background:transparent; color:var(--muted); border-color:var(--line); text-decoration:line-through;}
+
+  .stage{max-width:620px; margin:0 auto; padding:28px 32px 80px;}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:10px;
+        padding:24px; margin-bottom:16px;}
+  .card h2{font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+           color:var(--muted); margin:0 0 18px;}
+
+  .field{margin-bottom:16px;}
+  label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em;
+        color:var(--muted); margin-bottom:5px;}
+  input,select{width:100%; border:1px solid var(--line); background:#FCFCFA;
+               border-radius:var(--radius); padding:9px 11px; font-size:13px;
+               color:var(--ink); font-family:inherit; min-height:36px;}
+  input.mono,select.mono{font-family:'IBM Plex Mono',monospace; color:var(--accent);}
+  input:focus,select:focus{outline:2px solid var(--accent); outline-offset:-1px;}
+  .hint{font-size:11.5px; color:var(--muted); margin-top:5px;}
+
+  button.primary{width:100%; margin-top:8px; padding:11px; border:none;
+                 border-radius:var(--radius); background:var(--accent); color:#fff;
+                 font-family:inherit; font-size:14px; font-weight:500; cursor:pointer;}
+  button.primary:disabled{opacity:.5; cursor:not-allowed;}
+
+  .status{margin-top:12px; font-size:12.5px; min-height:1.2em;}
+  .status.error{color:var(--bad);} .status.warn{color:var(--flag);} .status.success{color:var(--ok);}
+
+  .chips{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px;}
+  .chip{flex:1; min-width:120px; background:#FCFCFA; border:1px solid var(--line);
+        border-radius:var(--radius); padding:9px 12px;}
+  .chip small{display:block; color:var(--muted); font-size:10px; text-transform:uppercase;
+              letter-spacing:.05em; margin-bottom:2px;}
+  .chip span{font-size:14px; font-weight:500;}
+
+  .choices{display:flex; gap:12px; flex-wrap:wrap;}
+  .choice{flex:1; min-width:180px; padding:22px 16px; border-radius:8px;
+          border:1px solid var(--line); background:#FCFCFA; color:var(--ink);
+          font-family:'Space Grotesk',sans-serif; font-size:15px; font-weight:600;
+          cursor:pointer; text-align:center;}
+  .choice:hover:not(:disabled){border-color:var(--accent); color:var(--accent); background:var(--accent-soft);}
+  .choice:disabled{opacity:.5; cursor:not-allowed;}
+  .choice small{display:block; font-family:'IBM Plex Sans',sans-serif; font-weight:400;
+                font-size:11.5px; color:var(--muted); margin-top:7px;}
+
+  .back{margin-top:18px; text-align:center;}
+  .back a{color:var(--muted); font-size:12.5px; cursor:pointer; text-decoration:underline; text-underline-offset:2px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wordmark">Design<span>Book</span></div>
+  <div class="crumb" id="crumb">Portal</div>
+  <div class="spacer"></div>
+  <div class="who">
+    <div id="whoName"></div>
+    <div id="whoMeta"></div>
+    <div class="badges" id="whoBadges"></div>
+    <div><a id="signOutLink" class="hidden">Sign out</a></div>
+  </div>
+</div>
+
+<div class="stage">
+
+<!-- ===== BOOTING ===== -->
+<div class="card" id="bootView">
+  <div class="status" id="bootStatus">Loading…</div>
+</div>
+<!-- ===== END BOOTING ===== -->
+
+<!-- ===== PORTAL ===== -->
+<div class="card hidden" id="portalView">
+  <h2>Select job</h2>
+
+  <div class="field">
+    <label for="contractId">Contract ID</label>
+    <input id="contractId" class="mono" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 252112">
+  </div>
+
+  <div class="field">
+    <label for="lettingDate">Letting Date</label>
+    <input id="lettingDate" type="date">
+  </div>
+
+  <div class="field">
+    <label for="plant">Plant</label>
+    <select id="plant" class="mono"></select>
+    <p class="hint" id="plantHint"></p>
+  </div>
+
+  <button class="primary" id="generateBtn">Generate</button>
+  <div class="status" id="portalStatus"></div>
+</div>
+<!-- ===== END PORTAL ===== -->
+
+<!-- ===== SUB PORTAL ===== -->
+<div class="card hidden" id="subPortalView">
+  <h2>Sub Portal</h2>
+
+  <div class="chips">
+    <div class="chip"><small>Contract ID</small><span id="outContract"></span></div>
+    <div class="chip"><small>Letting Date</small><span id="outLetting"></span></div>
+    <div class="chip"><small>Plant</small><span id="outPlant"></span></div>
+  </div>
+
+  <div class="choices">
+    <button class="choice" id="legacyBtn">Legacy Upload<small id="legacyNote"></small></button>
+    <button class="choice" id="buildNewBtn">Build New<small id="buildNewNote"></small></button>
+  </div>
+
+  <div class="status" id="subStatus"></div>
+  <div class="back"><a id="backLink">← change contract / plant</a></div>
+</div>
+<!-- ===== END SUB PORTAL ===== -->
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  /* ==================================================================
+     CONFIG — everything tunable lives here.
+     SUPABASE_URL / ANON_KEY are duplicated from login.html on purpose
+     (each file stands alone); keep them in sync if the project moves.
+     ================================================================== */
+  const CONFIG = {
+    TITLE: "Portal",
+
+    SUPABASE_URL: "https://iwysxhcmvhkcjxmjarkd.supabase.co",
+    SUPABASE_ANON_KEY:
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3eXN4aGNtdmhrY2p4bWphcmtkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3NTE0MDUsImV4cCI6MjEwMzMyNzQwNX0.K_YKefS3p6W2ZVjEw8El88a_7y_SnLaYNnzF7BA3WKc",
+
+    // Where to send anyone without a session, or mid-onboarding.
+    LOGIN_URL: "login.html",
+
+    // Sub-Portal destinations. null = not built yet (button explains itself
+    // instead of navigating). Job context is passed as ?cid=&letting=&plant=.
+    ROUTES: {
+      legacyUpload: "designbook.html?mode=legacy",
+      buildNew: "designbook.html?mode=new",
+    },
+
+    // Which book each Sub-Portal choice belongs to, so capability gating
+    // comes from technician_capabilities rather than being hardcoded.
+    // Options: "plantbook", "designbook", or null for no gate.
+    REQUIRES: {
+      legacyUpload: "designbook",
+      buildNew: "designbook",
+    },
+
+    // Which book this portal is fronting. Read from ?book= so the same
+    // page can front PlantBook later instead of needing a second copy.
+    // Sets the breadcrumb and the DesignBook/PlantBook wordmark.
+    BOOKS: {
+      designbook: { label: "DesignBook", crumb: "DesignBook · Portal" },
+      plantbook:  { label: "PlantBook",  crumb: "PlantBook · Portal" },
+    },
+    DEFAULT_BOOK: "designbook",
+
+    // Remember the last job locally so a reload doesn't re-type it.
+    // (Standalone Netlify app, so localStorage is allowed per CLAUDE.md.)
+    JOB_STORAGE_KEY: "mix_portal_job",
+
+    // Fallback only: used if a technician has no technician_plant_access
+    // rows at all, so the page is still testable. Empty = show a warning
+    // and disable Generate instead of inventing plants.
+    PLANT_FALLBACK: [],
+  };
+
+  /* ==================================================================
+     LOGIC — state, data loading, rendering, wiring.
+     ================================================================== */
+  const $ = (id) => document.getElementById(id);
+  const state = { tech: null, caps: null, plants: [], job: null };
+
+  const supabase = window.supabase.createClient(
+    CONFIG.SUPABASE_URL,
+    CONFIG.SUPABASE_ANON_KEY
+  );
+
+  function setStatus(el, msg, kind) {
+    el.textContent = msg || "";
+    el.className = "status" + (kind ? " " + kind : "");
+  }
+  function showOnly(view) {
+    ["bootView", "portalView", "subPortalView"].forEach((v) =>
+      $(v).classList.toggle("hidden", v !== view)
+    );
+  }
+  function toLogin(reason) {
+    const next = encodeURIComponent(location.pathname.split("/").pop() || "");
+    location.replace(`${CONFIG.LOGIN_URL}${next ? "?next=" + next : ""}`);
+  }
+
+  /* ---- data ---- */
+  // Same three reads login.html's session view does, plus plant access.
+  async function loadTechnician(userId) {
+    const { data: tech, error } = await supabase
+      .from("technicians")
+      .select("sm_id, first_name, last_name, company, onboarded")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) throw error;
+    return tech;
+  }
+  async function loadCapabilities(userId) {
+    const { data } = await supabase
+      .from("technician_capabilities")
+      .select("can_access_plantbook, can_access_designbook")
+      .eq("user_id", userId)
+      .maybeSingle();
+    return data || { can_access_plantbook: false, can_access_designbook: false };
+  }
+  async function loadPlants(smId) {
+    const { data } = await supabase
+      .from("technician_plant_access")
+      .select("amp_number")
+      .eq("sm_id", smId);
+    const amps = (data || []).map((r) => r.amp_number);
+    // Natural-ish sort so "AMP 2" doesn't land after "AMP 10".
+    return amps.sort((a, b) =>
+      String(a).localeCompare(String(b), undefined, { numeric: true })
+    );
+  }
+
+  /* ---- rendering ---- */
+  function renderWho() {
+    const t = state.tech, c = state.caps;
+    $("whoName").textContent = `${t.first_name} ${t.last_name}`;
+    $("whoMeta").textContent = `${t.company} · ${t.sm_id}`;
+    $("whoBadges").innerHTML = "";
+    const badge = (label, granted) => {
+      const el = document.createElement("span");
+      el.className = "badge " + (granted ? "granted" : "denied");
+      el.textContent = label;
+      return el;
+    };
+    $("whoBadges").appendChild(badge("DesignBook", c.can_access_designbook));
+    $("whoBadges").appendChild(badge("PlantBook", c.can_access_plantbook));
+    $("signOutLink").classList.remove("hidden");
+  }
+
+  function renderPlants() {
+    const list = state.plants.length ? state.plants : CONFIG.PLANT_FALLBACK;
+    const sel = $("plant");
+    sel.innerHTML =
+      `<option value="">— select plant —</option>` +
+      list.map((p) => `<option value="${p}">${p}</option>`).join("");
+
+    if (!list.length) {
+      sel.disabled = true;
+      $("generateBtn").disabled = true;
+      $("plantHint").textContent =
+        "No plants are assigned to your SM ID in technician_plant_access. Contact an admin.";
+    } else {
+      $("plantHint").textContent =
+        `${list.length} plant${list.length === 1 ? "" : "s"} assigned to you.`;
+    }
+  }
+
+  function capabilityFor(routeName) {
+    const need = CONFIG.REQUIRES[routeName];
+    if (!need) return { allowed: true };
+    if (need === "designbook")
+      return { allowed: !!state.caps.can_access_designbook, label: "Mix Design Tech cert required" };
+    return { allowed: !!state.caps.can_access_plantbook, label: "Plant Tech cert required" };
+  }
+
+  function renderSub() {
+    const j = state.job;
+    $("outContract").textContent = j.cid;
+    $("outLetting").textContent = j.letting;
+    $("outPlant").textContent = j.plant;
+
+    [["legacyUpload", "legacyBtn", "legacyNote"],
+     ["buildNew", "buildNewBtn", "buildNewNote"]].forEach(([route, btnId, noteId]) => {
+      const cap = capabilityFor(route);
+      $(btnId).disabled = !cap.allowed;
+      $(noteId).textContent = !cap.allowed
+        ? cap.label
+        : (CONFIG.ROUTES[route] ? "" : "not built yet");
+    });
+
+    setStatus($("subStatus"), "");
+    showOnly("subPortalView");
+  }
+
+  function restoreJob() {
+    try {
+      const j = JSON.parse(localStorage.getItem(CONFIG.JOB_STORAGE_KEY) || "null");
+      if (!j) return;
+      $("contractId").value = j.cid || "";
+      $("lettingDate").value = j.letting || "";
+      // Only restore the plant if it's still one this technician can access.
+      if (j.plant && state.plants.includes(j.plant)) $("plant").value = j.plant;
+    } catch { /* corrupt value — ignore */ }
+  }
+
+  /* ---- actions ---- */
+  function generate() {
+    const cid = $("contractId").value.trim();
+    const letting = $("lettingDate").value;
+    const plant = $("plant").value;
+    const missing = [
+      !cid && "Contract ID",
+      !letting && "Letting Date",
+      !plant && "Plant",
+    ].filter(Boolean);
+
+    if (missing.length) {
+      setStatus($("portalStatus"), "Still needed: " + missing.join(", "), "error");
+      return;
+    }
+    setStatus($("portalStatus"), "");
+    state.job = { cid, letting, plant };
+    localStorage.setItem(CONFIG.JOB_STORAGE_KEY, JSON.stringify(state.job));
+    renderSub();
+  }
+
+  function go(routeName) {
+    const cap = capabilityFor(routeName);
+    if (!cap.allowed) { setStatus($("subStatus"), cap.label, "error"); return; }
+
+    const url = CONFIG.ROUTES[routeName];
+    const q = new URLSearchParams(state.job).toString();
+    if (!url) {
+      setStatus(
+        $("subStatus"),
+        `"${routeName}" isn't built yet. Job it would open: ${q}`,
+        "error"
+      );
+      return;
+    }
+    location.href = url + (url.includes("?") ? "&" : "?") + q;
+  }
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    toLogin();
+  }
+
+  /* ---- boot ---- */
+  async function boot(session) {
+    if (!session || !session.user) return toLogin();
+
+    try {
+      const tech = await loadTechnician(session.user.id);
+
+      if (!tech) {
+        setStatus(
+          $("bootStatus"),
+          "Signed in, but this account isn't linked to a technician. Contact an admin.",
+          "error"
+        );
+        return;
+      }
+      // Onboarding is login.html's job — send them back to finish it.
+      if (!tech.onboarded) return toLogin();
+
+      state.tech = tech;
+      state.caps = await loadCapabilities(session.user.id);
+      state.plants = await loadPlants(tech.sm_id);
+
+      renderWho();
+      renderPlants();
+      restoreJob();
+      showOnly("portalView");
+      $("contractId").focus();
+    } catch (err) {
+      setStatus($("bootStatus"), err.message || "Couldn't load your account.", "error");
+    }
+  }
+
+  /* ---- wiring ---- */
+  document.title = "Mix — " + CONFIG.TITLE;
+  const bookKey = new URLSearchParams(location.search).get("book") || CONFIG.DEFAULT_BOOK;
+  const book = CONFIG.BOOKS[bookKey] || CONFIG.BOOKS[CONFIG.DEFAULT_BOOK];
+  document.querySelector(".wordmark").innerHTML =
+    book.label.replace(/^(Design|Plant)(Book)$/, '$1<span>$2</span>');
+  $("crumb").textContent = book.crumb;
+  document.title = "Mix — " + book.label + " Portal";
+  $("generateBtn").addEventListener("click", generate);
+  $("contractId").addEventListener("keydown", (e) => { if (e.key === "Enter") $("lettingDate").focus(); });
+  $("legacyBtn").addEventListener("click", () => go("legacyUpload"));
+  $("buildNewBtn").addEventListener("click", () => go("buildNew"));
+  $("backLink").addEventListener("click", () => { setStatus($("portalStatus"), ""); showOnly("portalView"); });
+  $("signOutLink").addEventListener("click", signOut);
+
+  supabase.auth.getSession().then(({ data }) => boot(data.session));
+  // Catches sign-out in another tab so this page doesn't sit on stale data.
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === "SIGNED_OUT" || !session) toLogin();
+  });
+</script>
+
+</body>
+</html>

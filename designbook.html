@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DesignBook — Mix</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!--
+  DesignBook — replaces the KYTC MixPack workbook. Layout A.
+
+  Reached from portal.html's Sub Portal in one of two modes:
+    designbook.html?mode=new&cid=...&letting=...&plant=...
+      Blank design.
+    designbook.html?mode=legacy&cid=...&letting=...&plant=...
+      Asks for an existing MixPack .xlsx first, extracts what it can, and
+      drops the values into this same form as a starting point. Every
+      extracted field is editable and marked with where it came from, so
+      nothing is committed without a human looking at it.
+
+  Access: requires can_access_designbook (Mix Design Tech cert, unexpired)
+  from technician_capabilities. Session comes from login.html via the
+  Supabase client's own localStorage persistence — same origin, no token
+  passing.
+
+  ------------------------------------------------------------------
+  THE FORM IS RENDERED FROM CONFIG.SECTIONS, NOT HAND-WRITTEN HTML.
+  ------------------------------------------------------------------
+  This is the one structural change from the Layout A prototype. In the
+  prototype every field was hand-written markup with no key, which means
+  four separate places would have to agree about the field list: the
+  markup, the xlsx extractor, the validation rail, and the save payload.
+  Here the schema below is the single source of truth for all four.
+
+  To add or rename a field, edit CONFIG.SECTIONS. To make the xlsx
+  extractor find it, add strings to that field's `labels` array —
+  extraction is label-anchored, never cell-address-based (per CLAUDE.md),
+  because MixPack moves between revisions.
+
+  The `labels` arrays are still GUESSES — written without a real MixPack
+  in hand. Open a real one in ?mode=legacy and expand "Workbook
+  inspector" at the bottom: it lists every label-ish cell with its
+  address. Copy the real wording in.
+
+  Nothing writes to Supabase yet — there is no DesignBook table in
+  supabase/schema.sql (only the technician tables). Save builds the
+  payload and shows it, so the table and its RLS policy get written
+  against a real shape. See saveDesign().
+
+  FOR THE OTHER COLLABORATOR: new file, touches nothing in login.html.
+  Duplicated shared ground: SUPABASE_URL / ANON_KEY, and the theme
+  tokens (copied from the Layout A prototype).
+  ------------------------------------------------------------------
+-->
+
+<style>
+  /* Theme tokens from the Layout A prototype. portal.html matches these. */
+  :root{
+    --paper:#F2F1EC; --panel:#FFFFFF; --ink:#182430; --muted:#6E7580;
+    --line:#DAD7CE; --accent:#2B5C82; --accent-soft:#E1EAF0;
+    --flag:#B5721F; --flag-soft:#F5E8D4; --ok:#3F7A56; --ok-soft:#E3EFE7;
+    --bad:#9B2C2C;
+    --radius:6px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--paper); color:var(--ink);
+       font-family:'IBM Plex Sans',sans-serif; font-size:14px; line-height:1.5;}
+  h1,h2,h3{font-family:'Space Grotesk',sans-serif; font-weight:600; margin:0;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  a{color:inherit;}
+  .hidden{display:none !important;}
+
+  .topbar{position:sticky; top:0; z-index:10; background:var(--paper);
+          border-bottom:1px solid var(--line); padding:14px 32px;
+          display:flex; align-items:center; gap:16px; flex-wrap:wrap;}
+  .wordmark{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:18px; letter-spacing:.02em;}
+  .wordmark span{color:var(--accent);}
+  .mixid{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--muted);
+         border:1px solid var(--line); border-radius:4px; padding:3px 8px;}
+  .pill{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase;
+        letter-spacing:.05em; padding:4px 10px; border-radius:20px; border:1px solid; transition:.15s;}
+  .pill.draft{background:var(--flag-soft); color:var(--flag); border-color:var(--flag);}
+  .pill.review{background:var(--accent-soft); color:var(--accent); border-color:var(--accent);}
+  .pill.released,.pill.approved{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
+  .spacer{flex:1;}
+  .savedstate{font-size:12px; color:var(--muted);}
+  .whoami{font-size:12px; color:var(--muted); text-align:right; line-height:1.4;}
+  .whoami a{cursor:pointer; text-decoration:underline; text-underline-offset:2px;}
+
+  .layout{max-width:1220px; margin:0 auto; display:grid;
+          grid-template-columns:200px minmax(0,1fr) 250px; gap:28px; padding:28px 32px 80px;}
+  @media (max-width:1080px){ .layout{grid-template-columns:minmax(0,1fr); } .nav,.valpanel{position:static;} }
+
+  /* left ledger rail */
+  .nav{position:sticky; top:66px; align-self:start; padding-left:4px;}
+  .navtitle{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:14px;}
+  .navlist{list-style:none; margin:0; padding:0; position:relative;}
+  .navlist::before{content:''; position:absolute; left:5px; top:6px; bottom:6px; width:1px; background:var(--line);}
+  .navitem{display:flex; align-items:center; gap:10px; padding:7px 0; font-size:13px;
+           color:var(--muted); position:relative; cursor:pointer;}
+  .navitem.current{color:var(--ink); font-weight:500;}
+  .tick{width:11px; height:11px; border-radius:50%; border:1.5px solid var(--accent);
+        background:var(--panel); flex-shrink:0; z-index:1; transition:.15s;}
+  .tick.filled{background:var(--accent);}
+  .tick.partial{background:linear-gradient(90deg,var(--accent) 50%, var(--panel) 50%);}
+
+  /* job context strip */
+  .jobstrip{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px;}
+  .jobchip{flex:1; min-width:120px; background:var(--panel); border:1px solid var(--line);
+           border-radius:8px; padding:9px 12px;}
+  .jobchip small{display:block; color:var(--muted); font-size:10px; text-transform:uppercase;
+                 letter-spacing:.05em; margin-bottom:2px;}
+  .jobchip span{font-size:14px; font-weight:500;}
+
+  /* sections */
+  .section{background:var(--panel); border:1px solid var(--line); border-radius:10px;
+           padding:22px 24px; margin-bottom:20px; scroll-margin-top:80px; transition:box-shadow .3s;}
+  .section.flash{box-shadow:0 0 0 2px var(--accent);}
+  .section-head{display:flex; align-items:baseline; justify-content:space-between;
+                margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line); gap:12px;}
+  .section-tag{font-size:10px; color:var(--muted); border:1px solid var(--line);
+               border-radius:3px; padding:2px 7px; letter-spacing:.03em; white-space:nowrap;}
+
+  .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
+  @media (max-width:700px){ .grid{grid-template-columns:1fr 1fr;} }
+  .field label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em;
+               color:var(--muted); margin-bottom:5px;}
+  .field label .opt{text-transform:none; letter-spacing:0; font-size:10px; opacity:.7;}
+  .box{width:100%; border:1px solid var(--line); background:#FCFCFA; border-radius:var(--radius);
+       padding:8px 10px; font-size:13px; min-height:34px; color:var(--ink);
+       font-family:inherit;}
+  input.box.mono, select.box.mono{font-family:'IBM Plex Mono',monospace; color:var(--accent);}
+  .box:focus{outline:2px solid var(--accent); outline-offset:-1px;}
+  .box.prefilled{background:var(--accent-soft);}
+  .srcnote{font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--muted); margin-top:3px;}
+
+  .rowlist{display:flex; flex-direction:column; gap:8px;}
+  .rowitem{display:grid; gap:10px; align-items:end; padding:8px 10px;
+           border:1px solid var(--line); border-radius:var(--radius); background:#FCFCFA;}
+  .rowitem label{font-size:10px; color:var(--muted); text-transform:uppercase;
+                 display:block; margin-bottom:2px;}
+  .rmbtn{border:1px solid var(--line); background:var(--panel); color:var(--muted);
+         border-radius:var(--radius); width:30px; height:32px; cursor:pointer; font-size:15px;}
+  .rmbtn:hover{color:var(--bad); border-color:var(--bad);}
+  .addrow{display:block; width:100%; margin-top:8px; padding:10px;
+          border:1px dashed var(--accent); border-radius:var(--radius); background:transparent;
+          color:var(--accent); font-size:13px; font-family:inherit; cursor:pointer;}
+  .addrow:disabled{opacity:.4; cursor:not-allowed; border-style:solid;}
+
+  .sieverow{display:grid; grid-template-columns:repeat(7,1fr); gap:8px;}
+  @media (max-width:700px){ .sieverow{grid-template-columns:repeat(4,1fr);} }
+  .sieve{border:1px solid var(--line); border-radius:var(--radius); background:#FCFCFA;
+         padding:8px 6px; text-align:center;}
+  .sieve .sz{font-size:11px; color:var(--muted); margin-bottom:4px;}
+  .sieve input{width:100%; border:none; background:transparent; text-align:center;
+               font-family:'IBM Plex Mono',monospace; font-size:13px; color:var(--accent);
+               padding:2px 0;}
+  .sieve input:focus{outline:1px solid var(--accent);}
+  .chartwrap{margin-top:14px; border:1px solid var(--line); border-radius:var(--radius);
+             background:#FCFCFA; padding:10px;}
+  .chartwrap .cap{font-size:11px; color:var(--muted); margin-bottom:4px;}
+
+  /* status */
+  .timeline{display:flex; align-items:center; margin:6px 0 4px;}
+  .tstep{display:flex; flex-direction:column; align-items:center; flex:1; position:relative;}
+  .tstep .dot{width:14px; height:14px; border-radius:50%; border:2px solid var(--line);
+              background:var(--panel); margin-bottom:6px; z-index:1;}
+  .tstep.done .dot{border-color:var(--ok); background:var(--ok);}
+  .tstep.current .dot{border-color:var(--accent); background:var(--accent);}
+  .tstep .tl{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; text-align:center;}
+  .tstep.done .tl,.tstep.current .tl{color:var(--ink);}
+  .tline{position:absolute; top:6px; left:-50%; width:100%; height:2px; background:var(--line); z-index:0;}
+  .tstep.done .tline{background:var(--ok);}
+  .tstep:first-child .tline{display:none;}
+  .stagebtn{margin-top:16px; padding:10px 16px; border:1px solid var(--accent); border-radius:var(--radius);
+            background:var(--accent); color:#fff; font-family:inherit; font-size:13px; cursor:pointer;}
+  .stagebtn:disabled{opacity:.5; cursor:not-allowed;}
+  .auditlog{margin-top:16px; border-top:1px solid var(--line); padding-top:12px;
+            display:flex; flex-direction:column; gap:6px;}
+  .auditrow{font-size:12px; color:var(--muted); display:flex; gap:10px;}
+  .auditrow .ts{font-family:'IBM Plex Mono',monospace; color:var(--ink); white-space:nowrap;}
+
+  /* right validation rail */
+  .valpanel{position:sticky; top:66px; align-self:start; background:var(--panel);
+            border:1px solid var(--line); border-radius:10px; padding:18px;}
+  .valpanel h3{font-size:13px; margin-bottom:4px;}
+  .valpanel .sub{font-size:11px; color:var(--muted); margin-bottom:14px;}
+  .vitem{display:flex; gap:8px; padding:8px 0; border-top:1px solid var(--line);
+         font-size:12px; cursor:pointer;}
+  .vitem:first-of-type{border-top:none;}
+  .vitem .flag{width:6px; height:6px; border-radius:50%; background:var(--flag);
+               margin-top:5px; flex-shrink:0;}
+  .vitem a{color:var(--accent); text-decoration:underline; text-underline-offset:2px;}
+  .allclear{display:flex; gap:8px; align-items:center; font-size:12px; color:var(--ok);}
+  .dot2{width:6px; height:6px; border-radius:50%; background:var(--ok);}
+  .savebtn{width:100%; margin-top:16px; padding:10px; border:none; border-radius:var(--radius);
+           background:var(--ink); color:#fff; font-family:inherit; font-size:13px; font-weight:500; cursor:pointer;}
+
+  /* gate + upload screens */
+  .centercard{max-width:620px; margin:40px auto; background:var(--panel);
+              border:1px solid var(--line); border-radius:10px; padding:26px;}
+  .drop{border:2px dashed var(--line); border-radius:8px; padding:34px 20px; text-align:center;
+        cursor:pointer; background:#FCFCFA;}
+  .drop.over{border-color:var(--accent); background:var(--accent-soft);}
+  .drop strong{display:block; font-size:15px; margin-bottom:6px;}
+  .drop span{font-size:12px; color:var(--muted);}
+  input[type=file]{display:none;}
+  .msg{margin-top:14px; font-size:13px; min-height:1.2em;}
+  .msg.error{color:var(--bad);} .msg.warn{color:var(--flag);} .msg.ok{color:var(--ok);}
+  .legend{font-size:12px; color:var(--muted); margin-top:14px; line-height:1.6;}
+  .skip{margin-top:14px; background:none; border:none; color:var(--accent);
+        font-family:inherit; font-size:12.5px; cursor:pointer; text-decoration:underline;}
+  details{margin-top:16px;}
+  summary{cursor:pointer; font-size:12px; color:var(--muted);}
+  pre{background:#FCFCFA; border:1px solid var(--line); border-radius:var(--radius);
+      padding:12px; overflow:auto; max-height:320px; font-size:11px; margin-top:10px;
+      font-family:'IBM Plex Mono',monospace;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wordmark">Design<span>Book</span></div>
+  <div class="mixid" id="mixid">MIX ID · —</div>
+  <div class="pill draft" id="statuspill">Draft</div>
+  <div class="spacer"></div>
+  <div class="savedstate" id="savedstate"></div>
+  <div class="whoami">
+    <div id="whoName"></div>
+    <div><a id="portalLink" class="hidden">← Portal</a> <a id="signOutLink" class="hidden">Sign out</a></div>
+  </div>
+</div>
+
+<!-- ===== GATE (auth / cert / missing job) ===== -->
+<div class="centercard" id="gateCard">
+  <div class="msg" id="gateMsg">Loading…</div>
+</div>
+<!-- ===== END GATE ===== -->
+
+<!-- ===== LEGACY UPLOAD ===== -->
+<div class="centercard hidden" id="uploadCard">
+  <h2>Legacy upload</h2>
+  <p class="legend" style="margin-top:6px;margin-bottom:16px;">
+    Pick the existing MixPack workbook for this job. What it finds becomes a
+    starting point in the form — every value stays editable, and each one is
+    labelled with the cell it came from.
+  </p>
+  <div class="drop" id="drop">
+    <strong>Choose a MixPack workbook</strong>
+    <span>or drag it here — .xlsx, .xlsm, .xls</span>
+  </div>
+  <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls">
+  <div class="msg" id="uploadMsg"></div>
+  <button class="skip" id="skipUpload">Skip — start from a blank design instead</button>
+</div>
+<!-- ===== END LEGACY UPLOAD ===== -->
+
+<!-- ===== DESIGNBOOK ===== -->
+<div class="layout hidden" id="dbLayout">
+
+  <nav class="nav">
+    <div class="navtitle">Sections</div>
+    <ul class="navlist" id="navlist"></ul>
+  </nav>
+
+  <main>
+    <div class="jobstrip">
+      <div class="jobchip"><small>Contract ID</small><span id="outContract"></span></div>
+      <div class="jobchip"><small>Letting Date</small><span id="outLetting"></span></div>
+      <div class="jobchip"><small>Plant</small><span id="outPlant"></span></div>
+    </div>
+    <div id="sections"></div>
+
+    <details id="inspectorWrap" class="hidden">
+      <summary>Workbook inspector — every label-ish cell found, with addresses</summary>
+      <pre id="inspector"></pre>
+    </details>
+    <details id="payloadWrap" class="hidden">
+      <summary>Save payload (JSON)</summary>
+      <pre id="payload"></pre>
+    </details>
+  </main>
+
+  <aside class="valpanel">
+    <h3>Outstanding items</h3>
+    <div class="sub" id="valsub">Live — updates as you fill the form</div>
+    <div id="vallist"></div>
+    <button class="savebtn" id="saveBtn">Save design</button>
+    <div class="msg" id="saveMsg" style="font-size:11.5px;"></div>
+  </aside>
+
+</div>
+<!-- ===== END DESIGNBOOK ===== -->
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script>
+/* ==================================================================
+   CONFIG — everything tunable lives here.
+   SUPABASE_URL / ANON_KEY are duplicated from login.html and
+   portal.html on purpose (each file stands alone); keep in sync.
+   ================================================================== */
+const CONFIG = {
+  SUPABASE_URL: "https://iwysxhcmvhkcjxmjarkd.supabase.co",
+  SUPABASE_ANON_KEY:
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3eXN4aGNtdmhrY2p4bWphcmtkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3NTE0MDUsImV4cCI6MjEwMzMyNzQwNX0.K_YKefS3p6W2ZVjEw8El88a_7y_SnLaYNnzF7BA3WKc",
+
+  LOGIN_URL: "login.html",
+  PORTAL_URL: "portal.html",
+
+  // Mix Design Tech cert (unexpired), from technician_capabilities.
+  REQUIRES_CAPABILITY: "can_access_designbook",
+
+  // Workflow stages, in order. Button label is what advances INTO the
+  // next stage; the last stage has none.
+  STAGES: [
+    { key: "Draft",           css: "draft",    next: "Move to internal review →" },
+    { key: "Internal Review", css: "review",   next: "Release to Department →" },
+    { key: "Released",        css: "released", next: "Mark approved →" },
+    { key: "Approved",        css: "approved", next: null },
+  ],
+
+  // How far right of a label to look for its value during extraction.
+  SCAN_RIGHT: 6,
+
+  /* ---- THE FORM ------------------------------------------------
+     Single source of truth for markup, xlsx extraction, the
+     validation rail, and the save payload.
+
+     Section types:
+       grid    — fields laid out 3-up
+       rows    — repeating rows (aggregate components, CT specimens)
+       sieves  — gradation strip + 0.45 power chart
+       status  — workflow timeline + audit log
+     A section may have BOTH `fields` (grid) and `rows`.
+
+     Field props: key, label, type (text|number|select|date),
+       req (counts toward completeness), options (for select),
+       labels (strings the xlsx extractor hunts for), mono (styling).
+     `labels` ARE GUESSES — see the header comment.
+     -------------------------------------------------------------- */
+  SECTIONS: [
+    {
+      id: "header", label: "Header & submittal", tag: "t_smpl · discipline", type: "grid",
+      fields: [
+        { key: "county",         label: "County",        type: "text",   req: true,
+          labels: ["county"] },
+        { key: "submittal_type", label: "Submittal type", type: "select", req: true,
+          options: ["Mix design spreadsheet", "Field change", "Annual renewal"],
+          labels: ["submittal type", "submittal"] },
+        { key: "total_tons",     label: "Total tons",    type: "number", req: true, mono: true,
+          labels: ["total tons", "estimated tons", "tons"] },
+        { key: "depth_mm",       label: "Depth (mm)",    type: "number", req: true, mono: true,
+          labels: ["depth"] },
+        { key: "binder_grade",   label: "Binder grade",  type: "text",   req: true, mono: true,
+          labels: ["binder grade", "pg binder", "asphalt grade", "binder"] },
+        { key: "rap_note",       label: "RAP note",      type: "text",   req: false,
+          labels: ["rap note", "rap comment"] },
+      ],
+    },
+    {
+      id: "design-data", label: "Design data", tag: "t_superpave", type: "grid",
+      fields: [
+        { key: "ac_pct",   label: "AC (%)",         type: "number", req: true, mono: true,
+          labels: ["optimum asphalt", "asphalt content", "ac (%)", "% ac", "ac content"] },
+        { key: "gmm_ini",  label: "Gmm ini",        type: "number", req: true, mono: true,
+          labels: ["gmm ini", "gmm initial", "gmm"] },
+        { key: "av_pct",   label: "AV (%)",         type: "number", req: true, mono: true,
+          labels: ["air voids", "av (%)", "% air voids"] },
+        { key: "vma_pct",  label: "VMA (%)",        type: "number", req: true, mono: true,
+          labels: ["vma"] },
+        { key: "vfa_pct",  label: "VFA (%)",        type: "number", req: true, mono: true,
+          labels: ["vfa"] },
+        { key: "uw",       label: "UW (lbs/ft³)",   type: "number", req: true, mono: true,
+          labels: ["unit weight", "uw"] },
+        { key: "msg",      label: "MSG",            type: "number", req: true, mono: true,
+          labels: ["msg", "maximum specific gravity", "rice"] },
+        { key: "esal",     label: "ESAL class",     type: "select", req: true,
+          options: ["<0.3M", "0.3 – 3M", "3 – 10M", "10 – 30M", ">30M"],
+          labels: ["esal", "traffic level"] },
+        { key: "designer", label: "Designer",       type: "text",   req: true,
+          labels: ["designer", "designed by"] },
+      ],
+    },
+    {
+      id: "aggregate", label: "Aggregate blend", tag: "t_bit_conc_mixblnd", type: "rows",
+      rows: {
+        key: "aggregate", max: 6, addLabel: "+ add aggregate component (up to 6)",
+        // Header cells that identify this table in the workbook.
+        tableHeaders: ["producer", "% blend"],
+        grid: "1.4fr 1.2fr 1fr .8fr .8fr auto",
+        columns: [
+          { key: "producer",  label: "Producer",     type: "text",   req: true },
+          { key: "type_size", label: "Type & size",  type: "text",   req: true },
+          { key: "mat_code",  label: "Mat. code",    type: "text",   req: true, mono: true },
+          { key: "pct_blend", label: "% blend",      type: "number", req: true, mono: true },
+          { key: "gsb",       label: "Gsb",          type: "number", req: true, mono: true },
+        ],
+      },
+    },
+    {
+      id: "gradation", label: "Gradation", tag: "t_tst_rslt_dtl", type: "sieves",
+      // mm sizes drive the 0.45 power chart's x positions.
+      sieves: [
+        { label: '3/4"', mm: 19.0 },
+        { label: '1/2"', mm: 12.5 },
+        { label: '3/8"', mm: 9.5 },
+        { label: "#4",   mm: 4.75 },
+        { label: "#8",   mm: 2.36 },
+        { label: "#50",  mm: 0.300 },
+        { label: "#200", mm: 0.075 },
+      ],
+    },
+    {
+      id: "performance", label: "Performance testing",
+      tag: "t_tst_rslt_dtl · TSR / Hamburg / CT", type: "grid",
+      fields: [
+        { key: "tsr_pct",      label: "TSR (%)",             type: "number", req: true, mono: true,
+          labels: ["tsr"] },
+        { key: "hamburg_with", label: "Hamburg made with",   type: "select", req: true,
+          options: ["Job mix", "Lab mix"],
+          labels: ["hamburg made with", "hamburg mix"] },
+        { key: "hamburg_sip",  label: "Hamburg SIP (left)",  type: "number", req: true, mono: true,
+          labels: ["hamburg sip", "stripping inflection", "sip"] },
+      ],
+      rows: {
+        key: "ct", max: 8, addLabel: "+ add CT specimen (up to 8)",
+        tableHeaders: ["l75", "m75"],
+        grid: "1fr 1fr 1fr 1fr 1fr auto",
+        columns: [
+          { key: "specimen", label: "Specimen", type: "text",   req: true, mono: true },
+          { key: "l75",      label: "l75",      type: "number", req: true, mono: true },
+          { key: "m75",      label: "m75",      type: "number", req: true, mono: true },
+          { key: "gf",       label: "Gf",       type: "number", req: true, mono: true },
+          { key: "index",    label: "Index",    type: "number", req: true, mono: true },
+        ],
+      },
+    },
+    {
+      id: "recycle", label: "Recycle / KYCT data", tag: "t_tst_rslt_dtl", type: "grid",
+      fields: [
+        { key: "rap_pct",      label: "RAP (%)",          type: "number", req: true, mono: true,
+          labels: ["rap (%)", "% rap", "rap percent"] },
+        { key: "ras_pct",      label: "RAS (%)",          type: "number", req: true, mono: true,
+          labels: ["ras (%)", "% ras", "ras percent"] },
+        { key: "virgin_ac",    label: "Virgin AC (%)",    type: "number", req: true, mono: true,
+          labels: ["virgin ac", "virgin asphalt"] },
+        { key: "additive",     label: "% additive / type", type: "text",  req: false,
+          labels: ["additive"] },
+      ],
+    },
+    { id: "status", label: "Status & validation", tag: "workflow", type: "status" },
+  ],
+};
+
+/* ==================================================================
+   LOGIC
+   ================================================================== */
+const $ = (id) => document.getElementById(id);
+const state = {
+  mode: "new",       // "legacy" | "new"
+  job: null,         // { cid, letting, plant }
+  tech: null,
+  stageIdx: 0,
+  sources: {},       // fieldKey -> cell address it was extracted from
+  extracted: null,   // { scalars, tables } from the workbook, if any
+  inspected: [],
+};
+
+const supabase = window.supabase.createClient(
+  CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY
+);
+
+function msg(el, text, kind) {
+  el.textContent = text || "";
+  el.className = "msg" + (kind ? " " + kind : "");
+}
+function show(id, on) { $(id).classList.toggle("hidden", !on); }
+function toLogin() { location.replace(CONFIG.LOGIN_URL); }
+function toPortal() { location.href = CONFIG.PORTAL_URL; }
+
+/* ---------- field helpers ---------- */
+function allFields() {
+  const out = [];
+  CONFIG.SECTIONS.forEach((s) => (s.fields || []).forEach((f) => out.push({ section: s.id, ...f })));
+  return out;
+}
+function sieveKey(label) { return "sieve_" + label.replace(/[^0-9a-z]/gi, ""); }
+
+/* ---------- markup, rendered from CONFIG.SECTIONS ---------- */
+function inputFor(f, value) {
+  const cls = "box req-marker" + (f.mono ? " mono" : "") + (f.req ? " req" : "");
+  if (f.type === "select") {
+    const opts = ['<option value="">— select —</option>']
+      .concat((f.options || []).map((o) =>
+        `<option${String(value) === o ? " selected" : ""}>${o}</option>`))
+      .join("");
+    return `<select class="${cls}" data-field="${f.key}">${opts}</select>`;
+  }
+  const type = f.type === "date" ? "date" : "text";
+  const im = f.type === "number" ? ' inputmode="decimal"' : "";
+  return `<input type="${type}"${im} class="${cls}" data-field="${f.key}" value="${value == null ? "" : String(value).replace(/"/g, "&quot;")}">`;
+}
+
+function gridHTML(fields) {
+  return `<div class="grid">` + fields.map((f) => {
+    const v = state.extracted ? state.extracted.scalars[f.key] : "";
+    const src = state.sources[f.key];
+    return `<div class="field">
+      <label>${f.label}${f.req ? "" : ' <span class="opt">(optional)</span>'}</label>
+      ${inputFor(f, v)}
+      ${src ? `<div class="srcnote">from ${src}</div>` : ""}
+    </div>`;
+  }).join("") + `</div>`;
+}
+
+function rowHTML(spec, values, idx) {
+  const cells = spec.columns.map((c) => {
+    const v = values ? values[c.key] : "";
+    const cls = "box" + (c.mono ? " mono" : "") + (c.req ? " req" : "");
+    return `<div><label>${c.label}</label>
+      <input type="text" class="${cls}" data-row="${spec.key}" data-col="${c.key}"
+             value="${v == null ? "" : String(v).replace(/"/g, "&quot;")}"></div>`;
+  }).join("");
+  return `<div class="rowitem" style="grid-template-columns:${spec.grid}">
+    ${cells}<button class="rmbtn" title="Remove">×</button></div>`;
+}
+
+function rowsHTML(spec) {
+  const found = state.extracted ? (state.extracted.tables[spec.key] || []) : [];
+  const seed = found.length ? found.slice(0, spec.max) : [null];
+  return `<div class="rowlist" data-rowlist="${spec.key}">
+      ${seed.map((v, i) => rowHTML(spec, v, i)).join("")}
+    </div>
+    <button class="addrow" data-add="${spec.key}">${spec.addLabel}</button>`;
+}
+
+function sievesHTML(section) {
+  const cells = section.sieves.map((s) => {
+    const k = sieveKey(s.label);
+    const v = state.extracted ? (state.extracted.scalars[k] || "") : "";
+    return `<div class="sieve"><div class="sz">${s.label}</div>
+      <input type="text" inputmode="decimal" class="req" data-field="${k}"
+             data-mm="${s.mm}" value="${v}" placeholder="—"></div>`;
+  }).join("");
+  return `<div class="sieverow">${cells}</div>
+    <div class="chartwrap">
+      <div class="cap">0.45 power chart — drawn from the sieve values above</div>
+      <div id="chart"></div>
+    </div>`;
+}
+
+function statusHTML() {
+  const steps = CONFIG.STAGES.map((s) =>
+    `<div class="tstep" data-stage="${s.key}"><div class="tline"></div>
+       <div class="dot"></div><div class="tl">${s.key}</div></div>`).join("");
+  return `<div class="timeline" id="timeline">${steps}</div>
+    <button class="stagebtn" id="advanceStage"></button>
+    <div class="auditlog" id="auditlog"></div>`;
+}
+
+function renderForm() {
+  $("sections").innerHTML = CONFIG.SECTIONS.map((s) => {
+    let body = "";
+    if (s.type === "sieves") body = sievesHTML(s);
+    else if (s.type === "status") body = statusHTML();
+    else {
+      if (s.fields) body += gridHTML(s.fields);
+      if (s.rows) body += (s.fields ? '<div style="height:14px"></div>' : "") + rowsHTML(s.rows);
+    }
+    return `<section class="section" id="${s.id}" data-section="${s.id}" data-label="${s.label}">
+      <div class="section-head"><h2>${s.label}</h2><span class="section-tag mono">${s.tag}</span></div>
+      ${body}
+    </section>`;
+  }).join("");
+
+  $("navlist").innerHTML = CONFIG.SECTIONS.map((s) =>
+    `<li class="navitem" data-target="${s.id}"><span class="tick" data-tick="${s.id}"></span>${s.label}</li>`
+  ).join("");
+
+  wireForm();
+  renderStage();
+  recompute();
+}
+
+/* ---------- 0.45 power chart ---------- */
+function drawChart() {
+  const section = CONFIG.SECTIONS.find((s) => s.type === "sieves");
+  const pts = section.sieves.map((s) => {
+    const el = document.querySelector(`[data-field="${sieveKey(s.label)}"]`);
+    const v = parseFloat((el && el.value) || "");
+    return { mm: s.mm, label: s.label, p: Number.isFinite(v) ? v : null };
+  });
+
+  const W = 100, H = 100, pad = { l: 8, r: 3, t: 4, b: 10 };
+  const maxMM = Math.max(...pts.map((p) => p.mm));
+  const x = (mm) => pad.l + (Math.pow(mm, 0.45) / Math.pow(maxMM, 0.45)) * (W - pad.l - pad.r);
+  const y = (p) => H - pad.b - (p / 100) * (H - pad.t - pad.b);
+
+  const grid = pts.map((p) =>
+    `<line x1="${x(p.mm).toFixed(1)}" y1="${pad.t}" x2="${x(p.mm).toFixed(1)}" y2="${H - pad.b}"
+       stroke="var(--line)" stroke-width="0.3"/>
+     <text x="${x(p.mm).toFixed(1)}" y="${H - pad.b + 6}" font-size="3.2" fill="var(--muted)"
+       text-anchor="middle">${p.label}</text>`).join("");
+
+  const have = pts.filter((p) => p.p !== null);
+  const line = have.length >= 2
+    ? `<polyline fill="none" stroke="var(--accent)" stroke-width="0.7" points="${
+        have.map((p) => `${x(p.mm).toFixed(1)},${y(p.p).toFixed(1)}`).join(" ")}"/>`
+    : "";
+  const dots = have.map((p) =>
+    `<circle cx="${x(p.mm).toFixed(1)}" cy="${y(p.p).toFixed(1)}" r="0.9" fill="var(--accent)"/>`).join("");
+  const empty = have.length < 2
+    ? `<text x="${W / 2}" y="${H / 2}" font-size="4" fill="var(--muted)" text-anchor="middle">
+         enter at least two sieve values</text>`
+    : "";
+
+  $("chart").innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:150px;display:block">
+      <line x1="${pad.l}" y1="${H - pad.b}" x2="${W - pad.r}" y2="${H - pad.b}" stroke="var(--line)" stroke-width="0.4"/>
+      <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${H - pad.b}" stroke="var(--line)" stroke-width="0.4"/>
+      ${[0, 25, 50, 75, 100].map((v) =>
+        `<text x="${pad.l - 1.5}" y="${(y(v) + 1.2).toFixed(1)}" font-size="3" fill="var(--muted)"
+           text-anchor="end">${v}</text>`).join("")}
+      ${grid}${line}${dots}${empty}
+    </svg>`;
+}
+
+/* ---------- validation rail + nav ticks ---------- */
+function recompute() {
+  const outstanding = [];
+  document.querySelectorAll(".section").forEach((sec) => {
+    const id = sec.dataset.section;
+    if (id === "status") return;
+    const reqs = sec.querySelectorAll(".req");
+    let filled = 0;
+    reqs.forEach((el) => { if (String(el.value || "").trim()) filled++; });
+    const tick = document.querySelector(`[data-tick="${id}"]`);
+    if (tick) {
+      tick.classList.remove("filled", "partial");
+      if (reqs.length && filled === reqs.length) tick.classList.add("filled");
+      else if (filled) tick.classList.add("partial");
+    }
+    if (filled < reqs.length) {
+      outstanding.push({ id, label: sec.dataset.label, missing: reqs.length - filled });
+    }
+  });
+
+  const list = $("vallist"), sub = $("valsub");
+  if (!outstanding.length) {
+    sub.textContent = "All required fields complete";
+    list.innerHTML = `<div class="allclear"><span class="dot2"></span>Ready to move to internal review</div>`;
+  } else {
+    sub.textContent = `${outstanding.length} section(s) with incomplete fields`;
+    list.innerHTML = outstanding.map((o) =>
+      `<div class="vitem" data-jump="${o.id}"><span class="flag"></span>
+         <span><a>${o.label}</a> — ${o.missing} field(s) missing</span></div>`).join("");
+    list.querySelectorAll(".vitem").forEach((el) => {
+      el.addEventListener("click", () => jumpTo(el.dataset.jump, true));
+    });
+  }
+  drawChart();
+}
+
+function jumpTo(id, focusFirstEmpty) {
+  const sec = $(id);
+  if (!sec) return;
+  sec.scrollIntoView({ behavior: "smooth", block: "start" });
+  sec.classList.add("flash");
+  setTimeout(() => sec.classList.remove("flash"), 900);
+  if (focusFirstEmpty) {
+    const empty = Array.from(sec.querySelectorAll(".req"))
+      .find((f) => !String(f.value || "").trim());
+    if (empty) setTimeout(() => empty.focus(), 400);
+  }
+}
+
+/* ---------- workflow stage ---------- */
+function renderStage() {
+  const s = CONFIG.STAGES[state.stageIdx];
+  $("statuspill").textContent = s.key;
+  $("statuspill").className = "pill " + s.css;
+  document.querySelectorAll("#timeline .tstep").forEach((el, i) => {
+    el.classList.remove("done", "current");
+    if (i < state.stageIdx) el.classList.add("done");
+    if (i === state.stageIdx) el.classList.add("current");
+  });
+  const btn = $("advanceStage");
+  if (!s.next) { btn.disabled = true; btn.textContent = "Fully approved"; }
+  else { btn.disabled = false; btn.textContent = s.next; }
+}
+
+function audit(text) {
+  const row = document.createElement("div");
+  row.className = "auditrow";
+  const t = new Date();
+  const ts = `${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ` +
+             `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+  row.innerHTML = `<span class="ts">${ts}</span> ${text}`;
+  $("auditlog").insertBefore(row, $("auditlog").firstChild);
+}
+
+/* ---------- xlsx extraction (label-anchored, never cell addresses) ---------- */
+function norm(v) { return String(v == null ? "" : v).toLowerCase().replace(/\s+/g, " ").trim(); }
+function isBlank(v) { return v === null || v === undefined || String(v).trim() === ""; }
+function addr(sheet, r, c) { return `${sheet}!${XLSX.utils.encode_col(c)}${r + 1}`; }
+
+function sheetGrids(wb) {
+  return wb.SheetNames.map((name) => ({
+    name,
+    rows: XLSX.utils.sheet_to_json(wb.Sheets[name], {
+      header: 1, blankrows: false, defval: null, raw: true,
+    }),
+  }));
+}
+
+function inspect(grids) {
+  const out = [];
+  grids.forEach(({ name, rows }) => {
+    rows.forEach((row, r) => {
+      (row || []).forEach((cell, c) => {
+        if (isBlank(cell) || typeof cell === "number") return;
+        const t = String(cell).trim();
+        if (t.length > 60) return;
+        out.push(`${addr(name, r, c).padEnd(18)} ${t}`);
+      });
+    });
+  });
+  return out;
+}
+
+function valueNear(rows, r, c) {
+  const row = rows[r] || [];
+  for (let i = 1; i <= CONFIG.SCAN_RIGHT; i++) {
+    if (!isBlank(row[c + i])) return { v: row[c + i], where: [r, c + i] };
+  }
+  const below = rows[r + 1] || [];
+  if (!isBlank(below[c])) return { v: below[c], where: [r + 1, c] };
+  return null;
+}
+
+function coerce(v, type) {
+  if (type === "number") {
+    const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ""));
+    return Number.isFinite(n) ? String(n) : "";
+  }
+  if (type === "date") {
+    if (v instanceof Date && !isNaN(v)) return v.toISOString().slice(0, 10);
+    const d = new Date(v);
+    return isNaN(d) ? String(v).trim() : d.toISOString().slice(0, 10);
+  }
+  return String(v).trim();
+}
+
+function extractScalars(grids) {
+  const scalars = {}, sources = {};
+  const targets = allFields()
+    .filter((f) => f.labels && f.labels.length)
+    .map((f) => ({ key: f.key, type: f.type, wanted: f.labels.map(norm) }));
+
+  // Sieves too: the label hunted for is the sieve text itself.
+  CONFIG.SECTIONS.filter((s) => s.type === "sieves").forEach((s) =>
+    s.sieves.forEach((sv) =>
+      targets.push({ key: sieveKey(sv.label), type: "number", wanted: [norm(sv.label)] })));
+
+  targets.forEach((t) => {
+    outer:
+    for (const { name, rows } of grids) {
+      for (let r = 0; r < rows.length; r++) {
+        const row = rows[r] || [];
+        for (let c = 0; c < row.length; c++) {
+          const cell = row[c];
+          if (isBlank(cell) || typeof cell === "number") continue;
+          if (!t.wanted.some((w) => w && norm(cell).includes(w))) continue;
+          const hit = valueNear(rows, r, c);
+          if (!hit) continue;
+          const val = coerce(hit.v, t.type);
+          if (val === "") continue;
+          scalars[t.key] = val;
+          sources[t.key] = addr(name, hit.where[0], hit.where[1]);
+          break outer;
+        }
+      }
+    }
+  });
+  return { scalars, sources };
+}
+
+// Repeating tables: find a row that contains this table's identifying
+// headers, map each column by its header text, then read down until a
+// fully blank row. Column order in the workbook doesn't have to match ours.
+function extractTables(grids) {
+  const tables = {};
+  CONFIG.SECTIONS.forEach((s) => {
+    if (!s.rows) return;
+    const spec = s.rows;
+    const need = spec.tableHeaders.map(norm);
+
+    for (const { rows } of grids) {
+      for (let r = 0; r < rows.length; r++) {
+        const row = (rows[r] || []).map(norm);
+        if (!need.every((n) => row.some((cell) => cell.includes(n)))) continue;
+
+        // Map our column keys to workbook column indices via header text.
+        const colIdx = {};
+        spec.columns.forEach((col) => {
+          const want = norm(col.label).replace(/\s*&\s*/g, " ");
+          const i = row.findIndex((cell) =>
+            cell && (cell.includes(norm(col.label)) || cell.includes(want) || cell.includes(norm(col.key))));
+          if (i >= 0) colIdx[col.key] = i;
+        });
+        if (Object.keys(colIdx).length < 2) continue;
+
+        const out = [];
+        for (let rr = r + 1; rr < rows.length && out.length < spec.max; rr++) {
+          const dataRow = rows[rr] || [];
+          const vals = {};
+          let any = false;
+          spec.columns.forEach((col) => {
+            const i = colIdx[col.key];
+            const raw = i === undefined ? null : dataRow[i];
+            const v = isBlank(raw) ? "" : coerce(raw, col.type);
+            vals[col.key] = v;
+            if (v !== "") any = true;
+          });
+          if (!any) break;
+          out.push(vals);
+        }
+        if (out.length) { tables[spec.key] = out; return; }
+      }
+    }
+  });
+  return tables;
+}
+
+async function handleFile(file) {
+  if (!file) return;
+  msg($("uploadMsg"), `Reading ${file.name}…`);
+  try {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+    const grids = sheetGrids(wb);
+
+    const { scalars, sources } = extractScalars(grids);
+    state.extracted = { scalars, tables: extractTables(grids) };
+    state.sources = sources;
+    state.inspected = inspect(grids);
+
+    $("inspector").textContent =
+      `Sheets: ${wb.SheetNames.join(", ")}\n\n` + state.inspected.join("\n");
+    show("inspectorWrap", true);
+
+    const found = Object.keys(scalars).length;
+    const rowsFound = Object.values(state.extracted.tables)
+      .reduce((n, t) => n + t.length, 0);
+
+    enterForm();
+    msg($("saveMsg"),
+      `Prefilled ${found} field(s) and ${rowsFound} row(s) from ${file.name}. Check every one.`,
+      found ? "warn" : "error");
+    audit(`Prefilled from ${file.name} — ${state.tech.sm_id}`);
+  } catch (err) {
+    msg($("uploadMsg"), err.message || "Couldn't read that file.", "error");
+  }
+}
+
+/* ---------- save ---------- */
+// No DesignBook table exists in supabase/schema.sql yet, so this builds
+// and surfaces the payload rather than pretending to persist. Write the
+// table + RLS against this exact object.
+function saveDesign() {
+  const values = {};
+  document.querySelectorAll("[data-field]").forEach((el) => {
+    values[el.dataset.field] = String(el.value || "").trim() || null;
+  });
+
+  const tables = {};
+  document.querySelectorAll("[data-rowlist]").forEach((list) => {
+    tables[list.dataset.rowlist] = Array.from(list.children).map((row) => {
+      const o = {};
+      row.querySelectorAll("[data-col]").forEach((el) => {
+        o[el.dataset.col] = String(el.value || "").trim() || null;
+      });
+      return o;
+    }).filter((o) => Object.values(o).some((v) => v !== null));
+  });
+
+  const payload = {
+    contract_id: state.job.cid,
+    letting_date: state.job.letting,
+    amp_number: state.job.plant,
+    sm_id: state.tech.sm_id,           // RLS scopes off this + auth.uid()
+    origin: state.mode,                // "legacy" | "new"
+    stage: CONFIG.STAGES[state.stageIdx].key,
+    extracted_from: state.sources,     // field -> source cell, for audit
+    values,
+    rows: tables,
+    saved_at: new Date().toISOString(),
+  };
+
+  $("payload").textContent = JSON.stringify(payload, null, 2);
+  show("payloadWrap", true);
+  $("payloadWrap").open = true;
+  $("payloadWrap").scrollIntoView({ behavior: "smooth", block: "center" });
+  msg($("saveMsg"),
+    "Not saved — no DesignBook table in the database yet. Payload built below; write the table and its RLS policy against that shape.",
+    "warn");
+  return payload;
+}
+
+/* ---------- wiring ---------- */
+function wireForm() {
+  // Repeating rows: add / remove.
+  document.querySelectorAll("[data-add]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.add;
+      const spec = CONFIG.SECTIONS.map((s) => s.rows).find((r) => r && r.key === key);
+      const list = document.querySelector(`[data-rowlist="${key}"]`);
+      if (list.children.length >= spec.max) return;
+      const tmp = document.createElement("div");
+      tmp.innerHTML = rowHTML(spec, null);
+      const row = tmp.firstElementChild;
+      list.appendChild(row);
+      wireRemove(row);
+      if (list.children.length >= spec.max) btn.disabled = true;
+      recompute();
+    });
+  });
+  document.querySelectorAll(".rowitem").forEach(wireRemove);
+
+  // Nav rail.
+  document.querySelectorAll(".navitem").forEach((item) => {
+    item.addEventListener("click", () => jumpTo(item.dataset.target, false));
+  });
+
+  // Stage advance.
+  $("advanceStage").addEventListener("click", () => {
+    if (!CONFIG.STAGES[state.stageIdx].next) return;
+    state.stageIdx++;
+    renderStage();
+    audit(`Moved to ${CONFIG.STAGES[state.stageIdx].key} — ${state.tech.sm_id}`);
+  });
+
+  // Any edit: recompute completeness, drop the "prefilled" marker.
+  $("sections").addEventListener("input", (e) => {
+    if (e.target.dataset.field || e.target.dataset.col) {
+      e.target.classList.remove("prefilled");
+      recompute();
+      $("savedstate").textContent = "Edited — not saved";
+    }
+  });
+  $("sections").addEventListener("change", (e) => {
+    if (e.target.tagName === "SELECT") recompute();
+  });
+
+  // Highlight what came from the workbook so it reads as "check me".
+  Object.keys(state.sources).forEach((k) => {
+    const el = document.querySelector(`[data-field="${k}"]`);
+    if (el) el.classList.add("prefilled");
+  });
+
+  // Nav follows scroll.
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((en) => {
+      if (!en.isIntersecting) return;
+      document.querySelectorAll(".navitem").forEach((n) =>
+        n.classList.toggle("current", n.dataset.target === en.target.id));
+    });
+  }, { rootMargin: "-40% 0px -50% 0px", threshold: 0 });
+  document.querySelectorAll(".section").forEach((s) => io.observe(s));
+}
+
+function wireRemove(row) {
+  const btn = row.querySelector(".rmbtn");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    const list = row.parentElement;
+    const key = list.dataset.rowlist;
+    row.remove();
+    if (!list.children.length) {
+      const spec = CONFIG.SECTIONS.map((s) => s.rows).find((r) => r && r.key === key);
+      const tmp = document.createElement("div");
+      tmp.innerHTML = rowHTML(spec, null);
+      list.appendChild(tmp.firstElementChild);
+      wireRemove(list.lastElementChild);
+    }
+    const add = document.querySelector(`[data-add="${key}"]`);
+    if (add) add.disabled = false;
+    recompute();
+  });
+}
+
+function wireDrop() {
+  const drop = $("drop"), input = $("fileInput");
+  drop.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => handleFile(input.files[0]));
+  ["dragenter", "dragover"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => handleFile(e.dataTransfer.files[0]));
+}
+
+/* ---------- boot ---------- */
+function readParams() {
+  const p = new URLSearchParams(location.search);
+  const cid = p.get("cid"), letting = p.get("letting"), plant = p.get("plant");
+  return {
+    mode: p.get("mode") === "legacy" ? "legacy" : "new",
+    job: cid && letting && plant ? { cid, letting, plant } : null,
+  };
+}
+
+function enterForm() {
+  show("gateCard", false);
+  show("uploadCard", false);
+  show("dbLayout", true);
+  $("outContract").textContent = state.job.cid;
+  $("outLetting").textContent = state.job.letting;
+  $("outPlant").textContent = state.job.plant;
+  // Mix ID isn't assigned yet — it should come from the DesignBook table's
+  // identity once that exists. Until then, show the job it belongs to.
+  $("mixid").textContent = `JOB · ${state.job.cid} · ${state.job.plant}`;
+  $("savedstate").textContent = "Not saved yet";
+  renderForm();
+}
+
+async function boot(session) {
+  if (!session || !session.user) return toLogin();
+  try {
+    const { data: tech } = await supabase
+      .from("technicians")
+      .select("sm_id, first_name, last_name, company, onboarded")
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+
+    if (!tech) {
+      msg($("gateMsg"), "Signed in, but this account isn't linked to a technician. Contact an admin.", "error");
+      return;
+    }
+    if (!tech.onboarded) return toLogin();
+
+    state.tech = tech;
+    $("whoName").textContent = `${tech.first_name} ${tech.last_name} · ${tech.sm_id}`;
+    show("portalLink", true);
+    show("signOutLink", true);
+
+    const { data: caps } = await supabase
+      .from("technician_capabilities")
+      .select("can_access_plantbook, can_access_designbook")
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+
+    if (!caps || !caps[CONFIG.REQUIRES_CAPABILITY]) {
+      msg($("gateMsg"),
+        "DesignBook needs a current Mix Design Tech certification. Yours isn't showing as active.", "error");
+      return;
+    }
+
+    const { mode, job } = readParams();
+    if (!job) {
+      msg($("gateMsg"),
+        "No job selected. Start from the Portal so a contract, letting date, and plant come with you.", "error");
+      return;
+    }
+
+    state.mode = mode;
+    state.job = job;
+
+    if (mode === "legacy") {
+      show("gateCard", false);
+      show("uploadCard", true);
+    } else {
+      enterForm();
+      audit(`Blank design started — ${tech.sm_id}`);
+    }
+  } catch (err) {
+    msg($("gateMsg"), err.message || "Couldn't load your account.", "error");
+  }
+}
+
+wireDrop();
+$("portalLink").addEventListener("click", toPortal);
+$("signOutLink").addEventListener("click", async () => { await supabase.auth.signOut(); toLogin(); });
+$("saveBtn").addEventListener("click", saveDesign);
+$("skipUpload").addEventListener("click", () => {
+  state.mode = "new";
+  enterForm();
+  audit(`Blank design started — ${state.tech.sm_id}`);
+});
+
+supabase.auth.getSession().then(({ data }) => boot(data.session));
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === "SIGNED_OUT" || !session) toLogin();
+});
+</script>
+
+</body>
+</html>
