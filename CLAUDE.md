@@ -4,6 +4,15 @@ Purpose: a shared web app replacing KYTC's MixPack and AMAW workbooks, now known
 as **DesignBook** and **PlantBook** respectively. A joint effort between KYTC and
 contractors.
 
+**What it is for - a submission pipeline, not a mix database.** A contractor
+technician submits a mix design; KYTC Central Office reviews it and approves
+it; an approved design yields a **one-page approval PDF** the contractor can
+download; the approved data is sent on to **SiteManager / AASHTOWare Project**
+so the state sees it (that is why the reference tables carry SiteManager
+codes). The `designs` table is the submission record and its audit trail, not
+a reference library, and the Portal is the place to submit and to see where a
+submission stands - do not design it as a browse-and-search catalogue.
+
 Live at **https://kytcmix.netlify.app** (Netlify project `kytcmix`), deployed
 automatically from `main`. Pages are served from `public/`; `/` redirects to
 `login.html`.
