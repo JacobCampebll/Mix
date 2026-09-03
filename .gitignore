@@ -45,6 +45,16 @@ technician_plant_access_seed.csv
 technicians_seed.sql
 technician_plant_access_seed.sql
 
+# ---- Real mix design workbooks: reference only, carry real names ----
+# Legacy MixPack .xls/.xlsm files are dropped in docs/ to map fields against
+# (see docs/legacy-mixpack-map.md). They hold technician SM IDs, contractor
+# and plant names, etc. — authoritative data lives in Supabase, not here.
+docs/*.xls
+docs/*.xlsx
+docs/*.xlsm
+MIXPACK*.xls*
+\#*.xls*
+
 # ---- OS ----
 .DS_Store
 Thumbs.db
