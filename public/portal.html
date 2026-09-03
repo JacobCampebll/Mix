@@ -313,6 +313,15 @@
   // instantiation time - which kills the ENTIRE inline script before a
   // single line runs. The page then sits on its static markup forever.
   // Do not rename this back.
+  if (!window.supabase) {
+    // The CDN script did not load (blocked network, offline, outage). Without
+    // this guard the next line throws at top level and the page sits on
+    // "Loading…" forever, indistinguishable from the SyntaxError case above.
+    const el = document.getElementById("bootStatus");
+    el.textContent = "Couldn't load the Supabase client script. Check your network and reload.";
+    el.className = "status error";
+    throw new Error("supabase-js failed to load");
+  }
   const sb = window.supabase.createClient(
     CONFIG.SUPABASE_URL,
     CONFIG.SUPABASE_ANON_KEY
@@ -553,6 +562,12 @@
     if (CONFIG.MIX_LOOKUP.fn) {
       $("mixField").classList.remove("hidden");
       $("mixHint").textContent = "Looking up mixes…";
+      // Forget the previous contract's mix before the new lookup starts. Until
+      // it resolves (seconds, plus a retry) the Sub Portal buttons are live,
+      // and go() would otherwise hand a stale signature and record to
+      // DesignBook under the new contract id.
+      state.mix = ""; state.mixes = []; state.mixHeader = null;
+      $("mixSelect").innerHTML = '<option value="">— select mix —</option>';
       $("mixSelect").disabled = true;
       loadMixes(j.cid, j.letting).then((result) => {
         // Ignore a response for a contract the user has since changed away
