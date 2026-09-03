@@ -6,39 +6,48 @@
 <title>Mix — Portal</title>
 
 <!--
-  Portal — the job-selection gate a technician hits after signing in.
+  Portal — where a technician submits a mix design to KYTC.
+
+  The app is a submission pipeline, not a mix database (see CLAUDE.md,
+  "What it is for"). So this page is the act of submitting, in four steps:
+    1. Contract & plant   2. Mix on that contract   3. How (upload a MixPack
+    or build in DesignBook)   4. Fill in & submit — which happens in
+    designbook.html, where "Submit" is the move from Draft to Internal
+    Review. What has been submitted, and where each one stands, sits behind
+    "My submissions". Central Office reviewers land on the review queue
+    instead; the wizard is still one click away for them.
 
   Sits downstream of login.html and shares its session: the Supabase JS
   client persists the session in localStorage per-origin, so once
   login.html signs someone in, this page picks up that same session with
-  no token passing, no query params, no second sign-in. Deploy both files
-  to the same Netlify site and it just works. If there is no session (or
-  onboarding isn't finished), this page bounces back to login.html.
+  no token passing, no query params, no second sign-in. If there is no
+  session (or onboarding isn't finished), this page bounces back to
+  login.html.
 
   SETUP: none beyond login.html's setup. Same Supabase project, same anon
   key, same tables. The anon key below is the public/client-side key by
   design — access control comes from RLS, not from hiding it. Never put
   the service_role key in this file.
 
-  DATA THIS PAGE READS (all already in supabase/schema.sql):
-    technicians                — name, company, sm_id, onboarded
-    technician_capabilities    — can_access_plantbook / can_access_designbook
-    technician_plant_access    — which AMP numbers fill the Plant dropdown
-
-  NOTE FOR THE OTHER COLLABORATOR: this is a new file and touches nothing
-  in login.html. Shared ground it duplicates on purpose (SUPABASE_URL /
-  ANON_KEY in CONFIG) is the one thing to keep in sync if the project
-  ever moves.
+  DATA THIS PAGE READS:
+    technicians                        — name, company, sm_id, onboarded, can_review, all_plants
+    technician_capabilities            — can_access_plantbook / can_access_designbook
+    technician_effective_plant_access  — which AMP numbers fill the Plant dropdown
+    plants                             — AMP number -> plant name
+    design_summaries                   — the submissions list (RLS decides whose)
+    kytc-lookup (edge function)        — the mixes a contract requires
 -->
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  /* Theme tokens shared with designbook.html (Layout A). Keep in sync. */
+  /* Theme tokens shared with login.html and designbook.html. Keep in sync. */
   :root{
-    --paper:#F2F1EC; --panel:#FFFFFF; --ink:#182430; --muted:#6E7580;
-    --line:#DAD7CE; --accent:#2B5C82; --accent-soft:#E1EAF0;
-    --flag:#B5721F; --flag-soft:#F5E8D4; --ok:#3F7A56; --ok-soft:#E3EFE7;
+    --paper:#F2F1EC; --panel:#FFFFFF; --ink:#083860; --muted:#6E7580;
+    --line:#DAD7CE; --accent:#1C7CC0; --accent-soft:#E4F2FB;
+    /* Team Kentucky Transportation Cabinet brand: navy, sky blue, gold, sampled from the logo */
+    --navy:#002050; --sky:#5FB2E4; --gold:#FFC312;
+    --flag:#A56F00; --flag-soft:#FDF1C7; --ok:#3F7A56; --ok-soft:#E3EFE7;
     --bad:#9B2C2C; --radius:6px;
   }
   *{box-sizing:border-box;}
@@ -47,89 +56,134 @@
   h1,h2,h3{font-family:'Space Grotesk',sans-serif; font-weight:600; margin:0;}
   .mono{font-family:'IBM Plex Mono',monospace;}
   .hidden{display:none !important;}
+  a{color:var(--accent); cursor:pointer; text-decoration:underline; text-underline-offset:2px;}
 
-  .topbar{position:sticky; top:0; z-index:10; background:var(--paper);
-          border-bottom:1px solid var(--line); padding:14px 32px;
+  .topbar{position:sticky; top:0; z-index:10; background:var(--panel);
+          border-bottom:4px solid transparent; /* same stops as the logo's bar: solid blue to 35%, blend, solid gold from 80% */
+          border-image:linear-gradient(90deg,var(--sky) 0 35%,var(--gold) 80% 100%) 1; padding:12px 32px;
           display:flex; align-items:center; gap:16px; flex-wrap:wrap;}
+  .logo{height:36px; width:auto; display:block;}
   .wordmark{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:18px; letter-spacing:.02em;}
   .wordmark span{color:var(--accent);}
   .crumb{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--muted);
          border:1px solid var(--line); border-radius:4px; padding:3px 8px;}
+  .navlink{font-size:13px; color:var(--accent);}
   .spacer{flex:1;}
   .who{font-size:12px; color:var(--muted); text-align:right; line-height:1.5;}
-  .who a{color:var(--muted); cursor:pointer; text-decoration:underline; text-underline-offset:2px;}
+  .who a{color:var(--muted);}
   .badges{display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; margin-top:4px;}
   .badge{font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase;
          letter-spacing:.05em; padding:3px 9px; border-radius:20px; border:1px solid;}
   .badge.granted{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
+  .badge.soon{background:var(--flag-soft); color:var(--ink); border-color:var(--gold);}
   .badge.denied{background:transparent; color:var(--muted); border-color:var(--line); text-decoration:line-through;}
 
-  .stage{max-width:620px; margin:0 auto; padding:28px 32px 80px;}
+  .stage{max-width:760px; margin:0 auto; padding:24px 32px 80px;}
   .card{background:var(--panel); border:1px solid var(--line); border-radius:10px;
-        padding:24px; margin-bottom:16px;}
-  .card h2{font-size:11px; text-transform:uppercase; letter-spacing:.06em;
-           color:var(--muted); margin:0 0 18px;}
+        padding:24px 28px; margin-bottom:16px;}
+  .card h2{font-size:20px; margin:0 0 4px;}
+  .card h2.eyebrow{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 18px;}
+  .lead{color:var(--muted); font-size:13px; margin:0 0 18px;}
+
+  /* stepper */
+  .steps{display:flex; padding:6px 40px 22px;}
+  .step{display:flex; flex-direction:column; align-items:center; gap:6px; flex:1; position:relative;}
+  .step .dot{width:24px; height:24px; border-radius:50%; border:2px solid var(--line); background:var(--panel);
+             display:flex; align-items:center; justify-content:center; font-family:'IBM Plex Mono',monospace;
+             font-size:11px; color:var(--muted); z-index:1;}
+  .step.done .dot{border-color:var(--ok); background:var(--ok); color:#fff;}
+  .step.current .dot{border-color:var(--accent); background:var(--accent); color:#fff;}
+  .step .sl{font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; text-align:center;}
+  .step.current .sl{color:var(--ink); font-weight:500;}
+  .step .line{position:absolute; top:11px; left:-50%; width:100%; height:2px; background:var(--line);}
+  .step.done .line{background:var(--ok);}
+  .step:first-child .line{display:none;}
+  .step.clickable{cursor:pointer;}
 
   .field{margin-bottom:16px;}
   label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em;
         color:var(--muted); margin-bottom:5px;}
   input,select{width:100%; border:1px solid var(--line); background:#FCFCFA;
-               border-radius:var(--radius); padding:9px 11px; font-size:13px;
-               color:var(--ink); font-family:inherit; min-height:36px;}
+               border-radius:var(--radius); padding:9px 11px; font-size:14px;
+               color:var(--ink); font-family:inherit; min-height:40px;}
   input.mono,select.mono{font-family:'IBM Plex Mono',monospace; color:var(--accent);}
   input:focus,select:focus{outline:2px solid var(--accent); outline-offset:-1px;}
   .hint{font-size:11.5px; color:var(--muted); margin-top:5px;}
+  .row2{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  @media (max-width:560px){ .row2{grid-template-columns:1fr;} }
 
-  button.primary{width:100%; margin-top:8px; padding:11px; border:none;
-                 border-radius:var(--radius); background:var(--accent); color:#fff;
-                 font-family:inherit; font-size:14px; font-weight:500; cursor:pointer;}
+  button{font-family:inherit; cursor:pointer;}
+  .actions{display:flex; align-items:center; gap:10px; margin-top:20px;}
+  .actions .spacer{flex:1;}
+  button.primary{padding:12px 22px; border:none; border-radius:var(--radius); background:var(--ink); color:#fff;
+                 font-size:14px; font-weight:500; min-height:44px;}
+  button.primary:hover{background:var(--navy);}
   button.primary:disabled{opacity:.5; cursor:not-allowed;}
+  button.ghost{padding:12px 18px; border:1px solid var(--line); border-radius:var(--radius); background:transparent;
+               color:var(--muted); font-size:13px; min-height:44px;}
+  button.ghost:hover{border-color:var(--accent); color:var(--accent);}
+  button.link{background:none; border:none; padding:0; color:var(--accent); font-size:13px; text-decoration:underline; text-underline-offset:2px;}
 
   .status{margin-top:12px; font-size:12.5px; min-height:1.2em;}
   .status.error{color:var(--bad);} .status.warn{color:var(--flag);} .status.success{color:var(--ok);}
 
-  .chips{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px;}
-  .chip{flex:1; min-width:120px; background:#FCFCFA; border:1px solid var(--line);
-        border-radius:var(--radius); padding:9px 12px;}
-  .chip small{display:block; color:var(--muted); font-size:10px; text-transform:uppercase;
-              letter-spacing:.05em; margin-bottom:2px;}
-  .chip span{font-size:14px; font-weight:500;}
+  /* summary of earlier steps */
+  .sofar{display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:12.5px; color:var(--muted); margin-bottom:18px;}
+  .sofar .tag{border:1px solid var(--line); border-radius:4px; padding:2px 8px; background:#FCFCFA; color:var(--ink);}
 
-  .mixfield{margin-bottom:20px;}
+  /* mix options */
+  .mixlist{display:flex; flex-direction:column; gap:8px;}
+  .mixopt{display:grid; grid-template-columns:22px 1fr auto; gap:12px; align-items:center; padding:12px 14px;
+          border:1px solid var(--line); border-radius:8px; background:#FCFCFA; cursor:pointer; text-align:left;
+          font-family:inherit; color:var(--ink);}
+  .mixopt:hover{border-color:var(--accent);}
+  .mixopt.on{border-color:var(--accent); background:var(--accent-soft);}
+  .mixopt .radio{width:16px; height:16px; border-radius:50%; border:2px solid var(--line); background:#fff;}
+  .mixopt.on .radio{border-color:var(--accent); background:var(--accent); box-shadow:inset 0 0 0 3px #fff;}
+  .mixopt .sig{font-weight:500; font-size:14px;}
+  .mixopt .sub{font-size:12px; color:var(--muted); margin-top:2px;}
+  .mixopt .qty{font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--accent); white-space:nowrap;}
+  .waiting{display:flex; align-items:center; gap:10px; padding:14px; border:1px dashed var(--line); border-radius:8px;
+           color:var(--muted); font-size:13px;}
+  .waiting .pulse{width:10px; height:10px; border-radius:50%; background:var(--accent); animation:pulse 1.2s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:.25;} 50%{opacity:1;}}
+
+  /* how */
+  .choices{display:flex; gap:12px; flex-wrap:wrap;}
+  .choice{flex:1; min-width:220px; padding:18px 16px; border-radius:8px; border:1px solid var(--line); background:#FCFCFA;
+          color:var(--ink); text-align:left; display:flex; flex-direction:column; gap:6px;}
+  .choice .t{font-family:'Space Grotesk',sans-serif; font-size:15px; font-weight:600;}
+  .choice .s{font-size:12px; color:var(--muted);}
+  .choice:hover:not(:disabled){border-color:var(--accent); background:var(--accent-soft);}
+  .choice:disabled{opacity:.5; cursor:not-allowed;}
+  .foot{font-size:12px; color:var(--muted); margin-top:18px; border-top:1px solid var(--line); padding-top:14px;}
+
+  /* submissions list */
   .dfilters{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;}
-  .dfilters select,.dfilters input{border:1px solid var(--line); background:#FCFCFA; border-radius:6px; padding:8px 10px; font-size:13px; font-family:inherit;}
-  .dfilters input{flex:1; min-width:180px;}
+  .dfilters select,.dfilters input{border:1px solid var(--line); background:#FCFCFA; border-radius:6px; padding:8px 10px; font-size:13px; font-family:inherit; min-height:38px;}
+  .dfilters select{width:auto;} .dfilters input{flex:1; min-width:180px;}
   .dlist{display:flex; flex-direction:column; gap:8px;}
-  .drow{display:grid; grid-template-columns:110px 1fr auto; gap:12px; align-items:center; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:#FCFCFA; cursor:pointer; text-align:left; font-family:inherit;}
+  .drow{display:grid; grid-template-columns:118px 1fr auto; gap:12px; align-items:center; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:#FCFCFA; cursor:pointer; text-align:left; font-family:inherit; color:var(--ink);}
   .drow:hover{border-color:var(--accent); background:var(--accent-soft);}
   .drow .dmain{font-size:14px; font-weight:500;}
   .drow .dsub{font-size:12px; color:var(--muted); margin-top:2px;}
   .drow .dwhen{font-size:12px; color:var(--muted); white-space:nowrap;}
   .spill{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em; padding:4px 8px; border-radius:20px; border:1px solid; text-align:center;}
-  .spill.draft{background:var(--flag-soft); color:var(--flag); border-color:var(--flag);}
+  .spill.draft{background:var(--flag-soft); color:var(--ink); border-color:var(--gold);}
   .spill.review{background:var(--accent-soft); color:var(--accent); border-color:var(--accent);}
   .spill.released,.spill.approved{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
   .dempty{color:var(--muted); font-size:13px; padding:14px 0;}
-  .linkrow{margin-top:16px; font-size:13px;} .linkrow a{color:var(--accent); cursor:pointer; text-decoration:underline; text-underline-offset:2px;}
-  .choices{display:flex; gap:12px; flex-wrap:wrap;}
-  .choice{flex:1; min-width:180px; padding:22px 16px; border-radius:8px;
-          border:1px solid var(--line); background:#FCFCFA; color:var(--ink);
-          font-family:'Space Grotesk',sans-serif; font-size:15px; font-weight:600;
-          cursor:pointer; text-align:center;}
-  .choice:hover:not(:disabled){border-color:var(--accent); color:var(--accent); background:var(--accent-soft);}
-  .choice:disabled{opacity:.5; cursor:not-allowed;}
-  .choice small{display:block; font-family:'IBM Plex Sans',sans-serif; font-weight:400;
-                font-size:11.5px; color:var(--muted); margin-top:7px;}
-
-  .back{margin-top:18px; text-align:center;}
-  .back a{color:var(--muted); font-size:12.5px; cursor:pointer; text-decoration:underline; text-underline-offset:2px;}
+  .linkrow{margin-top:16px; font-size:13px;}
 </style>
 </head>
 <body>
 
 <div class="topbar">
+  <img class="logo" src="assets/kytc-logo.png" alt="Team Kentucky Transportation Cabinet">
   <div class="wordmark">Design<span>Book</span></div>
   <div class="crumb" id="crumb">Portal</div>
+  <a class="navlink hidden" id="navSubmissions">My submissions →</a>
+  <a class="navlink hidden" id="navSubmit">Submit a design →</a>
   <div class="spacer"></div>
   <div class="who">
     <div id="whoName"></div>
@@ -147,73 +201,105 @@
 </div>
 <!-- ===== END BOOTING ===== -->
 
-<!-- ===== PORTAL ===== -->
-<div class="card hidden" id="portalView">
-  <h2>Select job</h2>
-
-  <div class="field">
-    <label for="contractId">Contract ID</label>
-    <input id="contractId" class="mono" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 252112">
+<!-- ===== SUBMIT (the four-step wizard; step 4 happens in DesignBook) ===== -->
+<div class="hidden" id="submitView">
+  <div class="steps" id="steps">
+    <div class="step" data-step="1"><div class="line"></div><div class="dot">1</div><span class="sl">Contract &amp; plant</span></div>
+    <div class="step" data-step="2"><div class="line"></div><div class="dot">2</div><span class="sl">Mix</span></div>
+    <div class="step" data-step="3"><div class="line"></div><div class="dot">3</div><span class="sl">How</span></div>
+    <div class="step" data-step="4"><div class="line"></div><div class="dot">4</div><span class="sl">Fill in &amp; submit</span></div>
   </div>
 
-  <div class="field">
-    <label for="lettingDate">Letting Date</label>
-    <input id="lettingDate" type="date">
+  <!-- step 1 -->
+  <div class="card" id="step1">
+    <h2>Which contract and plant is this design for?</h2>
+    <p class="lead">The contract's letting date lets us look up the mixes it requires.</p>
+    <div class="row2">
+      <div class="field">
+        <label for="contractId">Contract ID</label>
+        <input id="contractId" class="mono" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 252112">
+      </div>
+      <div class="field">
+        <label for="lettingDate">Letting date</label>
+        <input id="lettingDate" type="date">
+      </div>
+    </div>
+    <div class="field">
+      <label for="plant">Plant</label>
+      <select id="plant" class="mono"></select>
+      <p class="hint" id="plantHint"></p>
+    </div>
+    <div class="actions">
+      <div class="spacer"></div>
+      <button class="primary" id="step1Next">Continue →</button>
+    </div>
+    <div class="status" id="step1Status"></div>
   </div>
 
-  <div class="field">
-    <label for="plant">Plant</label>
-    <select id="plant" class="mono"></select>
-    <p class="hint" id="plantHint"></p>
+  <!-- step 2 -->
+  <div class="card hidden" id="step2">
+    <div class="sofar" id="sofar2"></div>
+    <h2>Which mix is this design for?</h2>
+    <p class="lead" id="mixLead">Looking up the mixes on this contract…</p>
+    <div id="mixWait" class="waiting"><span class="pulse"></span><span>Reading the KYTC proposal. This takes a few seconds.</span></div>
+    <div class="mixlist" id="mixList"></div>
+    <div class="status" id="step2Status"></div>
+    <div class="actions">
+      <button class="ghost" id="step2Back">← Back</button>
+      <button class="link hidden" id="mixRetry">Try the lookup again</button>
+      <div class="spacer"></div>
+      <button class="ghost hidden" id="step2Skip">Continue without a mix</button>
+      <button class="primary" id="step2Next" disabled>Continue →</button>
+    </div>
   </div>
 
-  <button class="primary" id="generateBtn">Generate</button>
-  <div class="status" id="portalStatus"></div>
-  <div class="linkrow"><a id="myDesignsLink">Open an existing design →</a></div>
+  <!-- step 3 -->
+  <div class="card hidden" id="step3">
+    <div class="sofar" id="sofar3"></div>
+    <h2>How are you submitting this design?</h2>
+    <p class="lead">Either way you finish it in DesignBook and submit it from there.</p>
+    <div class="choices">
+      <button class="choice" id="legacyBtn">
+        <span class="t">Upload the MixPack</span>
+        <span class="s">Your existing workbook, Ver 11.x or 12.1. DesignBook reads it and shows you every value, with its source cell, before you submit.</span>
+        <span class="s" id="legacyNote"></span>
+      </button>
+      <button class="choice" id="buildNewBtn">
+        <span class="t">Build it in DesignBook</span>
+        <span class="s">Start from the mix you chose, with binder grade, tons and county filled in from the contract.</span>
+        <span class="s" id="buildNewNote"></span>
+      </button>
+    </div>
+    <div class="status" id="step3Status"></div>
+    <div class="actions">
+      <button class="ghost" id="step3Back">← Back</button>
+    </div>
+    <div class="foot">After you submit, Central Office reviews the design. Where it stands, and later its approval, is under <a id="footSubmissions">My submissions</a>.</div>
+  </div>
 </div>
-<!-- ===== END PORTAL ===== -->
+<!-- ===== END SUBMIT ===== -->
 
-<!-- ===== SUB PORTAL ===== -->
-<div class="card hidden" id="subPortalView">
-  <h2>Sub Portal</h2>
-
-  <div class="chips">
-    <div class="chip"><small>Contract ID</small><span id="outContract"></span></div>
-    <div class="chip"><small>Letting Date</small><span id="outLetting"></span></div>
-    <div class="chip"><small>Plant</small><span id="outPlant"></span></div>
-  </div>
-
-  <div class="field mixfield hidden" id="mixField">
-    <label for="mixSelect">Mix Selection</label>
-    <select id="mixSelect"><option value="">— select mix —</option></select>
-    <div class="hint" id="mixHint"></div>
-  </div>
-
-  <div class="choices">
-    <button class="choice" id="legacyBtn">Legacy Upload<small id="legacyNote"></small></button>
-    <button class="choice" id="buildNewBtn">Build New<small id="buildNewNote"></small></button>
-  </div>
-
-  <div class="status" id="subStatus"></div>
-  <div class="back"><a id="backLink">← change contract / plant</a></div>
-</div>
-<!-- ===== END SUB PORTAL ===== -->
-
-<!-- ===== DESIGNS LIST ===== -->
+<!-- ===== SUBMISSIONS LIST (contractors: My submissions; reviewers: the review queue) ===== -->
 <div class="card hidden" id="designsView">
-  <h2 id="designsTitle">Designs</h2>
+  <h2 id="designsTitle">My submissions</h2>
+  <p class="lead" id="designsLead"></p>
   <div class="dfilters">
-    <select id="dStage">
-      <option value="">All stages</option>
-      <option>Draft</option><option>Internal Review</option><option>Released</option><option>Approved</option>
-    </select>
+    <select id="dStage"></select>
     <input id="dSearch" type="search" placeholder="Contract, plant, mix, author…">
   </div>
   <div class="dlist" id="dList"></div>
   <div class="status" id="dStatus"></div>
-  <div class="linkrow"><a id="dNewLink">Start a new design →</a></div>
+  <div class="linkrow"><a id="dNewLink">Submit a design →</a></div>
 </div>
-<!-- ===== END DESIGNS LIST ===== -->
+<!-- ===== END SUBMISSIONS LIST ===== -->
+
+<!-- ===== PLANTBOOK (not built) ===== -->
+<div class="card hidden" id="plantbookView">
+  <h2>PlantBook is being built</h2>
+  <p class="lead">Your Plant Tech certification is on file. There is nothing to open here yet; this Portal fronts DesignBook only for now.</p>
+  <div class="linkrow"><a id="pbToDesign" class="hidden">Go to the DesignBook Portal →</a></div>
+</div>
+<!-- ===== END PLANTBOOK ===== -->
 
 </div>
 
@@ -234,40 +320,32 @@
     // Where to send anyone without a session, or mid-onboarding.
     LOGIN_URL: "login.html",
 
-    // Sub-Portal destinations. null = not built yet (button explains itself
-    // instead of navigating). Job context is passed as ?cid=&letting=&plant=.
+    // Step 3 destinations. Job context is passed as ?cid=&letting=&plant=
+    // (+ &mix= when one was chosen).
     ROUTES: {
       legacyUpload: "designbook.html?mode=legacy",
       buildNew: "designbook.html?mode=new",
     },
 
-    // Which book each Sub-Portal choice belongs to, so capability gating
-    // comes from technician_capabilities rather than being hardcoded.
-    // Options: "plantbook", "designbook", or null for no gate.
+    // Which book each step-3 choice belongs to, so capability gating comes
+    // from technician_capabilities rather than being hardcoded.
     REQUIRES: {
       legacyUpload: "designbook",
       buildNew: "designbook",
     },
 
-    // Which book this portal is fronting. Read from ?book= so the same
-    // page can front PlantBook later instead of needing a second copy.
-    // Sets the breadcrumb and the DesignBook/PlantBook wordmark.
+    // Which book this portal is fronting. Read from ?book=. PlantBook is not
+    // built: `built:false` shows an honest message instead of the wizard.
     BOOKS: {
-      designbook: { label: "DesignBook", crumb: "DesignBook · Portal" },
-      plantbook:  { label: "PlantBook",  crumb: "PlantBook · Portal" },
+      designbook: { label: "DesignBook", crumb: "Portal", built: true },
+      plantbook:  { label: "PlantBook",  crumb: "Portal", built: false },
     },
     DEFAULT_BOOK: "designbook",
 
-    // Mix selection on the Sub Portal, populated by a Supabase Edge Function
-    // that takes a contract ID and returns the mixes on that contract.
-    //
-    // Set `fn` to the deployed function's name to switch this on. While it
-    // is null the dropdown stays hidden and the Sub Portal behaves exactly
-    // as it did before - the feature is off, not broken.
+    // Step 2: the mixes a contract requires, from a Supabase Edge Function.
     MIX_LOOKUP: {
       fn: "kytc-lookup",
-      // A mix is optional. Set true to block Legacy Upload / Build New
-      // until one is chosen.
+      // A mix is optional. Set true to hide "Continue without a mix".
       required: false,
       // The function parses the contract PDF from transportation.ky.gov on
       // every call, so a cold start can exceed the worker's compute budget
@@ -283,13 +361,30 @@
       storageKey: "mix_portal_selected_mix",
     },
 
+    // What a contractor sees a database stage called. Internal Review and
+    // Released are both "In review" from the outside - the distinction is
+    // Central Office's. Reviewers see the raw stage names.
+    CONTRACTOR_STAGES: {
+      "Draft":           { label: "Not submitted", css: "draft" },
+      "Internal Review": { label: "In review",     css: "review" },
+      "Released":        { label: "In review",     css: "review" },
+      "Approved":        { label: "Approved",      css: "approved" },
+    },
+    REVIEWER_STAGES: {
+      "Draft":           { label: "Draft",           css: "draft" },
+      "Internal Review": { label: "Internal Review", css: "review" },
+      "Released":        { label: "Released",        css: "released" },
+      "Approved":        { label: "Approved",        css: "approved" },
+    },
+    // How many submissions to list before asking for a narrower search.
+    LIST_LIMIT: 300,
+
     // Remember the last job locally so a reload doesn't re-type it.
     // (Standalone Netlify app, so localStorage is allowed per CLAUDE.md.)
     JOB_STORAGE_KEY: "mix_portal_job",
 
-    // Fallback only: used if a technician has no technician_plant_access
-    // rows at all, so the page is still testable. Empty = show a warning
-    // and disable Generate instead of inventing plants.
+    // Fallback only: used if a technician has no plant access rows at all.
+    // Empty = show a warning and disable Continue instead of inventing plants.
     PLANT_FALLBACK: [],
   };
 
@@ -297,7 +392,14 @@
      LOGIC — state, data loading, rendering, wiring.
      ================================================================== */
   const $ = (id) => document.getElementById(id);
-  const state = { tech: null, caps: null, plants: [], plantNames: {}, job: null, mixes: [], mix: "", mixHeader: null, designs: [] };
+  const state = {
+    tech: null, caps: null, plants: [], plantNames: {},
+    job: null,                 // { cid, letting, plant } once step 1 is done
+    step: 1,
+    lookup: null,              // "loading" | "ok" | "failed" | "off" for the current job
+    mixes: [], mix: "", mixHeader: null,
+    designs: [], designCount: null,
+  };
 
   // Values here come from the database, so they are escaped before being
   // interpolated into markup rather than trusted.
@@ -305,6 +407,7 @@
     String(v).replace(/[&<>"']/g, (c) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
     );
+  function norm(v) { return String(v == null ? "" : v).toLowerCase().replace(/\s+/g, " ").trim(); }
 
   // NOTE: this client is named `sb`, not `supabase`, on purpose. The CDN
   // bundle declares its global as `var supabase`, so a top-level
@@ -313,6 +416,15 @@
   // instantiation time - which kills the ENTIRE inline script before a
   // single line runs. The page then sits on its static markup forever.
   // Do not rename this back.
+  if (!window.supabase) {
+    // The CDN script did not load (blocked network, offline, outage). Without
+    // this guard the next line throws at top level and the page sits on
+    // "Loading…" forever, indistinguishable from the SyntaxError case above.
+    const el = document.getElementById("bootStatus");
+    el.textContent = "Couldn't load the Supabase client script. Check your network and reload.";
+    el.className = "status error";
+    throw new Error("supabase-js failed to load");
+  }
   const sb = window.supabase.createClient(
     CONFIG.SUPABASE_URL,
     CONFIG.SUPABASE_ANON_KEY
@@ -323,17 +435,21 @@
     el.className = "status" + (kind ? " " + kind : "");
   }
   function showOnly(view) {
-    ["bootView", "portalView", "subPortalView", "designsView"].forEach((v) =>
+    ["bootView", "submitView", "designsView", "plantbookView"].forEach((v) =>
       $(v).classList.toggle("hidden", v !== view)
     );
+    const inSubmit = view === "submitView", inList = view === "designsView";
+    $("navSubmissions").classList.toggle("hidden", !state.tech || inList);
+    $("navSubmit").classList.toggle("hidden", !state.tech || inSubmit || view === "plantbookView");
   }
-  function toLogin(reason) {
-    const next = encodeURIComponent(location.pathname.split("/").pop() || "");
+  function toLogin() {
+    // login.html honours ?next= for same-site pages, query included, so a
+    // bounce comes back to this book.
+    const next = encodeURIComponent((location.pathname.split("/").pop() || "") + location.search);
     location.replace(`${CONFIG.LOGIN_URL}${next ? "?next=" + next : ""}`);
   }
 
   /* ---- data ---- */
-  // Same three reads login.html's session view does, plus plant access.
   async function loadTechnician(userId) {
     const { data: tech, error } = await sb
       .from("technicians")
@@ -344,23 +460,37 @@
     return tech;
   }
   async function loadCapabilities(userId) {
-    const { data } = await sb
+    const { data, error } = await sb
       .from("technician_capabilities")
       .select("can_access_plantbook, can_access_designbook")
       .eq("user_id", userId)
       .maybeSingle();
+    if (error) throw error;
     return data || { can_access_plantbook: false, can_access_designbook: false };
   }
-  // Reads the plants table if it exists. It may not: supabase/plants.sql is
-  // a separate migration from schema.sql. A missing table errors rather than
-  // hanging, and the error is deliberately swallowed - the dropdown falls
-  // back to bare AMP numbers, so the Portal works either side of that
-  // migration being run.
+  // plants (supabase/plants.sql) is the single source for AMP number -> name.
+  // A missing name degrades to the bare number rather than hiding the plant.
   async function loadPlantNames() {
     const { data } = await sb.from("plants").select("amp_number, name");
     const map = {};
     (data || []).forEach((r) => { map[r.amp_number] = r.name; });
     return map;
+  }
+  // technician_effective_plant_access (supabase/effective_plant_access.sql)
+  // is a technician's own rows plus every plant when technicians.all_plants
+  // is set (Central Office). One query, one rule.
+  async function loadPlants(smId) {
+    const { data } = await sb
+      .from("technician_effective_plant_access")
+      .select("amp_number")
+      .eq("sm_id", smId);
+    const amps = (data || []).map((r) => r.amp_number);
+    return amps.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+  }
+  // How many submissions this person can see - for the "My submissions (n)" link.
+  async function loadDesignCount() {
+    const { count, error } = await sb.from("design_summaries").select("id", { count: "exact", head: true });
+    return error ? null : count;
   }
 
   // kytc-lookup wants MM/DD/YYYY; the date input gives YYYY-MM-DD.
@@ -368,12 +498,10 @@
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
     return m ? `${m[2]}/${m[3]}/${m[1]}` : iso;
   }
-
   // kytc-lookup returns the parsed contract; the mixes are in
   // `required_mix_designs`, each with a `signature` like
   // "CL3 ASPH SURF 0.38A PG64-22" plus quantity and the bid-code instances
-  // it came from. The signature is unique within a contract, so it is used
-  // as the option value.
+  // it came from. The signature is unique within a contract.
   function normalizeMixes(payload) {
     const arr = payload && payload.required_mix_designs;
     if (!Array.isArray(arr)) return [];
@@ -381,22 +509,18 @@
       .filter((m) => m && m.signature)
       .map((m) => {
         const qty = Number(m.total_quantity);
-        const amount = Number.isFinite(qty)
-          ? ` — ${qty.toLocaleString()} ${m.unit || ""}`.trimEnd()
-          : "";
         return {
           id: String(m.signature),
-          label: String(m.signature) + amount,
+          qty: Number.isFinite(qty) ? `${qty.toLocaleString()} ${m.unit || ""}`.trim() : "",
+          detail: [m.layer, m.nominal_size ? `${m.nominal_size}` : "", m.binder_grade].filter(Boolean).join(" · "),
           lines: (m.instances || []).map((i) => i.line_no).filter(Boolean),
           raw: m,
         };
       });
   }
-
   async function loadMixes(cid, letting) {
     const cfg = CONFIG.MIX_LOOKUP;
     if (!cfg.fn) return { ok: false, reason: "off", mixes: [] };
-
     const body = { contract_id: cid, letting_date: toUsDate(letting) };
     let last = "lookup failed";
     for (let attempt = 0; attempt <= (cfg.retries || 0); attempt++) {
@@ -409,17 +533,13 @@
     }
     return { ok: false, reason: last, mixes: [] };
   }
-
   // Calls the Edge Function with a plain fetch instead of
   // sb.functions.invoke(). supabase-js adds an `x-client-info` header to
   // every request, and kytc-lookup's CORS allow-list is
   // "content-type, authorization, apikey" - so the browser's preflight
-  // fails and the POST is never sent. (Diagnosed from the function's own
-  // logs: OPTIONS 200 after OPTIONS 200, never a POST. curl passed because
-  // curl doesn't preflight.) Sending only the three allowed headers gets
-  // through today; if the function's allow-list later gains x-client-info,
-  // this still works. Uses the signed-in user's JWT, falling back to the
-  // anon key, the same as invoke() would.
+  // fails and the POST is never sent. Sending only the three allowed
+  // headers gets through. Uses the signed-in user's JWT, falling back to
+  // the anon key, the same as invoke() would.
   async function invokeLookup(fn, body) {
     const { data } = await sb.auth.getSession();
     const token = (data && data.session && data.session.access_token) || CONFIG.SUPABASE_ANON_KEY;
@@ -435,73 +555,36 @@
     const text = await res.text();
     let json = null;
     try { json = JSON.parse(text); } catch (_) {}
-    if (!res.ok) {
-      throw new Error((json && (json.message || json.error)) || `HTTP ${res.status}`);
-    }
+    if (!res.ok) throw new Error((json && (json.message || json.error)) || `HTTP ${res.status}`);
     return json;
   }
 
-  function renderMixes(result) {
-    const sel = $("mixSelect");
-    const field = $("mixField");
-    if (!CONFIG.MIX_LOOKUP.fn) { field.classList.add("hidden"); return; }
-    field.classList.remove("hidden");
-
-    sel.innerHTML = `<option value="">— select mix —</option>` +
-      state.mixes.map((m) => `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join("");
-    sel.disabled = !state.mixes.length;
-    sel.value = state.mixes.some((m) => m.id === state.mix) ? state.mix : "";
-    state.mix = sel.value;
-
-    $("mixHint").textContent = !result.ok
-      ? `Couldn't load mixes (${result.reason}). You can still continue.`
-      : state.mixes.length
-        ? `${state.mixes.length} mix design${state.mixes.length === 1 ? "" : "s"} required on contract ${state.job.cid}.`
-        : `No mix designs found on contract ${state.job.cid}.`;
-  }
-
-  // technician_effective_plant_access (supabase/effective_plant_access.sql)
-  // is a technician's own technician_plant_access rows, plus every plant
-  // when technicians.all_plants is set (Central Office reviewers). One
-  // query, one rule - never re-derive "all plants" in page code.
-  async function loadPlants(smId) {
-    const { data } = await sb
-      .from("technician_effective_plant_access")
-      .select("amp_number")
-      .eq("sm_id", smId);
-    const amps = (data || []).map((r) => r.amp_number);
-    // Natural-ish sort so "AMP 2" doesn't land after "AMP 10".
-    return amps.sort((a, b) =>
-      String(a).localeCompare(String(b), undefined, { numeric: true })
-    );
-  }
-
-  /* ---- rendering ---- */
+  /* ---- rendering: who, plants ---- */
   function renderWho() {
     const t = state.tech, c = state.caps;
     $("whoName").textContent = `${t.first_name} ${t.last_name}`;
     $("whoMeta").textContent = `${t.company} · ${t.sm_id}`;
     $("whoBadges").innerHTML = "";
-    const badge = (label, granted) => {
+    const badge = (label, granted, built) => {
       const el = document.createElement("span");
-      el.className = "badge " + (granted ? "granted" : "denied");
-      el.textContent = label;
+      el.className = "badge " + (granted ? (built ? "granted" : "soon") : "denied");
+      el.textContent = granted && !built ? `${label} · soon` : label;
       return el;
     };
-    $("whoBadges").appendChild(badge("DesignBook", c.can_access_designbook));
-    $("whoBadges").appendChild(badge("PlantBook", c.can_access_plantbook));
+    $("whoBadges").appendChild(badge("DesignBook", c.can_access_designbook, CONFIG.BOOKS.designbook.built));
+    $("whoBadges").appendChild(badge("PlantBook", c.can_access_plantbook, CONFIG.BOOKS.plantbook.built));
+    if (t.can_review) $("whoBadges").appendChild(Object.assign(document.createElement("span"), { className: "badge granted", textContent: "Reviewer" }));
     $("signOutLink").classList.remove("hidden");
   }
-
+  function renderNavCount() {
+    const n = state.designCount;
+    $("navSubmissions").textContent = (state.tech && state.tech.can_review ? "Review queue" : "My submissions") + (n == null ? "" : ` (${n})`) + " →";
+  }
   function renderPlants() {
     const list = state.plants.length ? state.plants : CONFIG.PLANT_FALLBACK;
     const sel = $("plant");
     // The option VALUE stays the bare AMP number - it is what travels to
-    // designbook.html as ?plant= and what a saved design will key on. Only
-    // the label gains the name, and only when we have one.
-    // Names come from the plants table (supabase/plants.sql), which is the
-    // single source. An AMP number missing from it renders as the bare
-    // number rather than being hidden or blocked.
+    // designbook.html as ?plant= and what a saved design keys on.
     const label = (amp) => {
       const name = state.plantNames[amp];
       return name ? `${amp} — ${name}` : amp;
@@ -509,106 +592,162 @@
     sel.innerHTML =
       `<option value="">— select plant —</option>` +
       list.map((p) => `<option value="${esc(p)}">${esc(label(p))}</option>`).join("");
-
     if (!list.length) {
       sel.disabled = true;
-      $("generateBtn").disabled = true;
-      $("plantHint").textContent =
-        "No plants are assigned to your SM ID in technician_plant_access. Contact an admin.";
+      $("step1Next").disabled = true;
+      $("plantHint").textContent = "No plants are assigned to your SM ID. Contact your KYTC materials contact.";
     } else if (state.tech && state.tech.all_plants) {
-      $("plantHint").textContent =
-        `All ${list.length} plants — Central Office access.`;
+      $("plantHint").textContent = `All ${list.length} plants — Central Office access.`;
     } else {
-      $("plantHint").textContent =
-        `${list.length} plant${list.length === 1 ? "" : "s"} assigned to you.`;
+      $("plantHint").textContent = `${list.length} plant${list.length === 1 ? "" : "s"} assigned to you.`;
     }
   }
-
-  function capabilityFor(routeName) {
-    const need = CONFIG.REQUIRES[routeName];
-    if (!need) return { allowed: true };
-    if (need === "designbook")
-      return { allowed: !!state.caps.can_access_designbook, label: "Mix Design Tech cert required" };
-    return { allowed: !!state.caps.can_access_plantbook, label: "Plant Tech cert required" };
-  }
-
-  function renderSub() {
-    const j = state.job;
-    $("outContract").textContent = j.cid;
-    $("outLetting").textContent = j.letting;
-    $("outPlant").textContent = j.plant;
-
-    [["legacyUpload", "legacyBtn", "legacyNote"],
-     ["buildNew", "buildNewBtn", "buildNewNote"]].forEach(([route, btnId, noteId]) => {
-      const cap = capabilityFor(route);
-      $(btnId).disabled = !cap.allowed;
-      $(noteId).textContent = !cap.allowed
-        ? cap.label
-        : (CONFIG.ROUTES[route] ? "" : "not built yet");
-    });
-
-    setStatus($("subStatus"), "");
-    showOnly("subPortalView");
-
-    if (CONFIG.MIX_LOOKUP.fn) {
-      $("mixField").classList.remove("hidden");
-      $("mixHint").textContent = "Looking up mixes…";
-      $("mixSelect").disabled = true;
-      loadMixes(j.cid, j.letting).then((result) => {
-        // Ignore a response for a contract the user has since changed away
-        // from - renderSub runs again on every Generate.
-        if (!state.job || state.job.cid !== j.cid) return;
-        state.mixes = result.mixes;
-        state.mixHeader = (result.raw && result.raw.header) || null;
-        renderMixes(result);
-      });
-    }
-  }
-
   function restoreJob() {
     try {
       const j = JSON.parse(localStorage.getItem(CONFIG.JOB_STORAGE_KEY) || "null");
       if (!j) return;
       $("contractId").value = j.cid || "";
       $("lettingDate").value = j.letting || "";
-      // Only restore the plant if it's still one this technician can access.
       if (j.plant && state.plants.includes(j.plant)) $("plant").value = j.plant;
     } catch { /* corrupt value — ignore */ }
   }
 
-  /* ---- actions ---- */
-  function generate() {
+  /* ---- the wizard ---- */
+  function plantLabel(amp) {
+    const name = state.plantNames[amp];
+    return name ? `${amp} · ${name}` : amp;
+  }
+  function renderSteps() {
+    document.querySelectorAll("#steps .step").forEach((el) => {
+      const n = Number(el.dataset.step);
+      el.classList.toggle("done", n < state.step);
+      el.classList.toggle("current", n === state.step);
+      el.classList.toggle("clickable", n < state.step);
+      const dot = el.querySelector(".dot");
+      dot.textContent = n < state.step ? "✓" : String(n);
+    });
+    ["step1", "step2", "step3"].forEach((id, i) => $(id).classList.toggle("hidden", state.step !== i + 1));
+  }
+  function goStep(n) {
+    state.step = n;
+    renderSteps();
+    if (n === 1) $("contractId").focus();
+  }
+  function renderSofar() {
+    const j = state.job; if (!j) return;
+    const tags = [
+      `<span class="tag mono">${esc(j.cid)}</span>`,
+      `<span class="tag">let ${esc(toUsDate(j.letting))}</span>`,
+      `<span class="tag">${esc(plantLabel(j.plant))}</span>`,
+    ];
+    $("sofar2").innerHTML = tags.join("") + ` <a id="sofar2Change">change</a>`;
+    $("sofar2Change").addEventListener("click", () => goStep(1));
+    const mixTag = state.mix ? `<span class="tag">${esc(state.mix)}</span>` : `<span class="tag" style="color:var(--muted)">no mix chosen</span>`;
+    $("sofar3").innerHTML = tags.join("") + mixTag + ` <a id="sofar3Change">change</a>`;
+    $("sofar3Change").addEventListener("click", () => goStep(2));
+  }
+
+  // Step 1 -> 2: validate, remember the job, start the lookup, advance.
+  function step1Continue() {
     const cid = $("contractId").value.trim();
     const letting = $("lettingDate").value;
     const plant = $("plant").value;
-    const missing = [
-      !cid && "Contract ID",
-      !letting && "Letting Date",
-      !plant && "Plant",
-    ].filter(Boolean);
-
-    if (missing.length) {
-      setStatus($("portalStatus"), "Still needed: " + missing.join(", "), "error");
-      return;
-    }
-    setStatus($("portalStatus"), "");
+    const missing = [!cid && "Contract ID", !letting && "Letting date", !plant && "Plant"].filter(Boolean);
+    if (missing.length) { setStatus($("step1Status"), "Still needed: " + missing.join(", "), "error"); return; }
+    setStatus($("step1Status"), "");
+    const same = state.job && state.job.cid === cid && state.job.letting === letting;
     state.job = { cid, letting, plant };
     localStorage.setItem(CONFIG.JOB_STORAGE_KEY, JSON.stringify(state.job));
-    renderSub();
+    if (!same) startLookup();       // a new contract forgets the old mixes
+    renderSofar();
+    goStep(2);
   }
 
+  function startLookup() {
+    state.mix = ""; state.mixes = []; state.mixHeader = null;
+    if (!CONFIG.MIX_LOOKUP.fn) { state.lookup = "off"; renderMixStep(); return; }
+    state.lookup = "loading";
+    renderMixStep();
+    const j = state.job;
+    loadMixes(j.cid, j.letting).then((result) => {
+      // Ignore a response for a contract the user has since changed away from.
+      if (!state.job || state.job.cid !== j.cid || state.job.letting !== j.letting) return;
+      state.mixes = result.mixes;
+      state.mixHeader = (result.raw && result.raw.header) || null;
+      state.lookup = result.ok ? "ok" : "failed";
+      state.lookupReason = result.reason || "";
+      renderMixStep();
+    });
+  }
+
+  function renderMixStep() {
+    const j = state.job, list = $("mixList"), lead = $("mixLead");
+    const required = !!CONFIG.MIX_LOOKUP.required;
+    $("mixWait").classList.toggle("hidden", state.lookup !== "loading");
+    $("mixRetry").classList.toggle("hidden", state.lookup !== "failed");
+    setStatus($("step2Status"), "");
+    list.innerHTML = "";
+
+    if (state.lookup === "loading") {
+      lead.textContent = `Looking up the mixes required on contract ${j.cid}…`;
+    } else if (state.lookup === "failed") {
+      lead.textContent = `Couldn't read contract ${j.cid} from KYTC right now (${state.lookupReason}).`;
+    } else if (state.lookup === "off") {
+      lead.textContent = "Mix lookup is switched off; continue and pick the mix in DesignBook.";
+    } else if (!state.mixes.length) {
+      lead.textContent = `KYTC's proposal for contract ${j.cid} lists no mix designs. Check the contract ID and letting date, or continue without one.`;
+    } else {
+      const county = state.mixHeader && state.mixHeader.county ? ` · ${state.mixHeader.county} County` : "";
+      lead.textContent = `${state.mixes.length} mix design${state.mixes.length === 1 ? "" : "s"} required on contract ${j.cid}${county}. Pick the one this submission is for.`;
+      list.innerHTML = state.mixes.map((m) => `
+        <button class="mixopt${m.id === state.mix ? " on" : ""}" data-id="${esc(m.id)}">
+          <span class="radio"></span>
+          <span><div class="sig">${esc(m.id)}</div><div class="sub">${esc(m.detail || "")}${m.lines.length ? ` · bid line${m.lines.length === 1 ? "" : "s"} ${esc(m.lines.join(", "))}` : ""}</div></span>
+          <span class="qty">${esc(m.qty)}</span>
+        </button>`).join("");
+      list.querySelectorAll(".mixopt").forEach((b) => b.addEventListener("click", () => {
+        state.mix = b.dataset.id;
+        list.querySelectorAll(".mixopt").forEach((x) => x.classList.toggle("on", x === b));
+        $("step2Next").disabled = false;
+      }));
+    }
+    $("step2Next").disabled = !state.mix;
+    // Continuing without a mix is allowed unless CONFIG says a mix is required;
+    // it is the only way forward when the lookup fails or finds nothing.
+    $("step2Skip").classList.toggle("hidden", required || state.lookup === "loading");
+  }
+
+  function step2Continue(skip) {
+    if (skip) state.mix = "";
+    if (!skip && !state.mix) { setStatus($("step2Status"), "Pick a mix, or continue without one.", "error"); return; }
+    renderSofar();
+    renderHow();
+    goStep(3);
+  }
+
+  function capabilityFor(routeName) {
+    const need = CONFIG.REQUIRES[routeName];
+    if (!need) return { allowed: true };
+    if (need === "designbook")
+      return { allowed: !!state.caps.can_access_designbook, label: "Needs a current Mix Design Tech certification." };
+    return { allowed: !!state.caps.can_access_plantbook, label: "Needs a current Plant Tech certification." };
+  }
+  function renderHow() {
+    [["legacyUpload", "legacyBtn", "legacyNote"], ["buildNew", "buildNewBtn", "buildNewNote"]].forEach(([route, btnId, noteId]) => {
+      const cap = capabilityFor(route);
+      $(btnId).disabled = !cap.allowed;
+      $(noteId).textContent = !cap.allowed ? cap.label : (CONFIG.ROUTES[route] ? "" : "Not built yet.");
+    });
+    setStatus($("step3Status"), "");
+  }
+
+  // Step 3 -> DesignBook. The job travels in the query string; the chosen
+  // mix's full record rides in localStorage so DesignBook can pre-fill
+  // without re-calling the lookup.
   function go(routeName) {
     const cap = capabilityFor(routeName);
-    if (!cap.allowed) { setStatus($("subStatus"), cap.label, "error"); return; }
-
-    if (CONFIG.MIX_LOOKUP.fn && CONFIG.MIX_LOOKUP.required && !state.mix) {
-      setStatus($("subStatus"), "Choose a mix first.", "error");
-      return;
-    }
-
+    if (!cap.allowed) { setStatus($("step3Status"), cap.label, "error"); return; }
     const url = CONFIG.ROUTES[routeName];
-    // state.job stays the three job keys; mix rides alongside so nothing
-    // downstream that reads cid/letting/plant has to change.
     const params = { ...state.job };
     if (state.mix) {
       params.mix = state.mix;
@@ -622,88 +761,64 @@
           county: state.mixHeader ? state.mixHeader.county : null,
         }));
       } catch (_) { /* storage unavailable - DesignBook falls back to parsing the signature */ }
+    } else {
+      try { localStorage.removeItem(CONFIG.MIX_LOOKUP.storageKey); } catch (_) {}
     }
     const q = new URLSearchParams(params).toString();
-    if (!url) {
-      setStatus(
-        $("subStatus"),
-        `"${routeName}" isn't built yet. Job it would open: ${q}`,
-        "error"
-      );
-      return;
-    }
+    if (!url) { setStatus($("step3Status"), `"${routeName}" isn't built yet.`, "error"); return; }
     location.href = url + (url.includes("?") ? "&" : "?") + q;
   }
 
-  async function signOut() {
-    await sb.auth.signOut();
-    toLogin();
+  function openSubmit() {
+    showOnly("submitView");
+    renderSteps();
+    if (state.step === 1) $("contractId").focus();
   }
 
-  /* ---- boot ---- */
-  async function boot(session) {
-    if (!session || !session.user) return toLogin();
-
-    try {
-      const tech = await loadTechnician(session.user.id);
-
-      if (!tech) {
-        setStatus(
-          $("bootStatus"),
-          "Signed in, but this account isn't linked to a technician. Contact an admin.",
-          "error"
-        );
-        return;
-      }
-      // Onboarding is login.html's job — send them back to finish it.
-      if (!tech.onboarded) return toLogin();
-
-      state.tech = tech;
-      state.caps = await loadCapabilities(session.user.id);
-      state.plants = await loadPlants(tech.sm_id);
-      state.plantNames = await loadPlantNames();
-
-      renderWho();
-      renderPlants();
-      restoreJob();
-      if (tech.can_review) { openDesigns(); return; }   // reviewers: the queue is the front door
-      showOnly("portalView");
-      $("contractId").focus();
-    } catch (err) {
-      setStatus($("bootStatus"), err.message || "Couldn't load your account.", "error");
-    }
-  }
-
-  /* ---- designs list (reviewers land here; contractors see their plants') ---- */
+  /* ---- submissions list ---- */
   // design_summaries is security_invoker over designs, so RLS decides what
   // each person sees: own designs + designs at accessible plants. Central
-  // Office resolves to every plant, so they see everything - no separate
-  // query for reviewers.
+  // Office resolves to every plant, so they see everything.
+  function stageMap() { return state.tech && state.tech.can_review ? CONFIG.REVIEWER_STAGES : CONFIG.CONTRACTOR_STAGES; }
+  function renderStageFilter() {
+    const map = stageMap();
+    const labels = [...new Set(Object.values(map).map((s) => s.label))];
+    $("dStage").innerHTML = `<option value="">All</option>` + labels.map((l) => `<option value="${esc(l)}">${esc(l)}</option>`).join("");
+  }
   async function loadDesigns() {
     setStatus($("dStatus"), "Loading…");
     const { data, error } = await sb.from("design_summaries")
       .select("id, contract_id, letting_date, amp_number, plant_name, author_name, sm_id, mix_signature, stage, origin, updated_at")
       .order("updated_at", { ascending: false })
-      .limit(300);
+      .limit(CONFIG.LIST_LIMIT);
     if (error) { setStatus($("dStatus"), error.message, "error"); return; }
     state.designs = data || [];
-    setStatus($("dStatus"), "");
+    state.designCount = state.designs.length >= CONFIG.LIST_LIMIT ? state.designCount : state.designs.length;
+    renderNavCount();
+    setStatus($("dStatus"), state.designs.length >= CONFIG.LIST_LIMIT ? `Showing the ${CONFIG.LIST_LIMIT} most recent. Search to find older ones.` : "");
     renderDesigns();
   }
   function renderDesigns() {
-    const stage = $("dStage").value, q = norm($("dSearch").value);
-    const css = { "Draft": "draft", "Internal Review": "review", "Released": "released", "Approved": "approved" };
-    const rows = state.designs.filter((d) =>
-      (!stage || d.stage === stage) &&
-      (!q || norm([d.contract_id, d.plant_name, d.amp_number, d.mix_signature, d.author_name, d.sm_id].join(" ")).includes(q)));
+    const map = stageMap(), reviewer = state.tech && state.tech.can_review;
+    const want = $("dStage").value, q = norm($("dSearch").value);
+    const rows = state.designs.filter((d) => {
+      const s = map[d.stage] || { label: d.stage, css: "draft" };
+      return (!want || s.label === want) &&
+        (!q || norm([d.contract_id, d.plant_name, d.amp_number, d.mix_signature, d.author_name, d.sm_id].join(" ")).includes(q));
+    });
     const list = $("dList");
-    if (!rows.length) { list.innerHTML = `<div class="dempty">${state.designs.length ? "Nothing matches those filters." : "No designs yet."}</div>`; return; }
+    if (!rows.length) {
+      list.innerHTML = `<div class="dempty">${state.designs.length ? "Nothing matches." : (reviewer ? "Nothing waiting for review." : "You haven't submitted a design yet.")}</div>`;
+      return;
+    }
     list.innerHTML = rows.map((d) => {
+      const s = map[d.stage] || { label: d.stage, css: "draft" };
       const when = new Date(d.updated_at);
+      const who = reviewer ? ` · ${esc(d.author_name)} (${esc(d.sm_id)})` : "";
       return `<button class="drow" data-id="${esc(d.id)}">
-        <span class="spill ${css[d.stage] || "draft"}">${esc(d.stage)}</span>
-        <span><div class="dmain">${esc(d.contract_id)} · ${esc(d.plant_name || d.amp_number)}</div>
-              <div class="dsub">${esc(d.mix_signature || "no mix chosen")} · ${esc(d.author_name)} (${esc(d.sm_id)}) · ${d.origin === "legacy" ? "from MixPack" : "new"}</div></span>
+        <span class="spill ${s.css}">${esc(s.label)}</span>
+        <span><div class="dmain">${esc(d.mix_signature || "mix not chosen yet")}</div>
+              <div class="dsub">${esc(d.contract_id)} · ${esc(d.plant_name || d.amp_number)}${who} · ${d.origin === "legacy" ? "from a MixPack" : "built in DesignBook"}</div></span>
         <span class="dwhen">${when.toLocaleDateString()} ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
       </button>`;
     }).join("");
@@ -711,35 +826,85 @@
       location.href = `designbook.html?design=${encodeURIComponent(b.dataset.id)}`;
     }));
   }
-  function norm(v) { return String(v == null ? "" : v).toLowerCase().replace(/\s+/g, " ").trim(); }
   function openDesigns() {
-    $("designsTitle").textContent = state.tech && state.tech.can_review ? "Designs — review queue" : "My designs";
+    const reviewer = state.tech && state.tech.can_review;
+    $("designsTitle").textContent = reviewer ? "Review queue" : "My submissions";
+    $("designsLead").textContent = reviewer
+      ? "Every submission at every plant. Open one to review, release or approve it."
+      : "Where each design you submitted stands. Open one to see it, or to finish and submit a draft.";
+    renderStageFilter();
     showOnly("designsView");
     loadDesigns();
   }
 
+  /* ---- boot ---- */
+  async function signOut() {
+    await sb.auth.signOut();
+    toLogin();
+  }
+  async function boot(session) {
+    if (!session || !session.user) return toLogin();
+    try {
+      const tech = await loadTechnician(session.user.id);
+      if (!tech) {
+        setStatus($("bootStatus"), "Signed in, but this account isn't linked to a technician. Contact an admin.", "error");
+        return;
+      }
+      if (!tech.onboarded) return toLogin();   // onboarding is login.html's job
+
+      state.tech = tech;
+      state.caps = await loadCapabilities(session.user.id);
+      state.plants = await loadPlants(tech.sm_id);
+      state.plantNames = await loadPlantNames();
+      renderWho();
+      renderPlants();
+      restoreJob();
+      renderSteps();
+      loadDesignCount().then((n) => { state.designCount = n; renderNavCount(); });
+      renderNavCount();
+
+      if (!book.built) {
+        // PlantBook is not built: say so instead of a wizard that leads nowhere.
+        $("pbToDesign").classList.toggle("hidden", !state.caps.can_access_designbook);
+        showOnly("plantbookView");
+        return;
+      }
+      if (tech.can_review) { openDesigns(); return; }   // reviewers: the queue is the front door
+      openSubmit();
+    } catch (err) {
+      setStatus($("bootStatus"), err.message || "Couldn't load your account.", "error");
+    }
+  }
+
   /* ---- wiring ---- */
-  document.title = "Mix — " + CONFIG.TITLE;
   const bookKey = new URLSearchParams(location.search).get("book") || CONFIG.DEFAULT_BOOK;
   const book = CONFIG.BOOKS[bookKey] || CONFIG.BOOKS[CONFIG.DEFAULT_BOOK];
-  document.querySelector(".wordmark").innerHTML =
-    book.label.replace(/^(Design|Plant)(Book)$/, '$1<span>$2</span>');
+  document.querySelector(".wordmark").innerHTML = book.label.replace(/^(Design|Plant)(Book)$/, '$1<span>$2</span>');
   $("crumb").textContent = book.crumb;
   document.title = "Mix — " + book.label + " Portal";
-  $("generateBtn").addEventListener("click", generate);
+
+  $("step1Next").addEventListener("click", step1Continue);
   $("contractId").addEventListener("keydown", (e) => { if (e.key === "Enter") $("lettingDate").focus(); });
-  $("mixSelect").addEventListener("change", (e) => {
-    state.mix = e.target.value;
-    setStatus($("subStatus"), "");
-  });
+  $("plant").addEventListener("keydown", (e) => { if (e.key === "Enter") step1Continue(); });
+  $("step2Back").addEventListener("click", () => goStep(1));
+  $("step2Next").addEventListener("click", () => step2Continue(false));
+  $("step2Skip").addEventListener("click", () => step2Continue(true));
+  $("mixRetry").addEventListener("click", startLookup);
+  $("step3Back").addEventListener("click", () => goStep(2));
   $("legacyBtn").addEventListener("click", () => go("legacyUpload"));
   $("buildNewBtn").addEventListener("click", () => go("buildNew"));
-  $("backLink").addEventListener("click", () => { setStatus($("portalStatus"), ""); showOnly("portalView"); });
-  $("signOutLink").addEventListener("click", signOut);
-  $("myDesignsLink").addEventListener("click", openDesigns);
-  $("dNewLink").addEventListener("click", () => { setStatus($("portalStatus"), ""); showOnly("portalView"); $("contractId").focus(); });
+  document.querySelectorAll("#steps .step").forEach((el) => el.addEventListener("click", () => {
+    const n = Number(el.dataset.step);
+    if (n < state.step) goStep(n);      // completed steps are revisitable; step 4 lives in DesignBook
+  }));
+  $("navSubmissions").addEventListener("click", openDesigns);
+  $("footSubmissions").addEventListener("click", openDesigns);
+  $("navSubmit").addEventListener("click", openSubmit);
+  $("dNewLink").addEventListener("click", openSubmit);
+  $("pbToDesign").addEventListener("click", () => { location.href = "portal.html?book=designbook"; });
   $("dStage").addEventListener("change", renderDesigns);
   $("dSearch").addEventListener("input", renderDesigns);
+  $("signOutLink").addEventListener("click", signOut);
 
   sb.auth.getSession().then(({ data }) => boot(data.session));
   // Catches sign-out in another tab so this page doesn't sit on stale data.

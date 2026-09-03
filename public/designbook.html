@@ -42,6 +42,13 @@
   expand "Import log" at the bottom: every field, its source cell, the
   value found, and why a miss is a miss.
 
+  Dropdown lists come from Supabase reference tables (aggregates,
+  aggregate_types, binder_terminals, binder_grades), never from CONFIG: a
+  field or row column says `source: "<list>"` and CONFIG.REFERENCE says
+  how each table becomes options. A value a list does not know is kept,
+  shown as "(not in KYTC list)" and raised as a warning in the rail -
+  it is never dropped or blocked.
+
   Nothing writes to Supabase yet — there is no DesignBook table in
   supabase/schema.sql (only the technician tables). Save builds the
   payload and shows it, so the table and its RLS policy get written
@@ -56,9 +63,11 @@
 <style>
   /* Theme tokens from the Layout A prototype. portal.html matches these. */
   :root{
-    --paper:#F2F1EC; --panel:#FFFFFF; --ink:#182430; --muted:#6E7580;
-    --line:#DAD7CE; --accent:#2B5C82; --accent-soft:#E1EAF0;
-    --flag:#B5721F; --flag-soft:#F5E8D4; --ok:#3F7A56; --ok-soft:#E3EFE7;
+    --paper:#F2F1EC; --panel:#FFFFFF; --ink:#083860; --muted:#6E7580;
+    --line:#DAD7CE; --accent:#1C7CC0; --accent-soft:#E4F2FB;
+    /* Team Kentucky Transportation Cabinet brand: navy, sky blue, gold, sampled from the logo */
+    --navy:#002050; --sky:#5FB2E4; --gold:#FFC312;
+    --flag:#A56F00; --flag-soft:#FDF1C7; --ok:#3F7A56; --ok-soft:#E3EFE7;
     --bad:#9B2C2C;
     --radius:6px;
   }
@@ -70,17 +79,26 @@
   a{color:inherit;}
   .hidden{display:none !important;}
 
-  /* frozen header: wordmark bar + job strip both stay pinned on scroll */
-  .appbar{position:sticky; top:0; z-index:20; background:var(--paper);
-          border-bottom:1px solid var(--line);}
-  .topbar{padding:14px 32px 10px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;}
+  /* frozen header: wordmark bar + job strip both stay pinned on scroll.
+     The KYTC gradient rule (blue -> gold) moves to the whole block's base. */
+  .appbar{position:sticky; top:0; z-index:20; background:var(--panel);
+          border-bottom:4px solid transparent;
+          border-image:linear-gradient(90deg,var(--sky) 0 35%,var(--gold) 80% 100%) 1;}
+  .topbar{padding:12px 32px 8px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;}
+  .logo{height:36px; width:auto; display:block;}
+  .jobstrip{display:flex; gap:10px; flex-wrap:wrap; padding:0 32px 10px;}
+  .jobchip{flex:1 1 180px; background:var(--panel); border:1px solid var(--line);
+           border-radius:8px; padding:8px 12px;}
+  .jobchip small{display:block; color:var(--muted); font-size:10px; text-transform:uppercase;
+                 letter-spacing:.05em; margin-bottom:2px;}
+  .jobchip span{font-size:14px; font-weight:500;}
   .wordmark{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:18px; letter-spacing:.02em;}
   .wordmark span{color:var(--accent);}
   .mixid{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--muted);
          border:1px solid var(--line); border-radius:4px; padding:3px 8px;}
   .pill{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase;
         letter-spacing:.05em; padding:4px 10px; border-radius:20px; border:1px solid; transition:.15s;}
-  .pill.draft{background:var(--flag-soft); color:var(--flag); border-color:var(--flag);}
+  .pill.draft{background:var(--flag-soft); color:var(--ink); border-color:var(--gold);}
   .pill.review{background:var(--accent-soft); color:var(--accent); border-color:var(--accent);}
   .pill.released,.pill.approved{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
   .spacer{flex:1;}
@@ -105,13 +123,7 @@
   .tick.filled{background:var(--accent);}
   .tick.partial{background:linear-gradient(90deg,var(--accent) 50%, var(--panel) 50%);}
 
-  /* job context strip — lives inside .appbar so it stays frozen on scroll */
-  .jobstrip{display:flex; gap:10px; flex-wrap:wrap; padding:0 32px 12px;}
-  .jobchip{flex:1 1 180px; background:var(--panel); border:1px solid var(--line);
-           border-radius:8px; padding:8px 12px;}
-  .jobchip small{display:block; color:var(--muted); font-size:10px; text-transform:uppercase;
-                 letter-spacing:.05em; margin-bottom:2px;}
-  .jobchip span{font-size:14px; font-weight:500;}
+  /* (job context strip lives in .appbar now — see top of stylesheet) */
 
   /* sections */
   .section{background:var(--panel); border:1px solid var(--line); border-radius:10px;
@@ -133,6 +145,7 @@
   input.box.mono, select.box.mono{font-family:'IBM Plex Mono',monospace; color:var(--accent);}
   .box:focus{outline:2px solid var(--accent); outline-offset:-1px;}
   .box.prefilled{background:var(--accent-soft);}
+  .box.autofilled{background:var(--accent-soft);}
   .box[readonly]{background:#EFEDE6; color:var(--muted); cursor:default;}
   .srcnote{font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--muted); margin-top:3px;}
 
@@ -207,12 +220,14 @@
   .tline{position:absolute; top:6px; left:-50%; width:100%; height:2px; background:var(--line); z-index:0;}
   .tstep.done .tline{background:var(--ok);}
   .tstep:first-child .tline{display:none;}
-  .stagebtn{margin-top:16px; padding:10px 16px; border:1px solid var(--accent); border-radius:var(--radius);
-            background:var(--accent); color:#fff; font-family:inherit; font-size:13px; cursor:pointer;}
+  .stagebtn{margin-top:16px; padding:10px 16px; border:1px solid var(--ink); border-radius:var(--radius);
+            background:var(--ink); color:#fff; font-family:inherit; font-size:13px; cursor:pointer;}
   .stagebtn:disabled{opacity:.5; cursor:not-allowed;}
   .stagebtn.ghost{background:none; color:var(--accent); border-color:var(--accent); margin-left:8px;}
   .stagebtn.ghost:disabled{color:var(--muted); border-color:var(--line); background:none;}
   .stagenote{font-size:12px; color:var(--muted); margin-top:8px;}
+  .refstatus{font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--muted); margin-top:6px;}
+  .refstatus.error{color:var(--bad);}
   .auditrow.local .ts{color:var(--muted);}
   .auditlog{margin-top:16px; border-top:1px solid var(--line); padding-top:12px;
             display:flex; flex-direction:column; gap:6px;}
@@ -229,6 +244,7 @@
   .vitem:first-of-type{border-top:none;}
   .vitem .flag{width:6px; height:6px; border-radius:50%; background:var(--flag);
                margin-top:5px; flex-shrink:0;}
+  .vitem .flag.warn{background:transparent; border:1.5px solid var(--flag);}
   .vitem a{color:var(--accent); text-decoration:underline; text-underline-offset:2px;}
   .allclear{display:flex; gap:8px; align-items:center; font-size:12px; color:var(--ok);}
   .dot2{width:6px; height:6px; border-radius:50%; background:var(--ok);}
@@ -260,6 +276,7 @@
 
 <header class="appbar">
   <div class="topbar">
+    <img class="logo" src="assets/kytc-logo.png" alt="Team Kentucky Transportation Cabinet">
     <div class="wordmark">Design<span>Book</span></div>
     <div class="mixid" id="mixid">MIX ID · —</div>
     <div class="pill draft" id="statuspill">Draft</div>
@@ -313,6 +330,8 @@
 
   <main>
     <div id="sections"></div>
+    <!-- <datalist>s for the long reference lists; filled by renderRefLists() -->
+    <div id="refLists"></div>
 
     <details id="inspectorWrap" class="hidden">
       <summary>Import log — version, sheets, every field with its source cell and what was found</summary>
@@ -369,6 +388,70 @@ const CONFIG = {
   // Mix Design Tech cert (unexpired), from technician_capabilities.
   REQUIRES_CAPABILITY: "can_access_designbook",
 
+  // ---- Reference lists (Supabase tables, read-all by authenticated users) ----
+  // The lists themselves never live in CONFIG - they are tables every page
+  // shares (RLS on, `to authenticated using (true)`, seeded by an admin; same
+  // rule as `plants` in CLAUDE.md). This block only says which tables to read
+  // and how a row becomes a dropdown option. A field or row column in
+  // SECTIONS opts in with `source: "<key>"`; the renderer, the validation
+  // rail and the MAT-code auto-fill all read the same list.
+  REFERENCE: {
+    // A sourced field with this many entries or fewer renders as a <select>;
+    // a longer list renders as an <input> with a <datalist>, so free text is
+    // still possible and the list is a suggestion.
+    SELECT_MAX: 30,
+    // How long boot waits for the lists before rendering anyway. Late or
+    // failed lists upgrade the rendered fields in place; nothing is lost.
+    BOOT_WAIT_MS: 2000,
+    // Appended to a value that is not in its list. The value itself is saved
+    // exactly as entered - the suffix is display only.
+    OFF_LIST_SUFFIX: " (not in KYTC list)",
+    // Per list: table, columns, order, then how a row becomes an option.
+    //   value    what the field holds and what is saved
+    //   label    what the dropdown shows
+    //   aliases  other spellings that resolve to this row (a legacy
+    //            MixPack's terminal name, a typed AGP/LAP/SM number) -
+    //            matched case- and whitespace-insensitively
+    //   distinct one option per value (aggregates has a row per AGP number;
+    //            the form wants producers)
+    //   sort     client-side order when the table's order is not the
+    //            dropdown's order
+    //   noun     for the status line ("178 aggregates")
+    TABLES: {
+      aggregates: {
+        table: "aggregates", select: "agp_number, producer_name, category", orderBy: "producer_name",
+        noun: "aggregates", distinct: true,
+        value: (r) => r.producer_name,
+        label: (r) => `${r.producer_name} — ${r.agp_number}`,
+        aliases: (r) => [r.agp_number],
+      },
+      aggregate_types: {
+        table: "aggregate_types", select: "type_name, mat_code, polish_resistant_class", orderBy: "type_name",
+        noun: "types",
+        value: (r) => r.type_name,
+        label: (r) => r.type_name + (r.mat_code ? ` — MAT ${r.mat_code}` : "") +
+                      (r.polish_resistant_class ? ` · PR ${r.polish_resistant_class}` : ""),
+        aliases: (r) => [],
+      },
+      binder_terminals: {
+        table: "binder_terminals", select: "lap_number, terminal_name", orderBy: "lap_number",
+        noun: "terminals",
+        value: (r) => r.lap_number,
+        label: (r) => `${r.lap_number} — ${r.terminal_name}`,
+        aliases: (r) => [r.terminal_name],
+      },
+      binder_grades: {
+        table: "binder_grades", select: "grade, sitemanager_code", orderBy: "grade",
+        noun: "grades",
+        value: (r) => r.grade,
+        label: (r) => `${r.grade} — SM ${r.sitemanager_code}`,
+        aliases: (r) => [r.sitemanager_code],
+        // PG grades first, in numeric order; anything else (CRS-2P) after.
+        sort: (a, b) => (/^PG/i.test(b.grade) - /^PG/i.test(a.grade)) || a.grade.localeCompare(b.grade),
+      },
+    },
+  },
+
   // Workflow stages, in order. Button label is what advances INTO the
   // next stage; the last stage has none.
   STAGES: [
@@ -419,6 +502,7 @@ const CONFIG = {
         total_tons:     [["designData", "Q12"]],
         depth_mm:       [["designData", "K20"]],
         binder_grade:   [["designData", "C18"]],
+        binder_terminal: [["designData", "A17"]],   // "Binder source & loc." - resolved to a LAP number by name
         rap_note:       [["designData", "A19"], ["recycle", "C27"]],
         ac_pct:         [["designData", "B49"], ["designData", "O63"], ["designData", "U56"]],
         gmm_ini:        [["designData", "O59"], ["designData", "P49"]],
@@ -442,6 +526,7 @@ const CONFIG = {
         total_tons:     [["designData", "Q12"]],
         depth_mm:       [["designData", "K20"]],
         binder_grade:   [["designData", "C18"]],
+        binder_terminal: [["designData", "A17"]],   // "Binder source & loc." - resolved to a LAP number by name
         rap_note:       [["recycle", "F18"]],
         ac_pct:         [["designData", "B49"], ["designData", "O63"], ["designData", "U56"]],
         gmm_ini:        [["designData", "O59"], ["designData", "P49"]],
@@ -488,7 +573,7 @@ const CONFIG = {
       ["Mix ID num.", "designData", "H10"], ["Fed/State #", "designData", "C12"],
       ["Lab unit", "designData", "H12"], ["Test method", "designData", "K12"],
       ["Proj. (item)", "designData", "C14"], ["Date received", "designData", "H14"],
-      ["Date released", "designData", "H16"], ["Binder source & loc.", "designData", "A17"],
+      ["Date released", "designData", "H16"],
       ["Binder prod. #", "designData", "H18"], ["Mix/comp temp", "designData", "K18"],
       ["Corr. factor", "designData", "H19"], ["Binder code", "designData", "C20"],
       ["Mix mat. code", "designData", "Q16"],
@@ -528,13 +613,14 @@ const CONFIG = {
   },
 
   /* ---- THE FORM ------------------------------------------------
-     Single source of truth for markup, the validation rail, and the
-     save payload.
+     Single source of truth for markup, xlsx extraction, the
+     validation rail, and the save payload.
 
      Section types:
        grid       — fields laid out 3-up
-       rows       — repeating rows; `rows` may be one spec or an array
-                    of specs (each can carry a `heading`)
+       rows       — repeating rows; `rows` may be one spec or an array of
+                    specs (each can carry a `heading`; a `fixed` spec seeds
+                    from `seed` and has no add/remove)
        sieves     — vertical sieve / %-passing table + large 0.45 chart
        fourpoint  — mix constants + 4-row Pb/Gmb/Gmm table + curve fit;
                     this is the engine behind the `design-values` section
@@ -542,16 +628,26 @@ const CONFIG = {
        status     — workflow timeline + audit log
      A section may have BOTH `fields` (grid) and `rows`.
 
-     Field props: key, label, type (text|number|select|date),
-       req (counts toward completeness), options (for select), mono.
-
-     NOTE — layout pass 2026-09-03: sections/fields were restructured
+     NOTE — layout pass 2026-09-03 (Andrew): sections/fields restructured
      (Contract Information, Aggregate Structure, Four Points, computed
-     Design Values, standalone TSR, merged Performance Testing). The
-     legacy-MixPack importer in CONFIG.LEGACY still targets the OLD field
-     keys (ac_pct, gmm_ini, hamburg_with, hamburg_sip, the old sieve
-     labels, …) and needs a separate re-alignment pass before Legacy
-     Upload will populate this form correctly again.
+     Design Values, standalone TSR, merged Performance Testing). Jake's
+     reference-list wiring (source/fills) is carried through. CONFIG.LEGACY
+     still targets some OLD field keys / sieve labels — Legacy Upload needs
+     a re-alignment pass before it repopulates this form.
+
+     Field props: key, label, type (text|number|select|date),
+       req (counts toward completeness), options (for select),
+       mono (styling), source (a CONFIG.REFERENCE.TABLES key: the options
+       come from that Supabase list - a <select> when it is short, an
+       input with a <datalist> when it is long; an off-list value is kept,
+       flagged, and raised as a warning, never dropped).
+     Row column props: key, label, type, req, mono, source (as above), and
+       fills ({ siblingKey: (refRow) => value }: when this column matches a
+       reference row, an empty or previously auto-filled sibling cell in
+       the same row is filled from it; a value a person typed is never
+       overwritten).
+     Where a legacy MixPack supplies the value is NOT
+       here — see CONFIG.LEGACY, keyed by these same field keys.
      -------------------------------------------------------------- */
   SECTIONS: [
     {
@@ -562,8 +658,8 @@ const CONFIG = {
         { key: "total_tons",      label: "Tonnage",         type: "number", req: true, mono: true },
         { key: "submittal_type",  label: "Submittal type",  type: "select", req: true,
           options: ["Mix design spreadsheet", "Field change", "Annual renewal"] },
-        { key: "binder_grade",    label: "Binder grade",    type: "text",   req: true, mono: true },
-        { key: "binder_supplier", label: "Binder supplier", type: "text",   req: true },
+        { key: "binder_grade",    label: "Binder grade",    type: "text",   req: true, mono: true, source: "binder_grades" },
+        { key: "binder_terminal", label: "Binder supplier", type: "text",   req: true, source: "binder_terminals" },
         { key: "funding",         label: "Funding",         type: "text",   req: true },
         { key: "project_items",   label: "Project items",   type: "text",   req: false },
         { key: "project_number",  label: "Project number",  type: "text",   req: true, mono: true },
@@ -581,8 +677,9 @@ const CONFIG = {
         key: "aggregate", max: 6, addLabel: "+ add aggregate component (up to 6)",
         grid: "1.4fr 1.2fr 1fr .8fr .8fr auto",
         columns: [
-          { key: "producer",  label: "Producer",     type: "text",   req: true },
-          { key: "type_size", label: "Type & size",  type: "text",   req: true },
+          { key: "producer",  label: "Producer",     type: "text",   req: true, source: "aggregates" },
+          { key: "type_size", label: "Type & size",  type: "text",   req: true, source: "aggregate_types",
+            fills: { mat_code: (r) => r.mat_code } },
           { key: "mat_code",  label: "Mat. code",    type: "text",   req: true, mono: true },
           { key: "pct_blend", label: "% blend",      type: "number", req: true, mono: true },
           { key: "gsb",       label: "Gsb",          type: "number", req: true, mono: true },
@@ -614,15 +711,12 @@ const CONFIG = {
     {
       id: "fourpoint", label: "Four Points",
       tag: "R35 §10.1 · Pb(design), ±0.5%, +1.0%", type: "fourpoint",
-      // Mix-level constants. gsb / p075 auto-fill from Aggregate Structure and
-      // Gradation; va_target is the KYTC default. All stay editable.
       constants: [
         { key: "fp_gsb",   label: "Combined Gsb",        auto: "aggregate", value: "" },
         { key: "fp_gb",    label: "Binder sp. gravity (Gb)", value: "1.030" },
         { key: "fp_p075",  label: "% passing #200",      auto: "gradation", value: "" },
         { key: "fp_vatgt", label: "Design air-void target (%)", value: "3.5" },
       ],
-      // Four gyratory design points.
       points: [
         { pb: "4.3", gmb: "", gmm: "" },
         { pb: "4.8", gmb: "", gmm: "" },
@@ -724,6 +818,15 @@ const state = {
                      //   nominal_size, county, lines, source } or null
   extracted: null,   // { scalars, tables } from the workbook, if any
   legacy: null,      // full import result: version, sheet resolution, per-field log, unmapped, context
+  // Reference lists, one array per CONFIG.REFERENCE.TABLES key (aggregates,
+  // aggregate_types, binder_terminals, binder_grades); each entry is
+  // { value, label, aliases, row }. `loaded` flips once every query has
+  // settled; `error` names the tables that failed - their arrays stay empty
+  // and their fields fall back to free text.
+  ref: Object.assign({ loaded: false, error: null },
+         ...Object.keys(CONFIG.REFERENCE.TABLES).map((k) => ({ [k]: [] }))),
+  dirty: false,      // edits since the last save (a stage move saves them first)
+  savedExtractedFrom: null, // extracted_from as loaded from a saved design
   designId: null,    // designs.id once saved / when opened via ?design=
   authorUserId: null,
   canReview: false,  // technicians.can_review - may move past Internal Review, send back to Draft
@@ -751,11 +854,12 @@ function toPortal() { location.href = CONFIG.PORTAL_URL; }
 
 /* ---------- field helpers ---------- */
 // Legacy importer still calls this with old-style labels; new gradation
-// rows carry an explicit `key` (see CONFIG.SECTIONS) so fraction labels
-// don't collapse to the same slug.
+// rows carry an explicit `key` (see CONFIG.SECTIONS).
 function sieveKey(label) { return "sieve_" + String(label).replace(/[^0-9a-z]/gi, ""); }
 function gradSection() { return CONFIG.SECTIONS.find((s) => s.type === "sieves"); }
 function fpSection() { return CONFIG.SECTIONS.find((s) => s.type === "fourpoint"); }
+function num(v) { const n = parseFloat(v); return Number.isFinite(n) ? n : null; }
+function fmt(v, d) { return v == null || !Number.isFinite(v) ? "—" : v.toFixed(d); }
 // Row spec by key — `s.rows` is one spec or an array of specs.
 function rowSpec(key) {
   for (const s of CONFIG.SECTIONS) {
@@ -764,22 +868,52 @@ function rowSpec(key) {
   }
   return null;
 }
-function num(v) { const n = parseFloat(v); return Number.isFinite(n) ? n : null; }
-function fmt(v, d) { return v == null || !Number.isFinite(v) ? "—" : v.toFixed(d); }
 
 /* ---------- markup, rendered from CONFIG.SECTIONS ---------- */
+// A <select> over { value, label } options. The value is what the form holds
+// and saves; the label is only what the eye sees. A current value that is
+// not in the list is injected as its own selected option and marked, so
+// nothing a workbook, the mix lookup or a saved design supplied is dropped
+// by a list that does not know it yet.
+function selectHTML(cls, attrs, options, value) {
+  const v = value == null ? "" : String(value);
+  const found = options.some((o) => o.value === v);
+  const opts = ['<option value="">— select —</option>']
+    .concat(options.map((o) =>
+      `<option value="${esc(o.value)}"${o.value === v ? " selected" : ""}>${esc(o.label)}</option>`));
+  if (v && !found) opts.push(`<option value="${esc(v)}" selected data-offlist="1">${esc(v + CONFIG.REFERENCE.OFF_LIST_SUFFIX)}</option>`);
+  return `<select class="${cls}" ${attrs}>${opts.join("")}</select>`;
+}
+
+// A field or column with `source` draws its options from state.ref. A short
+// list becomes a <select>; a long one an <input> with a <datalist>, so free
+// text still works. Before the lists arrive (or if that table failed) it is
+// a plain input that accepts anything, and refreshReferenceControls()
+// upgrades it in place once the data lands. A value that only matches a
+// list entry loosely (case, spacing, an alias such as a terminal's name)
+// selects the canonical entry - the KYTC spelling wins, visibly.
+function refControlHTML(def, cls, attrs, value) {
+  const R = CONFIG.REFERENCE, list = state.ref[def.source] || [];
+  let v = value == null ? "" : String(value);
+  const hit = refMatch(def.source, v);
+  if (list.length && list.length <= R.SELECT_MAX) {
+    if (hit) v = hit.value;
+    return selectHTML(cls, `data-source="${def.source}" ${attrs}`, list, v);
+  }
+  const dl = list.length ? ` list="${refListId(def.source)}" autocomplete="off"` : "";
+  return `<input type="text" class="${cls}" data-source="${def.source}" ${attrs}${dl} value="${esc(v)}">`;
+}
+
 function inputFor(f, value) {
   const cls = "box req-marker" + (f.mono ? " mono" : "") + (f.req ? " req" : "");
+  const attrs = `data-field="${f.key}"`;
+  if (f.source) return refControlHTML(f, cls, attrs, value);
   if (f.type === "select") {
-    const opts = ['<option value="">— select —</option>']
-      .concat((f.options || []).map((o) =>
-        `<option${String(value) === o ? " selected" : ""}>${o}</option>`))
-      .join("");
-    return `<select class="${cls}" data-field="${f.key}">${opts}</select>`;
+    return selectHTML(cls, attrs, (f.options || []).map((o) => ({ value: o, label: o })), value);
   }
   const type = f.type === "date" ? "date" : "text";
   const im = f.type === "number" ? ' inputmode="decimal"' : "";
-  return `<input type="${type}"${im} class="${cls}" data-field="${f.key}" value="${value == null ? "" : String(value).replace(/"/g, "&quot;")}">`;
+  return `<input type="${type}"${im} class="${cls}" ${attrs} value="${esc(value == null ? "" : value)}">`;
 }
 
 function gridHTML(fields) {
@@ -798,10 +932,11 @@ function rowHTML(spec, values, idx) {
   const cells = spec.columns.map((c) => {
     const v = values ? values[c.key] : "";
     const cls = "box" + (c.mono ? " mono" : "") + (c.req ? " req" : "");
+    const attrs = `data-row="${spec.key}" data-col="${c.key}"`;
     const ro = c.readonly ? " readonly tabindex=\"-1\"" : "";
-    return `<div><label>${c.label}</label>
-      <input type="text"${ro} class="${cls}" data-row="${spec.key}" data-col="${c.key}"
-             value="${v == null ? "" : String(v).replace(/"/g, "&quot;")}"></div>`;
+    const ctrl = c.source ? refControlHTML(c, cls, attrs, v)
+      : `<input type="text"${ro} class="${cls}" ${attrs} value="${esc(v == null ? "" : v)}">`;
+    return `<div><label>${c.label}</label>${ctrl}</div>`;
   }).join("");
   // Fixed tables (e.g. the Hamburg pass-count grid) have no remove button.
   return `<div class="rowitem" style="grid-template-columns:${spec.grid}">
@@ -823,7 +958,7 @@ function rowsHTML(spec) {
     <button class="addrow" data-add="${spec.key}">${spec.addLabel}</button>`;
 }
 
-// `rows` may be one spec or an array of specs (Performance Testing uses two).
+// `rows` may be one spec or an array of specs (Performance Testing uses three).
 function rowsBlockHTML(rows) {
   return (Array.isArray(rows) ? rows : [rows]).map(rowsHTML).join('<div style="height:16px"></div>');
 }
@@ -834,7 +969,7 @@ function sievesHTML(section) {
     return `<tr>
       <td class="sz">${s.label}</td>
       <td><input type="text" inputmode="decimal" class="req" data-field="${s.key}"
-             data-mm="${s.mm}" value="${v}" placeholder="—"></td>
+             data-mm="${s.mm}" value="${esc(v)}" placeholder="—"></td>
     </tr>`;
   }).join("");
   return `<div class="gradwrap">
@@ -842,7 +977,7 @@ function sievesHTML(section) {
         <thead><tr><th>Sieve</th><th>% passing</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <div class="chartwrap tall">
+      <div class="chartwrap">
         <div class="cap">0.45 power chart — target gradation band to follow</div>
         <div id="chart"></div>
       </div>
@@ -855,12 +990,12 @@ function fourpointHTML(section) {
     `<div class="field">
       <label>${c.label}${c.auto ? ` <span class="opt">(auto)</span>` : ""}</label>
       <input type="text" inputmode="decimal" class="box mono${c.auto ? "" : " req"}"
-             data-fp="const:${c.key}" value="${c.value || ""}" placeholder="—">
+             data-fp="const:${c.key}" value="${esc(c.value || "")}" placeholder="—">
     </div>`).join("");
   const rows = section.points.map((p, i) => `<tr data-fprow="${i}">
-      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:pb"  value="${p.pb || ""}"></td>
-      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmb" value="${p.gmb || ""}" placeholder="—"></td>
-      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmm" value="${p.gmm || ""}" placeholder="—"></td>
+      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:pb"  value="${esc(p.pb || "")}"></td>
+      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmb" value="${esc(p.gmb || "")}" placeholder="—"></td>
+      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmm" value="${esc(p.gmm || "")}" placeholder="—"></td>
       <td class="calc" data-fpout="va:${i}">—</td>
       <td class="calc" data-fpout="vma:${i}">—</td>
       <td class="calc" data-fpout="vfa:${i}">—</td>
@@ -895,6 +1030,7 @@ function statusHTML() {
   return `<div class="timeline" id="timeline">${steps}</div>
     <button class="stagebtn" id="advanceStage"></button><button class="stagebtn ghost hidden" id="sendBackStage">Send back to Draft</button>
     <div class="stagenote" id="stageNote"></div>
+    <div class="refstatus" id="refStatus"></div>
     <div class="auditlog" id="auditlog"></div>`;
 }
 
@@ -919,7 +1055,10 @@ function renderForm() {
     `<li class="navitem" data-target="${s.id}"><span class="tick" data-tick="${s.id}"></span>${s.label}</li>`
   ).join("");
 
+  renderRefLists();
   wireForm();
+  applyAutofills();
+  renderRefStatus();
   renderStage();
   recompute();
 }
@@ -1149,23 +1288,44 @@ function recompute() {
       else if (filled) tick.classList.add("partial");
     }
     if (filled < reqs.length) {
-      outstanding.push({ id, label: sec.dataset.label, missing: reqs.length - filled });
+      outstanding.push({ id, label: sec.dataset.label, kind: "missing", text: `${reqs.length - filled} field(s) missing` });
+    }
+    // Reference-list check: a value its KYTC list does not know is a WARNING,
+    // never a block - the list can lag reality, and the value is saved as
+    // entered. Judged only once the lists are in, and only against a list
+    // that actually loaded.
+    if (state.ref.loaded) {
+      sec.querySelectorAll("[data-source]").forEach((el) => {
+        const key = el.dataset.source, v = String(el.value || "").trim();
+        if (!v || !(state.ref[key] || []).length || refMatch(key, v)) return;
+        outstanding.push({ id, label: sec.dataset.label, kind: "warn", focus: el,
+          text: `${refFieldLabel(el)} “${v}” is not in the KYTC ${CONFIG.REFERENCE.TABLES[key].table} list` });
+      });
     }
   });
 
   const list = $("vallist"), sub = $("valsub");
-  if (!outstanding.length) {
-    sub.textContent = "All required fields complete";
-    list.innerHTML = `<div class="allclear"><span class="dot2"></span>Ready to move to internal review</div>`;
+  const missing = outstanding.filter((o) => o.kind !== "warn"), warns = outstanding.filter((o) => o.kind === "warn");
+  const items = missing.concat(warns);
+  const item = (o, i) =>
+    `<div class="vitem${o.kind === "warn" ? " warn" : ""}" data-idx="${i}"><span class="flag${o.kind === "warn" ? " warn" : ""}"></span>
+       <span><a>${esc(o.label)}</a> — ${esc(o.text)}</span></div>`;
+  if (!missing.length) {
+    // Warnings alone never hold a design back; they stay listed under the all-clear.
+    sub.textContent = "All required fields complete" + (warns.length ? ` · ${warns.length} warning(s)` : "");
+    list.innerHTML = `<div class="allclear"><span class="dot2"></span>Ready to move to internal review</div>` + items.map(item).join("");
   } else {
-    sub.textContent = `${outstanding.length} section(s) with incomplete fields`;
-    list.innerHTML = outstanding.map((o) =>
-      `<div class="vitem" data-jump="${o.id}"><span class="flag"></span>
-         <span><a>${o.label}</a> — ${o.missing} field(s) missing</span></div>`).join("");
-    list.querySelectorAll(".vitem").forEach((el) => {
-      el.addEventListener("click", () => jumpTo(el.dataset.jump, true));
-    });
+    sub.textContent = `${missing.length} section(s) with incomplete fields` + (warns.length ? `, ${warns.length} warning(s)` : "");
+    list.innerHTML = items.map(item).join("");
   }
+  list.querySelectorAll(".vitem").forEach((el) => {
+    el.addEventListener("click", () => {
+      const o = items[Number(el.dataset.idx)];
+      if (!o) return;
+      if (o.focus) { jumpTo(o.id, false); setTimeout(() => o.focus.focus(), 400); }
+      else jumpTo(o.id, true);
+    });
+  });
   drawChart();
   computeFourPoint();
 }
@@ -1197,9 +1357,14 @@ function renderStage() {
   // Who may do what is decided by the database trigger (supabase/designs.sql);
   // this only mirrors those rules so the button is honest before you click.
   const isAuthor = !state.designId || state.authorUserId === (state.tech && state.tech.user_id);
+  // The SELECT policy lets anyone with access to the plant read a design; the
+  // UPDATE policy lets only its author or a reviewer change it. Everyone else
+  // gets a read-only form, not a Save that silently updates zero rows.
+  const canEdit = isAuthor || state.canReview;
   const btn = $("advanceStage"), back = $("sendBackStage"), note = $("stageNote");
   let allowed = true, why = "";
   if (!s.next) { allowed = false; }
+  else if (!canEdit) { allowed = false; why = "Read-only: only the author or a KYTC reviewer can change this design."; }
   else if (state.stageIdx >= 1 && !state.canReview) { allowed = false; why = "Moving a design past Internal Review is a KYTC Central Office reviewer's action."; }
   else if (state.stageIdx >= 1 && state.canReview && isAuthor) { allowed = false; why = "You authored this design; another reviewer must release or approve it."; }
   btn.disabled = !allowed || state.saving;
@@ -1207,7 +1372,7 @@ function renderStage() {
   back.classList.toggle("hidden", !(state.canReview && state.stageIdx > 0 && state.designId));
   back.disabled = state.saving;
   note.textContent = why || (s.key === "Approved" ? "Approved designs are read-only until a reviewer sends them back to Draft." : "");
-  const frozen = s.key === "Approved";
+  const frozen = s.key === "Approved" || !canEdit;
   $("saveBtn").disabled = frozen || state.saving;
   document.querySelectorAll("#sections input, #sections select").forEach((el) => { el.disabled = frozen; });
 }
@@ -1249,7 +1414,7 @@ function audit(text) {
   const t = new Date();
   const ts = `${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ` +
              `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
-  row.innerHTML = `<span class="ts">${ts}</span> ${text}`;
+  row.innerHTML = `<span class="ts">${ts}</span> ${esc(text)}`;
   $("auditlog").insertBefore(row, $("auditlog").firstChild);
 }
 
@@ -1369,7 +1534,7 @@ function extractLegacy(wb, ctx) {
     log.push({ field: key, source: r.source, value: null, status: allUncached ? "not-cached" : "missing", note: note || whyMissing(r.tried) });
   }
 
-  const plain = ["county", "total_tons", "depth_mm", "binder_grade", "rap_note", "ac_pct", "gmm_ini", "av_pct",
+  const plain = ["county", "total_tons", "depth_mm", "binder_grade", "binder_terminal", "rap_note", "ac_pct", "gmm_ini", "av_pct",
                  "vma_pct", "vfa_pct", "uw", "msg", "designer", "tsr_pct", "hamburg_sip", "virgin_ac"];
   plain.forEach((key) => {
     const r = chase(cells[key] || []);
@@ -1588,7 +1753,9 @@ function designRow() {
     origin: state.mode,
     values,
     rows,
-    extracted_from: state.sources,
+    // A fresh import/prefill records its sources; a reopened design keeps the
+    // provenance it was saved with instead of overwriting it with {}.
+    extracted_from: Object.keys(state.sources).length ? state.sources : (state.savedExtractedFrom || {}),
     legacy_import: state.legacy ? { version: state.legacy.version.label, context: state.legacy.context, unmapped: state.legacy.unmapped } : null,
   };
 }
@@ -1621,6 +1788,7 @@ async function saveDesign() {
     show("payloadWrap", true);
     const t = new Date(data.updated_at);
     $("savedstate").textContent = `Saved ${t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    state.dirty = false;
     $("mixid").textContent = designLabel();
     msg($("saveMsg"), `Saved. Design ${data.id.slice(0, 8)} · ${data.stage}.`, "ok");
     await loadEvents();
@@ -1636,7 +1804,8 @@ async function saveDesign() {
 // Stage moves are a single-column update; the trigger enforces who may do
 // what and one step at a time. Its error text is shown verbatim.
 async function setStage(nextKey) {
-  if (!state.designId) { const saved = await saveDesign(); if (!saved) return; }
+  // Unsaved edits go with the stage move; otherwise a reviewer opens stale content.
+  if (!state.designId || state.dirty) { const saved = await saveDesign(); if (!saved) return; }
   state.saving = true; renderStage();
   const { data, error } = await sb.from("designs").update({ stage: nextKey }).eq("id", state.designId).select("stage").single();
   state.saving = false;
@@ -1669,6 +1838,7 @@ async function loadDesign(id) {
   state.mix = d.mix_signature ? { signature: d.mix_signature, ...(d.mix || {}), lines: (d.mix && d.mix.bid_lines) || [], source: "saved design" } : null;
   state.extracted = { scalars: d.values || {}, tables: d.rows || {} };
   state.sources = {};                       // saved values are not provisional
+  state.savedExtractedFrom = d.extracted_from || {};   // but where they came from is kept on re-save
   state.legacy = d.legacy_import ? { version: { label: d.legacy_import.version }, context: d.legacy_import.context || [], unmapped: d.legacy_import.unmapped || [], log: [], sheets: [], scalars: {}, sources: {}, tables: {} } : null;
   state.stageIdx = Math.max(0, CONFIG.STAGES.findIndex((x) => x.key === d.stage));
   return d;
@@ -1709,16 +1879,23 @@ function wireForm() {
     if (confirm("Send this design back to Draft? The author will be able to edit it again.")) setStage("Draft");
   });
 
-  // Any edit: recompute completeness, drop the "prefilled" marker.
+  // Any edit: recompute completeness, drop the "prefilled" marker. A cell a
+  // person types into stops being auto-filled - it is theirs from then on.
   $("sections").addEventListener("input", (e) => {
     if (e.target.dataset.field || e.target.dataset.col || e.target.dataset.fp) {
-      e.target.classList.remove("prefilled");
+      if (e.target.dataset.autofilled) { delete e.target.dataset.autofilled; e.target.removeAttribute("title"); }
+      e.target.classList.remove("prefilled", "autofilled");
+      autofillFrom(e.target);
       recompute();
+      state.dirty = true;
       $("savedstate").textContent = "Edited — not saved";
     }
   });
+  // On commit, a typed value that matches a reference entry loosely (case,
+  // spacing, an AGP/LAP number) takes the KYTC spelling; no match stays as typed.
   $("sections").addEventListener("change", (e) => {
-    if (e.target.tagName === "SELECT") recompute();
+    if (e.target.dataset.source) snapToReference(e.target);
+    if (e.target.tagName === "SELECT" || e.target.dataset.source) { autofillFrom(e.target); recompute(); }
   });
 
   // Highlight what came from the workbook so it reads as "check me".
@@ -1779,6 +1956,162 @@ function readParams() {
     mix: p.get("mix") || null,
     design: p.get("design") || null,
   };
+}
+
+/* ---------- reference lists (Supabase tables, read-all) ---------- */
+// Loads every CONFIG.REFERENCE table in parallel. Never throws and never
+// rejects: a table that fails is named in state.ref.error and its fields
+// stay free text while the others work. Whatever is already on screen is
+// upgraded in place when this settles (refreshReferenceControls).
+async function loadReferenceData() {
+  const R = CONFIG.REFERENCE, defs = Object.entries(R.TABLES), failed = [];
+  try {
+    const results = await Promise.allSettled(defs.map(([, d]) =>
+      Promise.resolve(sb.from(d.table).select(d.select).order(d.orderBy)).then(({ data, error }) => {
+        if (error) throw new Error(error.message);
+        return data || [];
+      })));
+    results.forEach((res, i) => {
+      const [key, d] = defs[i];
+      if (res.status !== "fulfilled") {
+        failed.push(`${d.table} (${res.reason && res.reason.message ? res.reason.message : res.reason})`);
+        state.ref[key] = [];
+        return;
+      }
+      const rows = d.sort ? res.value.slice().sort(d.sort) : res.value;
+      const seen = new Set(), list = [];
+      rows.forEach((row) => {
+        const value = d.value(row);
+        if (value == null || String(value).trim() === "") return;
+        if (d.distinct && seen.has(String(value))) return;
+        seen.add(String(value));
+        list.push({ value: String(value), label: String(d.label ? d.label(row) : value),
+                    aliases: (d.aliases ? d.aliases(row) : []).filter((a) => a != null && a !== "").map(String), row });
+      });
+      state.ref[key] = list;
+    });
+  } catch (err) {
+    failed.push(err && err.message ? err.message : String(err));
+  }
+  state.ref.loaded = true;
+  state.ref.error = failed.length ? failed.join("; ") : null;
+  if (state.ref.error) console.warn("Reference lists:", state.ref.error);
+  refreshReferenceControls();
+  return state.ref;
+}
+
+function refListId(key) { return "reflist_" + key; }
+function refKey(v) { return String(v == null ? "" : v).toLowerCase().replace(/\s+/g, ""); }
+// Exact value first, then case/whitespace-insensitive, then an alias.
+function refMatch(sourceKey, value) {
+  const list = state.ref[sourceKey] || [], v = String(value == null ? "" : value).trim();
+  if (!v || !list.length) return null;
+  const k = refKey(v);
+  return list.find((o) => o.value === v)
+      || list.find((o) => refKey(o.value) === k)
+      || list.find((o) => o.aliases.some((a) => refKey(a) === k))
+      || null;
+}
+function rowSpecFor(key) { return rowSpec(key); }   // array-aware; see rowSpec()
+// The schema definition behind a rendered control: a field (data-field) or
+// a row column (data-row + data-col).
+function refDefFor(el) {
+  if (el.dataset.field) return legacyFieldDef(el.dataset.field);
+  const spec = rowSpecFor(el.dataset.row);
+  return spec ? (spec.columns.find((c) => c.key === el.dataset.col) || null) : null;
+}
+function refFieldLabel(el) {
+  const def = refDefFor(el);
+  if (el.dataset.field) return def ? def.label : el.dataset.field;
+  const item = el.closest(".rowitem");
+  const n = item && item.parentElement ? Array.from(item.parentElement.children).indexOf(item) + 1 : 0;
+  return `${def ? def.label : el.dataset.col}${n ? ` (${el.dataset.row} row ${n})` : ""}`;
+}
+
+// One <datalist> per long list, shared by every input that names it. Short
+// lists are <select>s and need none.
+function renderRefLists() {
+  const R = CONFIG.REFERENCE;
+  $("refLists").innerHTML = Object.keys(R.TABLES).map((key) => {
+    const list = state.ref[key] || [];
+    if (!list.length || list.length <= R.SELECT_MAX) return "";
+    return `<datalist id="${refListId(key)}">` + list.map((o) =>
+      `<option value="${esc(o.value)}">${o.label !== o.value ? esc(o.label) : ""}</option>`).join("") + `</datalist>`;
+  }).join("");
+}
+
+// "Reference lists: 178 aggregates, 115 types, 26 terminals, 12 grades" -
+// or what failed. Lives in the Status section (rendered by statusHTML).
+function renderRefStatus() {
+  const el = $("refStatus");
+  if (!el) return;
+  if (!state.ref.loaded) { el.textContent = "Reference lists: loading…"; el.className = "refstatus"; return; }
+  const counts = Object.entries(CONFIG.REFERENCE.TABLES)
+    .filter(([k]) => (state.ref[k] || []).length)
+    .map(([k, d]) => `${state.ref[k].length} ${d.noun}`);
+  el.textContent = "Reference lists: " + (counts.length ? counts.join(", ") : "none loaded") +
+    (state.ref.error ? ` · failed: ${state.ref.error} — those fields accept any value` : "");
+  el.className = "refstatus" + (state.ref.error ? " error" : "");
+}
+
+// Reference data landed after the form was drawn (or failed): rebuild every
+// sourced control from the same schema and lists renderForm uses, keeping
+// its value, tint, disabled state and auto-fill mark; then re-run the
+// auto-fill and the rail so warnings appear. Listeners are delegated on
+// #sections, so swapping the element loses nothing.
+function refreshReferenceControls() {
+  if (!$("sections").children.length) { renderRefStatus(); return; }   // not drawn yet; renderForm reads state.ref itself
+  renderRefLists();
+  document.querySelectorAll("#sections [data-source]").forEach((el) => {
+    const def = refDefFor(el);
+    if (!def) return;
+    const attrs = el.dataset.field ? `data-field="${el.dataset.field}"` : `data-row="${el.dataset.row}" data-col="${el.dataset.col}"`;
+    const cls = Array.from(el.classList).filter((c) => c !== "prefilled" && c !== "autofilled").join(" ");
+    const tmp = document.createElement("div");
+    tmp.innerHTML = refControlHTML(def, cls, attrs, el.value);
+    const nu = tmp.firstElementChild;
+    ["prefilled", "autofilled"].forEach((c) => { if (el.classList.contains(c)) nu.classList.add(c); });
+    if (el.dataset.autofilled) nu.dataset.autofilled = el.dataset.autofilled;
+    if (el.title) nu.title = el.title;
+    nu.disabled = el.disabled;
+    el.replaceWith(nu);
+  });
+  applyAutofills();
+  renderRefStatus();
+  recompute();
+}
+
+// Cross-column fill declared on a column as `fills` (aggregate type -> MAT
+// code). Only a cell that is empty, or that this filled earlier
+// (data-autofilled), is written; a value a person typed is never touched.
+// No match clears a stale auto-fill. Frozen (Approved) forms are left alone.
+function autofillFrom(el) {
+  if (!el.dataset.col || !el.dataset.source || el.disabled) return;
+  const def = refDefFor(el);
+  if (!def || !def.fills) return;
+  const hit = refMatch(def.source, el.value), item = el.closest(".rowitem");
+  if (!item) return;
+  Object.entries(def.fills).forEach(([toKey, pick]) => {
+    const target = item.querySelector(`[data-col="${toKey}"]`);
+    if (!target) return;
+    if (String(target.value || "").trim() && target.dataset.autofilled !== "1") return;   // theirs
+    const v = hit ? pick(hit.row) : null;
+    target.value = v == null ? "" : String(v);
+    target.dataset.autofilled = "1";
+    target.classList.toggle("autofilled", target.value !== "");
+    if (target.value) target.title = `Filled from KYTC ${CONFIG.REFERENCE.TABLES[def.source].table} for “${hit.value}”`;
+    else target.removeAttribute("title");
+  });
+}
+function applyAutofills() {
+  document.querySelectorAll("#sections [data-col][data-source]").forEach(autofillFrom);
+}
+// A datalist-backed input takes the canonical spelling of a loose match on
+// commit; a <select> already holds it, and no match leaves the text as typed.
+function snapToReference(el) {
+  if (el.tagName !== "INPUT") return;
+  const hit = refMatch(el.dataset.source, el.value);
+  if (hit && hit.value !== String(el.value).trim()) el.value = hit.value;
 }
 
 /* ---------- mix selection -> pre-fill ---------- */
@@ -1870,11 +2203,12 @@ async function loadPlantName() {
 async function boot(session) {
   if (!session || !session.user) return toLogin();
   try {
-    const { data: tech } = await sb
+    const { data: tech, error: techErr } = await sb
       .from("technicians")
       .select("sm_id, first_name, last_name, company, onboarded, can_review, user_id")
       .eq("user_id", session.user.id)
       .maybeSingle();
+    if (techErr) throw new Error(techErr.message);   // a failed query is not "not linked"
 
     if (!tech) {
       msg($("gateMsg"), "Signed in, but this account isn't linked to a technician. Contact an admin.", "error");
@@ -1888,17 +2222,27 @@ async function boot(session) {
     show("portalLink", true);
     show("signOutLink", true);
 
-    const { data: caps } = await sb
+    // Reference lists start now so they overlap the capability check. Boot
+    // waits at most BOOT_WAIT_MS for them (below): on time, the form renders
+    // with real dropdowns; late or failed, the fields render as free text
+    // and loadReferenceData() upgrades them in place when it settles.
+    const refReady = loadReferenceData();
+
+    const { data: caps, error: capsErr } = await sb
       .from("technician_capabilities")
       .select("can_access_plantbook, can_access_designbook")
       .eq("user_id", session.user.id)
       .maybeSingle();
+    if (capsErr) throw new Error(capsErr.message);
 
     if (!caps || !caps[CONFIG.REQUIRES_CAPABILITY]) {
       msg($("gateMsg"),
         "DesignBook needs a current Mix Design Tech certification. Yours isn't showing as active.", "error");
       return;
     }
+
+    // Give the lists their head start, but never hang the form on them.
+    await Promise.race([refReady, new Promise((r) => setTimeout(r, CONFIG.REFERENCE.BOOT_WAIT_MS))]);
 
     const { mode, job, mix, design } = readParams();
 

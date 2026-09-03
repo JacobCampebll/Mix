@@ -4,6 +4,15 @@ Purpose: a shared web app replacing KYTC's MixPack and AMAW workbooks, now known
 as **DesignBook** and **PlantBook** respectively. A joint effort between KYTC and
 contractors.
 
+**What it is for - a submission pipeline, not a mix database.** A contractor
+technician submits a mix design; KYTC Central Office reviews it and approves
+it; an approved design yields a **one-page approval PDF** the contractor can
+download; the approved data is sent on to **SiteManager / AASHTOWare Project**
+so the state sees it (that is why the reference tables carry SiteManager
+codes). The `designs` table is the submission record and its audit trail, not
+a reference library, and the Portal is the place to submit and to see where a
+submission stands - do not design it as a browse-and-search catalogue.
+
 Live at **https://kytcmix.netlify.app** (Netlify project `kytcmix`), deployed
 automatically from `main`. Pages are served from `public/`; `/` redirects to
 `login.html`.
@@ -232,6 +241,23 @@ TBD — cite the governing spec section when encoding a limit in code.
   must carry the code as an unmapped/provisional value and let the human
   pick the type — never pick the first match.
 
+- **Every string that reaches `innerHTML` goes through `esc()`, including
+  values read back from our own tables.** A saved design's `values` are
+  rendered for whoever opens it next, and reviewers open every design from
+  the Portal queue - so an unescaped `value="${v}"` in the sieve inputs was
+  a cross-user stored XSS, not a self-XSS. Found by an adversarial review
+  2026-09-03; the sieve and audit sinks were the only unescaped ones. Data
+  from Supabase is not "ours" once it has been through another user's
+  browser: escape it like any other input.
+
+- **An UPDATE that RLS filters out surfaces as `PGRST116` ("JSON object
+  requested, multiple (or no) rows returned"), not as a permission
+  error.** Postgres updates 0 rows, `.single()` then complains about the
+  count. A same-plant technician who can read a design but is neither its
+  author nor a reviewer used to hit this on Save and lose their edits. Pages
+  mirror the UPDATE policy in the UI (read-only form) so the message is
+  never the first thing a person learns about their permissions.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
@@ -387,6 +413,17 @@ one column:
   (`from Sheet1!C14`) underneath, and ship `extracted_from` in the save
   payload. An extracted value is a starting point for a human, never an
   authority. Keep that visible in any future importer.
+- **The Portal is the act of submitting, not a catalogue.** Four steps:
+  contract & plant, mix (from `kytc-lookup`, always skippable unless
+  `CONFIG.MIX_LOOKUP.required`), how (upload a MixPack or build in
+  DesignBook), then fill in & submit - which is DesignBook's Draft ->
+  Internal Review move. "My submissions" / "Review queue" is one list behind
+  a top-bar link; contractors see stages collapsed on purpose (Draft = Not
+  submitted, Internal Review and Released = In review) via
+  `CONFIG.CONTRACTOR_STAGES`, reviewers see the raw names. Chosen from five
+  mocked directions on 2026-09-03; the approval PDF and the SiteManager /
+  AASHTOWare Project hand-off are still to build.
+
 
 ### Reference data (aggregates, binders)
 
