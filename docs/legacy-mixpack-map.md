@@ -216,3 +216,61 @@ and CT index (row 21)**.
 | Pass Number at max (left / right) | `J27` / `M27` | 13468 / 20082 |
 | SIP (left / right) | `J28` / `M28` | 13963 / — |
 | Stripping-limit criteria | `E18:E22` | plot count, depth, count, creep-slope starts |
+
+---
+
+# CONFIG.LEGACY re-alignment — 2026-09-03
+
+`CONFIG.LEGACY` was re-pointed at the restructured `CONFIG.SECTIONS`
+(branch `legacy-config-realign`). Verified end-to-end against
+`docs/#489PA.xlsm` (Ver 12.1, natively saved): version 12.1 detected, all
+seven sheets resolved by fingerprint despite SheetJS misfiling, and every
+extraction path returned real values.
+
+## What changed
+
+- **`CELLS`** — dead keys removed (`ac_pct`, `gmm_ini`, `av_pct`, `vma_pct`,
+  `vfa_pct`, `uw`, `msg`, `hamburg_sip`, `additive_*`, `rap_pct`,
+  `virgin_ac`). New keys added: `funding` → `C12`, `project_number` → `C14`,
+  `tsr_pct_additive` → `tsr!N57` / `O73`, `tsr_wet_strength` → `tsr!H54`,
+  `tsr_dry_strength` → `tsr!H55`, `perf_binder` → `perfSpec!H13`,
+  `hamburg_left_maxdef`/`hamburg_right_maxdef` → `J26`/`M26`,
+  `hamburg_left_passmax`/`hamburg_right_passmax` → `J27`/`M27`,
+  `hamburg_left_sip`/`hamburg_right_sip` → `J28`/`M28`.
+- **`SIEVES`** — now keyed by the new sieve keys (`s50`…`s0_075`) →
+  `Design Data!T15:T28` (14 sieves). Extraction no longer routes through
+  `sieveKey()`.
+- **`CT.rows`** — `{ specimen: 16, index: 21 }`. Series Name (row 16) is the
+  specimen id, `.ITD` stripped; l75/m75/Gf dropped (no columns on the form).
+- **New `TSR_ADDITIVE`** — `tsr!H19` + `tsr!H17` (type + %), Design Data
+  `O75`/`O74` fallback; skipped when the workbook says "None Required".
+- **New `DESIGN_VALUES`** — Design Data column O (`O56`–`O69`). A completed
+  MixPack carries no 4-point gyratory data, so on a legacy upload the
+  computed Design Values section shows a read-only **"From the uploaded
+  MixPack"** panel from these cells instead. Fully cached in `#489PA`
+  (AC 6.2, VMA 15.6, VFA 76, Gmm 2.456, Gse 2.703, Gsb 2.63, %Gmm@Nini 85.2,
+  UW 147.4, etc.).
+- **New `PERF_SPECIMENS`** — `Performance Specimens` rows 35/36/37/41, one
+  column per specimen (`B..N`). `#489PA`: 10 specimens.
+- **New `HAMBURG_CURVE`** — the fixed 6-row pass-count table:
+  `Hamburg!J19:M24` (pass counts 100/5000/10000/15000/20000/25000).
+- **`FOURPOINT: null`** — placeholder. The 4 gyratory trial points that
+  would seed the Four Points section are **not** in `#489PA` (not on Graphs,
+  not in `t_tst_rslt_dtl` — that tab's "4-PT. GYRATORY MIX" block is a
+  single design result). Some MixPacks may carry the sweep on the Graphs
+  tab; wire this when a sample with it turns up.
+- **`UNMAPPED`** — the seven extra sieves, Fed/State #, Proj. item, the
+  Hamburg deformation/SIP cells and `% TSR with additive` moved out (now
+  real fields). RAP %, RAS %, Virgin AC % moved into `UNMAPPED_BY_VERSION`
+  (no field in the new form — flagged for a possible Recycle field group).
+
+## Still open
+
+- **11.x path** exercised only against a blank 2019 template (no completed
+  Ver 11.x file to hand) — run one through when available. The 11.x/12.1
+  `CELLS` differ only in `rap_note` source and the recycle table, both
+  version-guarded, so the risk is low.
+- `submittal_type` — KYTC's real wording ("Ref. Mix Design (project change
+  only)") is not one of the three form options; reported as an off-list
+  value, left blank. Widen the option list or add a mapping.
+- RAP / RAS / Virgin AC have no home in the restructured form.

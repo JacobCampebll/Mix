@@ -494,119 +494,158 @@ const CONFIG = {
     ESAL_CLASS_TO_OPTION: { 1: "<0.3M", 2: "0.3 – 3M", 3: "3 – 10M", 4: "10 – 30M", 5: ">30M" },
 
     // Scalar fields: ordered candidate chains [sheetKey, address]; the first
-    // non-empty wins and the import log says which one it was.
+    // non-empty wins and the import log says which one it was. Keyed by the
+    // 2026-09-03-restructured CONFIG.SECTIONS field keys.
     CELLS: {
       "11.x": {
-        county:         [["designData", "K10"]],
-        submittal_type: [["designData", "R10"]],
-        total_tons:     [["designData", "Q12"]],
-        depth_mm:       [["designData", "K20"]],
-        binder_grade:   [["designData", "C18"]],
-        binder_terminal: [["designData", "A17"]],   // "Binder source & loc." - resolved to a LAP number by name
-        rap_note:       [["designData", "A19"], ["recycle", "C27"]],
-        ac_pct:         [["designData", "B49"], ["designData", "O63"], ["designData", "U56"]],
-        gmm_ini:        [["designData", "O59"], ["designData", "P49"]],
-        av_pct:         [["designData", "O61"], ["designData", "J49"]],
-        vma_pct:        [["designData", "O57"], ["designData", "M49"]],
-        vfa_pct:        [["designData", "O56"], ["designData", "N49"]],
-        uw:             [["designData", "O62"], ["designData", "H49"]],
-        msg:            [["designData", "O65"], ["designData", "I49"], ["designData", "R28"]],
-        esal:           [["designData", "H20"]],
-        designer:       [["designData", "K16"]],
-        tsr_pct:        [["designData", "O72"], ["tsr", "G57"]],
-        hamburg_sip:    [["hamburg", "J28"]],
-        additive_pct:   [["designData", "O74"]],
-        additive_type:  [["designData", "O75"]],
-        rap_pct:        [["recycle", "K12"]],
-        virgin_ac:      [["recycle", "J24"]],
+        // --- Contract Information ---
+        county:          [["designData", "K10"]],
+        submittal_type:  [["designData", "R10"]],
+        total_tons:      [["designData", "Q12"]],
+        binder_grade:    [["designData", "C18"]],
+        binder_terminal: [["designData", "A17"]],   // "Binder source & loc." - resolves to a LAP number by name
+        funding:         [["designData", "C12"]],   // FED/STATE #
+        project_number:  [["designData", "C14"]],   // PROJ. (ITEM)
+        depth_mm:        [["designData", "K20"]],
+        rap_note:        [["designData", "A19"], ["recycle", "C27"]],
+        esal:            [["designData", "H20"]],
+        designer:        [["designData", "K16"]],   // SUBMITTED BY (an SM ID)
+        // --- TSR box ---
+        tsr_pct:          [["tsr", "G57"], ["designData", "O72"]],   // % TSR without additive
+        tsr_pct_additive: [["tsr", "N57"], ["designData", "O73"]],   // % TSR with additive
+        tsr_wet_strength: [["tsr", "H54"]],
+        tsr_dry_strength: [["tsr", "H55"]],
+        // --- Performance Testing ---
+        perf_binder:          [["perfSpec", "H13"], ["hamburg", "H13"], ["tsr", "H13"]],  // MADE WITH
+        hamburg_left_maxdef:  [["hamburg", "J26"]],
+        hamburg_right_maxdef: [["hamburg", "M26"]],
+        hamburg_left_passmax: [["hamburg", "J27"]],
+        hamburg_right_passmax:[["hamburg", "M27"]],
+        hamburg_left_sip:     [["hamburg", "J28"]],
+        hamburg_right_sip:    [["hamburg", "M28"]],
       },
       "12.1": {
-        county:         [["designData", "K10"]],
-        submittal_type: [["designData", "R10"]],
-        total_tons:     [["designData", "Q12"]],
-        depth_mm:       [["designData", "K20"]],
-        binder_grade:   [["designData", "C18"]],
-        binder_terminal: [["designData", "A17"]],   // "Binder source & loc." - resolved to a LAP number by name
-        rap_note:       [["recycle", "F18"]],
-        ac_pct:         [["designData", "B49"], ["designData", "O63"], ["designData", "U56"]],
-        gmm_ini:        [["designData", "O59"], ["designData", "P49"]],
-        av_pct:         [["designData", "O61"], ["designData", "J49"]],
-        vma_pct:        [["designData", "O57"], ["designData", "M49"]],
-        vfa_pct:        [["designData", "O56"], ["designData", "N49"]],
-        uw:             [["designData", "O62"], ["designData", "H49"]],
-        msg:            [["designData", "O65"], ["designData", "I49"], ["designData", "R28"]],
-        esal:           [["designData", "H20"]],
-        designer:       [["designData", "K16"]],
-        tsr_pct:        [["designData", "O72"], ["tsr", "G57"]],
-        hamburg_sip:    [["hamburg", "J28"]],
-        additive_pct:   [["designData", "O74"]],
-        additive_type:  [["designData", "O75"]],
-        rap_pct:        [["recycle", "N12"]],
-        virgin_ac:      [],   // 12.1 removed the Recycle calculator block (J17-J25)
+        county:          [["designData", "K10"]],
+        submittal_type:  [["designData", "R10"]],
+        total_tons:      [["designData", "Q12"]],
+        binder_grade:    [["designData", "C18"]],
+        binder_terminal: [["designData", "A17"]],
+        funding:         [["designData", "C12"]],
+        project_number:  [["designData", "C14"]],
+        depth_mm:        [["designData", "K20"]],
+        rap_note:        [["recycle", "F18"]],
+        esal:            [["designData", "H20"]],
+        designer:        [["designData", "K16"]],
+        tsr_pct:          [["tsr", "G57"], ["designData", "O72"]],
+        tsr_pct_additive: [["tsr", "N57"], ["designData", "O73"]],
+        tsr_wet_strength: [["tsr", "H54"]],
+        tsr_dry_strength: [["tsr", "H55"]],
+        perf_binder:          [["perfSpec", "H13"], ["hamburg", "H13"], ["tsr", "H13"]],
+        hamburg_left_maxdef:  [["hamburg", "J26"]],
+        hamburg_right_maxdef: [["hamburg", "M26"]],
+        hamburg_left_passmax: [["hamburg", "J27"]],
+        hamburg_right_passmax:[["hamburg", "M27"]],
+        hamburg_left_sip:     [["hamburg", "J28"]],
+        hamburg_right_sip:    [["hamburg", "M28"]],
       },
     },
-    // Gradation: JMF column T, keyed by the form's own sieve labels. Same in both.
-    SIEVES: { '3/4"': ["designData", "T18"], '1/2"': ["designData", "T19"], '3/8"': ["designData", "T20"],
-              "#4": ["designData", "T22"], "#8": ["designData", "T23"], "#50": ["designData", "T26"], "#200": ["designData", "T28"] },
+    // tsr_additive ("Anti-strip additive & %") - "<type> — <%>", from the TSR
+    // tab's own additive cells, Design Data O74/O75 as fallback.
+    TSR_ADDITIVE: { type: [["tsr", "H19"], ["designData", "O75"]], pct: [["tsr", "H17"], ["designData", "O74"]] },
+
+    // Read-only "from the uploaded workbook" panel in Design Values. A completed
+    // MixPack carries no 4-point gyratory data, so the computed path stays
+    // empty on a legacy import - these are the workbook's own stated results
+    // (Design Data column O, populated in a natively-saved file).
+    DESIGN_VALUES: {
+      "AC (%)":              ["designData", "O63"],
+      "VMA (%)":             ["designData", "O57"],
+      "VFA (%)":             ["designData", "O56"],
+      "Air voids (%)":       ["designData", "O61"],
+      "Gmm":                 ["designData", "O65"],
+      "Gse":                 ["designData", "O68"],
+      "Gsb":                 ["designData", "O67"],
+      "%Gmm @ Nini":         ["designData", "O59"],
+      "%Gmm @ Nmax":         ["designData", "O60"],
+      "Unit weight (pcf)":   ["designData", "O62"],
+      "Effective AC (%)":    ["designData", "O64"],
+      "Absorbed AC (%)":     ["designData", "O66"],
+      "Dust / binder ratio": ["designData", "O58"],
+      "Film thickness (µm)": ["designData", "O69"],
+    },
+    // The 4 gyratory trial points (Pb/Gmb/Gmm) that would seed the Four Points
+    // section. NOT in #489PA (Ver 12.1) - the MixPack keeps only the design
+    // result, and t_tst_rslt_dtl's "4-PT. GYRATORY MIX" block is a single set.
+    // Some MixPacks may carry the trial sweep on the Graphs tab (per Andrew) -
+    // wire this once we have a sample that has it, then seed `tables.fourpoint`
+    // and let computeFourPoint() run instead of the read-only panel below.
+    FOURPOINT: null,
+
+    // Gradation: JMF input column T, Design Data rows 15-28, keyed by the new
+    // sieve keys (CONFIG.SECTIONS gradation `key`s). Same in both versions.
+    SIEVES: {
+      s50:    ["designData", "T15"], s37_5:  ["designData", "T16"], s25:    ["designData", "T17"],
+      s19:    ["designData", "T18"], s12_5:  ["designData", "T19"], s9_5:   ["designData", "T20"],
+      s6_3:   ["designData", "T21"], s4_75:  ["designData", "T22"], s2_36:  ["designData", "T23"],
+      s1_18:  ["designData", "T24"], s0_6:   ["designData", "T25"], s0_3:   ["designData", "T26"],
+      s0_15:  ["designData", "T27"], s0_075: ["designData", "T28"],
+    },
     // Aggregate blend: Design Data rows 23-28, stop at the first blank producer.
     AGGREGATE: { sheet: "designData", firstRow: 23, lastRow: 28, stopOn: "C",
                  columns: { producer: "C", type_size: "J", mat_code: "H", pct_blend: "M", gsb: "L" } },
-    // Recycle table, per version: RAS detection and the rap_pct fallback.
-    RECYCLE_TABLE: {
-      "11.x": { sheet: "recycle", firstRow: 12, lastRow: 16, type: "I", pct: "K" },
-      "12.1": { sheet: "recycle", firstRow: 12, lastRow: 16, type: "L", pct: "N" },
-    },
-    // IDEAL-CT specimens: label in the odd column, value one column right.
-    // Row 21 (CTIndex) is the hand-entered row the migrator carries over.
+    // Performance specimens: Performance Specimens rows, one column per specimen
+    // (B..O; H and O are averages, skipped). Form columns: specimen / dry_wt /
+    // ssd_wt / wt_water / air_voids.
+    PERF_SPECIMENS: { sheet: "perfSpec", cols: ["B", "C", "D", "E", "F", "G", "I", "J", "K", "L", "M", "N"],
+                      rows: { dry_wt: 35, ssd_wt: 36, wt_water: 37, air_voids: 41 } },
+    // Hamburg rut-by-pass table: Pass Count in G, left rut in J, right rut in M.
+    HAMBURG_CURVE: { sheet: "hamburg", passRow: { 100: 19, 5000: 20, 10000: 21, 15000: 22, 20000: 23, 25000: 24 },
+                     left: "J", right: "M" },
+    // IDEAL-CT specimens: label in the odd column, value one column right. The
+    // restructured KYCT rows keep only specimen # (Series Name, row 16) and
+    // CT index (row 21).
     CT: { sheet: "kyct", labelCols: ["A", "C", "E", "G", "I", "K", "M", "O"],
-          rows: { specimen: 22, l75: 14, m75: 18, gf: 20, index: 21 } },
+          rows: { specimen: 16, index: 21 } },
     // Values that identify the JOB, not the design: checked against the
     // Portal's context and flagged if they disagree - never written to the form.
     CONTEXT: {
       plant:   [["chartData", "AO2"], ["designData", "Q14"]],
       mixType: [["chartData", "W14"], ["designData", "O8"]],
     },
-    // Legacy values with no home in the form. Read and REPORTED, never dropped.
+    // Legacy values with no home in the restructured form. Read and REPORTED
+    // in the import log, never dropped. (Fed/State #, Proj. item, the seven
+    // extra sieves, the Hamburg deformation/SIP cells and % TSR w/ additive
+    // all became real fields in the 2026-09-03 restructure and moved out.)
     UNMAPPED: [
       ["Contract ID", "designData", "C8"], ["Letting date", "designData", "H8"],
       ["Contact phone", "designData", "K8"], ["SM ID num.", "designData", "C10"],
-      ["Mix ID num.", "designData", "H10"], ["Fed/State #", "designData", "C12"],
+      ["Mix ID num.", "designData", "H10"],
       ["Lab unit", "designData", "H12"], ["Test method", "designData", "K12"],
-      ["Proj. (item)", "designData", "C14"], ["Date received", "designData", "H14"],
-      ["Date released", "designData", "H16"],
+      ["Date received", "designData", "H14"], ["Date released", "designData", "H16"],
       ["Binder prod. #", "designData", "H18"], ["Mix/comp temp", "designData", "K18"],
       ["Corr. factor", "designData", "H19"], ["Binder code", "designData", "C20"],
       ["Mix mat. code", "designData", "Q16"],
       ["Coarse agg. angularity", "designData", "O52"], ["Fine agg. angularity", "designData", "O53"],
       ["Flat & elongated", "designData", "O54"], ["Clay content (SE)", "designData", "O55"],
-      ["D/A ratio", "designData", "O58"], ["%Gmm @ Nmax", "designData", "O60"],
-      ["% Effective AC", "designData", "O64"], ["% Absorbed AC", "designData", "O66"],
-      ["Gsb (blend)", "designData", "O67"], ["Gse", "designData", "O68"],
-      ["Film thickness", "designData", "O69"], ["Specimen weight", "designData", "O70"],
-      ["TSR weight", "designData", "O71"], ["% TSR with additive", "designData", "O73"],
+      ["Specimen weight", "designData", "O70"], ["TSR weight", "designData", "O71"],
       ["Ref: County", "designData", "T52"], ["Ref: Mix ID #", "designData", "T53"],
       ["Ref: Binder", "designData", "T54"], ["Ref: Date released", "designData", "U55"],
       ["Ref: Design AC %", "designData", "U56"], ["Ref: Job complete?", "designData", "U57"],
-      ['Sieve 2"', "designData", "T15"], ['Sieve 1 1/2"', "designData", "T16"],
-      ['Sieve 1"', "designData", "T17"], ['Sieve 1/4"', "designData", "T21"],
-      ["Sieve #16", "designData", "T24"], ["Sieve #30", "designData", "T25"], ["Sieve #100", "designData", "T27"],
-      ["Hamburg made with (binder)", "hamburg", "H13"],
-      ["Hamburg max deformation, left", "hamburg", "J26"], ["Hamburg pass # at max, left", "hamburg", "J27"],
-      ["Hamburg SIP, right", "hamburg", "M28"],
+      ["Revised gradation column (per addendum)", "designData", "U15"],
       ["KYCT row 29 (peak load / displacement pairs)", "kyct", "A29"],
     ],
     UNMAPPED_BY_VERSION: {
       "11.x": [
         ["Recycle producer", "recycle", "C12"], ["Recycle mat. code", "recycle", "G12"],
-        ["Recycle type", "recycle", "I12"], ["RAP AC %", "recycle", "L12"],
+        ["Recycle type", "recycle", "I12"], ["RAP %", "recycle", "K12"], ["RAP AC %", "recycle", "L12"],
         ["Recycle MSG #1", "recycle", "M12"], ["Recycle MSG #2", "recycle", "N12"],
         ["Recycle avg MSG", "recycle", "O12"], ["Recycle Gsb", "recycle", "P12"],
         ["Target eff. AC % in mix", "recycle", "J17"], ["Total AC from recycle", "recycle", "J23"],
-        ["% Eff. replacement", "recycle", "J25"],
+        ["Virgin AC %", "recycle", "J24"], ["% Eff. replacement", "recycle", "J25"],
       ],
       "12.1": [
         ["Recycle producer", "recycle", "F12"], ["Recycle mat. code", "recycle", "J12"],
-        ["Recycle type", "recycle", "L12"],
+        ["Recycle type", "recycle", "L12"], ["RAP %", "recycle", "N12"],
         ["Performance approval (12.1 only)", "perfSpec", "A47"],
       ],
     },
@@ -1017,10 +1056,24 @@ function fourpointHTML(section) {
 }
 
 function computedHTML(section) {
-  return `<div class="computed-grid">` + section.outputs.map((o) =>
+  // Legacy MixPack upload: a completed workbook has no 4-point data to compute
+  // from, so show its own stated design results read-only. Rebuilt on every
+  // render from state.legacy.designValues (set by the importer / a reopened
+  // legacy design).
+  const wb = state.legacy && Array.isArray(state.legacy.designValues)
+    ? state.legacy.designValues.filter((d) => d.status === "found") : [];
+  const wbPanel = wb.length ? `
+    <div class="rowgroup-head">From the uploaded MixPack — read-only</div>
+    <div class="computed-grid">` + wb.map((d) =>
+      `<div class="computed-cell"><div class="l">${esc(d.label)}</div>
+         <div class="v">${esc(String(d.value))}</div></div>`).join("") + `</div>
+    <div class="computed-note">${wb.length} value(s) from ${esc(wb[0].source.split("!")[0])}. The workbook stores no 4-point gyratory data, so the calculator below stays empty unless a tech enters the points.</div>
+    <div style="height:18px"></div>` : "";
+  return wbPanel + `<div class="rowgroup-head">Computed from Four Points</div>
+    <div class="computed-grid">` + section.outputs.map((o) =>
     `<div class="computed-cell"><div class="l">${o.label}</div>
        <div class="v" data-dv="${o.key}">—</div></div>`).join("") + `</div>
-    <div class="computed-note">These are read-only — every value is derived from the Four Points inputs above.</div>`;
+    <div class="computed-note">Read-only — derived from the Four Points inputs above.</div>`;
 }
 
 function statusHTML() {
@@ -1506,8 +1559,8 @@ function extractLegacy(wb, ctx) {
   const ver = detectLegacyVersion(S);
   const cells = L.CELLS[ver.version];
   const src = (key, addr) => `${L.SHEET_NAMES[key]}!${addr}`;
-  const scalars = {}, sources = {}, log = [], unmapped = [], context = [];
-  const tables = { aggregate: [], ct: [] };
+  const scalars = {}, sources = {}, log = [], unmapped = [], context = [], designValues = [];
+  const tables = { aggregate: [], ct: [], perf_specimens: [], hamburg_curve: [] };
 
   function chase(chain) {
     const tried = [];
@@ -1534,8 +1587,13 @@ function extractLegacy(wb, ctx) {
     log.push({ field: key, source: r.source, value: null, status: allUncached ? "not-cached" : "missing", note: note || whyMissing(r.tried) });
   }
 
-  const plain = ["county", "total_tons", "depth_mm", "binder_grade", "binder_terminal", "rap_note", "ac_pct", "gmm_ini", "av_pct",
-                 "vma_pct", "vfa_pct", "uw", "msg", "designer", "tsr_pct", "hamburg_sip", "virgin_ac"];
+  const plain = [
+    "county", "total_tons", "binder_grade", "binder_terminal", "funding", "project_number",
+    "depth_mm", "rap_note", "designer",
+    "tsr_pct", "tsr_pct_additive", "tsr_wet_strength", "tsr_dry_strength",
+    "perf_binder", "hamburg_left_maxdef", "hamburg_right_maxdef",
+    "hamburg_left_passmax", "hamburg_right_passmax", "hamburg_left_sip", "hamburg_right_sip",
+  ];
   plain.forEach((key) => {
     const r = chase(cells[key] || []);
     if (r.value === null) return miss(key, r);
@@ -1565,20 +1623,22 @@ function extractLegacy(wb, ctx) {
              unmapped.push({ label: "ESAL class (unrecognised)", source: r.source, value: r.value }); }
     }
   }
-  { // additive: "% — type"
-    const rp = chase(cells.additive_pct), rt = chase(cells.additive_type);
-    const pct = rp.value === null ? "" : coerce(rp.value, "number"), typ = rt.value === null ? "" : String(rt.value).trim();
-    const source = `${rp.source} + ${rt.source}`;
-    if (pct === "" && typ === "") miss("additive", { source, tried: [...rp.tried, ...rt.tried] });
-    else put("additive", pct !== "" && typ !== "" ? `${pct} — ${typ}` : (typ || pct), source);
+  { // tsr_additive: "<type> — <%>" (skip when the workbook says none)
+    const rt = chase(L.TSR_ADDITIVE.type), rp = chase(L.TSR_ADDITIVE.pct);
+    const typ = rt.value === null ? "" : String(rt.value).trim();
+    const pct = rp.value === null ? "" : coerce(rp.value, "number");
+    const source = `${rt.source} + ${rp.source}`;
+    const none = /^(none|none required|n\/?a)$/i.test(typ) && (pct === "" || Number(pct) === 0);
+    if ((typ === "" && pct === "") || none) miss("tsr_additive", { source, tried: [...rt.tried, ...rp.tried] });
+    else put("tsr_additive", typ !== "" && pct !== "" ? `${typ} — ${pct}%` : (typ || `${pct}%`), source);
   }
 
-  Object.entries(L.SIEVES).forEach(([label, [sk, addr]]) => {   // gradation
-    const key = sieveKey(label), r = legacyCell(S[sk], addr), source = src(sk, addr);
+  Object.entries(L.SIEVES).forEach(([key, [sk, addr]]) => {   // gradation, keyed by the new sieve keys
+    const r = legacyCell(S[sk], addr), source = src(sk, addr);
     const v = r.status === "found" ? coerce(r.value, "number") : "";
-    if (v !== "") put(key, v, source, `sieve ${label}`);
+    if (v !== "") put(key, v, source, "sieve JMF");
     else log.push({ field: key, source, value: r.value, status: r.status === "not-cached" ? "not-cached" : "missing",
-                    note: `sieve ${label}` + (r.status === "found" ? " — non-numeric (e.g. N / A)" : "") });
+                    note: "sieve JMF" + (r.status === "found" ? " — non-numeric (e.g. N / A)" : "") });
   });
 
   { // aggregate blend rows
@@ -1598,45 +1658,72 @@ function extractLegacy(wb, ctx) {
                status: tables.aggregate.length ? "found" : "missing", note: uncachedMat ? `${uncachedMat} MAT. CODE cell(s) are formulas with no cached value` : "" });
   }
 
-  { // rap_pct / ras_pct
-    const r = chase(cells.rap_pct);
-    if (r.value !== null && coerce(r.value, "number") !== "") put("rap_pct", coerce(r.value, "number"), r.source);
-    else {
-      const rapRow = tables.aggregate.find((a) => /\bRAP\b/i.test(a.type_size || ""));
-      if (rapRow && rapRow.pct_blend !== "") put("rap_pct", rapRow.pct_blend, `${L.SHEET_NAMES[L.AGGREGATE.sheet]} aggregate row (${rapRow.type_size})`, "fallback: RAP row of the aggregate blend");
-      else miss("rap_pct", r);
-    }
-    const T = L.RECYCLE_TABLE[ver.version], ws = S[T.sheet]; let ras = null, rasSrc = null;
-    for (let rr = T.firstRow; rr <= T.lastRow; rr++) {
-      const t = legacyCell(ws, `${T.type}${rr}`);
-      if (t.status === "found" && /\bRAS\b/i.test(String(t.value))) {
-        const pv = legacyCell(ws, `${T.pct}${rr}`);
-        if (pv.status === "found") { ras = coerce(pv.value, "number"); rasSrc = src(T.sheet, `${T.pct}${rr}`); break; }
-      }
-    }
-    if (ras !== null && ras !== "") put("ras_pct", ras, rasSrc);
-    else log.push({ field: "ras_pct", source: `${L.SHEET_NAMES[T.sheet]}!${T.type}${T.firstRow}:${T.lastRow}`, value: null, status: "missing", note: "no recycle row of type RAS" });
+  { // Performance specimens: one column per specimen (Performance Specimens sheet)
+    const P = L.PERF_SPECIMENS, ws = S[P.sheet], spec = rowSpec("perf_specimens");
+    P.cols.forEach((col, i) => {
+      if (!ws || tables.perf_specimens.length >= spec.max) return;
+      const row = { specimen: `Specimen ${i + 1}` };
+      let any = false;
+      Object.entries(P.rows).forEach(([key, rowNo]) => {
+        const c = legacyCell(ws, `${col}${rowNo}`);
+        row[key] = c.status === "found" ? coerce(c.value, "number") : "";
+        if (row[key] !== "") any = true;
+      });
+      if (any) tables.perf_specimens.push(row);
+    });
+    log.push({ field: "perf specimens", source: `${L.SHEET_NAMES[P.sheet]} rows ${Object.values(P.rows).join("/")}`,
+               value: tables.perf_specimens.length, status: tables.perf_specimens.length ? "found" : "missing",
+               note: tables.perf_specimens.length ? "" : "no specimen weights entered" });
   }
 
-  { // IDEAL-CT specimens
+  { // Hamburg rut-by-pass fixed table
+    const H = L.HAMBURG_CURVE, ws = S[H.sheet];
+    let hits = 0;
+    Object.entries(H.passRow).forEach(([passes, rowNo]) => {
+      const l = ws ? legacyCell(ws, `${H.left}${rowNo}`) : { status: "sheet-missing" };
+      const rt = ws ? legacyCell(ws, `${H.right}${rowNo}`) : { status: "sheet-missing" };
+      const lv = l.status === "found" ? coerce(l.value, "number") : "";
+      const rv = rt.status === "found" ? coerce(rt.value, "number") : "";
+      if (lv !== "" || rv !== "") hits++;
+      tables.hamburg_curve.push({ passes, left: lv, right: rv });
+    });
+    log.push({ field: "hamburg rut table", source: `${L.SHEET_NAMES[H.sheet]}!${H.left}19:${H.right}24`,
+               value: hits, status: hits ? "found" : "missing", note: hits ? "" : "no pass-count rut data" });
+  }
+
+  { // KYCT specimens: specimen id (row 16) + CT index (row 21)
     const C = L.CT, ws = S[C.sheet], spec = rowSpec("ct");
-    let skipped = 0, uncached = 0;
+    let skipped = 0;
     C.labelCols.forEach((lc, i) => {
       if (tables.ct.length >= spec.max) return;
-      const vc = String.fromCharCode(lc.charCodeAt(0) + 1), row = {};
-      spec.columns.forEach((col) => {
-        if (col.key === "specimen") { const c = legacyCell(ws, `${vc}${C.rows.specimen}`); row.specimen = c.status === "found" ? String(c.value).trim() : `CT #${i + 1}`; return; }
-        const c = legacyCell(ws, `${vc}${C.rows[col.key]}`);
-        if (c.status === "not-cached") uncached++;
-        row[col.key] = c.status === "found" ? coerce(c.value, "number") : "";
+      const vc = String.fromCharCode(lc.charCodeAt(0) + 1);
+      const sc = legacyCell(ws, `${vc}${C.rows.specimen}`);
+      const ic = legacyCell(ws, `${vc}${C.rows.index}`);
+      const idx = ic.status === "found" ? coerce(ic.value, "number") : "";
+      if (idx === "" || Number(idx) === 0) { skipped++; return; }
+      tables.ct.push({
+        specimen: sc.status === "found" ? String(sc.value).trim().replace(/\.ITD$/i, "") : `CT #${i + 1}`,
+        index: idx,
       });
-      const live = ["l75", "m75", "gf", "index"].map((k) => row[k]).filter((v) => v !== "" && Number(v) !== 0);
-      if (!live.length) { skipped++; return; }
-      tables.ct.push(row);
     });
-    log.push({ field: "CT specimens", source: `${L.SHEET_NAMES[C.sheet]} rows ${Object.values(C.rows).join("/")}`, value: tables.ct.length,
-               status: tables.ct.length ? "found" : "missing",
-               note: `${skipped} blank/zero specimen slot(s) skipped` + (uncached ? `; ${uncached} l75/m75/Gf cell(s) not cached` : "") });
+    log.push({ field: "KYCT specimens", source: `${L.SHEET_NAMES[C.sheet]} rows ${C.rows.specimen}/${C.rows.index}`,
+               value: tables.ct.length, status: tables.ct.length ? "found" : "missing",
+               note: skipped ? `${skipped} slot(s) with no CT index skipped` : "" });
+  }
+
+  { // Design Values — read-only "from the uploaded workbook" panel (no 4-point
+    // data in a MixPack, so this is what the computed section shows on a
+    // legacy import). Design Data column O in a natively-saved file.
+    Object.entries(L.DESIGN_VALUES).forEach(([label, [sk, addr]]) => {
+      const r = legacyCell(S[sk], addr);
+      const v = r.status === "found" ? coerce(r.value, "number") : (r.status === "found" ? String(r.value) : "");
+      designValues.push({ label, source: src(sk, addr), value: r.status === "found" ? r.value : null,
+                          status: r.status === "found" ? "found" : (r.status === "not-cached" ? "not-cached" : "missing") });
+    });
+    const got = designValues.filter((d) => d.status === "found").length;
+    log.push({ field: "workbook design values", source: `${L.SHEET_NAMES.designData}!O56:O69`, value: got,
+               status: got ? "found" : "missing",
+               note: got ? "shown read-only in Design Values" : "column O not populated (migrated file — open & save in Excel)" });
   }
 
   { // job context checks — flagged, never written into the form
@@ -1656,7 +1743,7 @@ function extractLegacy(wb, ctx) {
     if (r.status === "found") unmapped.push({ label, source: src(sk, addr), value: r.value });
   });
 
-  return { version: ver, sheets: sheetLog, scalars, sources, tables, log, unmapped, context };
+  return { version: ver, sheets: sheetLog, scalars, sources, tables, log, unmapped, context, designValues };
 }
 
 function renderLegacyLog(res, fileName) {
@@ -1671,6 +1758,10 @@ function renderLegacyLog(res, fileName) {
     const val = l.value === null || l.value === undefined ? "—" : String(l.value).slice(0, 22);
     lines.push(`  ${pad(l.field, 15)} ${pad(l.source, 29)} ${pad(val, 23)} ${l.status}${l.note ? "  · " + l.note : ""}`);
   });
+  if (res.designValues && res.designValues.length) {
+    lines.push("", "Workbook design values (shown read-only in Design Values — no 4-point data to compute):");
+    res.designValues.forEach((d) => lines.push(`  ${pad(d.label, 22)} ${pad(d.source, 22)} ${pad(d.value == null ? "—" : String(d.value), 12)} ${d.status}`));
+  }
   lines.push("", "Job context checks:");
   res.context.forEach((c) => lines.push(`  ${pad(c.what, 9)} workbook=${c.workbook ?? "—"}  job=${c.job ?? "—"}  → ${c.status}  (${c.source})`));
   lines.push("", `Legacy values with no home in this form (${res.unmapped.length}) — reported, not dropped:`);
@@ -1756,7 +1847,7 @@ function designRow() {
     // A fresh import/prefill records its sources; a reopened design keeps the
     // provenance it was saved with instead of overwriting it with {}.
     extracted_from: Object.keys(state.sources).length ? state.sources : (state.savedExtractedFrom || {}),
-    legacy_import: state.legacy ? { version: state.legacy.version.label, context: state.legacy.context, unmapped: state.legacy.unmapped } : null,
+    legacy_import: state.legacy ? { version: state.legacy.version.label, context: state.legacy.context, unmapped: state.legacy.unmapped, design_values: state.legacy.designValues || [] } : null,
   };
 }
 
@@ -1839,7 +1930,7 @@ async function loadDesign(id) {
   state.extracted = { scalars: d.values || {}, tables: d.rows || {} };
   state.sources = {};                       // saved values are not provisional
   state.savedExtractedFrom = d.extracted_from || {};   // but where they came from is kept on re-save
-  state.legacy = d.legacy_import ? { version: { label: d.legacy_import.version }, context: d.legacy_import.context || [], unmapped: d.legacy_import.unmapped || [], log: [], sheets: [], scalars: {}, sources: {}, tables: {} } : null;
+  state.legacy = d.legacy_import ? { version: { label: d.legacy_import.version }, context: d.legacy_import.context || [], unmapped: d.legacy_import.unmapped || [], designValues: d.legacy_import.design_values || [], log: [], sheets: [], scalars: {}, sources: {}, tables: {} } : null;
   state.stageIdx = Math.max(0, CONFIG.STAGES.findIndex((x) => x.key === d.stage));
   return d;
 }
