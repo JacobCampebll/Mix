@@ -36,9 +36,11 @@
 <style>
   /* Theme tokens shared with designbook.html (Layout A). Keep in sync. */
   :root{
-    --paper:#F2F1EC; --panel:#FFFFFF; --ink:#182430; --muted:#6E7580;
-    --line:#DAD7CE; --accent:#2B5C82; --accent-soft:#E1EAF0;
-    --flag:#B5721F; --flag-soft:#F5E8D4; --ok:#3F7A56; --ok-soft:#E3EFE7;
+    --paper:#F2F1EC; --panel:#FFFFFF; --ink:#083860; --muted:#6E7580;
+    --line:#DAD7CE; --accent:#1C7CC0; --accent-soft:#E4F2FB;
+    /* Team Kentucky Transportation Cabinet brand: navy, sky blue, gold, sampled from the logo */
+    --navy:#002050; --sky:#5FB2E4; --gold:#FFC312;
+    --flag:#A56F00; --flag-soft:#FDF1C7; --ok:#3F7A56; --ok-soft:#E3EFE7;
     --bad:#9B2C2C; --radius:6px;
   }
   *{box-sizing:border-box;}
@@ -48,9 +50,11 @@
   .mono{font-family:'IBM Plex Mono',monospace;}
   .hidden{display:none !important;}
 
-  .topbar{position:sticky; top:0; z-index:10; background:var(--paper);
-          border-bottom:1px solid var(--line); padding:14px 32px;
+  .topbar{position:sticky; top:0; z-index:10; background:var(--panel);
+          border-bottom:4px solid transparent; /* same stops as the logo's bar: solid blue to 35%, blend, solid gold from 80% */
+          border-image:linear-gradient(90deg,var(--sky) 0 35%,var(--gold) 80% 100%) 1; padding:12px 32px;
           display:flex; align-items:center; gap:16px; flex-wrap:wrap;}
+  .logo{height:36px; width:auto; display:block;}
   .wordmark{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:18px; letter-spacing:.02em;}
   .wordmark span{color:var(--accent);}
   .crumb{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--muted);
@@ -81,7 +85,7 @@
   .hint{font-size:11.5px; color:var(--muted); margin-top:5px;}
 
   button.primary{width:100%; margin-top:8px; padding:11px; border:none;
-                 border-radius:var(--radius); background:var(--accent); color:#fff;
+                 border-radius:var(--radius); background:var(--ink); color:#fff;
                  font-family:inherit; font-size:14px; font-weight:500; cursor:pointer;}
   button.primary:disabled{opacity:.5; cursor:not-allowed;}
 
@@ -106,7 +110,7 @@
   .drow .dsub{font-size:12px; color:var(--muted); margin-top:2px;}
   .drow .dwhen{font-size:12px; color:var(--muted); white-space:nowrap;}
   .spill{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em; padding:4px 8px; border-radius:20px; border:1px solid; text-align:center;}
-  .spill.draft{background:var(--flag-soft); color:var(--flag); border-color:var(--flag);}
+  .spill.draft{background:var(--flag-soft); color:var(--ink); border-color:var(--gold);}
   .spill.review{background:var(--accent-soft); color:var(--accent); border-color:var(--accent);}
   .spill.released,.spill.approved{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
   .dempty{color:var(--muted); font-size:13px; padding:14px 0;}
@@ -128,6 +132,7 @@
 <body>
 
 <div class="topbar">
+  <img class="logo" src="assets/kytc-logo.png" alt="Team Kentucky Transportation Cabinet">
   <div class="wordmark">Design<span>Book</span></div>
   <div class="crumb" id="crumb">Portal</div>
   <div class="spacer"></div>

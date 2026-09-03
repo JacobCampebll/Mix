@@ -63,9 +63,11 @@
 <style>
   /* Theme tokens from the Layout A prototype. portal.html matches these. */
   :root{
-    --paper:#F2F1EC; --panel:#FFFFFF; --ink:#182430; --muted:#6E7580;
-    --line:#DAD7CE; --accent:#2B5C82; --accent-soft:#E1EAF0;
-    --flag:#B5721F; --flag-soft:#F5E8D4; --ok:#3F7A56; --ok-soft:#E3EFE7;
+    --paper:#F2F1EC; --panel:#FFFFFF; --ink:#083860; --muted:#6E7580;
+    --line:#DAD7CE; --accent:#1C7CC0; --accent-soft:#E4F2FB;
+    /* Team Kentucky Transportation Cabinet brand: navy, sky blue, gold, sampled from the logo */
+    --navy:#002050; --sky:#5FB2E4; --gold:#FFC312;
+    --flag:#A56F00; --flag-soft:#FDF1C7; --ok:#3F7A56; --ok-soft:#E3EFE7;
     --bad:#9B2C2C;
     --radius:6px;
   }
@@ -77,16 +79,18 @@
   a{color:inherit;}
   .hidden{display:none !important;}
 
-  .topbar{position:sticky; top:0; z-index:10; background:var(--paper);
-          border-bottom:1px solid var(--line); padding:14px 32px;
+  .topbar{position:sticky; top:0; z-index:10; background:var(--panel);
+          border-bottom:4px solid transparent; /* same stops as the logo's bar: solid blue to 35%, blend, solid gold from 80% */
+          border-image:linear-gradient(90deg,var(--sky) 0 35%,var(--gold) 80% 100%) 1; padding:12px 32px;
           display:flex; align-items:center; gap:16px; flex-wrap:wrap;}
+  .logo{height:36px; width:auto; display:block;}
   .wordmark{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:18px; letter-spacing:.02em;}
   .wordmark span{color:var(--accent);}
   .mixid{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--muted);
          border:1px solid var(--line); border-radius:4px; padding:3px 8px;}
   .pill{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase;
         letter-spacing:.05em; padding:4px 10px; border-radius:20px; border:1px solid; transition:.15s;}
-  .pill.draft{background:var(--flag-soft); color:var(--flag); border-color:var(--flag);}
+  .pill.draft{background:var(--flag-soft); color:var(--ink); border-color:var(--gold);}
   .pill.review{background:var(--accent-soft); color:var(--accent); border-color:var(--accent);}
   .pill.released,.pill.approved{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
   .spacer{flex:1;}
@@ -180,8 +184,8 @@
   .tline{position:absolute; top:6px; left:-50%; width:100%; height:2px; background:var(--line); z-index:0;}
   .tstep.done .tline{background:var(--ok);}
   .tstep:first-child .tline{display:none;}
-  .stagebtn{margin-top:16px; padding:10px 16px; border:1px solid var(--accent); border-radius:var(--radius);
-            background:var(--accent); color:#fff; font-family:inherit; font-size:13px; cursor:pointer;}
+  .stagebtn{margin-top:16px; padding:10px 16px; border:1px solid var(--ink); border-radius:var(--radius);
+            background:var(--ink); color:#fff; font-family:inherit; font-size:13px; cursor:pointer;}
   .stagebtn:disabled{opacity:.5; cursor:not-allowed;}
   .stagebtn.ghost{background:none; color:var(--accent); border-color:var(--accent); margin-left:8px;}
   .stagebtn.ghost:disabled{color:var(--muted); border-color:var(--line); background:none;}
@@ -235,6 +239,7 @@
 <body>
 
 <div class="topbar">
+  <img class="logo" src="assets/kytc-logo.png" alt="Team Kentucky Transportation Cabinet">
   <div class="wordmark">Design<span>Book</span></div>
   <div class="mixid" id="mixid">MIX ID · —</div>
   <div class="pill draft" id="statuspill">Draft</div>

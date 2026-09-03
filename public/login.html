@@ -60,8 +60,8 @@
     --border: #ddd;
     --text: #1a1a1a;
     --muted: #666;
-    --accent: #2563eb;
-    --accent-hover: #1d4ed8;
+    --accent: #1C7CC0;      /* Team Kentucky sky blue, darkened for text contrast */
+    --accent-hover: #083860; /* Team Kentucky navy */
     --error: #b91c1c;
     --success: #15803d;
   }
@@ -72,8 +72,8 @@
       --border: #3a3a3d;
       --text: #f0f0f0;
       --muted: #a0a0a0;
-      --accent: #3b82f6;
-      --accent-hover: #60a5fa;
+      --accent: #58B0E0;
+      --accent-hover: #8FC3E8;
     }
   }
   * { box-sizing: border-box; }
@@ -96,6 +96,9 @@
     border-radius: 12px;
     padding: 28px 24px;
   }
+  .brand { display: flex; flex-direction: column; gap: 10px; margin: -4px 0 18px; }
+  .brand img { height: 44px; width: auto; align-self: flex-start; background: #fff; border-radius: 6px; padding: 4px 6px; }
+  .brand .rule { height: 4px; border-radius: 2px; background: linear-gradient(90deg, #5FB2E4 0 35%, #FFC312 80% 100%); /* the logo's bar */ }
   h1 {
     font-size: 1.25rem;
     margin: 0 0 4px;
@@ -218,6 +221,7 @@
 <body>
 
 <div class="card" id="card">
+  <div class="brand"><img src="assets/kytc-logo.png" alt="Team Kentucky Transportation Cabinet"><div class="rule"></div></div>
   <div id="authView">
     <h1>Sign in</h1>
     <p class="subtitle">Mix — DesignBook / PlantBook</p>
