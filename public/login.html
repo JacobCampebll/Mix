@@ -50,234 +50,184 @@
   technicians.onboarded. After that, they sign in with their real email +
   their own password, and Supabase's normal "forgot password" flow works
   since there's now a real address on file.
+
+  FLOW: a successful sign-in goes straight to the Portal (CONFIG.PORTAL_URL,
+  or an allow-listed ?next= target) when the technician holds a book that
+  exists. Landing here while already signed in shows a welcome card with
+  one button instead of forwarding, so "Sign out" stays reachable. A
+  technician whose only book is PlantBook sees that it is not built yet
+  rather than a link to nowhere.
 -->
 
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
 <style>
-  :root {
-    color-scheme: light dark;
-    --bg: #f5f5f4;
-    --panel: #ffffff;
-    --border: #ddd;
-    --text: #1a1a1a;
-    --muted: #666;
-    --accent: #1C7CC0;      /* Team Kentucky sky blue, darkened for text contrast */
-    --accent-hover: #083860; /* Team Kentucky navy */
-    --error: #b91c1c;
-    --success: #15803d;
+  /* Theme tokens shared with portal.html and designbook.html. Keep in sync -
+     self-contained pages mean no shared import (see CLAUDE.md). */
+  :root{
+    --paper:#F2F1EC; --panel:#FFFFFF; --ink:#083860; --muted:#6E7580;
+    --line:#DAD7CE; --accent:#1C7CC0; --accent-soft:#E4F2FB;
+    /* Team Kentucky Transportation Cabinet brand: navy, sky blue, gold, sampled from the logo */
+    --navy:#002050; --sky:#5FB2E4; --gold:#FFC312;
+    --flag:#A56F00; --flag-soft:#FDF1C7; --ok:#3F7A56; --ok-soft:#E3EFE7;
+    --bad:#9B2C2C;
+    --radius:6px;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #18181b;
-      --panel: #242427;
-      --border: #3a3a3d;
-      --text: #f0f0f0;
-      --muted: #a0a0a0;
-      --accent: #58B0E0;
-      --accent-hover: #8FC3E8;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    padding: 16px;
-  }
-  .card {
-    width: 100%;
-    max-width: 380px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 28px 24px;
-  }
-  .brand { display: flex; flex-direction: column; gap: 10px; margin: -4px 0 18px; }
-  .brand img { height: 44px; width: auto; align-self: flex-start; background: #fff; border-radius: 6px; padding: 4px 6px; }
-  .brand .rule { height: 4px; border-radius: 2px; background: linear-gradient(90deg, #5FB2E4 0 35%, #FFC312 80% 100%); /* the logo's bar */ }
-  h1 {
-    font-size: 1.25rem;
-    margin: 0 0 4px;
-  }
-  .subtitle {
-    color: var(--muted);
-    font-size: 0.875rem;
-    margin: 0 0 20px;
-  }
-  label {
-    display: block;
-    font-size: 0.8rem;
-    color: var(--muted);
-    margin: 12px 0 4px;
-  }
-  input {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--bg);
-    color: var(--text);
-    font-size: 0.95rem;
-  }
-  input:focus {
-    outline: 2px solid var(--accent);
-    outline-offset: -1px;
-  }
-  .hint {
-    font-size: 0.75rem;
-    color: var(--muted);
-    margin-top: 4px;
-  }
-  button.primary {
-    width: 100%;
-    margin-top: 18px;
-    padding: 11px;
-    border: none;
-    border-radius: 8px;
-    background: var(--accent);
-    color: #fff;
-    font-size: 0.95rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  button.primary:hover { background: var(--accent-hover); }
-  button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
-  .status {
-    margin-top: 14px;
-    font-size: 0.85rem;
-    min-height: 1.2em;
-  }
-  .status.error { color: var(--error); }
-  .status.success { color: var(--success); }
-  .session-card {
-    text-align: center;
-  }
-  .session-card .who {
-    font-weight: 600;
-    margin: 8px 0 4px;
-    word-break: break-all;
-  }
-  .session-card .meta {
-    color: var(--muted);
-    font-size: 0.85rem;
-    margin: 0 0 16px;
-    word-break: break-all;
-  }
-  .badges {
-    display: flex;
-    justify-content: center;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-bottom: 20px;
-  }
-  .badge {
-    display: inline-block;
-    padding: 3px 10px;
-    border-radius: 999px;
-    font-size: 0.75rem;
-    font-weight: 600;
-  }
-  .badge.granted {
-    background: color-mix(in srgb, var(--success) 18%, transparent);
-    color: var(--success);
-  }
-  a.badge.granted {
-    text-decoration: none;
-    cursor: pointer;
-    transition: background 0.15s, transform 0.05s;
-  }
-  a.badge.granted:hover {
-    background: color-mix(in srgb, var(--success) 34%, transparent);
-  }
-  a.badge.granted:active { transform: translateY(1px); }
-  .badge-hint {
-    color: var(--muted);
-    font-size: 0.78rem;
-    margin: -12px 0 16px;
-  }
-  .badge.denied {
-    background: color-mix(in srgb, var(--muted) 18%, transparent);
-    color: var(--muted);
-    text-decoration: line-through;
-  }
-  button.secondary {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: transparent;
-    color: var(--text);
-    font-size: 0.9rem;
-    cursor: pointer;
-    margin-top: 10px;
-  }
-  .hidden { display: none; }
+  *{box-sizing:border-box;}
+  body{margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+       background:var(--paper); color:var(--ink);
+       font-family:'IBM Plex Sans',sans-serif; font-size:14px; line-height:1.5; padding:24px 16px;}
+  h1,h2{font-family:'Space Grotesk',sans-serif; font-weight:600; margin:0;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .hidden{display:none !important;}
+
+  .card{width:100%; max-width:440px; background:var(--panel); border:1px solid var(--line);
+        border-radius:12px; overflow:hidden;}
+
+  /* Brand band: the logo at a size where "Transportation Cabinet" is legible,
+     then the logo's own bar - solid sky blue to 35%, a blend, solid gold from 80%. */
+  .brand{padding:26px 28px 20px; display:flex; flex-direction:column; align-items:center; gap:14px;}
+  .brand img{width:min(250px, 100%); height:auto; display:block;}
+  .brand .rule{width:100%; height:4px; border-radius:2px;
+               background:linear-gradient(90deg, var(--sky) 0 35%, var(--gold) 80% 100%);}
+  .wordmark{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:22px; letter-spacing:.02em;}
+  .wordmark span{color:var(--accent);}
+  .books{font-size:12px; color:var(--muted); letter-spacing:.04em; text-transform:uppercase;}
+
+  .view{padding:8px 28px 28px;}
+  .view h1{font-size:20px; margin-bottom:4px;}
+  .subtitle{color:var(--muted); font-size:13px; margin:0 0 18px;}
+
+  label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em;
+        color:var(--muted); margin:14px 0 5px;}
+  input{width:100%; border:1px solid var(--line); background:#FCFCFA; border-radius:var(--radius);
+        padding:10px 12px; font-size:14px; min-height:40px; color:var(--ink); font-family:inherit;}
+  input.mono{font-family:'IBM Plex Mono',monospace; color:var(--accent);}
+  input:focus{outline:2px solid var(--accent); outline-offset:-1px;}
+  .hint{font-size:12px; color:var(--muted); margin-top:6px;}
+
+  button{font-family:inherit; cursor:pointer;}
+  button.primary{width:100%; margin-top:20px; padding:12px; border:none; border-radius:var(--radius);
+                 background:var(--ink); color:#fff; font-size:14px; font-weight:500; min-height:44px;}
+  button.primary:hover{background:var(--navy);}
+  button.primary:disabled{opacity:.55; cursor:not-allowed;}
+  button.secondary{width:100%; margin-top:10px; padding:11px; border:1px solid var(--line); border-radius:var(--radius);
+                   background:transparent; color:var(--ink); font-size:13px; min-height:42px;}
+  button.secondary:hover{border-color:var(--accent); color:var(--accent);}
+  button.link{background:none; border:none; padding:0; color:var(--accent); font-size:13px;
+              text-decoration:underline; text-underline-offset:2px;}
+
+  .status{margin-top:14px; font-size:13px; min-height:1.2em;}
+  .status.error{color:var(--bad);} .status.success{color:var(--ok);} .status.warn{color:var(--flag);}
+
+  /* Onboarding: which of the two steps this is */
+  .steps{display:flex; align-items:center; gap:10px; margin:0 0 16px; font-size:11px; text-transform:uppercase;
+         letter-spacing:.04em; color:var(--muted);}
+  .steps .dot{width:22px; height:22px; border-radius:50%; border:2px solid var(--line); background:var(--panel);
+              display:flex; align-items:center; justify-content:center; font-family:'IBM Plex Mono',monospace;
+              font-size:11px; color:var(--muted); flex-shrink:0;}
+  .steps .dot.current{border-color:var(--accent); background:var(--accent); color:#fff;}
+  .steps .dot.done{border-color:var(--ok); background:var(--ok); color:#fff;}
+  .steps .label.current{color:var(--ink); font-weight:500;}
+  .steps .bar{flex:1; height:2px; background:var(--line);}
+  .steps .bar.done{background:var(--ok);}
+
+  /* Welcome card, shown when arriving already signed in */
+  .who{text-align:center; margin-bottom:6px;}
+  .who .name{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:20px;}
+  .who .meta{color:var(--muted); font-size:13px; margin-top:2px;}
+  .badges{display:flex; justify-content:center; gap:8px; flex-wrap:wrap; margin:14px 0 6px;}
+  .badge{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+         padding:4px 10px; border-radius:20px; border:1px solid;}
+  .badge.granted{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
+  .badge.soon{background:var(--flag-soft); color:var(--ink); border-color:var(--gold);}
+  .badge.denied{background:transparent; color:var(--muted); border-color:var(--line); text-decoration:line-through;}
+  .badge-hint{color:var(--muted); font-size:12.5px; text-align:center; margin:0 0 6px;}
+
+  .foot{padding:0 28px 22px; font-size:12px; color:var(--muted); text-align:center;}
 </style>
 </head>
 <body>
 
 <div class="card" id="card">
-  <div class="brand"><img src="assets/kytc-logo.png" alt="Team Kentucky Transportation Cabinet"><div class="rule"></div></div>
-  <div id="authView">
-    <h1>Sign in</h1>
-    <p class="subtitle">Mix — DesignBook / PlantBook</p>
+  <div class="brand">
+    <img src="assets/kytc-logo.png" alt="Team Kentucky Transportation Cabinet">
+    <div class="rule"></div>
+    <div class="wordmark">Mix <span>·</span> DesignBook</div>
+    <div class="books">KYTC mix designs · PlantBook to follow</div>
+  </div>
 
+  <!-- Sign in -->
+  <div class="view" id="authView">
     <form id="authForm">
       <label for="loginId">SM ID or email</label>
-      <input id="loginId" type="text" autocomplete="username" placeholder="e.g. jcavanah" required>
-      <p class="hint">Use your SM ID for your first sign-in. Once you've set up your account, sign in with your email instead.</p>
+      <input id="loginId" class="mono" type="text" autocomplete="username" placeholder="jcavanah" required>
+      <p class="hint">First sign-in: your SM ID and the temporary password you were given. After you set up your account, use your email.</p>
 
       <label for="password">Password</label>
       <input id="password" type="password" autocomplete="current-password" required>
 
       <button type="submit" class="primary" id="submitBtn">Sign in</button>
     </form>
-
     <div class="status" id="status"></div>
   </div>
 
-  <div id="onboardEmailView" class="hidden">
+  <!-- Onboarding step 1: real email -->
+  <div class="view hidden" id="onboardEmailView">
+    <div class="steps">
+      <span class="dot current">1</span><span class="label current">Your email</span>
+      <span class="bar"></span>
+      <span class="dot">2</span><span class="label">Your password</span>
+    </div>
     <h1>Set up your account</h1>
-    <p class="subtitle">First, enter your real email address. We'll send a link to confirm it.</p>
+    <p class="subtitle">Enter the email you check for work. We send one link to confirm it; that address becomes your sign-in from then on.</p>
 
     <form id="onboardEmailForm">
       <label for="realEmail">Email</label>
       <input id="realEmail" type="email" autocomplete="email" required>
-      <button type="submit" class="primary" id="onboardEmailSubmitBtn">Send confirmation</button>
+      <button type="submit" class="primary" id="onboardEmailSubmitBtn">Send confirmation link</button>
     </form>
 
     <div class="status" id="onboardEmailStatus"></div>
+    <p class="hint hidden" id="onboardEmailNext">Opened the link on your phone? <button type="button" class="link" id="onboardEmailContinueBtn">I've confirmed it — continue here</button></p>
     <button class="secondary" id="onboardEmailSignOutBtn">Sign out</button>
   </div>
 
-  <div id="onboardPasswordView" class="hidden">
+  <!-- Onboarding step 2: real password -->
+  <div class="view hidden" id="onboardPasswordView">
+    <div class="steps">
+      <span class="dot done">✓</span><span class="label">Your email</span>
+      <span class="bar done"></span>
+      <span class="dot current">2</span><span class="label current">Your password</span>
+    </div>
     <h1>Choose your password</h1>
-    <p class="subtitle">Email confirmed. Now set the password you'll use going forward.</p>
+    <p class="subtitle">Email confirmed. Set the password you will use from now on.</p>
 
     <form id="onboardPasswordForm">
       <label for="newPassword">New password</label>
-      <input id="newPassword" type="password" autocomplete="new-password" required>
+      <input id="newPassword" type="password" autocomplete="new-password" required minlength="8">
+      <p class="hint">At least 8 characters.</p>
 
       <label for="confirmNewPassword">Confirm password</label>
       <input id="confirmNewPassword" type="password" autocomplete="new-password" required>
 
-      <button type="submit" class="primary" id="onboardPasswordSubmitBtn">Set password</button>
+      <button type="submit" class="primary" id="onboardPasswordSubmitBtn">Set password and open the Portal</button>
     </form>
 
     <div class="status" id="onboardPasswordStatus"></div>
     <button class="secondary" id="onboardPasswordSignOutBtn">Sign out</button>
   </div>
 
-  <div id="sessionView" class="session-card hidden">
-    <h1>Signed in</h1>
-    <div class="who" id="sessionWho"></div>
-    <div class="meta" id="sessionMeta"></div>
+  <!-- Already signed in: one button in, sign out stays reachable -->
+  <div class="view hidden" id="sessionView">
+    <div class="who">
+      <div class="name" id="sessionWho"></div>
+      <div class="meta" id="sessionMeta"></div>
+    </div>
     <div class="badges" id="sessionAccess"></div>
     <p class="badge-hint" id="sessionHint" hidden></p>
+    <button class="primary hidden" id="continueBtn">Open the Portal →</button>
     <button class="secondary" id="signOutBtn">Sign out</button>
   </div>
 </div>
@@ -285,12 +235,21 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
   // ---- CONFIG -------------------------------------------------------
-  // Fill these in once the Supabase project exists (see setup comment
-  // at the top of this file).
   const CONFIG = {
-    // Where a granted badge sends you. portal.html sits beside this file
+    // Where a signed-in technician goes. portal.html sits beside this file
     // in public/, so a bare relative path is correct.
     PORTAL_URL: "portal.html",
+    // Pages a ?next= parameter may name (portal.html sends
+    // login.html?next=portal.html when it bounces an unauthenticated visit).
+    // A bare page name, optionally with its own query - never a full URL, so
+    // this page can never be used to forward someone off the site.
+    NEXT_ALLOW: ["portal.html", "designbook.html"],
+    // Which books exist as pages today. A granted cert for a book that is
+    // not built yet shows as "coming soon", not as a link to nowhere.
+    BOOKS: {
+      designbook: { label: "DesignBook", capability: "can_access_designbook", built: true },
+      plantbook:  { label: "PlantBook",  capability: "can_access_plantbook",  built: false },
+    },
     SUPABASE_URL: "https://iwysxhcmvhkcjxmjarkd.supabase.co",
     SUPABASE_ANON_KEY:
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml3eXN4aGNtdmhrY2p4bWphcmtkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3NTE0MDUsImV4cCI6MjEwMzMyNzQwNX0.K_YKefS3p6W2ZVjEw8El88a_7y_SnLaYNnzF7BA3WKc",
@@ -331,6 +290,14 @@
     return smIdToEmail(normalizeSmId(trimmed));
   }
 
+  // The ?next= target if it names an allow-listed page, else the Portal.
+  function destination() {
+    const next = new URLSearchParams(location.search).get("next") || "";
+    const page = next.split("?")[0];
+    if (CONFIG.NEXT_ALLOW.includes(page) && !next.includes("//") && !next.startsWith("/")) return next;
+    return `${CONFIG.PORTAL_URL}?book=designbook`;
+  }
+
   const statusEl = document.getElementById("status");
   const authView = document.getElementById("authView");
   const onboardEmailView = document.getElementById("onboardEmailView");
@@ -338,6 +305,8 @@
   const realEmailInput = document.getElementById("realEmail");
   const onboardEmailSubmitBtn = document.getElementById("onboardEmailSubmitBtn");
   const onboardEmailStatusEl = document.getElementById("onboardEmailStatus");
+  const onboardEmailNext = document.getElementById("onboardEmailNext");
+  const onboardEmailContinueBtn = document.getElementById("onboardEmailContinueBtn");
   const onboardEmailSignOutBtn = document.getElementById("onboardEmailSignOutBtn");
   const onboardPasswordView = document.getElementById("onboardPasswordView");
   const onboardPasswordForm = document.getElementById("onboardPasswordForm");
@@ -351,6 +320,7 @@
   const sessionMeta = document.getElementById("sessionMeta");
   const sessionAccess = document.getElementById("sessionAccess");
   const sessionHint = document.getElementById("sessionHint");
+  const continueBtn = document.getElementById("continueBtn");
   const form = document.getElementById("authForm");
   const loginIdInput = document.getElementById("loginId");
   const passwordInput = document.getElementById("password");
@@ -383,13 +353,21 @@
     );
     submitBtn.disabled = true;
   } else {
+    // Block-scoped on purpose: a top-level `const supabase` collides with the
+    // CDN bundle's `var supabase` and kills the whole script (see CLAUDE.md).
     const supabase = window.supabase.createClient(
       CONFIG.SUPABASE_URL,
       CONFIG.SUPABASE_ANON_KEY
     );
 
+    // True only between a sign-in (or the last onboarding step) on THIS page
+    // and the view refresh it triggers. That is when we forward straight to
+    // the Portal; arriving here already signed in shows the welcome card
+    // instead, so "Sign out" is always reachable.
+    let forwardOnReady = false;
+
     // Shows the right view: sign-in, one of the two onboarding steps, or
-    // the signed-in session view. technicians.onboarded (not the email
+    // the welcome card / forward. technicians.onboarded (not the email
     // domain alone) is the source of truth for "is this technician fully
     // set up" - the email domain is only used to figure out *which*
     // onboarding step they're resuming into, since onboarding can be
@@ -412,6 +390,7 @@
         // A failed query (network, expired token, 5xx) is not "not linked" -
         // say what happened and let them retry instead of sending them to
         // an admin for a transient error.
+        forwardOnReady = false;
         showOnly(authView);
         setStatus(`Signed in, but your technician record could not be loaded: ${techError.message}. Reload to try again.`, "error");
         return;
@@ -420,6 +399,7 @@
       if (!tech) {
         // Every real technician account is bulk-provisioned already linked
         // (see supabase/schema.sql) - this shouldn't normally happen.
+        forwardOnReady = false;
         showOnly(authView);
         setStatus(
           "Signed in, but this account isn't linked to a technician. Contact an admin.",
@@ -429,6 +409,7 @@
       }
 
       if (!tech.onboarded) {
+        forwardOnReady = false;
         if (isTempEmail(session.user.email)) {
           showOnly(onboardEmailView);
         } else {
@@ -437,61 +418,66 @@
         return;
       }
 
-      showOnly(sessionView);
-      sessionWho.textContent = `${tech.first_name} ${tech.last_name} — ${tech.company}`;
-      sessionMeta.textContent = `SM ID: ${tech.sm_id}`;
-
       // technician_capabilities (see supabase/schema.sql) is what decides
       // which book(s) this technician can see: Plant Tech alone -> only
       // PlantBook; Plant Tech + Mix Design Tech -> both. Gated on the
       // certification currently being unexpired, not just held at some
       // point - a lapsed cert drops that access until the roster is
-      // updated and re-seeded. This is the same query the eventual
-      // DesignBook/PlantBook app should run to decide what to show.
+      // updated and re-seeded. portal.html and designbook.html re-check
+      // this on their own load; here it only decides where to send them.
       const { data: caps, error: capsError } = await supabase
         .from("technician_capabilities")
         .select("can_access_plantbook, can_access_designbook")
         .eq("user_id", session.user.id)
         .maybeSingle();
 
+      const canOpen = !capsError && Object.values(CONFIG.BOOKS)
+        .some((b) => b.built && caps && caps[b.capability]);
+
+      if (forwardOnReady && canOpen) {
+        forwardOnReady = false;
+        location.replace(destination());
+        return;
+      }
+      forwardOnReady = false;
+
+      showOnly(sessionView);
+      sessionWho.textContent = `${tech.first_name} ${tech.last_name}`;
+      sessionMeta.textContent = `${tech.company} · SM ID ${tech.sm_id}`;
       sessionAccess.innerHTML = "";
+      continueBtn.classList.toggle("hidden", !canOpen);
+      sessionHint.hidden = false;
+
       if (capsError) {
         // Not "no certification" - the lookup failed. Denied badges here would
         // tell a fully certified technician they have nothing.
         sessionHint.textContent = `Could not load your certifications: ${capsError.message}. Reload to try again.`;
-        sessionHint.hidden = false;
         return;
       }
-      // A granted badge is the way into the app - it links to the Portal
-      // with ?book= so the Portal knows which book was chosen. A denied
-      // badge stays an inert span: nothing to click through to.
-      const badge = (label, granted, book) => {
-        const el = document.createElement(granted ? "a" : "span");
-        el.className = "badge " + (granted ? "granted" : "denied");
-        el.textContent = label;
-        if (granted) {
-          el.href = `${CONFIG.PORTAL_URL}?book=${book}`;
-          el.title = `Open ${label}`;
-        }
-        return el;
-      };
-      const canDesign = !!caps?.can_access_designbook;
-      const canPlant = !!caps?.can_access_plantbook;
-      sessionAccess.appendChild(badge("DesignBook", canDesign, "designbook"));
-      sessionAccess.appendChild(badge("PlantBook", canPlant, "plantbook"));
 
-      sessionHint.hidden = false;
-      sessionHint.textContent = (canDesign || canPlant)
-        ? "Choose a book above to continue."
-        : "No current certification grants access to either book. Contact an admin.";
+      // One badge per book: granted and built -> the way in; granted but not
+      // built -> "coming soon"; not granted -> struck through.
+      Object.entries(CONFIG.BOOKS).forEach(([key, b]) => {
+        const granted = !!(caps && caps[b.capability]);
+        const el = document.createElement("span");
+        el.className = "badge " + (granted ? (b.built ? "granted" : "soon") : "denied");
+        el.textContent = granted && !b.built ? `${b.label} · coming soon` : b.label;
+        sessionAccess.appendChild(el);
+      });
+
+      const anyGranted = Object.values(CONFIG.BOOKS).some((b) => caps && caps[b.capability]);
+      sessionHint.textContent = canOpen
+        ? "You're signed in. Pick up where you left off."
+        : anyGranted
+          ? "Your Plant Tech certification is on file. PlantBook is being built; there is nothing to open yet."
+          : "No current certification grants access to either book. Contact an admin.";
     }
 
     supabase.auth.getSession().then(({ data }) => refreshView(data.session));
     // Fires on sign-in, sign-out, and after updateUser() (email/password
     // change) - including the moment a technician clicks the email
     // confirmation link and lands back here, which is what advances them
-    // from the "enter your email" step to the "choose your password" step
-    // with no extra code needed here.
+    // from the "enter your email" step to the "choose your password" step.
     supabase.auth.onAuthStateChange((_event, session) => refreshView(session));
 
     form.addEventListener("submit", async (e) => {
@@ -500,19 +486,23 @@
       const password = passwordInput.value;
 
       submitBtn.disabled = true;
-      setStatus("Working…");
+      setStatus("Signing in…");
+      forwardOnReady = true;
 
       try {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        // No "Signed in." here: onAuthStateChange has already run refreshView,
-        // which either switched views or set an error this line would overwrite.
+        // onAuthStateChange has already run refreshView, which forwarded to
+        // the Portal, moved into onboarding, or set an error of its own.
       } catch (err) {
+        forwardOnReady = false;
         setStatus(err.message || "Something went wrong.", "error");
       } finally {
         submitBtn.disabled = false;
       }
     });
+
+    continueBtn.addEventListener("click", () => location.assign(destination()));
 
     onboardEmailForm.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -524,14 +514,37 @@
       try {
         const { error } = await supabase.auth.updateUser({ email: newEmail });
         if (error) throw error;
+        // The link lands wherever the mail client opens it - often a phone.
+        // That device moves on by itself; this one needs a nudge, below.
         setOnboardEmailStatus(
-          "Check your email and click the confirmation link — this page will move on automatically once you do.",
+          `Sent to ${newEmail}. Click the link in that email; the device you open it on moves to the password step.`,
           "success"
         );
+        onboardEmailNext.classList.remove("hidden");
       } catch (err) {
         setOnboardEmailStatus(err.message || "Something went wrong.", "error");
       } finally {
         onboardEmailSubmitBtn.disabled = false;
+      }
+    });
+
+    // Confirmed on another device: pull the refreshed session (which now
+    // carries the real email) and let refreshView pick the next step.
+    onboardEmailContinueBtn.addEventListener("click", async () => {
+      onboardEmailContinueBtn.disabled = true;
+      setOnboardEmailStatus("Checking…");
+      try {
+        const { data, error } = await supabase.auth.refreshSession();
+        if (error) throw error;
+        if (isTempEmail(data.session && data.session.user && data.session.user.email)) {
+          setOnboardEmailStatus("Not confirmed yet. Open the link in the email first, then try again.", "warn");
+          return;
+        }
+        await refreshView(data.session);
+      } catch (err) {
+        setOnboardEmailStatus(err.message || "Something went wrong.", "error");
+      } finally {
+        onboardEmailContinueBtn.disabled = false;
       }
     });
 
@@ -557,9 +570,12 @@
         // account; without this check the step re-renders silently.
         if (marked !== true) throw new Error("Your password was changed, but the account could not be marked as set up. Contact an admin.");
 
+        // Onboarding done: go straight in, like a fresh sign-in would.
+        forwardOnReady = true;
         const { data } = await supabase.auth.getSession();
         await refreshView(data.session);
       } catch (err) {
+        forwardOnReady = false;
         setOnboardPasswordStatus(err.message || "Something went wrong.", "error");
       } finally {
         onboardPasswordSubmitBtn.disabled = false;
