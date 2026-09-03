@@ -96,6 +96,21 @@
   .chip span{font-size:14px; font-weight:500;}
 
   .mixfield{margin-bottom:20px;}
+  .dfilters{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;}
+  .dfilters select,.dfilters input{border:1px solid var(--line); background:#FCFCFA; border-radius:6px; padding:8px 10px; font-size:13px; font-family:inherit;}
+  .dfilters input{flex:1; min-width:180px;}
+  .dlist{display:flex; flex-direction:column; gap:8px;}
+  .drow{display:grid; grid-template-columns:110px 1fr auto; gap:12px; align-items:center; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:#FCFCFA; cursor:pointer; text-align:left; font-family:inherit;}
+  .drow:hover{border-color:var(--accent); background:var(--accent-soft);}
+  .drow .dmain{font-size:14px; font-weight:500;}
+  .drow .dsub{font-size:12px; color:var(--muted); margin-top:2px;}
+  .drow .dwhen{font-size:12px; color:var(--muted); white-space:nowrap;}
+  .spill{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em; padding:4px 8px; border-radius:20px; border:1px solid; text-align:center;}
+  .spill.draft{background:var(--flag-soft); color:var(--flag); border-color:var(--flag);}
+  .spill.review{background:var(--accent-soft); color:var(--accent); border-color:var(--accent);}
+  .spill.released,.spill.approved{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
+  .dempty{color:var(--muted); font-size:13px; padding:14px 0;}
+  .linkrow{margin-top:16px; font-size:13px;} .linkrow a{color:var(--accent); cursor:pointer; text-decoration:underline; text-underline-offset:2px;}
   .choices{display:flex; gap:12px; flex-wrap:wrap;}
   .choice{flex:1; min-width:180px; padding:22px 16px; border-radius:8px;
           border:1px solid var(--line); background:#FCFCFA; color:var(--ink);
@@ -154,6 +169,7 @@
 
   <button class="primary" id="generateBtn">Generate</button>
   <div class="status" id="portalStatus"></div>
+  <div class="linkrow"><a id="myDesignsLink">Open an existing design →</a></div>
 </div>
 <!-- ===== END PORTAL ===== -->
 
@@ -182,6 +198,22 @@
   <div class="back"><a id="backLink">← change contract / plant</a></div>
 </div>
 <!-- ===== END SUB PORTAL ===== -->
+
+<!-- ===== DESIGNS LIST ===== -->
+<div class="card hidden" id="designsView">
+  <h2 id="designsTitle">Designs</h2>
+  <div class="dfilters">
+    <select id="dStage">
+      <option value="">All stages</option>
+      <option>Draft</option><option>Internal Review</option><option>Released</option><option>Approved</option>
+    </select>
+    <input id="dSearch" type="search" placeholder="Contract, plant, mix, author…">
+  </div>
+  <div class="dlist" id="dList"></div>
+  <div class="status" id="dStatus"></div>
+  <div class="linkrow"><a id="dNewLink">Start a new design →</a></div>
+</div>
+<!-- ===== END DESIGNS LIST ===== -->
 
 </div>
 
@@ -265,7 +297,7 @@
      LOGIC — state, data loading, rendering, wiring.
      ================================================================== */
   const $ = (id) => document.getElementById(id);
-  const state = { tech: null, caps: null, plants: [], plantNames: {}, job: null, mixes: [], mix: "", mixHeader: null };
+  const state = { tech: null, caps: null, plants: [], plantNames: {}, job: null, mixes: [], mix: "", mixHeader: null, designs: [] };
 
   // Values here come from the database, so they are escaped before being
   // interpolated into markup rather than trusted.
@@ -291,7 +323,7 @@
     el.className = "status" + (kind ? " " + kind : "");
   }
   function showOnly(view) {
-    ["bootView", "portalView", "subPortalView"].forEach((v) =>
+    ["bootView", "portalView", "subPortalView", "designsView"].forEach((v) =>
       $(v).classList.toggle("hidden", v !== view)
     );
   }
@@ -305,7 +337,7 @@
   async function loadTechnician(userId) {
     const { data: tech, error } = await sb
       .from("technicians")
-      .select("sm_id, first_name, last_name, company, onboarded, all_plants")
+      .select("sm_id, first_name, last_name, company, onboarded, all_plants, can_review")
       .eq("user_id", userId)
       .maybeSingle();
     if (error) throw error;
@@ -634,11 +666,56 @@
       renderWho();
       renderPlants();
       restoreJob();
+      if (tech.can_review) { openDesigns(); return; }   // reviewers: the queue is the front door
       showOnly("portalView");
       $("contractId").focus();
     } catch (err) {
       setStatus($("bootStatus"), err.message || "Couldn't load your account.", "error");
     }
+  }
+
+  /* ---- designs list (reviewers land here; contractors see their plants') ---- */
+  // design_summaries is security_invoker over designs, so RLS decides what
+  // each person sees: own designs + designs at accessible plants. Central
+  // Office resolves to every plant, so they see everything - no separate
+  // query for reviewers.
+  async function loadDesigns() {
+    setStatus($("dStatus"), "Loading…");
+    const { data, error } = await sb.from("design_summaries")
+      .select("id, contract_id, letting_date, amp_number, plant_name, author_name, sm_id, mix_signature, stage, origin, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(300);
+    if (error) { setStatus($("dStatus"), error.message, "error"); return; }
+    state.designs = data || [];
+    setStatus($("dStatus"), "");
+    renderDesigns();
+  }
+  function renderDesigns() {
+    const stage = $("dStage").value, q = norm($("dSearch").value);
+    const css = { "Draft": "draft", "Internal Review": "review", "Released": "released", "Approved": "approved" };
+    const rows = state.designs.filter((d) =>
+      (!stage || d.stage === stage) &&
+      (!q || norm([d.contract_id, d.plant_name, d.amp_number, d.mix_signature, d.author_name, d.sm_id].join(" ")).includes(q)));
+    const list = $("dList");
+    if (!rows.length) { list.innerHTML = `<div class="dempty">${state.designs.length ? "Nothing matches those filters." : "No designs yet."}</div>`; return; }
+    list.innerHTML = rows.map((d) => {
+      const when = new Date(d.updated_at);
+      return `<button class="drow" data-id="${esc(d.id)}">
+        <span class="spill ${css[d.stage] || "draft"}">${esc(d.stage)}</span>
+        <span><div class="dmain">${esc(d.contract_id)} · ${esc(d.plant_name || d.amp_number)}</div>
+              <div class="dsub">${esc(d.mix_signature || "no mix chosen")} · ${esc(d.author_name)} (${esc(d.sm_id)}) · ${d.origin === "legacy" ? "from MixPack" : "new"}</div></span>
+        <span class="dwhen">${when.toLocaleDateString()} ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+      </button>`;
+    }).join("");
+    list.querySelectorAll(".drow").forEach((b) => b.addEventListener("click", () => {
+      location.href = `designbook.html?design=${encodeURIComponent(b.dataset.id)}`;
+    }));
+  }
+  function norm(v) { return String(v == null ? "" : v).toLowerCase().replace(/\s+/g, " ").trim(); }
+  function openDesigns() {
+    $("designsTitle").textContent = state.tech && state.tech.can_review ? "Designs — review queue" : "My designs";
+    showOnly("designsView");
+    loadDesigns();
   }
 
   /* ---- wiring ---- */
@@ -659,6 +736,10 @@
   $("buildNewBtn").addEventListener("click", () => go("buildNew"));
   $("backLink").addEventListener("click", () => { setStatus($("portalStatus"), ""); showOnly("portalView"); });
   $("signOutLink").addEventListener("click", signOut);
+  $("myDesignsLink").addEventListener("click", openDesigns);
+  $("dNewLink").addEventListener("click", () => { setStatus($("portalStatus"), ""); showOnly("portalView"); $("contractId").focus(); });
+  $("dStage").addEventListener("change", renderDesigns);
+  $("dSearch").addEventListener("input", renderDesigns);
 
   sb.auth.getSession().then(({ data }) => boot(data.session));
   // Catches sign-out in another tab so this page doesn't sit on stale data.

@@ -175,6 +175,10 @@
   .stagebtn{margin-top:16px; padding:10px 16px; border:1px solid var(--accent); border-radius:var(--radius);
             background:var(--accent); color:#fff; font-family:inherit; font-size:13px; cursor:pointer;}
   .stagebtn:disabled{opacity:.5; cursor:not-allowed;}
+  .stagebtn.ghost{background:none; color:var(--accent); border-color:var(--accent); margin-left:8px;}
+  .stagebtn.ghost:disabled{color:var(--muted); border-color:var(--line); background:none;}
+  .stagenote{font-size:12px; color:var(--muted); margin-top:8px;}
+  .auditrow.local .ts{color:var(--muted);}
   .auditlog{margin-top:16px; border-top:1px solid var(--line); padding-top:12px;
             display:flex; flex-direction:column; gap:6px;}
   .auditrow{font-size:12px; color:var(--muted); display:flex; gap:10px;}
@@ -276,7 +280,7 @@
       <pre id="inspector"></pre>
     </details>
     <details id="payloadWrap" class="hidden">
-      <summary>Save payload (JSON)</summary>
+      <summary>Last save — what was written to the designs table</summary>
       <pre id="payload"></pre>
     </details>
   </main>
@@ -603,6 +607,10 @@ const state = {
                      //   nominal_size, county, lines, source } or null
   extracted: null,   // { scalars, tables } from the workbook, if any
   legacy: null,      // full import result: version, sheet resolution, per-field log, unmapped, context
+  designId: null,    // designs.id once saved / when opened via ?design=
+  authorUserId: null,
+  canReview: false,  // technicians.can_review - may move past Internal Review, send back to Draft
+  saving: false,
 };
 
 // NOTE: this client is named `sb`, not `supabase`, on purpose. The CDN
@@ -695,7 +703,8 @@ function statusHTML() {
     `<div class="tstep" data-stage="${s.key}"><div class="tline"></div>
        <div class="dot"></div><div class="tl">${s.key}</div></div>`).join("");
   return `<div class="timeline" id="timeline">${steps}</div>
-    <button class="stagebtn" id="advanceStage"></button>
+    <button class="stagebtn" id="advanceStage"></button><button class="stagebtn ghost hidden" id="sendBackStage">Send back to Draft</button>
+    <div class="stagenote" id="stageNote"></div>
     <div class="auditlog" id="auditlog"></div>`;
 }
 
@@ -825,14 +834,59 @@ function renderStage() {
     if (i < state.stageIdx) el.classList.add("done");
     if (i === state.stageIdx) el.classList.add("current");
   });
-  const btn = $("advanceStage");
-  if (!s.next) { btn.disabled = true; btn.textContent = "Fully approved"; }
-  else { btn.disabled = false; btn.textContent = s.next; }
+
+  // Who may do what is decided by the database trigger (supabase/designs.sql);
+  // this only mirrors those rules so the button is honest before you click.
+  const isAuthor = !state.designId || state.authorUserId === (state.tech && state.tech.user_id);
+  const btn = $("advanceStage"), back = $("sendBackStage"), note = $("stageNote");
+  let allowed = true, why = "";
+  if (!s.next) { allowed = false; }
+  else if (state.stageIdx >= 1 && !state.canReview) { allowed = false; why = "Moving a design past Internal Review is a KYTC Central Office reviewer's action."; }
+  else if (state.stageIdx >= 1 && state.canReview && isAuthor) { allowed = false; why = "You authored this design; another reviewer must release or approve it."; }
+  btn.disabled = !allowed || state.saving;
+  btn.textContent = s.next || "Fully approved";
+  back.classList.toggle("hidden", !(state.canReview && state.stageIdx > 0 && state.designId));
+  back.disabled = state.saving;
+  note.textContent = why || (s.key === "Approved" ? "Approved designs are read-only until a reviewer sends them back to Draft." : "");
+  const frozen = s.key === "Approved";
+  $("saveBtn").disabled = frozen || state.saving;
+  document.querySelectorAll("#sections input, #sections select").forEach((el) => { el.disabled = frozen; });
 }
 
+// Persisted trail: design_events, written by the database trigger on every
+// insert, save and stage move - nothing a page says, only what it did.
+async function loadEvents() {
+  if (!state.designId) return;
+  const { data, error } = await sb.from("design_events")
+    .select("at, sm_id, kind, from_stage, to_stage, note")
+    .eq("design_id", state.designId)
+    .order("at", { ascending: false })
+    .limit(200);
+  if (error) return;
+  const log = $("auditlog");
+  log.innerHTML = "";
+  (data || []).forEach((e) => {
+    const t = new Date(e.at);
+    const ts = `${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ` +
+               `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+    const text = e.kind === "stage" ? `${e.from_stage} → ${e.to_stage}`
+               : e.kind === "created" ? (e.note || "Created")
+               : e.kind === "saved" ? "Saved"
+               : (e.note || "");
+    const row = document.createElement("div");
+    row.className = "auditrow";
+    row.innerHTML = `<span class="ts">${ts}</span> ${esc(text)} — ${esc(e.sm_id)}`;
+    log.appendChild(row);
+  });
+}
+function esc(v) {
+  return String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Ephemeral, page-side note (e.g. "Prefilled from file") - not persisted.
 function audit(text) {
   const row = document.createElement("div");
-  row.className = "auditrow";
+  row.className = "auditrow local";
   const t = new Date();
   const ts = `${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ` +
              `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
@@ -1133,57 +1187,118 @@ async function handleFile(file) {
   }
 }
 
-function saveDesign() {
+function collectForm() {
   const values = {};
   document.querySelectorAll("[data-field]").forEach((el) => {
     values[el.dataset.field] = String(el.value || "").trim() || null;
   });
-
-  const tables = {};
+  const rows = {};
   document.querySelectorAll("[data-rowlist]").forEach((list) => {
-    tables[list.dataset.rowlist] = Array.from(list.children).map((row) => {
+    rows[list.dataset.rowlist] = Array.from(list.children).map((row) => {
       const o = {};
-      row.querySelectorAll("[data-col]").forEach((el) => {
-        o[el.dataset.col] = String(el.value || "").trim() || null;
-      });
+      row.querySelectorAll("[data-col]").forEach((el) => { o[el.dataset.col] = String(el.value || "").trim() || null; });
       return o;
     }).filter((o) => Object.values(o).some((v) => v !== null));
   });
+  return { values, rows };
+}
 
-  const payload = {
+function designRow() {
+  const { values, rows } = collectForm();
+  return {
     contract_id: state.job.cid,
     letting_date: state.job.letting,
     amp_number: state.job.plant,
-    sm_id: state.tech.sm_id,           // RLS scopes off this + auth.uid()
-    origin: state.mode,                // "legacy" | "new"
-    stage: CONFIG.STAGES[state.stageIdx].key,
-    extracted_from: state.sources,     // field -> source cell / lookup, for audit
-    legacy_import: state.legacy ? {
-      version: state.legacy.version.label,
-      context: state.legacy.context,
-      unmapped: state.legacy.unmapped,
-    } : null,
+    author_name: `${state.tech.first_name} ${state.tech.last_name}`,
+    mix_signature: state.mix ? state.mix.signature : null,
     mix: state.mix ? {
-      signature: state.mix.signature,
-      mix_class: state.mix.mix_class,
-      layer: state.mix.layer,
-      nominal_size: state.mix.nominal_size,
-      binder_grade: state.mix.binder_grade,
-      bid_lines: state.mix.lines,
+      mix_class: state.mix.mix_class, layer: state.mix.layer, nominal_size: state.mix.nominal_size,
+      binder_grade: state.mix.binder_grade, bid_lines: state.mix.lines,
     } : null,
+    origin: state.mode,
     values,
-    rows: tables,
-    saved_at: new Date().toISOString(),
+    rows,
+    extracted_from: state.sources,
+    legacy_import: state.legacy ? { version: state.legacy.version.label, context: state.legacy.context, unmapped: state.legacy.unmapped } : null,
   };
+}
 
-  $("payload").textContent = JSON.stringify(payload, null, 2);
-  show("payloadWrap", true);
-  $("payloadWrap").open = true;
-  $("payloadWrap").scrollIntoView({ behavior: "smooth", block: "center" });
-  msg($("saveMsg"),
-    "Not saved — no DesignBook table in the database yet. Payload built below; write the table and its RLS policy against that shape.",
-    "warn");
-  return payload;
+// Insert on first save, update after. The database assigns the id, author,
+// stage and timestamps and refuses edits to an Approved design; the page
+// just reports what the database said.
+async function saveDesign() {
+  if (state.saving) return null;
+  state.saving = true; renderStage();
+  msg($("saveMsg"), "Saving…", "");
+  try {
+    const row = designRow();
+    let q;
+    if (state.designId) {
+      // sm_id/author/stage are not sent: the trigger owns them.
+      const { author_name, ...editable } = row;
+      q = sb.from("designs").update(editable).eq("id", state.designId).select("id, stage, updated_at").single();
+    } else {
+      q = sb.from("designs").insert(row).select("id, stage, updated_at, author_user_id").single();
+    }
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    if (!state.designId) {
+      state.designId = data.id;
+      state.authorUserId = data.author_user_id;
+      const u = new URL(location.href); u.searchParams.set("design", data.id); history.replaceState(null, "", u);
+    }
+    $("payload").textContent = JSON.stringify(row, null, 2);
+    show("payloadWrap", true);
+    const t = new Date(data.updated_at);
+    $("savedstate").textContent = `Saved ${t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    $("mixid").textContent = designLabel();
+    msg($("saveMsg"), `Saved. Design ${data.id.slice(0, 8)} · ${data.stage}.`, "ok");
+    await loadEvents();
+    return data;
+  } catch (err) {
+    msg($("saveMsg"), `Not saved — ${err.message}`, "error");
+    return null;
+  } finally {
+    state.saving = false; renderStage();
+  }
+}
+
+// Stage moves are a single-column update; the trigger enforces who may do
+// what and one step at a time. Its error text is shown verbatim.
+async function setStage(nextKey) {
+  if (!state.designId) { const saved = await saveDesign(); if (!saved) return; }
+  state.saving = true; renderStage();
+  const { data, error } = await sb.from("designs").update({ stage: nextKey }).eq("id", state.designId).select("stage").single();
+  state.saving = false;
+  if (error) { msg($("saveMsg"), `Stage not changed — ${error.message}`, "error"); renderStage(); return; }
+  state.stageIdx = Math.max(0, CONFIG.STAGES.findIndex((x) => x.key === data.stage));
+  renderStage();
+  msg($("saveMsg"), `Now ${data.stage}.`, "ok");
+  await loadEvents();
+}
+
+function designLabel() {
+  const id = state.designId ? `DESIGN ${state.designId.slice(0, 8)}` : `JOB · ${state.job.cid} · ${state.job.plant}`;
+  return state.mix ? `${id} · ${state.mix.signature}` : id;
+}
+
+// Opening an existing design: everything comes from the row, nothing from
+// the URL except the id. The values land on the same path a workbook import
+// uses, minus the provisional tint - they were saved by a person.
+async function loadDesign(id) {
+  const { data: d, error } = await sb.from("designs").select("*").eq("id", id).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!d) throw new Error("That design does not exist, or you do not have access to its plant.");
+  state.designId = d.id;
+  state.authorUserId = d.author_user_id;
+  state.job = { cid: d.contract_id, letting: d.letting_date, plant: d.amp_number };
+  state.mode = d.origin;
+  state.mix = d.mix_signature ? { signature: d.mix_signature, ...(d.mix || {}), lines: (d.mix && d.mix.bid_lines) || [], source: "saved design" } : null;
+  state.extracted = { scalars: d.values || {}, tables: d.rows || {} };
+  state.sources = {};                       // saved values are not provisional
+  state.legacy = d.legacy_import ? { version: { label: d.legacy_import.version }, context: d.legacy_import.context || [], unmapped: d.legacy_import.unmapped || [], log: [], sheets: [], scalars: {}, sources: {}, tables: {} } : null;
+  state.stageIdx = Math.max(0, CONFIG.STAGES.findIndex((x) => x.key === d.stage));
+  return d;
 }
 
 /* ---------- wiring ---------- */
@@ -1213,10 +1328,12 @@ function wireForm() {
 
   // Stage advance.
   $("advanceStage").addEventListener("click", () => {
-    if (!CONFIG.STAGES[state.stageIdx].next) return;
-    state.stageIdx++;
-    renderStage();
-    audit(`Moved to ${CONFIG.STAGES[state.stageIdx].key} — ${state.tech.sm_id}`);
+    const s = CONFIG.STAGES[state.stageIdx];
+    if (!s.next) return;
+    setStage(CONFIG.STAGES[state.stageIdx + 1].key);
+  });
+  $("sendBackStage").addEventListener("click", () => {
+    if (confirm("Send this design back to Draft? The author will be able to edit it again.")) setStage("Draft");
   });
 
   // Any edit: recompute completeness, drop the "prefilled" marker.
@@ -1287,6 +1404,7 @@ function readParams() {
     mode: p.get("mode") === "legacy" ? "legacy" : "new",
     job: cid && letting && plant ? { cid, letting, plant } : null,
     mix: p.get("mix") || null,
+    design: p.get("design") || null,
   };
 }
 
@@ -1357,11 +1475,10 @@ function enterForm() {
   // Mix ID isn't assigned yet — it should come from the DesignBook table's
   // identity once that exists. Until then, show the chosen mix if there is
   // one, else the job it belongs to.
-  $("mixid").textContent = state.mix
-    ? `${state.mix.signature} · ${state.job.cid}`
-    : `JOB · ${state.job.cid} · ${state.job.plant}`;
-  $("savedstate").textContent = "Not saved yet";
+  $("mixid").textContent = designLabel();
+  $("savedstate").textContent = state.designId ? "Saved" : "Not saved yet";
   renderForm();
+  if (state.designId) loadEvents();
 }
 
 async function boot(session) {
@@ -1369,7 +1486,7 @@ async function boot(session) {
   try {
     const { data: tech } = await sb
       .from("technicians")
-      .select("sm_id, first_name, last_name, company, onboarded")
+      .select("sm_id, first_name, last_name, company, onboarded, can_review, user_id")
       .eq("user_id", session.user.id)
       .maybeSingle();
 
@@ -1380,6 +1497,7 @@ async function boot(session) {
     if (!tech.onboarded) return toLogin();
 
     state.tech = tech;
+    state.canReview = !!tech.can_review;
     $("whoName").textContent = `${tech.first_name} ${tech.last_name} · ${tech.sm_id}`;
     show("portalLink", true);
     show("signOutLink", true);
@@ -1396,7 +1514,15 @@ async function boot(session) {
       return;
     }
 
-    const { mode, job, mix } = readParams();
+    const { mode, job, mix, design } = readParams();
+
+    // Opening a saved design: the row is the job. Reviewers arrive this way.
+    if (design) {
+      await loadDesign(design);
+      enterForm();
+      return;
+    }
+
     if (!job) {
       msg($("gateMsg"),
         "No job selected. Start from the Portal so a contract, letting date, and plant come with you.", "error");

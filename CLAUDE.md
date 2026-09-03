@@ -321,6 +321,39 @@ one column:
   (`plant_name` says Boonesborough, the aggregate producer entry says
   Boonesboro); Boonesboro is what people expect.
 
+### Designs (DesignBook storage)
+
+- **`designs` + `design_events` (`supabase/designs.sql`) hold saved designs
+  and their audit trail.** Real columns for what gets filtered and reported
+  on (contract, letting date, plant, author, mix signature, stage, origin);
+  JSONB for the form body (`values`, `rows`) until the MixPack field map
+  settles. Applied live 2026-09-03.
+- **Who can see a design is derived in one place:** its author, plus anyone
+  whose `technician_effective_plant_access` includes its plant — so Central
+  Office sees everything via `all_plants`. Contractors do not see other
+  plants' designs. `design_summaries` is the list view; it inherits that RLS.
+- **Stage rules live in a trigger, not in page code.** Draft → Internal
+  Review by the author; Internal Review → Released → Approved by a
+  **reviewer** (`technicians.can_review`) only, and **never their own
+  design**; any → Draft by a reviewer only; Approved content is read-only
+  until sent back. Pages mirror the rules to keep buttons honest, but the
+  database is the one saying no — its error text is shown verbatim.
+- `can_review` is deliberately separate from `all_plants`: "sees every
+  plant" and "may approve" are different powers, even though the same 12
+  Central Office people hold both today. The seed script sets both by
+  company.
+- **`author_name` is denormalised onto `designs` on purpose.** Contractors
+  can only read their own `technicians` row, so a join would leave the
+  review queue nameless. The trigger fills it from the caller's row.
+- **Reviewers land on the Portal's Designs list; contractors reach it as
+  "My designs".** Opening a row goes to `designbook.html?design=<id>` and
+  the row is the job — nothing else is read from the URL.
+- The RLS and stage rules were verified with a rolled-back transaction
+  impersonating a contractor, a reviewer and an unrelated technician (13
+  checks) before any page pointed at the table. `execute_sql` runs
+  read-only; a write test has to go through `apply_migration` and end in
+  `raise exception` so nothing is recorded — that pattern is worth reusing.
+
 ### Pages downstream of login
 
 - **No session plumbing is needed between pages.** The Supabase JS client

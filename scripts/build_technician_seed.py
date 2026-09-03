@@ -190,6 +190,8 @@ def main():
         f.write(
             "\nupdate technicians set all_plants = true\n"
             " where company = 'Central Office Materials' and not all_plants;\n"
+            "update technicians set can_review = true\n"
+            " where company = 'Central Office Materials' and not can_review;\n"
         )
 
     with open(access_sql, "w", encoding="utf-8") as f:
