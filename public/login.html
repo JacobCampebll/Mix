@@ -91,9 +91,13 @@
   .brand img{width:min(250px, 100%); height:auto; display:block;}
   .brand .rule{width:100%; height:4px; border-radius:2px;
                background:linear-gradient(90deg, var(--sky) 0 35%, var(--gold) 80% 100%);}
-  .wordmark{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:22px; letter-spacing:.02em;}
-  .wordmark span{color:var(--accent);}
-  .books{font-size:12px; color:var(--muted); letter-spacing:.04em; text-transform:uppercase;}
+  /* Brand stack: what this is, then the two books it covers, then the caveat. */
+  .wordmark{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:23px; letter-spacing:.01em;
+            line-height:1.15; text-align:center;}
+  .booknames{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:16px; letter-spacing:.01em;
+             margin-top:-6px;}
+  .booknames span{color:var(--accent);}
+  .books{font-size:11px; color:var(--muted); letter-spacing:.05em; text-transform:uppercase; margin-top:-8px;}
 
   .view{padding:8px 28px 28px;}
   .view h1{font-size:20px; margin-bottom:4px;}
@@ -154,8 +158,9 @@
   <div class="brand">
     <img src="assets/kytc-logo.png" alt="Team Kentucky Transportation Cabinet">
     <div class="rule"></div>
-    <div class="wordmark">Mix <span>·</span> DesignBook</div>
-    <div class="books">KYTC mix designs · PlantBook to follow</div>
+    <div class="wordmark">Asphalt Mixtures</div>
+    <div class="booknames">Design<span>Book</span> · Plant<span>Book</span></div>
+    <div class="books">PlantBook to follow</div>
   </div>
 
   <!-- Sign in -->
