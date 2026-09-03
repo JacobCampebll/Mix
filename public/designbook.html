@@ -704,6 +704,8 @@ const state = {
   // and their fields fall back to free text.
   ref: Object.assign({ loaded: false, error: null },
          ...Object.keys(CONFIG.REFERENCE.TABLES).map((k) => ({ [k]: [] }))),
+  dirty: false,      // edits since the last save (a stage move saves them first)
+  savedExtractedFrom: null, // extracted_from as loaded from a saved design
   designId: null,    // designs.id once saved / when opened via ?design=
   authorUserId: null,
   canReview: false,  // technicians.can_review - may move past Internal Review, send back to Draft
@@ -819,7 +821,7 @@ function sievesHTML(section) {
     const v = state.extracted ? (state.extracted.scalars[k] || "") : "";
     return `<div class="sieve"><div class="sz">${s.label}</div>
       <input type="text" inputmode="decimal" class="req" data-field="${k}"
-             data-mm="${s.mm}" value="${v}" placeholder="—"></div>`;
+             data-mm="${s.mm}" value="${esc(v)}" placeholder="—"></div>`;
   }).join("");
   return `<div class="sieverow">${cells}</div>
     <div class="chartwrap">
@@ -993,9 +995,14 @@ function renderStage() {
   // Who may do what is decided by the database trigger (supabase/designs.sql);
   // this only mirrors those rules so the button is honest before you click.
   const isAuthor = !state.designId || state.authorUserId === (state.tech && state.tech.user_id);
+  // The SELECT policy lets anyone with access to the plant read a design; the
+  // UPDATE policy lets only its author or a reviewer change it. Everyone else
+  // gets a read-only form, not a Save that silently updates zero rows.
+  const canEdit = isAuthor || state.canReview;
   const btn = $("advanceStage"), back = $("sendBackStage"), note = $("stageNote");
   let allowed = true, why = "";
   if (!s.next) { allowed = false; }
+  else if (!canEdit) { allowed = false; why = "Read-only: only the author or a KYTC reviewer can change this design."; }
   else if (state.stageIdx >= 1 && !state.canReview) { allowed = false; why = "Moving a design past Internal Review is a KYTC Central Office reviewer's action."; }
   else if (state.stageIdx >= 1 && state.canReview && isAuthor) { allowed = false; why = "You authored this design; another reviewer must release or approve it."; }
   btn.disabled = !allowed || state.saving;
@@ -1003,7 +1010,7 @@ function renderStage() {
   back.classList.toggle("hidden", !(state.canReview && state.stageIdx > 0 && state.designId));
   back.disabled = state.saving;
   note.textContent = why || (s.key === "Approved" ? "Approved designs are read-only until a reviewer sends them back to Draft." : "");
-  const frozen = s.key === "Approved";
+  const frozen = s.key === "Approved" || !canEdit;
   $("saveBtn").disabled = frozen || state.saving;
   document.querySelectorAll("#sections input, #sections select").forEach((el) => { el.disabled = frozen; });
 }
@@ -1045,7 +1052,7 @@ function audit(text) {
   const t = new Date();
   const ts = `${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ` +
              `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
-  row.innerHTML = `<span class="ts">${ts}</span> ${text}`;
+  row.innerHTML = `<span class="ts">${ts}</span> ${esc(text)}`;
   $("auditlog").insertBefore(row, $("auditlog").firstChild);
 }
 
@@ -1373,7 +1380,9 @@ function designRow() {
     origin: state.mode,
     values,
     rows,
-    extracted_from: state.sources,
+    // A fresh import/prefill records its sources; a reopened design keeps the
+    // provenance it was saved with instead of overwriting it with {}.
+    extracted_from: Object.keys(state.sources).length ? state.sources : (state.savedExtractedFrom || {}),
     legacy_import: state.legacy ? { version: state.legacy.version.label, context: state.legacy.context, unmapped: state.legacy.unmapped } : null,
   };
 }
@@ -1406,6 +1415,7 @@ async function saveDesign() {
     show("payloadWrap", true);
     const t = new Date(data.updated_at);
     $("savedstate").textContent = `Saved ${t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    state.dirty = false;
     $("mixid").textContent = designLabel();
     msg($("saveMsg"), `Saved. Design ${data.id.slice(0, 8)} · ${data.stage}.`, "ok");
     await loadEvents();
@@ -1421,7 +1431,8 @@ async function saveDesign() {
 // Stage moves are a single-column update; the trigger enforces who may do
 // what and one step at a time. Its error text is shown verbatim.
 async function setStage(nextKey) {
-  if (!state.designId) { const saved = await saveDesign(); if (!saved) return; }
+  // Unsaved edits go with the stage move; otherwise a reviewer opens stale content.
+  if (!state.designId || state.dirty) { const saved = await saveDesign(); if (!saved) return; }
   state.saving = true; renderStage();
   const { data, error } = await sb.from("designs").update({ stage: nextKey }).eq("id", state.designId).select("stage").single();
   state.saving = false;
@@ -1451,6 +1462,7 @@ async function loadDesign(id) {
   state.mix = d.mix_signature ? { signature: d.mix_signature, ...(d.mix || {}), lines: (d.mix && d.mix.bid_lines) || [], source: "saved design" } : null;
   state.extracted = { scalars: d.values || {}, tables: d.rows || {} };
   state.sources = {};                       // saved values are not provisional
+  state.savedExtractedFrom = d.extracted_from || {};   // but where they came from is kept on re-save
   state.legacy = d.legacy_import ? { version: { label: d.legacy_import.version }, context: d.legacy_import.context || [], unmapped: d.legacy_import.unmapped || [], log: [], sheets: [], scalars: {}, sources: {}, tables: {} } : null;
   state.stageIdx = Math.max(0, CONFIG.STAGES.findIndex((x) => x.key === d.stage));
   return d;
@@ -1499,6 +1511,7 @@ function wireForm() {
       e.target.classList.remove("prefilled", "autofilled");
       autofillFrom(e.target);
       recompute();
+      state.dirty = true;
       $("savedstate").textContent = "Edited — not saved";
     }
   });
@@ -1801,11 +1814,12 @@ function enterForm() {
 async function boot(session) {
   if (!session || !session.user) return toLogin();
   try {
-    const { data: tech } = await sb
+    const { data: tech, error: techErr } = await sb
       .from("technicians")
       .select("sm_id, first_name, last_name, company, onboarded, can_review, user_id")
       .eq("user_id", session.user.id)
       .maybeSingle();
+    if (techErr) throw new Error(techErr.message);   // a failed query is not "not linked"
 
     if (!tech) {
       msg($("gateMsg"), "Signed in, but this account isn't linked to a technician. Contact an admin.", "error");
@@ -1825,11 +1839,12 @@ async function boot(session) {
     // and loadReferenceData() upgrades them in place when it settles.
     const refReady = loadReferenceData();
 
-    const { data: caps } = await sb
+    const { data: caps, error: capsErr } = await sb
       .from("technician_capabilities")
       .select("can_access_plantbook, can_access_designbook")
       .eq("user_id", session.user.id)
       .maybeSingle();
+    if (capsErr) throw new Error(capsErr.message);
 
     if (!caps || !caps[CONFIG.REQUIRES_CAPABILITY]) {
       msg($("gateMsg"),
