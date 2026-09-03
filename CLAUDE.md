@@ -413,6 +413,17 @@ one column:
   (`from Sheet1!C14`) underneath, and ship `extracted_from` in the save
   payload. An extracted value is a starting point for a human, never an
   authority. Keep that visible in any future importer.
+- **The Portal is the act of submitting, not a catalogue.** Four steps:
+  contract & plant, mix (from `kytc-lookup`, always skippable unless
+  `CONFIG.MIX_LOOKUP.required`), how (upload a MixPack or build in
+  DesignBook), then fill in & submit - which is DesignBook's Draft ->
+  Internal Review move. "My submissions" / "Review queue" is one list behind
+  a top-bar link; contractors see stages collapsed on purpose (Draft = Not
+  submitted, Internal Review and Released = In review) via
+  `CONFIG.CONTRACTOR_STAGES`, reviewers see the raw names. Chosen from five
+  mocked directions on 2026-09-03; the approval PDF and the SiteManager /
+  AASHTOWare Project hand-off are still to build.
+
 
 ### Reference data (aggregates, binders)
 
