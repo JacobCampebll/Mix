@@ -232,6 +232,23 @@ TBD — cite the governing spec section when encoding a limit in code.
   must carry the code as an unmapped/provisional value and let the human
   pick the type — never pick the first match.
 
+- **Every string that reaches `innerHTML` goes through `esc()`, including
+  values read back from our own tables.** A saved design's `values` are
+  rendered for whoever opens it next, and reviewers open every design from
+  the Portal queue - so an unescaped `value="${v}"` in the sieve inputs was
+  a cross-user stored XSS, not a self-XSS. Found by an adversarial review
+  2026-09-03; the sieve and audit sinks were the only unescaped ones. Data
+  from Supabase is not "ours" once it has been through another user's
+  browser: escape it like any other input.
+
+- **An UPDATE that RLS filters out surfaces as `PGRST116` ("JSON object
+  requested, multiple (or no) rows returned"), not as a permission
+  error.** Postgres updates 0 rows, `.single()` then complains about the
+  count. A same-plant technician who can read a design but is neither its
+  author nor a reviewer used to hit this on Save and lose their edits. Pages
+  mirror the UPDATE policy in the UI (read-only form) so the message is
+  never the first thing a person learns about their permissions.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
