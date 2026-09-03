@@ -398,11 +398,20 @@
         return;
       }
 
-      const { data: tech } = await supabase
+      const { data: tech, error: techError } = await supabase
         .from("technicians")
         .select("sm_id, first_name, last_name, company, onboarded")
         .eq("user_id", session.user.id)
         .maybeSingle();
+
+      if (techError) {
+        // A failed query (network, expired token, 5xx) is not "not linked" -
+        // say what happened and let them retry instead of sending them to
+        // an admin for a transient error.
+        showOnly(authView);
+        setStatus(`Signed in, but your technician record could not be loaded: ${techError.message}. Reload to try again.`, "error");
+        return;
+      }
 
       if (!tech) {
         // Every real technician account is bulk-provisioned already linked
@@ -435,13 +444,20 @@
       // point - a lapsed cert drops that access until the roster is
       // updated and re-seeded. This is the same query the eventual
       // DesignBook/PlantBook app should run to decide what to show.
-      const { data: caps } = await supabase
+      const { data: caps, error: capsError } = await supabase
         .from("technician_capabilities")
         .select("can_access_plantbook, can_access_designbook")
         .eq("user_id", session.user.id)
         .maybeSingle();
 
       sessionAccess.innerHTML = "";
+      if (capsError) {
+        // Not "no certification" - the lookup failed. Denied badges here would
+        // tell a fully certified technician they have nothing.
+        sessionHint.textContent = `Could not load your certifications: ${capsError.message}. Reload to try again.`;
+        sessionHint.hidden = false;
+        return;
+      }
       // A granted badge is the way into the app - it links to the Portal
       // with ?book= so the Portal knows which book was chosen. A denied
       // badge stays an inert span: nothing to click through to.
@@ -485,7 +501,8 @@
       try {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        setStatus("Signed in.", "success");
+        // No "Signed in." here: onAuthStateChange has already run refreshView,
+        // which either switched views or set an error this line would overwrite.
       } catch (err) {
         setStatus(err.message || "Something went wrong.", "error");
       } finally {
@@ -530,8 +547,11 @@
         const { error: pwError } = await supabase.auth.updateUser({ password: newPassword });
         if (pwError) throw pwError;
 
-        const { error: markError } = await supabase.rpc("mark_technician_onboarded");
+        const { data: marked, error: markError } = await supabase.rpc("mark_technician_onboarded");
         if (markError) throw markError;
+        // The function returns false when no technicians row matches this
+        // account; without this check the step re-renders silently.
+        if (marked !== true) throw new Error("Your password was changed, but the account could not be marked as set up. Contact an admin.");
 
         const { data } = await supabase.auth.getSession();
         await refreshView(data.session);
