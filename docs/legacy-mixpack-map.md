@@ -98,3 +98,121 @@ version-specific Recycle table cells).
 | Aggregate rows | 6 (mat codes present) | 6 (mat codes `not-cached`) |
 | CT specimens | 6 (CTIndex row) | 0 (none entered) |
 | Job context | plant + mix **match** | plant + mix **MISMATCH** (it is a different mix) |
+
+---
+
+# Addendum — `#489PA.xlsm` (Ver 12.1, MIXPACK2026), read 2026-09-03
+
+A third real workbook (`docs/#489PA.xlsm`). `Design Data!U3 = "Ver 12.1"`,
+Recycle header at `D11` → version key `12.1`. Design Data summary column
+(`O56–O75`) and the TSR result cells are **formulas with no cached value**
+here (the migrator gotcha above), but Gradation column T, the aggregate rows,
+Recycle Data, **Performance Specimens**, **KYCT Data** and **Hamburg Data**
+are all cached and real. This addendum maps the sections added in the
+2026‑09‑03 DesignBook layout pass; the older map above still describes what
+`CONFIG.LEGACY` currently targets.
+
+## Contract Information section (all from `Design Data`, both versions)
+
+| Field | Cell | Note |
+|---|---|---|
+| county | `K10` | `CUMBERLAND` |
+| total_tons (Tonnage) | `Q12` | input, cached; "must equal sum on Project Items tab" |
+| submittal_type | `R10` | e.g. `Ref. Mix Design (project change only)` — legacy wording ≠ form options |
+| binder_grade | `C18` | `PG64-22`; formula, cached both versions |
+| binder_supplier | `A17` | BINDER SOURCE & LOC., e.g. `ATS Asphalt Terminal @ Lexington` (label in `A16`) |
+| funding | `C12` | FED/STATE #, e.g. `STP BRZ 9030(520)` |
+| project_items | Project Items tab | rows from `A6/B6/C6/D6` = prj_nbr / line item / repr. qty / unit; contractor adds rows |
+| project_number | `C14` | PROJ. (ITEM), e.g. `BR02900902600 (0025)` |
+| depth_mm | `K20` | `0` in this file |
+| rap_note | `Recycle!F18` (12.1) · `A19`→`Recycle!C27` (11.x) | e.g. `Use PG 64-22 virgin binder` |
+| esal | `H20` | class 1–5 |
+| designer | `K16` | SUBMITTED BY — an SM ID (`bdevore`), not a name |
+
+Also handy on `Design Data`: CONTRACT ID `C8`, letting date `H8`,
+CNTR. PROD. # `Q14` (the plant AMP number, e.g. `AMP080402`),
+BIND. PROD. # `H18` (LAP number → `binder_terminals`), MIX MAT. CODE `Q16`,
+BINDER CODE `C20`, MIX ID NUM `H10`.
+
+## Gradation — full 14-sieve vertical table
+
+`Design Data` column **T** (JMF %), sieve label in column **S**, both versions:
+
+| Sieve | Cell | | Sieve | Cell |
+|---|---|---|---|---|
+| 2"     | T15 | | #4   | T22 |
+| 1‑1/2" | T16 | | #8   | T23 |
+| 1"     | T17 | | #16  | T24 |
+| 3/4"   | T18 | | #30  | T25 |
+| 1/2"   | T19 | | #50  | T26 |
+| 3/8"   | T20 | | #100 | T27 |
+| 1/4"   | T21 | | #200 | T28 |
+
+An unused sieve reads `N / A` (e.g. `1/4"` on a 3/8"-nominal mix) — keep the
+row, show N/A. Column `U` is "WeighUp" (batch weights), not JMF.
+
+## Tensile Strength Ratio (TSR) box — sheet `TSR`
+
+Header block rows 9–15 mirrors the others (MIX ID `B9`, COUNTY `H9`, TYPE OF
+MIX `L9`, PROJ.# `B11`, LAB `H11`, CONTR & LOC `L11`, BIND GRADE `B13`,
+**TSRs made with** `H13`, TEST METHOD `L13`, BIND SOURCE `B15`, MIX/COMP TEMP
+`H15`). `% AC` label `G17`, `% ADDITIVE` `H17`, `TYPE OF ADDITIVE` `G19`.
+
+| Form field | Cell | Formula / meaning |
+|---|---|---|
+| tsr_pct (without additive) | `G57` | `=H54/H55*100` |
+| tsr_pct_additive (with additive) | `N57` | `=O54/O55*100` |
+| tsr_wet_strength (psi) | `H54` (no-additive avg of `B54:G54`) · `O54` (with-additive) | |
+| tsr_dry_strength (psi) | `H55` (avg `B55:G55`) · `O55` | |
+| tsr_additive type / % | `G19` (type) + `H17`/`H19` (%) | text |
+
+Per-specimen columns: no-additive set `B:G` (avg `H`), with-additive set
+`I:N` (avg `O`); rows 30–41 conditioned-vs-dry, rows 48–55 the conditioned
+break. In `#489PA` all of this is blank (TSR not run/entered for this mix).
+
+## Performance Testing box — sheets `Performance Specimens`, `KYCT Data`, `Hamburg Data`
+
+**Performance Specimens** — header rows 9–15 (same shape); **MADE WITH**
+(binder) `H13`. Specimen table rows 32–41, Sample ID row `32` across
+`B..G` (+ avg `H`) and `I..N` (+ avg `O`); first six are 95 mm (Hamburg
+height), next four 62 mm (CT height):
+
+| Row | | Row | |
+|---|---|---|---|
+| Diameter (mm) | 33 | Volume (cm³) | 38 |
+| Thickness (mm) | 34 | Bulk Spec. Gravity | 39 |
+| Dry Weight (g) | 35 | Max. Sp. Gravity | 40 |
+| SSD Weight (g) | 36 | % Air Voids | 41 (avg `H41`/`O41`) |
+| Wt. in Water (g) | 37 | | |
+
+Performance Approval block rows 47–50: `A47` label, `B48/B49` date,
+`D48/D49` KYTC rep, **`F48`/`F49` CT Index AVG** (111 / 112 here),
+`D50` "Performance Approved Until" (auto: +36 mo for PG64-22, +24 for
+PG76-22).
+
+**KYCT Data** (`V1.03`, "850 – IDEAL-CT") — label columns `A,C,E,G,I,K,M,O`,
+value one column right, up to 8 specimens:
+
+| Field | Row | `#489PA` values (6 specimens) |
+|---|---|---|
+| Series Name (specimen id) | 16 | `38dcolrapct01C.ITD` … |
+| Sample N ID | 22 | |
+| l75 | 14 | |
+| m75 | 18 | |
+| Gf | 20 | |
+| **CTIndex** | 21 | 120.0, 110.2, 108.1, 108.9, 108.5, 116.1 |
+| Air Voids | 24 | |
+
+Per the ask, the DesignBook KYCT rows need only **specimen # (row 16 or 22)
+and CT index (row 21)**.
+
+**Hamburg Data** — header rows 9–15 (same); **MADE WITH** `H13`, TEST METHOD
+`L13` (`AASHTO T324`). The results box:
+
+| Field | Cell(s) | `#489PA` |
+|---|---|---|
+| Pass Count → deformation table | `G19:G24` counts, `J19:J24` left, `M19:M24` right | 100→0.668/0.727 … 25000 |
+| Max Deformation (left / right) | `J26` / `M26` | 12.802 / 11.991 |
+| Pass Number at max (left / right) | `J27` / `M27` | 13468 / 20082 |
+| SIP (left / right) | `J28` / `M28` | 13963 / — |
+| Stripping-limit criteria | `E18:E22` | plot count, depth, count, creep-slope starts |

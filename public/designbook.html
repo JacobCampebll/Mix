@@ -70,9 +70,10 @@
   a{color:inherit;}
   .hidden{display:none !important;}
 
-  .topbar{position:sticky; top:0; z-index:10; background:var(--paper);
-          border-bottom:1px solid var(--line); padding:14px 32px;
-          display:flex; align-items:center; gap:16px; flex-wrap:wrap;}
+  /* frozen header: wordmark bar + job strip both stay pinned on scroll */
+  .appbar{position:sticky; top:0; z-index:20; background:var(--paper);
+          border-bottom:1px solid var(--line);}
+  .topbar{padding:14px 32px 10px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;}
   .wordmark{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:18px; letter-spacing:.02em;}
   .wordmark span{color:var(--accent);}
   .mixid{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--muted);
@@ -92,7 +93,7 @@
   @media (max-width:1080px){ .layout{grid-template-columns:minmax(0,1fr); } .nav,.valpanel{position:static;} }
 
   /* left ledger rail */
-  .nav{position:sticky; top:66px; align-self:start; padding-left:4px;}
+  .nav{position:sticky; top:132px; align-self:start; padding-left:4px;}
   .navtitle{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:14px;}
   .navlist{list-style:none; margin:0; padding:0; position:relative;}
   .navlist::before{content:''; position:absolute; left:5px; top:6px; bottom:6px; width:1px; background:var(--line);}
@@ -104,17 +105,17 @@
   .tick.filled{background:var(--accent);}
   .tick.partial{background:linear-gradient(90deg,var(--accent) 50%, var(--panel) 50%);}
 
-  /* job context strip */
-  .jobstrip{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px;}
-  .jobchip{flex:1; min-width:120px; background:var(--panel); border:1px solid var(--line);
-           border-radius:8px; padding:9px 12px;}
+  /* job context strip — lives inside .appbar so it stays frozen on scroll */
+  .jobstrip{display:flex; gap:10px; flex-wrap:wrap; padding:0 32px 12px;}
+  .jobchip{flex:1 1 180px; background:var(--panel); border:1px solid var(--line);
+           border-radius:8px; padding:8px 12px;}
   .jobchip small{display:block; color:var(--muted); font-size:10px; text-transform:uppercase;
                  letter-spacing:.05em; margin-bottom:2px;}
   .jobchip span{font-size:14px; font-weight:500;}
 
   /* sections */
   .section{background:var(--panel); border:1px solid var(--line); border-radius:10px;
-           padding:22px 24px; margin-bottom:20px; scroll-margin-top:80px; transition:box-shadow .3s;}
+           padding:22px 24px; margin-bottom:20px; scroll-margin-top:150px; transition:box-shadow .3s;}
   .section.flash{box-shadow:0 0 0 2px var(--accent);}
   .section-head{display:flex; align-items:baseline; justify-content:space-between;
                 margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line); gap:12px;}
@@ -132,6 +133,7 @@
   input.box.mono, select.box.mono{font-family:'IBM Plex Mono',monospace; color:var(--accent);}
   .box:focus{outline:2px solid var(--accent); outline-offset:-1px;}
   .box.prefilled{background:var(--accent-soft);}
+  .box[readonly]{background:#EFEDE6; color:var(--muted); cursor:default;}
   .srcnote{font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--muted); margin-top:3px;}
 
   .rowlist{display:flex; flex-direction:column; gap:8px;}
@@ -147,18 +149,51 @@
           color:var(--accent); font-size:13px; font-family:inherit; cursor:pointer;}
   .addrow:disabled{opacity:.4; cursor:not-allowed; border-style:solid;}
 
-  .sieverow{display:grid; grid-template-columns:repeat(7,1fr); gap:8px;}
-  @media (max-width:700px){ .sieverow{grid-template-columns:repeat(4,1fr);} }
-  .sieve{border:1px solid var(--line); border-radius:var(--radius); background:#FCFCFA;
-         padding:8px 6px; text-align:center;}
-  .sieve .sz{font-size:11px; color:var(--muted); margin-bottom:4px;}
-  .sieve input{width:100%; border:none; background:transparent; text-align:center;
-               font-family:'IBM Plex Mono',monospace; font-size:13px; color:var(--accent);
-               padding:2px 0;}
-  .sieve input:focus{outline:1px solid var(--accent);}
-  .chartwrap{margin-top:14px; border:1px solid var(--line); border-radius:var(--radius);
-             background:#FCFCFA; padding:10px;}
-  .chartwrap .cap{font-size:11px; color:var(--muted); margin-bottom:4px;}
+  /* gradation — vertical sieve / % passing table beside a large 0.45 chart */
+  .gradwrap{display:grid; grid-template-columns:280px minmax(0,1fr); gap:22px; align-items:start;}
+  @media (max-width:900px){ .gradwrap{grid-template-columns:1fr;} }
+  table.sievetable{width:100%; border-collapse:collapse;}
+  table.sievetable th{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);
+                      text-align:left; padding:6px 8px; border-bottom:1px solid var(--line);}
+  table.sievetable td{padding:4px 8px; border-bottom:1px solid var(--line);}
+  table.sievetable td.sz{font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--ink); white-space:nowrap;}
+  table.sievetable input{width:100%; border:1px solid var(--line); background:#FCFCFA; border-radius:var(--radius);
+                         padding:5px 8px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--accent);}
+  table.sievetable input:focus{outline:2px solid var(--accent); outline-offset:-1px;}
+  .chartwrap{border:1px solid var(--line); border-radius:var(--radius); background:#FCFCFA; padding:12px;}
+  .chartwrap .cap{font-size:11px; color:var(--muted); margin-bottom:6px;}
+  .chartwrap #chart svg, .chartwrap #fpchart svg{width:100%; height:auto; display:block;}
+
+  /* four points — mix constants + 4-row design table + curve + results */
+  .fp-consts{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px;}
+  @media (max-width:700px){ .fp-consts{grid-template-columns:1fr 1fr;} }
+  table.fptable{width:100%; border-collapse:collapse; font-size:13px;}
+  table.fptable th{font-size:10px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);
+                   text-align:left; padding:6px 8px; border-bottom:1px solid var(--line);}
+  table.fptable td{padding:5px 8px; border-bottom:1px solid var(--line);}
+  table.fptable input{width:100%; border:1px solid var(--line); background:#FCFCFA; border-radius:var(--radius);
+                      padding:6px 8px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--accent);}
+  table.fptable input:focus{outline:2px solid var(--accent); outline-offset:-1px;}
+  table.fptable td.calc{font-family:'IBM Plex Mono',monospace; color:var(--ink); background:#FAFAF7;}
+  .fp-lower{display:grid; grid-template-columns:minmax(0,1fr) 240px; gap:20px; align-items:start; margin-top:18px;}
+  @media (max-width:900px){ .fp-lower{grid-template-columns:1fr;} }
+  .fp-results{display:flex; flex-direction:column; gap:8px;}
+  .fp-card{background:var(--accent-soft); border-radius:var(--radius); padding:9px 12px;}
+  .fp-card .l{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--accent); margin-bottom:2px;}
+  .fp-card .v{font-family:'IBM Plex Mono',monospace; font-size:16px; color:var(--ink);}
+  .fp-card.hero{background:var(--flag-soft);} .fp-card.hero .l{color:var(--flag);} .fp-card.hero .v{font-size:20px;}
+  .fpnote{font-size:11px; color:var(--muted); margin-top:12px; padding-top:10px; border-top:1px solid var(--line);}
+
+  /* design values — read-only, computed from Four Points */
+  .computed-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
+  @media (max-width:700px){ .computed-grid{grid-template-columns:1fr 1fr;} }
+  .computed-cell{border:1px solid var(--line); border-radius:var(--radius); background:#FAFAF7; padding:10px 12px;}
+  .computed-cell .l{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:4px;}
+  .computed-cell .v{font-family:'IBM Plex Mono',monospace; font-size:16px; color:var(--accent);}
+  .computed-note{font-size:11px; color:var(--muted); margin-top:12px;}
+
+  .rowgroup-head{font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);
+                 margin:14px 0 6px;}
 
   /* status */
   .timeline{display:flex; align-items:center; margin:6px 0 4px;}
@@ -185,7 +220,7 @@
   .auditrow .ts{font-family:'IBM Plex Mono',monospace; color:var(--ink); white-space:nowrap;}
 
   /* right validation rail */
-  .valpanel{position:sticky; top:66px; align-self:start; background:var(--panel);
+  .valpanel{position:sticky; top:132px; align-self:start; background:var(--panel);
             border:1px solid var(--line); border-radius:10px; padding:18px;}
   .valpanel h3{font-size:13px; margin-bottom:4px;}
   .valpanel .sub{font-size:11px; color:var(--muted); margin-bottom:14px;}
@@ -223,17 +258,26 @@
 </head>
 <body>
 
-<div class="topbar">
-  <div class="wordmark">Design<span>Book</span></div>
-  <div class="mixid" id="mixid">MIX ID · —</div>
-  <div class="pill draft" id="statuspill">Draft</div>
-  <div class="spacer"></div>
-  <div class="savedstate" id="savedstate"></div>
-  <div class="whoami">
-    <div id="whoName"></div>
-    <div><a id="portalLink" class="hidden">← Portal</a> <a id="signOutLink" class="hidden">Sign out</a></div>
+<header class="appbar">
+  <div class="topbar">
+    <div class="wordmark">Design<span>Book</span></div>
+    <div class="mixid" id="mixid">MIX ID · —</div>
+    <div class="pill draft" id="statuspill">Draft</div>
+    <div class="spacer"></div>
+    <div class="savedstate" id="savedstate"></div>
+    <div class="whoami">
+      <div id="whoName"></div>
+      <div><a id="portalLink" class="hidden">← Portal</a> <a id="signOutLink" class="hidden">Sign out</a></div>
+    </div>
   </div>
-</div>
+  <!-- Frozen job strip — stays pinned while the form scrolls. Plant shows
+       "AMP… — Plant Name" once the plants table lookup resolves. -->
+  <div class="jobstrip" id="jobStrip" hidden>
+    <div class="jobchip"><small>Contract ID</small><span id="outContract"></span></div>
+    <div class="jobchip"><small>Letting Date</small><span id="outLetting"></span></div>
+    <div class="jobchip"><small>Plant</small><span id="outPlant"></span></div>
+  </div>
+</header>
 
 <!-- ===== GATE (auth / cert / missing job) ===== -->
 <div class="centercard" id="gateCard">
@@ -268,11 +312,6 @@
   </nav>
 
   <main>
-    <div class="jobstrip">
-      <div class="jobchip"><small>Contract ID</small><span id="outContract"></span></div>
-      <div class="jobchip"><small>Letting Date</small><span id="outLetting"></span></div>
-      <div class="jobchip"><small>Plant</small><span id="outPlant"></span></div>
-    </div>
     <div id="sections"></div>
 
     <details id="inspectorWrap" class="hidden">
@@ -489,51 +528,55 @@ const CONFIG = {
   },
 
   /* ---- THE FORM ------------------------------------------------
-     Single source of truth for markup, xlsx extraction, the
-     validation rail, and the save payload.
+     Single source of truth for markup, the validation rail, and the
+     save payload.
 
      Section types:
-       grid    — fields laid out 3-up
-       rows    — repeating rows (aggregate components, CT specimens)
-       sieves  — gradation strip + 0.45 power chart
-       status  — workflow timeline + audit log
+       grid       — fields laid out 3-up
+       rows       — repeating rows; `rows` may be one spec or an array
+                    of specs (each can carry a `heading`)
+       sieves     — vertical sieve / %-passing table + large 0.45 chart
+       fourpoint  — mix constants + 4-row Pb/Gmb/Gmm table + curve fit;
+                    this is the engine behind the `design-values` section
+       computed   — read-only cells, filled from the Four Points result
+       status     — workflow timeline + audit log
      A section may have BOTH `fields` (grid) and `rows`.
 
      Field props: key, label, type (text|number|select|date),
-       req (counts toward completeness), options (for select),
-       mono (styling). Where a legacy MixPack supplies the value is NOT
-       here — see CONFIG.LEGACY, keyed by these same field keys.
+       req (counts toward completeness), options (for select), mono.
+
+     NOTE — layout pass 2026-09-03: sections/fields were restructured
+     (Contract Information, Aggregate Structure, Four Points, computed
+     Design Values, standalone TSR, merged Performance Testing). The
+     legacy-MixPack importer in CONFIG.LEGACY still targets the OLD field
+     keys (ac_pct, gmm_ini, hamburg_with, hamburg_sip, the old sieve
+     labels, …) and needs a separate re-alignment pass before Legacy
+     Upload will populate this form correctly again.
      -------------------------------------------------------------- */
   SECTIONS: [
     {
-      id: "header", label: "Header & submittal", tag: "t_smpl · discipline", type: "grid",
+      id: "contract", label: "Contract Information",
+      tag: "will pull from a KYTC contract lookup", type: "grid",
       fields: [
-        { key: "county",         label: "County",        type: "text",   req: true },
-        { key: "submittal_type", label: "Submittal type", type: "select", req: true,
+        { key: "county",          label: "County",          type: "text",   req: true },
+        { key: "total_tons",      label: "Tonnage",         type: "number", req: true, mono: true },
+        { key: "submittal_type",  label: "Submittal type",  type: "select", req: true,
           options: ["Mix design spreadsheet", "Field change", "Annual renewal"] },
-        { key: "total_tons",     label: "Total tons",    type: "number", req: true, mono: true },
-        { key: "depth_mm",       label: "Depth (mm)",    type: "number", req: true, mono: true },
-        { key: "binder_grade",   label: "Binder grade",  type: "text",   req: true, mono: true },
-        { key: "rap_note",       label: "RAP note",      type: "text",   req: false },
-      ],
-    },
-    {
-      id: "design-data", label: "Design data", tag: "t_superpave", type: "grid",
-      fields: [
-        { key: "ac_pct",   label: "AC (%)",         type: "number", req: true, mono: true },
-        { key: "gmm_ini",  label: "Gmm ini",        type: "number", req: true, mono: true },
-        { key: "av_pct",   label: "AV (%)",         type: "number", req: true, mono: true },
-        { key: "vma_pct",  label: "VMA (%)",        type: "number", req: true, mono: true },
-        { key: "vfa_pct",  label: "VFA (%)",        type: "number", req: true, mono: true },
-        { key: "uw",       label: "UW (lbs/ft³)",   type: "number", req: true, mono: true },
-        { key: "msg",      label: "MSG",            type: "number", req: true, mono: true },
-        { key: "esal",     label: "ESAL class",     type: "select", req: true,
+        { key: "binder_grade",    label: "Binder grade",    type: "text",   req: true, mono: true },
+        { key: "binder_supplier", label: "Binder supplier", type: "text",   req: true },
+        { key: "funding",         label: "Funding",         type: "text",   req: true },
+        { key: "project_items",   label: "Project items",   type: "text",   req: false },
+        { key: "project_number",  label: "Project number",  type: "text",   req: true, mono: true },
+        { key: "depth_mm",        label: "Depth (mm)",      type: "number", req: true, mono: true },
+        { key: "rap_note",        label: "RAP note",        type: "text",   req: false },
+        { key: "esal",            label: "ESAL class",      type: "select", req: true,
           options: ["<0.3M", "0.3 – 3M", "3 – 10M", "10 – 30M", ">30M"] },
-        { key: "designer", label: "Designer",       type: "text",   req: true },
+        { key: "designer",        label: "Designer",        type: "text",   req: true },
       ],
     },
     {
-      id: "aggregate", label: "Aggregate blend", tag: "t_bit_conc_mixblnd", type: "rows",
+      id: "aggregate", label: "Aggregate Structure",
+      tag: "dropdowns from Supabase reference / legacy MixPack", type: "rows",
       rows: {
         key: "aggregate", max: 6, addLabel: "+ add aggregate component (up to 6)",
         grid: "1.4fr 1.2fr 1fr .8fr .8fr auto",
@@ -547,46 +590,120 @@ const CONFIG = {
       },
     },
     {
-      id: "gradation", label: "Gradation", tag: "t_tst_rslt_dtl", type: "sieves",
-      // mm sizes drive the 0.45 power chart's x positions.
+      id: "gradation", label: "Gradation", tag: "% passing by sieve · 0.45 power chart", type: "sieves",
+      // `key` is explicit (fraction labels don't survive a slug), `mm` drives
+      // the 0.45 power chart x-position. Full KYTC set, 2" → #200; the target
+      // band will trim to the mix's nominal max size in a later pass.
       sieves: [
-        { label: '3/4"', mm: 19.0 },
-        { label: '1/2"', mm: 12.5 },
-        { label: '3/8"', mm: 9.5 },
-        { label: "#4",   mm: 4.75 },
-        { label: "#8",   mm: 2.36 },
-        { label: "#50",  mm: 0.300 },
-        { label: "#200", mm: 0.075 },
+        { key: "s50",    label: '2"',     mm: 50.0  },
+        { key: "s37_5",  label: '1-1/2"', mm: 37.5  },
+        { key: "s25",    label: '1"',     mm: 25.0  },
+        { key: "s19",    label: '3/4"',   mm: 19.0  },
+        { key: "s12_5",  label: '1/2"',   mm: 12.5  },
+        { key: "s9_5",   label: '3/8"',   mm: 9.5   },
+        { key: "s6_3",   label: '1/4"',   mm: 6.3   },
+        { key: "s4_75",  label: "#4",     mm: 4.75  },
+        { key: "s2_36",  label: "#8",     mm: 2.36  },
+        { key: "s1_18",  label: "#16",    mm: 1.18  },
+        { key: "s0_6",   label: "#30",    mm: 0.600 },
+        { key: "s0_3",   label: "#50",    mm: 0.300 },
+        { key: "s0_15",  label: "#100",   mm: 0.150 },
+        { key: "s0_075", label: "#200",   mm: 0.075 },
       ],
     },
     {
-      id: "performance", label: "Performance testing",
-      tag: "t_tst_rslt_dtl · TSR / Hamburg / CT", type: "grid",
-      fields: [
-        { key: "tsr_pct",      label: "TSR (%)",             type: "number", req: true, mono: true },
-        { key: "hamburg_with", label: "Hamburg made with",   type: "select", req: true,
-          options: ["Job mix", "Lab mix"] },
-        { key: "hamburg_sip",  label: "Hamburg SIP (left)",  type: "number", req: true, mono: true },
+      id: "fourpoint", label: "Four Points",
+      tag: "R35 §10.1 · Pb(design), ±0.5%, +1.0%", type: "fourpoint",
+      // Mix-level constants. gsb / p075 auto-fill from Aggregate Structure and
+      // Gradation; va_target is the KYTC default. All stay editable.
+      constants: [
+        { key: "fp_gsb",   label: "Combined Gsb",        auto: "aggregate", value: "" },
+        { key: "fp_gb",    label: "Binder sp. gravity (Gb)", value: "1.030" },
+        { key: "fp_p075",  label: "% passing #200",      auto: "gradation", value: "" },
+        { key: "fp_vatgt", label: "Design air-void target (%)", value: "3.5" },
       ],
-      rows: {
-        key: "ct", max: 8, addLabel: "+ add CT specimen (up to 8)",
-        grid: "1fr 1fr 1fr 1fr 1fr auto",
-        columns: [
-          { key: "specimen", label: "Specimen", type: "text",   req: true, mono: true },
-          { key: "l75",      label: "l75",      type: "number", req: true, mono: true },
-          { key: "m75",      label: "m75",      type: "number", req: true, mono: true },
-          { key: "gf",       label: "Gf",       type: "number", req: true, mono: true },
-          { key: "index",    label: "Index",    type: "number", req: true, mono: true },
-        ],
-      },
+      // Four gyratory design points.
+      points: [
+        { pb: "4.3", gmb: "", gmm: "" },
+        { pb: "4.8", gmb: "", gmm: "" },
+        { pb: "5.3", gmb: "", gmm: "" },
+        { pb: "5.8", gmb: "", gmm: "" },
+      ],
     },
     {
-      id: "recycle", label: "Recycle / KYCT data", tag: "t_tst_rslt_dtl", type: "grid",
+      id: "design-values", label: "Design Values",
+      tag: "computed from Four Points", type: "computed",
+      outputs: [
+        { key: "design_pb",  label: "Design Pb (%)" },
+        { key: "gmm_design", label: "Gmm at design" },
+        { key: "gmb_design", label: "Gmb at design" },
+        { key: "va_design",  label: "Va (%)" },
+        { key: "vma_design", label: "VMA (%)" },
+        { key: "vfa_design", label: "VFA (%)" },
+        { key: "gse",        label: "Gse" },
+        { key: "pbe",        label: "Pbe (%)" },
+        { key: "dust_pbe",   label: "Dust / Pbe" },
+        { key: "density",    label: "Density (kg/m³)" },
+      ],
+    },
+    {
+      id: "tsr", label: "Tensile Strength Ratio (TSR)",
+      tag: "MixPack · TSR tab", type: "grid",
       fields: [
-        { key: "rap_pct",      label: "RAP (%)",          type: "number", req: true, mono: true },
-        { key: "ras_pct",      label: "RAS (%)",          type: "number", req: true, mono: true },
-        { key: "virgin_ac",    label: "Virgin AC (%)",    type: "number", req: true, mono: true },
-        { key: "additive",     label: "% additive / type", type: "text",  req: false },
+        { key: "tsr_pct",          label: "TSR (%) — without additive", type: "number", req: true,  mono: true },
+        { key: "tsr_pct_additive", label: "TSR (%) — with additive",    type: "number", req: false, mono: true },
+        { key: "tsr_dry_strength", label: "Dry strength (psi)",         type: "number", req: false, mono: true },
+        { key: "tsr_wet_strength", label: "Wet strength (psi)",         type: "number", req: false, mono: true },
+        { key: "tsr_additive",     label: "Anti-strip additive & %",    type: "text",   req: false },
+      ],
+    },
+    {
+      id: "performance", label: "Performance Testing",
+      tag: "MixPack · Performance Specimens / KYCT / Hamburg", type: "grid",
+      fields: [
+        { key: "perf_binder",         label: "Specimens made with (binder)", type: "text",   req: true },
+        { key: "hamburg_left_maxdef",  label: "Hamburg — left max deformation (mm)",  type: "number", req: true,  mono: true },
+        { key: "hamburg_right_maxdef", label: "Hamburg — right max deformation (mm)", type: "number", req: true,  mono: true },
+        { key: "hamburg_left_passmax",  label: "Hamburg — left pass # at max",  type: "number", req: false, mono: true },
+        { key: "hamburg_right_passmax", label: "Hamburg — right pass # at max", type: "number", req: false, mono: true },
+        { key: "hamburg_left_sip",  label: "Hamburg — left SIP (passes)",  type: "number", req: false, mono: true },
+        { key: "hamburg_right_sip", label: "Hamburg — right SIP (passes)", type: "number", req: false, mono: true },
+      ],
+      rows: [
+        {
+          key: "perf_specimens", heading: "Performance specimens", max: 12,
+          addLabel: "+ add performance specimen",
+          grid: "1fr .9fr .9fr .9fr .9fr auto",
+          columns: [
+            { key: "specimen",  label: "Specimen #",    type: "text",   req: true,  mono: true },
+            { key: "dry_wt",    label: "Dry wt (g)",    type: "number", req: true,  mono: true },
+            { key: "ssd_wt",    label: "SSD wt (g)",    type: "number", req: true,  mono: true },
+            { key: "wt_water",  label: "Wt in water (g)", type: "number", req: true, mono: true },
+            { key: "air_voids", label: "Air voids (%)", type: "number", req: false, mono: true },
+          ],
+        },
+        {
+          key: "ct", heading: "KYCT (Kentucky Crack Test)", max: 8,
+          addLabel: "+ add KYCT specimen (up to 8)",
+          grid: "1.2fr 1fr auto",
+          columns: [
+            { key: "specimen", label: "Specimen #", type: "text",   req: true, mono: true },
+            { key: "index",    label: "CT index",   type: "number", req: true, mono: true },
+          ],
+        },
+        {
+          key: "hamburg_curve", heading: "Hamburg — rut depth by pass count", fixed: true,
+          grid: "0.7fr 1fr 1fr",
+          seed: [
+            { passes: "100" }, { passes: "5000" }, { passes: "10000" },
+            { passes: "15000" }, { passes: "20000" }, { passes: "25000" },
+          ],
+          columns: [
+            { key: "passes", label: "Passes",     type: "text",   mono: true, readonly: true },
+            { key: "left",   label: "Left (mm)",  type: "number", mono: true },
+            { key: "right",  label: "Right (mm)", type: "number", mono: true },
+          ],
+        },
       ],
     },
     { id: "status", label: "Status & validation", tag: "workflow", type: "status" },
@@ -633,7 +750,22 @@ function toLogin() { location.replace(CONFIG.LOGIN_URL); }
 function toPortal() { location.href = CONFIG.PORTAL_URL; }
 
 /* ---------- field helpers ---------- */
-function sieveKey(label) { return "sieve_" + label.replace(/[^0-9a-z]/gi, ""); }
+// Legacy importer still calls this with old-style labels; new gradation
+// rows carry an explicit `key` (see CONFIG.SECTIONS) so fraction labels
+// don't collapse to the same slug.
+function sieveKey(label) { return "sieve_" + String(label).replace(/[^0-9a-z]/gi, ""); }
+function gradSection() { return CONFIG.SECTIONS.find((s) => s.type === "sieves"); }
+function fpSection() { return CONFIG.SECTIONS.find((s) => s.type === "fourpoint"); }
+// Row spec by key — `s.rows` is one spec or an array of specs.
+function rowSpec(key) {
+  for (const s of CONFIG.SECTIONS) {
+    if (!s.rows) continue;
+    for (const r of (Array.isArray(s.rows) ? s.rows : [s.rows])) if (r.key === key) return r;
+  }
+  return null;
+}
+function num(v) { const n = parseFloat(v); return Number.isFinite(n) ? n : null; }
+function fmt(v, d) { return v == null || !Number.isFinite(v) ? "—" : v.toFixed(d); }
 
 /* ---------- markup, rendered from CONFIG.SECTIONS ---------- */
 function inputFor(f, value) {
@@ -666,36 +798,94 @@ function rowHTML(spec, values, idx) {
   const cells = spec.columns.map((c) => {
     const v = values ? values[c.key] : "";
     const cls = "box" + (c.mono ? " mono" : "") + (c.req ? " req" : "");
+    const ro = c.readonly ? " readonly tabindex=\"-1\"" : "";
     return `<div><label>${c.label}</label>
-      <input type="text" class="${cls}" data-row="${spec.key}" data-col="${c.key}"
+      <input type="text"${ro} class="${cls}" data-row="${spec.key}" data-col="${c.key}"
              value="${v == null ? "" : String(v).replace(/"/g, "&quot;")}"></div>`;
   }).join("");
+  // Fixed tables (e.g. the Hamburg pass-count grid) have no remove button.
   return `<div class="rowitem" style="grid-template-columns:${spec.grid}">
-    ${cells}<button class="rmbtn" title="Remove">×</button></div>`;
+    ${cells}${spec.fixed ? "" : '<button class="rmbtn" title="Remove">×</button>'}</div>`;
 }
 
 function rowsHTML(spec) {
+  if (spec.fixed) {
+    const rows = (spec.seed || []).map((v, i) => rowHTML(spec, v, i)).join("");
+    return (spec.heading ? `<div class="rowgroup-head">${spec.heading}</div>` : "") +
+      `<div class="rowlist" data-rowlist="${spec.key}">${rows}</div>`;
+  }
   const found = state.extracted ? (state.extracted.tables[spec.key] || []) : [];
   const seed = found.length ? found.slice(0, spec.max) : [null];
-  return `<div class="rowlist" data-rowlist="${spec.key}">
+  return (spec.heading ? `<div class="rowgroup-head">${spec.heading}</div>` : "") +
+    `<div class="rowlist" data-rowlist="${spec.key}">
       ${seed.map((v, i) => rowHTML(spec, v, i)).join("")}
     </div>
     <button class="addrow" data-add="${spec.key}">${spec.addLabel}</button>`;
 }
 
+// `rows` may be one spec or an array of specs (Performance Testing uses two).
+function rowsBlockHTML(rows) {
+  return (Array.isArray(rows) ? rows : [rows]).map(rowsHTML).join('<div style="height:16px"></div>');
+}
+
 function sievesHTML(section) {
-  const cells = section.sieves.map((s) => {
-    const k = sieveKey(s.label);
-    const v = state.extracted ? (state.extracted.scalars[k] || "") : "";
-    return `<div class="sieve"><div class="sz">${s.label}</div>
-      <input type="text" inputmode="decimal" class="req" data-field="${k}"
-             data-mm="${s.mm}" value="${v}" placeholder="—"></div>`;
+  const rows = section.sieves.map((s) => {
+    const v = state.extracted ? (state.extracted.scalars[s.key] || "") : "";
+    return `<tr>
+      <td class="sz">${s.label}</td>
+      <td><input type="text" inputmode="decimal" class="req" data-field="${s.key}"
+             data-mm="${s.mm}" value="${v}" placeholder="—"></td>
+    </tr>`;
   }).join("");
-  return `<div class="sieverow">${cells}</div>
-    <div class="chartwrap">
-      <div class="cap">0.45 power chart — drawn from the sieve values above</div>
-      <div id="chart"></div>
+  return `<div class="gradwrap">
+      <table class="sievetable">
+        <thead><tr><th>Sieve</th><th>% passing</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="chartwrap tall">
+        <div class="cap">0.45 power chart — target gradation band to follow</div>
+        <div id="chart"></div>
+      </div>
     </div>`;
+}
+
+/* ---------- Four Points (R35 §10.5.5 curve fit) ---------- */
+function fourpointHTML(section) {
+  const consts = section.constants.map((c) =>
+    `<div class="field">
+      <label>${c.label}${c.auto ? ` <span class="opt">(auto)</span>` : ""}</label>
+      <input type="text" inputmode="decimal" class="box mono${c.auto ? "" : " req"}"
+             data-fp="const:${c.key}" value="${c.value || ""}" placeholder="—">
+    </div>`).join("");
+  const rows = section.points.map((p, i) => `<tr data-fprow="${i}">
+      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:pb"  value="${p.pb || ""}"></td>
+      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmb" value="${p.gmb || ""}" placeholder="—"></td>
+      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmm" value="${p.gmm || ""}" placeholder="—"></td>
+      <td class="calc" data-fpout="va:${i}">—</td>
+      <td class="calc" data-fpout="vma:${i}">—</td>
+      <td class="calc" data-fpout="vfa:${i}">—</td>
+      <td class="calc" data-fpout="dens:${i}">—</td>
+    </tr>`).join("");
+  return `<div class="fp-consts">${consts}</div>
+    <table class="fptable">
+      <thead><tr>
+        <th>Pb (%)</th><th>Gmb</th><th>Gmm</th>
+        <th>Va (%)</th><th>VMA (%)</th><th>VFA (%)</th><th>Density (kg/m³)</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="fp-lower">
+      <div class="chartwrap"><div class="cap">Va vs Pb — best-fit curve, solved at the air-void target</div><div id="fpchart"></div></div>
+      <div class="fp-results" id="fpResults"></div>
+    </div>
+    <div class="fpnote">Va, VMA and density fit with a 2nd-order least-squares curve; VFA linear — matching R35 Figure 2. Design Pb is the point on the Va curve at the target, rounded to 0.1%. Combined Gsb and %#200 pull from Aggregate Structure / Gradation; type over them to override.</div>`;
+}
+
+function computedHTML(section) {
+  return `<div class="computed-grid">` + section.outputs.map((o) =>
+    `<div class="computed-cell"><div class="l">${o.label}</div>
+       <div class="v" data-dv="${o.key}">—</div></div>`).join("") + `</div>
+    <div class="computed-note">These are read-only — every value is derived from the Four Points inputs above.</div>`;
 }
 
 function statusHTML() {
@@ -713,9 +903,11 @@ function renderForm() {
     let body = "";
     if (s.type === "sieves") body = sievesHTML(s);
     else if (s.type === "status") body = statusHTML();
+    else if (s.type === "fourpoint") body = fourpointHTML(s);
+    else if (s.type === "computed") body = computedHTML(s);
     else {
       if (s.fields) body += gridHTML(s.fields);
-      if (s.rows) body += (s.fields ? '<div style="height:14px"></div>' : "") + rowsHTML(s.rows);
+      if (s.rows) body += (s.fields ? '<div style="height:14px"></div>' : "") + rowsBlockHTML(s.rows);
     }
     return `<section class="section" id="${s.id}" data-section="${s.id}" data-label="${s.label}">
       <div class="section-head"><h2>${s.label}</h2><span class="section-tag mono">${s.tag}</span></div>
@@ -732,47 +924,213 @@ function renderForm() {
   recompute();
 }
 
-/* ---------- 0.45 power chart ---------- */
+/* ---------- 0.45 power chart (large, vertical-table companion) ---------- */
 function drawChart() {
-  const section = CONFIG.SECTIONS.find((s) => s.type === "sieves");
-  const pts = section.sieves.map((s) => {
-    const el = document.querySelector(`[data-field="${sieveKey(s.label)}"]`);
+  const chart = $("chart");
+  if (!chart) return;
+  const pts = gradSection().sieves.map((s) => {
+    const el = document.querySelector(`[data-field="${s.key}"]`);
     const v = parseFloat((el && el.value) || "");
     return { mm: s.mm, label: s.label, p: Number.isFinite(v) ? v : null };
   });
 
-  const W = 100, H = 100, pad = { l: 8, r: 3, t: 4, b: 10 };
+  const W = 480, H = 300, pad = { l: 34, r: 12, t: 14, b: 44 };
   const maxMM = Math.max(...pts.map((p) => p.mm));
   const x = (mm) => pad.l + (Math.pow(mm, 0.45) / Math.pow(maxMM, 0.45)) * (W - pad.l - pad.r);
   const y = (p) => H - pad.b - (p / 100) * (H - pad.t - pad.b);
 
   const grid = pts.map((p) =>
     `<line x1="${x(p.mm).toFixed(1)}" y1="${pad.t}" x2="${x(p.mm).toFixed(1)}" y2="${H - pad.b}"
-       stroke="var(--line)" stroke-width="0.3"/>
-     <text x="${x(p.mm).toFixed(1)}" y="${H - pad.b + 6}" font-size="3.2" fill="var(--muted)"
-       text-anchor="middle">${p.label}</text>`).join("");
+       stroke="var(--line)" stroke-width="0.5"/>
+     <text x="${x(p.mm).toFixed(1)}" y="${H - pad.b + 8}" font-size="8" fill="var(--muted)"
+       text-anchor="end" transform="rotate(-45 ${x(p.mm).toFixed(1)} ${H - pad.b + 8})">${p.label}</text>`).join("");
 
   const have = pts.filter((p) => p.p !== null);
   const line = have.length >= 2
-    ? `<polyline fill="none" stroke="var(--accent)" stroke-width="0.7" points="${
+    ? `<polyline fill="none" stroke="var(--accent)" stroke-width="2" points="${
         have.map((p) => `${x(p.mm).toFixed(1)},${y(p.p).toFixed(1)}`).join(" ")}"/>`
     : "";
   const dots = have.map((p) =>
-    `<circle cx="${x(p.mm).toFixed(1)}" cy="${y(p.p).toFixed(1)}" r="0.9" fill="var(--accent)"/>`).join("");
+    `<circle cx="${x(p.mm).toFixed(1)}" cy="${y(p.p).toFixed(1)}" r="2.4" fill="var(--accent)"/>`).join("");
   const empty = have.length < 2
-    ? `<text x="${W / 2}" y="${H / 2}" font-size="4" fill="var(--muted)" text-anchor="middle">
+    ? `<text x="${W / 2}" y="${H / 2}" font-size="10" fill="var(--muted)" text-anchor="middle">
          enter at least two sieve values</text>`
     : "";
 
-  $("chart").innerHTML =
-    `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:150px;display:block">
-      <line x1="${pad.l}" y1="${H - pad.b}" x2="${W - pad.r}" y2="${H - pad.b}" stroke="var(--line)" stroke-width="0.4"/>
-      <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${H - pad.b}" stroke="var(--line)" stroke-width="0.4"/>
+  chart.innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}">
+      <line x1="${pad.l}" y1="${H - pad.b}" x2="${W - pad.r}" y2="${H - pad.b}" stroke="var(--line)" stroke-width="1"/>
+      <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${H - pad.b}" stroke="var(--line)" stroke-width="1"/>
       ${[0, 25, 50, 75, 100].map((v) =>
-        `<text x="${pad.l - 1.5}" y="${(y(v) + 1.2).toFixed(1)}" font-size="3" fill="var(--muted)"
-           text-anchor="end">${v}</text>`).join("")}
+        `<line x1="${pad.l}" y1="${y(v).toFixed(1)}" x2="${W - pad.r}" y2="${y(v).toFixed(1)}" stroke="var(--line)" stroke-width="0.4"/>
+         <text x="${pad.l - 4}" y="${(y(v) + 3).toFixed(1)}" font-size="8" fill="var(--muted)" text-anchor="end">${v}</text>`).join("")}
+      <text x="${(pad.l + (W - pad.r)) / 2}" y="${H - 4}" font-size="8" fill="var(--muted)" text-anchor="middle">sieve (0.45 power scale)</text>
       ${grid}${line}${dots}${empty}
     </svg>`;
+}
+
+/* ---------- Four Points curve fit + Design Values ----------
+   Ported from designbook_calc_fourpoint.html (R35 §10.5.5). */
+function polyFit(xs, ys, degree) {
+  const n = degree + 1, A = [];
+  for (let i = 0; i < n; i++) A.push(new Array(n + 1).fill(0));
+  for (let k = 0; k < xs.length; k++) {
+    const xk = xs[k], yk = ys[k];
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) A[i][j] += Math.pow(xk, i + j);
+      A[i][n] += yk * Math.pow(xk, i);
+    }
+  }
+  for (let col = 0; col < n; col++) {
+    let piv = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(A[r][col]) > Math.abs(A[piv][col])) piv = r;
+    const tmp = A[col]; A[col] = A[piv]; A[piv] = tmp;
+    for (let r = col + 1; r < n; r++) {
+      const f = A[r][col] / A[col][col];
+      for (let c = col; c <= n; c++) A[r][c] -= f * A[col][c];
+    }
+  }
+  const co = new Array(n).fill(0);
+  for (let r = n - 1; r >= 0; r--) {
+    let s = A[r][n];
+    for (let c = r + 1; c < n; c++) s -= A[r][c] * co[c];
+    co[r] = s / A[r][r];
+  }
+  return co;
+}
+function evalPoly(co, x) { let s = 0; for (let i = 0; i < co.length; i++) s += co[i] * Math.pow(x, i); return s; }
+function solveQuadForTarget(co, target, loX, hiX) {
+  const c = co[0] - target, b = co[1], a = co[2], roots = [];
+  if (Math.abs(a) < 1e-9) { if (Math.abs(b) > 1e-9) roots.push(-c / b); }
+  else { const d = b * b - 4 * a * c; if (d >= 0) { const q = Math.sqrt(d); roots.push((-b + q) / (2 * a), (-b - q) / (2 * a)); } }
+  const mid = (loX + hiX) / 2;
+  let best = null, bd = Infinity;
+  roots.forEach((r) => { const dd = Math.abs(r - mid); if (dd < bd) { bd = dd; best = r; } });
+  return best;
+}
+
+// Auto-derive Combined Gsb from the aggregate blend and %#200 from gradation.
+function autoFpInputs() {
+  let wsum = 0, gsum = 0;
+  document.querySelectorAll('[data-rowlist="aggregate"] .rowitem').forEach((row) => {
+    const pct = num(row.querySelector('[data-col="pct_blend"]')?.value);
+    const gsb = num(row.querySelector('[data-col="gsb"]')?.value);
+    if (pct != null && gsb != null && pct > 0) { wsum += pct; gsum += pct / gsb; }
+  });
+  const gsb = wsum > 0 && gsum > 0 ? wsum / gsum : null;
+  const p200El = document.querySelector('[data-field="s0_075"]');
+  const p075 = p200El ? num(p200El.value) : null;
+  const set = (k, v) => {
+    const el = document.querySelector(`[data-fp="const:${k}"]`);
+    if (el && document.activeElement !== el && v != null) el.value = v.toFixed(k === "fp_p075" ? 1 : 3);
+  };
+  set("fp_gsb", gsb);
+  set("fp_p075", p075);
+}
+
+function computeFourPoint() {
+  const sec = fpSection();
+  if (!sec || !$("fpResults")) return;
+  autoFpInputs();
+  const cv = (k) => num(document.querySelector(`[data-fp="const:${k}"]`)?.value);
+  const gsb = cv("fp_gsb"), gb = cv("fp_gb"), p075 = cv("fp_p075"), vaTgt = cv("fp_vatgt");
+
+  const pbs = [], vas = [], vmas = [], vfas = [], denss = [];
+  sec.points.forEach((_, i) => {
+    const pb = num(document.querySelector(`[data-fp="pt:${i}:pb"]`)?.value);
+    const gmb = num(document.querySelector(`[data-fp="pt:${i}:gmb"]`)?.value);
+    const gmm = num(document.querySelector(`[data-fp="pt:${i}:gmm"]`)?.value);
+    let va = null, vma = null, vfa = null, dens = null;
+    if (pb != null && gmb != null && gmm != null && gmm !== 0 && gsb) {
+      const ps = 100 - pb;
+      va = 100 * (1 - gmb / gmm);
+      vma = 100 - (gmb * ps / gsb);
+      vfa = 100 * ((vma - va) / vma);
+      dens = gmb * 997;
+      pbs.push(pb); vas.push(va); vmas.push(vma); vfas.push(vfa); denss.push(dens);
+    }
+    const put = (m, val, d) => { const el = document.querySelector(`[data-fpout="${m}:${i}"]`); if (el) el.textContent = val == null ? "—" : val.toFixed(d); };
+    put("va", va, 1); put("vma", vma, 1); put("vfa", vfa, 1); put("dens", dens == null ? null : Math.round(dens), 0);
+  });
+
+  const dv = (k, v) => { const el = document.querySelector(`[data-dv="${k}"]`); if (el) el.textContent = v; };
+  const res = $("fpResults");
+  if (pbs.length < 3 || gb == null || vaTgt == null) {
+    res.innerHTML = `<div class="fp-card"><div class="l">Waiting on inputs</div><div class="v">need Gb, target, and ≥3 complete points</div></div>`;
+    ["design_pb","gmm_design","gmb_design","va_design","vma_design","vfa_design","gse","pbe","dust_pbe","density"].forEach((k) => dv(k, "—"));
+    drawFpChart(pbs, vas, null, vaTgt, null);
+    return;
+  }
+
+  const vaFit = polyFit(pbs, vas, 2), vmaFit = polyFit(pbs, vmas, 2),
+        vfaFit = polyFit(pbs, vfas, 1), densFit = polyFit(pbs, denss, 2);
+  const loX = Math.min(...pbs), hiX = Math.max(...pbs);
+  let designPb = solveQuadForTarget(vaFit, vaTgt, loX, hiX);
+  designPb = designPb == null ? null : Math.round(designPb * 10) / 10;
+
+  let vmaD = null, vfaD = null, densD = null, gmbD = null, gmmD = null, gse = null, pbe = null, dust = null;
+  if (designPb != null) {
+    vmaD = evalPoly(vmaFit, designPb);
+    vfaD = evalPoly(vfaFit, designPb);
+    densD = evalPoly(densFit, designPb);
+    gmbD = densD / 997;
+    gmmD = gmbD / (1 - vaTgt / 100);
+    gse = (100 - designPb) / ((100 / gmmD) - (designPb / gb));
+    const psD = 100 - designPb;
+    pbe = designPb - (psD * gb * ((gse - gsb) / (gse * gsb)));
+    dust = p075 != null && pbe ? p075 / pbe : null;
+  }
+
+  res.innerHTML =
+    `<div class="fp-card hero"><div class="l">Design Pb</div><div class="v">${fmt(designPb, 1)}%</div></div>
+     <div class="fp-card"><div class="l">VMA at design</div><div class="v">${fmt(vmaD, 1)}%</div></div>
+     <div class="fp-card"><div class="l">VFA at design</div><div class="v">${fmt(vfaD, 1)}%</div></div>
+     <div class="fp-card"><div class="l">Gse</div><div class="v">${fmt(gse, 3)}</div></div>
+     <div class="fp-card"><div class="l">Pbe</div><div class="v">${fmt(pbe, 2)}%</div></div>
+     <div class="fp-card"><div class="l">Dust / Pbe</div><div class="v">${fmt(dust, 2)}</div></div>`;
+
+  dv("design_pb", fmt(designPb, 1));
+  dv("gmm_design", fmt(gmmD, 3));
+  dv("gmb_design", fmt(gmbD, 3));
+  dv("va_design", fmt(vaTgt, 1));
+  dv("vma_design", fmt(vmaD, 1));
+  dv("vfa_design", fmt(vfaD, 1));
+  dv("gse", fmt(gse, 3));
+  dv("pbe", fmt(pbe, 2));
+  dv("dust_pbe", fmt(dust, 2));
+  dv("density", densD == null ? "—" : String(Math.round(densD)));
+
+  drawFpChart(pbs, vas, vaFit, vaTgt, designPb);
+}
+
+function drawFpChart(pbs, vas, vaFit, vaTgt, designPb) {
+  const el = $("fpchart");
+  if (!el) return;
+  const W = 340, H = 220, pad = { l: 34, r: 10, t: 12, b: 28 };
+  if (pbs.length < 2) { el.innerHTML = `<svg viewBox="0 0 ${W} ${H}"><text x="${W/2}" y="${H/2}" font-size="10" fill="var(--muted)" text-anchor="middle">enter the four design points</text></svg>`; return; }
+  const minPb = Math.min(...pbs) - 0.3, maxPb = Math.max(...pbs) + 0.3;
+  const allVa = vas.concat(vaTgt != null ? [vaTgt] : []);
+  const minVa = Math.min(...allVa) - 1, maxVa = Math.max(...allVa) + 1;
+  const xp = (pb) => pad.l + (pb - minPb) / (maxPb - minPb) * (W - pad.l - pad.r);
+  const yp = (va) => H - pad.b - (va - minVa) / (maxVa - minVa) * (H - pad.t - pad.b);
+  let curve = "";
+  if (vaFit) {
+    const pline = [];
+    for (let i = 0; i <= 60; i++) { const pb = minPb + i / 60 * (maxPb - minPb); pline.push(`${xp(pb).toFixed(1)},${yp(evalPoly(vaFit, pb)).toFixed(1)}`); }
+    curve = `<polyline fill="none" stroke="var(--accent)" stroke-width="2" points="${pline.join(" ")}"/>`;
+  }
+  const tgt = vaTgt != null ? `<line x1="${pad.l}" y1="${yp(vaTgt).toFixed(1)}" x2="${W - pad.r}" y2="${yp(vaTgt).toFixed(1)}" stroke="var(--flag)" stroke-width="1" stroke-dasharray="4 3"/>
+     <text x="${W - pad.r}" y="${yp(vaTgt) - 4}" font-size="8" fill="var(--flag)" text-anchor="end">target ${vaTgt}%</text>` : "";
+  const dots = pbs.map((pb, i) => `<circle cx="${xp(pb).toFixed(1)}" cy="${yp(vas[i]).toFixed(1)}" r="3" fill="var(--ink)"/>`).join("");
+  const dp = designPb != null && vaTgt != null
+    ? `<circle cx="${xp(designPb).toFixed(1)}" cy="${yp(vaTgt).toFixed(1)}" r="4.5" fill="var(--flag)"/>
+       <text x="${xp(designPb).toFixed(1) + 6}" y="${yp(vaTgt) - 8}" font-size="8" fill="var(--flag)">Pb ${designPb.toFixed(1)}%</text>` : "";
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
+    <line x1="${pad.l}" y1="${H - pad.b}" x2="${W - pad.r}" y2="${H - pad.b}" stroke="var(--line)"/>
+    <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${H - pad.b}" stroke="var(--line)"/>
+    <text x="${(pad.l + W - pad.r) / 2}" y="${H - 4}" font-size="8" fill="var(--muted)" text-anchor="middle">Pb (%)</text>
+    ${tgt}${curve}${dots}${dp}
+  </svg>`;
 }
 
 /* ---------- validation rail + nav ticks ---------- */
@@ -809,6 +1167,7 @@ function recompute() {
     });
   }
   drawChart();
+  computeFourPoint();
 }
 
 function jumpTo(id, focusFirstEmpty) {
@@ -1058,7 +1417,7 @@ function extractLegacy(wb, ctx) {
   });
 
   { // aggregate blend rows
-    const A = L.AGGREGATE, ws = S[A.sheet], spec = CONFIG.SECTIONS.find((x) => x.rows && x.rows.key === "aggregate").rows;
+    const A = L.AGGREGATE, ws = S[A.sheet], spec = rowSpec("aggregate");
     let uncachedMat = 0;
     for (let r = A.firstRow; r <= A.lastRow && tables.aggregate.length < spec.max; r++) {
       if (legacyCell(ws, `${A.stopOn}${r}`).status !== "found") break;
@@ -1095,7 +1454,7 @@ function extractLegacy(wb, ctx) {
   }
 
   { // IDEAL-CT specimens
-    const C = L.CT, ws = S[C.sheet], spec = CONFIG.SECTIONS.find((x) => x.rows && x.rows.key === "ct").rows;
+    const C = L.CT, ws = S[C.sheet], spec = rowSpec("ct");
     let skipped = 0, uncached = 0;
     C.labelCols.forEach((lc, i) => {
       if (tables.ct.length >= spec.max) return;
@@ -1192,6 +1551,17 @@ function collectForm() {
   document.querySelectorAll("[data-field]").forEach((el) => {
     values[el.dataset.field] = String(el.value || "").trim() || null;
   });
+  // Four Points inputs (const:… / pt:i:field) and the computed Design Values.
+  const fourpoint = {};
+  document.querySelectorAll("[data-fp]").forEach((el) => {
+    fourpoint[el.dataset.fp] = String(el.value || "").trim() || null;
+  });
+  const design_values = {};
+  document.querySelectorAll("[data-dv]").forEach((el) => {
+    design_values[el.dataset.dv] = el.textContent === "—" ? null : el.textContent;
+  });
+  values.fourpoint = fourpoint;
+  values.design_values = design_values;
   const rows = {};
   document.querySelectorAll("[data-rowlist]").forEach((list) => {
     rows[list.dataset.rowlist] = Array.from(list.children).map((row) => {
@@ -1278,8 +1648,11 @@ async function setStage(nextKey) {
 }
 
 function designLabel() {
-  const id = state.designId ? `DESIGN ${state.designId.slice(0, 8)}` : `JOB · ${state.job.cid} · ${state.job.plant}`;
-  return state.mix ? `${id} · ${state.mix.signature}` : id;
+  // The frozen job strip already carries contract / letting / plant, so the
+  // top-bar chip is just the design identity: mix signature, or the saved id.
+  if (state.mix) return `MIX · ${state.mix.signature}`;
+  if (state.designId) return `DESIGN ${state.designId.slice(0, 8)}`;
+  return "MIX ID · —";
 }
 
 // Opening an existing design: everything comes from the row, nothing from
@@ -1307,7 +1680,7 @@ function wireForm() {
   document.querySelectorAll("[data-add]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const key = btn.dataset.add;
-      const spec = CONFIG.SECTIONS.map((s) => s.rows).find((r) => r && r.key === key);
+      const spec = rowSpec(key);
       const list = document.querySelector(`[data-rowlist="${key}"]`);
       if (list.children.length >= spec.max) return;
       const tmp = document.createElement("div");
@@ -1338,7 +1711,7 @@ function wireForm() {
 
   // Any edit: recompute completeness, drop the "prefilled" marker.
   $("sections").addEventListener("input", (e) => {
-    if (e.target.dataset.field || e.target.dataset.col) {
+    if (e.target.dataset.field || e.target.dataset.col || e.target.dataset.fp) {
       e.target.classList.remove("prefilled");
       recompute();
       $("savedstate").textContent = "Edited — not saved";
@@ -1373,7 +1746,7 @@ function wireRemove(row) {
     const key = list.dataset.rowlist;
     row.remove();
     if (!list.children.length) {
-      const spec = CONFIG.SECTIONS.map((s) => s.rows).find((r) => r && r.key === key);
+      const spec = rowSpec(key);
       const tmp = document.createElement("div");
       tmp.innerHTML = rowHTML(spec, null);
       list.appendChild(tmp.firstElementChild);
@@ -1469,9 +1842,11 @@ function enterForm() {
   show("gateCard", false);
   show("uploadCard", false);
   show("dbLayout", true);
+  $("jobStrip").hidden = false;
   $("outContract").textContent = state.job.cid;
   $("outLetting").textContent = state.job.letting;
   $("outPlant").textContent = state.job.plant;
+  loadPlantName();          // fills in "AMP… — Name" once the lookup resolves
   // Mix ID isn't assigned yet — it should come from the DesignBook table's
   // identity once that exists. Until then, show the chosen mix if there is
   // one, else the job it belongs to.
@@ -1479,6 +1854,17 @@ function enterForm() {
   $("savedstate").textContent = state.designId ? "Saved" : "Not saved yet";
   renderForm();
   if (state.designId) loadEvents();
+}
+
+// Plant name from the plants table (supabase/plants.sql) — same lookup the
+// Portal does. A missing row / missing table leaves the bare AMP number.
+async function loadPlantName() {
+  const amp = state.job && state.job.plant;
+  if (!amp) return;
+  try {
+    const { data } = await sb.from("plants").select("name").eq("amp_number", amp).maybeSingle();
+    if (data && data.name) $("outPlant").textContent = `${amp} — ${data.name}`;
+  } catch (_) { /* leave the bare AMP number */ }
 }
 
 async function boot(session) {
