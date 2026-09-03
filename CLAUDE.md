@@ -221,6 +221,17 @@ TBD — cite the governing spec section when encoding a limit in code.
   hint text on the sign-in form covers it instead. Don't "fix" this
   without checking this note first.
 
+- **A MAT code does not identify an aggregate type, so a legacy MixPack's
+  MAT. CODE column cannot be reverse-resolved to a `type_name` on its own.**
+  Checked on the live `aggregate_types` table 2026-09-03: 115 type names,
+  every one with a `mat_code`, but only 42 distinct codes — 30 of them are
+  shared, and the busiest (`10400`, `10415`) each cover eight type names
+  (washed/unwashed and size variants of the same material). Forward is
+  fine: pick a `type_name`, read its `mat_code`. Backward (code in a
+  workbook cell -> type name) is ambiguous most of the time, so an importer
+  must carry the code as an unmapped/provisional value and let the human
+  pick the type — never pick the first match.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
@@ -376,6 +387,45 @@ one column:
   (`from Sheet1!C14`) underneath, and ship `extracted_from` in the save
   payload. An extracted value is a starting point for a human, never an
   authority. Keep that visible in any future importer.
+
+### Reference data (aggregates, binders)
+
+- **Four KYTC reference tables feed the DesignBook dropdowns, all Andrew's:**
+  `aggregates` keyed by `agp_number` (producer name plus a `category` of
+  crushed_stone / sand_gravel / slag / sandstone), `aggregate_types` keyed
+  by `type_name` (polish-resistant class A+/A/B and the five-digit
+  SiteManager `mat_code`), `binder_terminals` keyed by `lap_number`
+  (terminal name) and `binder_grades` keyed by `grade` (five-digit
+  `sitemanager_code`). Applied and seeded live 2026-09-02/03 — 178 / 115 /
+  26 / 12 rows. The DDL lives in `supabase/reference_tables.sql`; that file
+  reproduces the structure only, the rows are the live project's data.
+- **They are read-all reference data, the same pattern as `plants`:** RLS
+  on, one `to authenticated using (true)` SELECT policy each, no write
+  policy. Seeding and corrections are Andrew's admin action through the
+  SQL Editor or Table Editor. One divergence from `plants.sql`: the
+  `revoke all … grant select` step was never run on them, so `anon` and
+  `authenticated` still hold Supabase's default DML grants. Harmless while
+  RLS is on; the corrective statements are in the file, commented, for
+  whenever Andrew wants to run them.
+- **A DesignBook field declares `source: "<table>"` in `CONFIG.SECTIONS`**
+  and the renderer builds its dropdown/datalist from `state.ref.<table>`,
+  loaded once at page start. Never from a list in `CONFIG` — reference rows
+  in a page's CONFIG would need copying into every page and would drift
+  from the tables the moment Andrew adds a row.
+- **A value that is not in the list is a WARNING, and it is kept.** Legacy
+  MixPacks and mix prefill carry producers, type names, terminals and
+  grades the tables lack (retired producers, older wording). The validation
+  rail flags the mismatch; the save payload keeps the value as typed. Never
+  blank or drop a value because a lookup failed — that is the provisional-
+  values rule under "Pages downstream of login" applied to lists.
+- **Add a producer, type, terminal or grade in the table, not in a page.**
+  Same rule as plants: a row added to the table reaches every page on its
+  next load; a row added to a page reaches one page.
+- Two display facts worth knowing: `binder_grades` sorted by primary key
+  puts CRS-2P before the PG grades, so sort explicitly; and the 115
+  `aggregate_types` names resolve to only 42 distinct `mat_code`s (none
+  null, 30 codes shared), so `mat_code` is a lookup from the chosen
+  `type_name`, never a key to dedupe or select on — see the gotcha above.
 
 ## Conventions for changing this file
 
