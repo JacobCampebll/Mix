@@ -16,12 +16,16 @@ submission stands - do not design it as a browse-and-search catalogue.
 Live at **https://kytcmix.netlify.app** (Netlify project `kytcmix`). Pages are
 served from `public/`; `/` redirects to `login.html`.
 
-**Netlify's production branch is `claude/mix-conventions-setup-w3dq6s`, not
-`main`** - checked against the live deploy record 2026-09-03 (context
-`production`, alias `kytcmix.netlify.app`, built from that ref). Merging a PR
-into `main` alone does NOT publish; the site only changes when that branch
-moves. Keep the two identical (push to both, or fast-forward one to the other)
-until someone switches Netlify's production branch to `main`.
+**One branch: `claude/mix-conventions-setup-w3dq6s`.** It is both the repo
+default and Netlify's production branch - checked against the live deploy
+record 2026-09-03 (context `production`, alias `kytcmix.netlify.app`, built
+from that ref). `main` was a second, hand-synced copy and is being retired:
+merging into it published nothing, which cost us a confused hour on 2026-09-03.
+Do not merge into `main`, do not recreate it. If it is still listed, delete it
+(it holds nothing unique; it last pointed at `e94e965`). The eventual tidy-up
+is a GitHub branch *rename* of this branch to `main` - that moves the default,
+retargets open PRs, and Netlify follows a renamed production branch - done when
+no session is mid-task, since both sessions push to this branch by name.
 
 Collaborators: **Jacob** and **Andrew**, working from separate Claude accounts
 against this shared repo. Neither can see the other's chats — this file is the
@@ -263,17 +267,19 @@ TBD — cite the governing spec section when encoding a limit in code.
   author nor a reviewer used to hit this on Save and lose their edits. Pages
   mirror the UPDATE policy in the UI (read-only form) so the message is
   never the first thing a person learns about their permissions.
-- **The legacy MixPack importer is out of step with DesignBook's current
-  field keys.** The layout/flow restructure (PR #3, merged 2026-09-03: Four
+- **A DesignBook layout change breaks the legacy importer unless
+  `CONFIG.LEGACY` moves with it.** The restructure (PR #3, 2026-09-03: Four
   Points, Contract Information, Aggregate Structure, computed Design Values,
   split TSR / Performance Testing) renamed sections and changed sieve labels,
-  but `CONFIG.LEGACY` still points at the old keys. So the Portal's "Upload
-  the MixPack" path imports into fields that have moved and will prefill
-  badly until someone re-aligns `CONFIG.LEGACY.CELLS` against the new schema.
-  "Build it in DesignBook" is unaffected. Andrew flagged two other gaps on the
-  same PR: Contract Information's KYTC contract lookup (binder supplier,
-  funding, project items/number) is not built, and neither is the target
-  gradation band trimmed to the mix's nominal max size.
+  which silently pointed `CONFIG.LEGACY.CELLS` at field keys that no longer
+  existed - the Portal's "Upload the MixPack" path kept working but prefilled
+  the wrong places. Re-aligned in PR #4 the same day. The importer is keyed on
+  the schema, so treat the two as one change: rename a field key and you owe
+  `CONFIG.LEGACY` an edit in the same commit.
+  Still open from PR #3: Contract Information's KYTC contract lookup (binder
+  supplier, funding, project items/number) is not built - Jacob's, since it is
+  the same shape as the `kytc-lookup` function - and neither is the target
+  gradation band trimmed to the mix's nominal max size, which is Andrew's.
 
 
 ### Technician login & plant access
