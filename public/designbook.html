@@ -226,6 +226,10 @@
   .stagebtn.ghost{background:none; color:var(--accent); border-color:var(--accent); margin-left:8px;}
   .stagebtn.ghost:disabled{color:var(--muted); border-color:var(--line); background:none;}
   .stagenote{font-size:12px; color:var(--muted); margin-top:8px;}
+  /* Review PDF: the save button of a site that stores nothing. */
+  .handoff{margin-top:18px; padding-top:16px; border-top:1px solid var(--line);}
+  .handoff .stagebtn{margin-top:0;}
+  .handoffnote{font-size:12px; color:var(--muted); margin-top:8px; max-width:62ch; line-height:1.5;}
   .refstatus{font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--muted); margin-top:6px;}
   .refstatus.error{color:var(--bad);}
   .auditrow.local .ts{color:var(--muted);}
@@ -309,12 +313,15 @@
     Pick the existing MixPack workbook for this job. What it finds becomes a
     starting point in the form — every value stays editable, and each one is
     labelled with the cell it came from.
+    <br><br>
+    A <strong>review PDF</strong> this site generated works here too: it carries the
+    whole design inside it, so it reopens the form exactly as it was sent.
   </p>
   <div class="drop" id="drop">
-    <strong>Choose a MixPack workbook</strong>
-    <span>or drag it here — .xlsx, .xlsm, .xls</span>
+    <strong>Choose a MixPack workbook, or a DesignBook review PDF</strong>
+    <span>or drag it here — .xlsx, .xlsm, .xls, .pdf</span>
   </div>
-  <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls">
+  <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls,.pdf,application/pdf">
   <div class="msg" id="uploadMsg"></div>
   <button class="skip" id="skipUpload">Skip — start from a blank design instead</button>
 </div>
@@ -356,6 +363,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script>
 /* ==================================================================
    CONFIG — everything tunable lives here.
@@ -449,6 +457,40 @@ const CONFIG = {
         // PG grades first, in numeric order; anything else (CRS-2P) after.
         sort: (a, b) => (/^PG/i.test(b.grade) - /^PG/i.test(a.grade)) || a.grade.localeCompare(b.grade),
       },
+    },
+  },
+
+  // ---- Review PDF: the file IS the record ----
+  // Design content is never stored server-side (CLAUDE.md, "Designs: the
+  // file is the record, not a table"). The PDF this page generates carries
+  // the whole design inside it, so uploading it back rebuilds the form.
+  // Bump VERSION only for a breaking payload change - readHandoffPDF
+  // refuses a payload from a newer version rather than half-importing it.
+  HANDOFF: {
+    FORMAT: "kytc-designbook",
+    VERSION: 1,
+    ATTACHMENT: "designbook-data.json",
+    // Prefix on the base64 fallback copy in the PDF's Keywords.
+    MARKER: "KYTC-DESIGNBOOK-V1:",
+    // localStorage key the Portal parks a payload under when a PDF is
+    // opened there. Same string as portal.html's CONFIG.HANDOFF_KEY -
+    // shared ground, change both.
+    STORAGE_KEY: "mix_designbook_handoff",
+    // US Letter, in points.
+    PAGE: { w: 612, h: 792, mx: 46, top: 62, bottom: 52 },
+    BAR: 5,
+    // Sieves are folded into this many side-by-side label/value pairs.
+    SIEVE_COLUMNS: 3,
+    // Team Kentucky palette, 0-1 per channel (same tokens as the pages' CSS).
+    BRAND: {
+      navy:   [0x00 / 255, 0x20 / 255, 0x50 / 255],
+      ink:    [0x08 / 255, 0x38 / 255, 0x60 / 255],
+      accent: [0x1C / 255, 0x7C / 255, 0xC0 / 255],
+      sky:    [0x5F / 255, 0xB2 / 255, 0xE4 / 255],
+      gold:   [0xFF / 255, 0xC3 / 255, 0x12 / 255],
+      muted:  [0x6E / 255, 0x75 / 255, 0x80 / 255],
+      rule:   [0xDA / 255, 0xD7 / 255, 0xCE / 255],
+      wash:   [0xF2 / 255, 0xF1 / 255, 0xEC / 255],
     },
   },
 
@@ -910,6 +952,7 @@ const state = {
   ref: Object.assign({ loaded: false, error: null },
          ...Object.keys(CONFIG.REFERENCE.TABLES).map((k) => ({ [k]: [] }))),
   dirty: false,      // edits since the last save (a stage move saves them first)
+  history: [],      // append-only trail carried in the review PDF (no design_events any more)
   savedExtractedFrom: null, // extracted_from as loaded from a saved design
   designId: null,    // designs.id once saved / when opened via ?design=
   authorUserId: null,
@@ -1043,7 +1086,12 @@ function rowHTML(spec, values, idx) {
 
 function rowsHTML(spec) {
   if (spec.fixed) {
-    const rows = (spec.seed || []).map((v, i) => rowHTML(spec, v, i)).join("");
+    // Seeded rows still carry entered values - merge what is in hand over
+    // the seed so the readonly seeded column survives and the typed ones
+    // come back. Without this the Hamburg curve reverted on every reopen.
+    const held = state.extracted ? (state.extracted.tables[spec.key] || []) : [];
+    const rows = (spec.seed || []).map((v, i) =>
+      rowHTML(spec, held[i] ? Object.assign({}, v, held[i]) : v, i)).join("");
     return (spec.heading ? `<div class="rowgroup-head">${spec.heading}</div>` : "") +
       `<div class="rowlist" data-rowlist="${spec.key}">${rows}</div>`;
   }
@@ -1083,36 +1131,41 @@ function sievesHTML(section) {
 }
 
 /* ---------- Four Points (R35 §10.5.5 curve fit) ---------- */
-// Four Points is the one section that did NOT follow the rest of the page's
-// "read the initial value from state.extracted" convention (see gridHTML,
-// rowsHTML, sievesHTML) - it always rendered CONFIG.SECTIONS' static default
-// seed, so neither a fresh legacy import NOR a reopened saved design ever
-// showed real points here, silently. Found 2026-09-04 while wiring the
-// legacy importer. Two source shapes to reconcile: a fresh import puts an
-// array of {pb,gmb,gmm} in state.extracted.tables.fourpoint (same shape as
-// every other extracted table); a reopened saved design instead carries the
-// flat data-fp-keyed object collectForm() wrote into values.fourpoint
-// (state.extracted.scalars.fourpoint, e.g. {"pt:0:pb": "5.5", ...}) - kept
-// as-is rather than reshaping the save format, since that's a JSONB column
-// already holding rows in production. A fresh import wins over a reload.
+// Four Points renders from state, not the CONFIG seed - fixed twice,
+// independently, the same day (this branch and upstream 751f8e9), so
+// reconciled here rather than picking one side over the other:
+// - A design that has been through collectForm at all (loadDesign(), or a
+//   review PDF re-uploaded) has its saved values win outright, per field -
+//   a cell a person cleared must stay cleared, never resurrect the CONFIG
+//   seed. That's 751f8e9's rule, kept as-is: it's stricter/more correct
+//   than this branch's original per-field fallback-to-default.
+// - A fresh legacy import puts an array of {pb,gmb,gmm} in
+//   state.extracted.tables.fourpoint (same shape as every other extracted
+//   table). 751f8e9 didn't handle this shape because, in that world, the
+//   importer supplied no Four Points data at all - CONFIG.LEGACY.FOURPOINT
+//   was still null. This branch wires it (see CONFIG.LEGACY.FOURPOINT,
+//   verified against real Ver 11.3 and Ver 12.1 files), so a fresh import
+//   still needs to win here, same priority as every other extracted table.
+function resolveFourpointConstants(section) {
+  const saved = state.extracted && state.extracted.scalars ? state.extracted.scalars.fourpoint : null;
+  return section.constants.map((c) => ({
+    ...c, value: saved ? (saved[`const:${c.key}`] == null ? "" : saved[`const:${c.key}`]) : c.value,
+  }));
+}
 function resolveFourpointPoints(section) {
   const ex = state.extracted;
   if (ex && Array.isArray(ex.tables && ex.tables.fourpoint) && ex.tables.fourpoint.length) {
     return ex.tables.fourpoint;
   }
-  if (ex && ex.scalars && ex.scalars.fourpoint) {
-    const saved = ex.scalars.fourpoint;
+  const saved = ex && ex.scalars ? ex.scalars.fourpoint : null;
+  if (saved) {
     return section.points.map((_, i) => ({
-      pb: saved[`pt:${i}:pb`] ?? "", gmb: saved[`pt:${i}:gmb`] ?? "", gmm: saved[`pt:${i}:gmm`] ?? "",
+      pb:  saved[`pt:${i}:pb`]  == null ? "" : saved[`pt:${i}:pb`],
+      gmb: saved[`pt:${i}:gmb`] == null ? "" : saved[`pt:${i}:gmb`],
+      gmm: saved[`pt:${i}:gmm`] == null ? "" : saved[`pt:${i}:gmm`],
     }));
   }
   return section.points;
-}
-function resolveFourpointConstants(section) {
-  const ex = state.extracted;
-  const saved = ex && ex.scalars && ex.scalars.fourpoint ? ex.scalars.fourpoint : null;
-  return section.constants.map((c) => saved && saved[`const:${c.key}`] != null
-    ? { ...c, value: saved[`const:${c.key}`] } : c);
 }
 function fourpointHTML(section) {
   const constants = resolveFourpointConstants(section), points = resolveFourpointPoints(section);
@@ -1177,6 +1230,12 @@ function statusHTML() {
   return `<div class="timeline" id="timeline">${steps}</div>
     <button class="stagebtn" id="advanceStage"></button><button class="stagebtn ghost hidden" id="sendBackStage">Send back to Draft</button>
     <div class="stagenote" id="stageNote"></div>
+    <div class="handoff">
+      <button class="stagebtn" id="pdfBtn">Download review PDF</button>
+      <div class="handoffnote">This site stores nothing. The PDF is your copy of the design &mdash;
+        it carries every value inside it, so uploading it back reopens the form exactly as it is now.
+        Send it to your supervisor for internal review, or keep it to come back to later.</div>
+    </div>
     <div class="refstatus" id="refStatus"></div>
     <div class="auditlog" id="auditlog"></div>`;
 }
@@ -1923,6 +1982,10 @@ function renderLegacyLog(res, fileName) {
 async function handleFile(file) {
   if (!file) return;
   msg($("uploadMsg"), `Reading ${file.name}…`);
+  // A review PDF is a whole saved design, not a prefill source - it takes
+  // the resume path and replaces the job, not the legacy extractor.
+  if (/\.pdf$/i.test(file.name) || file.type === "application/pdf")
+    return resumeFromPDF(file);
   try {
     const wb = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
     const res = extractLegacy(wb, { job: state.job, mix: state.mix });
@@ -2187,12 +2250,501 @@ function wireDrop() {
   drop.addEventListener("drop", (e) => handleFile(e.dataTransfer.files[0]));
 }
 
+/* ===== HANDOFF — the review PDF is the record ======================
+   Nothing a contractor types is stored server-side (CLAUDE.md,
+   "Designs: the file is the record, not a table"). The review PDF IS
+   the save file: a clean read-only document a supervisor can read,
+   with the whole design embedded inside it as a JSON attachment, so
+   uploading that same PDF rebuilds the form exactly.
+
+   Read side never parses the visual layer. It pulls the attachment,
+   and falls back to a base64 copy in the PDF's Keywords if some tool
+   dropped the attachment on re-save. If BOTH are gone the file is
+   reported as unreadable rather than silently importing nothing.
+
+   Everything drawn comes from CONFIG.SECTIONS, same single source as
+   the form, the xlsx extractor and the validation rail. Adding a
+   field must not need an edit here.
+   ================================================================== */
+
+// pdf-lib's standard fonts are WinAnsi: an unencodable character throws
+// at draw time and kills the whole export. Map the ones our labels
+// actually use and drop anything else.
+function wa(v) {
+  return String(v == null ? "" : v)
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\u2192/g, "->")
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\u2264/g, "<=").replace(/\u2265/g, ">=")
+    .replace(/\u00b3/g, "3").replace(/\u00b2/g, "2")
+    .replace(/[^\x20-\x7E\u00A0-\u00FF]/g, "");
+}
+
+function b64encode(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function b64decode(s) {
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/* ---------- the payload ---------- */
+
+// The envelope written into the PDF. Same body as the old designs row,
+// plus an append-only history: with no design_events table, the file
+// carries its own trail, and who generated each copy is the only
+// evidence an internal review happened at all.
+function handoffPayload(action) {
+  const { values, rows } = collectForm();
+  const who = state.tech
+    ? { sm_id: state.tech.sm_id, name: `${state.tech.first_name} ${state.tech.last_name}`, company: state.tech.company }
+    : { sm_id: null, name: null, company: null };
+  const prior = Array.isArray(state.history) ? state.history : [];
+  return {
+    format: CONFIG.HANDOFF.FORMAT,
+    version: CONFIG.HANDOFF.VERSION,
+    generated_at: new Date().toISOString(),
+    generated_by: who,
+    stage: CONFIG.STAGES[state.stageIdx] ? CONFIG.STAGES[state.stageIdx].key : "Draft",
+    job: state.job,
+    mix: state.mix,
+    origin: state.mode,
+    values,
+    rows,
+    extracted_from: Object.keys(state.sources).length ? state.sources : (state.savedExtractedFrom || {}),
+    legacy_import: state.legacy ? {
+      version: state.legacy.version.label, context: state.legacy.context,
+      unmapped: state.legacy.unmapped, design_values: state.legacy.designValues || [],
+    } : null,
+    // Append only. Never rewrite an earlier entry - this is the audit trail.
+    history: prior.concat([{ at: new Date().toISOString(), sm_id: who.sm_id, name: who.name, action }]),
+  };
+}
+
+function handoffFileName(payload) {
+  const j = payload.job || {};
+  const d = new Date().toISOString().slice(0, 10);
+  return `DesignBook_${j.cid || "design"}_${j.plant || "plant"}_${d}.pdf`
+    .replace(/[^A-Za-z0-9_.-]/g, "");
+}
+
+/* ---------- what to print, straight off CONFIG.SECTIONS ---------- */
+
+// One flat list of blocks the drawer knows how to lay out. Driven by
+// section.type, so a new section appears here without an edit.
+function handoffBlocks(payload) {
+  const values = payload.values || {}, rows = payload.rows || {};
+  const fp = values.fourpoint || {}, dv = values.design_values || {};
+  const out = [];
+  CONFIG.SECTIONS.forEach((s) => {
+    if (s.type === "status") return;              // the footer carries this
+    const parts = [];
+    if (s.fields) {
+      const pairs = s.fields.map((f) => [f.label, values[f.key]]);
+      if (pairs.some((p) => !isBlank(p[1]))) parts.push({ kind: "pairs", pairs });
+    }
+    if (s.type === "sieves") {
+      const pairs = s.sieves.map((v) => [v.label, values[v.key]]);
+      if (pairs.some((r) => !isBlank(r[1]))) {
+        // One row per sieve is 14 rows down a narrow column and half a
+        // wasted page. Fold into three side-by-side pairs instead.
+        const cols = CONFIG.HANDOFF.SIEVE_COLUMNS;
+        const per = Math.ceil(pairs.length / cols);
+        const body = [];
+        for (let r = 0; r < per; r++) {
+          const line = [];
+          for (let c = 0; c < cols; c++) {
+            const cell = pairs[c * per + r];
+            line.push(cell ? cell[0] : "", cell ? cell[1] : "");
+          }
+          body.push(line);
+        }
+        const head = [];
+        for (let c = 0; c < cols; c++) head.push("Sieve", "% passing");
+        parts.push({ kind: "table", head, body, blankAs: "" });
+      }
+    }
+    if (s.type === "fourpoint") {
+      const pairs = s.constants.map((c) => [c.label, fp["const:" + c.key]]);
+      if (pairs.some((p) => !isBlank(p[1]))) parts.push({ kind: "pairs", pairs });
+      const body = s.points.map((p, i) => [fp[`pt:${i}:pb`], fp[`pt:${i}:gmb`], fp[`pt:${i}:gmm`]]);
+      if (body.some((r) => r.some((c) => !isBlank(c))))
+        parts.push({ kind: "table", head: ["Pb (%)", "Gmb", "Gmm"], body, widths: [80, 80, 80] });
+    }
+    if (s.type === "computed") {
+      const pairs = (s.outputs || []).map((o) => [o.label, dv[o.key]]);
+      if (pairs.some((p) => !isBlank(p[1]))) parts.push({ kind: "pairs", pairs });
+    }
+    if (s.rows) {
+      (Array.isArray(s.rows) ? s.rows : [s.rows]).forEach((spec) => {
+        const list = rows[spec.key] || [];
+        if (!list.length) return;
+        const cols = spec.columns || [];
+        parts.push({
+          kind: "table", heading: spec.heading || null,
+          head: cols.map((c) => c.label),
+          body: list.map((r) => cols.map((c) => r[c.key])),
+          weights: gridWeights(spec, cols.length),
+        });
+      });
+    }
+    if (parts.length) out.push({ label: s.label, parts });
+  });
+  return out;
+}
+
+// A row spec's screen grid ("1.4fr 1.2fr 1fr .8fr .8fr auto") already says
+// how wide each column wants to be. Reuse it so the PDF and the form agree
+// and nobody maintains a second set of widths. Trailing non-fr tracks (the
+// remove button) are dropped; no grid means equal columns.
+function gridWeights(spec, n) {
+  const fr = String(spec.grid || "").split(/\s+/)
+    .map((t) => /^([\d.]*)fr$/.exec(t))
+    .filter(Boolean)
+    .map((m) => parseFloat(m[1] || "1"));
+  return fr.length >= n ? fr.slice(0, n) : null;
+}
+
+/* ---------- the document ---------- */
+
+async function buildReviewPDF(payload) {
+  const { PDFDocument, StandardFonts, rgb } = PDFLib;
+  const H = CONFIG.HANDOFF, P = H.PAGE, C = H.BRAND;
+  const col = (a) => rgb(a[0], a[1], a[2]);
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const inner = P.w - P.mx * 2;
+  const pages = [];
+  let page = null, y = 0;
+
+  // The logo's blue-to-gold bar, faked with slices: PDF has no gradient
+  // primitive and this is the one piece of brand the document needs.
+  function brandBar(pg) {
+    const n = 72, w = P.w / n;
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      const k = t <= 0.35 ? 0 : t >= 0.80 ? 1 : (t - 0.35) / 0.45;
+      pg.drawRectangle({
+        x: i * w, y: P.h - H.BAR, width: w + 0.7, height: H.BAR,
+        color: col([0, 1, 2].map((j) => C.sky[j] + (C.gold[j] - C.sky[j]) * k)),
+      });
+    }
+  }
+  function newPage() {
+    page = doc.addPage([P.w, P.h]); pages.push(page); brandBar(page);
+    y = P.h - P.top;
+  }
+  function need(h) { if (!page || y - h < P.bottom) newPage(); }
+  function fit(s, max, f, size) {
+    let t = wa(s);
+    if (f.widthOfTextAtSize(t, size) <= max) return t;
+    while (t.length > 1 && f.widthOfTextAtSize(t + "...", size) > max) t = t.slice(0, -1);
+    return t + "...";
+  }
+  function put(s, x, size, f, c, maxW) {
+    page.drawText(fit(s, maxW == null ? inner : maxW, f, size), { x, y, size, font: f, color: col(c) });
+  }
+
+  function drawPairs(pairs, x0, width) {
+    const cols = 2, gap = 16, cw = (width - gap * (cols - 1)) / cols;
+    const shown = pairs.filter((p) => !isBlank(p[1]));
+    for (let i = 0; i < shown.length; i += cols) {
+      need(26);
+      for (let c = 0; c < cols && i + c < shown.length; c++) {
+        const x = x0 + c * (cw + gap);
+        page.drawText(fit(shown[i + c][0], cw, font, 7), { x, y: y, size: 7, font, color: col(C.muted) });
+        page.drawText(fit(shown[i + c][1], cw, bold, 9.5), { x, y: y - 11, size: 9.5, font: bold, color: col(C.ink) });
+      }
+      y -= 26;
+    }
+  }
+
+  function drawTable(t, x0, width) {
+    const n = t.head.length;
+    const w = t.weights && t.weights.length === n ? t.weights : t.head.map(() => 1);
+    const sum = w.reduce((a, b) => a + b, 0);
+    const cw = t.widths && t.widths[0] ? t.widths : w.map((k) => (width * k) / sum);
+    const total = cw.reduce((a, b) => a + b, 0);
+    if (t.heading) { need(18); put(t.heading, x0, 8.5, bold, C.ink); y -= 15; }
+    need(20);
+    page.drawRectangle({ x: x0, y: y - 4, width: total, height: 15, color: col(C.wash) });
+    t.head.forEach((h, i) => {
+      const x = x0 + cw.slice(0, i).reduce((a, b) => a + b, 0) + 4;
+      page.drawText(fit(h, cw[i] - 8, bold, 7), { x, y: y + 1, size: 7, font: bold, color: col(C.muted) });
+    });
+    y -= 17;
+    t.body.forEach((r) => {
+      need(15);
+      r.forEach((cell, i) => {
+        const x = x0 + cw.slice(0, i).reduce((a, b) => a + b, 0) + 4;
+        const txt = isBlank(cell) ? (t.blankAs == null ? "-" : t.blankAs) : cell;
+        if (txt !== "") page.drawText(fit(txt, cw[i] - 8, font, 8.5), { x, y, size: 8.5, font, color: col(C.ink) });
+      });
+      y -= 6;
+      page.drawRectangle({ x: x0, y: y, width: total, height: 0.5, color: col(C.rule) });
+      y -= 8;
+    });
+    y -= 4;
+  }
+
+  /* --- cover block --- */
+  newPage();
+  put("KYTC Mix Design", P.mx, 19, bold, C.navy); y -= 21;
+  put("Internal review copy - not an approval", P.mx, 10.5, font, C.muted); y -= 22;
+
+  const j = payload.job || {};
+  drawPairs([
+    ["Contract", j.cid], ["Letting date", j.letting],
+    ["Plant", j.plant], ["Mix", payload.mix ? payload.mix.signature : null],
+    ["Stage", payload.stage],
+    ["Prepared by", payload.generated_by ? `${payload.generated_by.name || ""} (${payload.generated_by.sm_id || ""})` : null],
+  ], P.mx, inner);
+  y -= 4;
+  page.drawRectangle({ x: P.mx, y: y, width: inner, height: 1, color: col(C.rule) });
+  y -= 18;
+
+  /* --- every section --- */
+  handoffBlocks(payload).forEach((b) => {
+    need(40);
+    put(b.label.toUpperCase(), P.mx, 8.5, bold, C.accent); y -= 14;
+    b.parts.forEach((p) => {
+      if (p.kind === "pairs") drawPairs(p.pairs, P.mx, inner);
+      else drawTable(p, P.mx, inner);
+    });
+    y -= 10;
+  });
+
+  /* --- history --- */
+  const hist = payload.history || [];
+  if (hist.length) {
+    need(40);
+    put("HISTORY", P.mx, 8.5, bold, C.accent); y -= 14;
+    drawTable({
+      head: ["When", "Who", "Action"],
+      body: hist.map((h) => [
+        h.at ? new Date(h.at).toLocaleString() : "-",
+        h.name ? `${h.name} (${h.sm_id || ""})` : (h.sm_id || "-"),
+        h.action,
+      ]),
+      widths: [130, 170, inner - 300],
+    }, P.mx, inner);
+  }
+
+  /* --- footer on every page --- */
+  const note = "This PDF carries the full design inside it. Upload it to DesignBook to reopen and edit. " +
+               "The site stores nothing - this file is the record.";
+  pages.forEach((pg, i) => {
+    pg.drawRectangle({ x: P.mx, y: P.bottom - 14, width: inner, height: 0.5, color: col(C.rule) });
+    pg.drawText(fit(note, inner - 60, font, 6.8), { x: P.mx, y: P.bottom - 26, size: 6.8, font, color: col(C.muted) });
+    pg.drawText(`${i + 1} / ${pages.length}`, {
+      x: P.w - P.mx - 30, y: P.bottom - 26, size: 6.8, font, color: col(C.muted),
+    });
+  });
+
+  /* --- the payload itself --- */
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  await doc.attach(bytes, CONFIG.HANDOFF.ATTACHMENT, {
+    mimeType: "application/json",
+    description: "DesignBook design data - re-import this PDF to reopen the form",
+  });
+  // Second copy. Some editors drop attachments on re-save; metadata
+  // survives more often, and a lost payload is a silently empty import.
+  doc.setTitle(wa(`KYTC Mix Design - ${j.cid || ""} ${j.plant || ""}`));
+  doc.setProducer("KYTC DesignBook");
+  doc.setKeywords([CONFIG.HANDOFF.MARKER + b64encode(bytes)]);
+  return doc.save();
+}
+
+/* ---------- reading one back ---------- */
+
+function handoffFromStream(stream) {
+  try {
+    if (PDFLib.decodePDFRawStream && stream instanceof PDFLib.PDFRawStream)
+      return PDFLib.decodePDFRawStream(stream).decode();
+  } catch (_) { /* fall through to the raw bytes */ }
+  try { return stream.getContents ? stream.getContents() : stream.contents; } catch (_) { return null; }
+}
+
+// pdf-lib's typed lookup THROWS when a key is absent rather than
+// returning null, so an ordinary PDF (no Names dictionary at all) blows
+// up here instead of falling through to the friendly message. Guard the
+// whole walk - any shape we do not recognise simply has no payload.
+function handoffFromAttachment(doc) {
+  try {
+    return findHandoffAttachment(doc);
+  } catch (_) { return null; }
+}
+
+function findHandoffAttachment(doc) {
+  const { PDFName, PDFDict, PDFArray } = PDFLib;
+  const names = doc.catalog.lookup(PDFName.of("Names"), PDFDict);
+  if (!names) return null;
+  const ef = names.lookup(PDFName.of("EmbeddedFiles"), PDFDict);
+  if (!ef) return null;
+  const arr = ef.lookup(PDFName.of("Names"), PDFArray);
+  if (!arr) return null;
+  for (let i = 1; i < arr.size(); i += 2) {
+    const spec = arr.lookup(i, PDFDict);
+    if (!spec) continue;
+    const efd = spec.lookup(PDFName.of("EF"), PDFDict);
+    if (!efd) continue;
+    const bytes = handoffFromStream(efd.lookup(PDFName.of("F")));
+    if (!bytes) continue;
+    try {
+      const obj = JSON.parse(new TextDecoder().decode(bytes));
+      if (obj && obj.format === CONFIG.HANDOFF.FORMAT) return obj;
+    } catch (_) { /* try the next attachment */ }
+  }
+  return null;
+}
+
+function handoffFromKeywords(doc) {
+  let kw = "";
+  try { kw = doc.getKeywords() || ""; } catch (_) { return null; }
+  const at = kw.indexOf(CONFIG.HANDOFF.MARKER);
+  if (at < 0) return null;
+  try {
+    const obj = JSON.parse(new TextDecoder().decode(
+      b64decode(kw.slice(at + CONFIG.HANDOFF.MARKER.length).trim())));
+    return obj && obj.format === CONFIG.HANDOFF.FORMAT ? obj : null;
+  } catch (_) { return null; }
+}
+
+// Throws with a message a technician can act on. A PDF we did not make,
+// or one whose payload both copies lost, must fail loudly - an import
+// that silently yields an empty form is the worst outcome here.
+async function readHandoffPDF(buf) {
+  let doc;
+  try {
+    doc = await PDFLib.PDFDocument.load(buf, { ignoreEncryption: true, updateMetadata: false });
+  } catch (_) {
+    throw new Error("That file isn't a readable PDF.");
+  }
+  const payload = handoffFromAttachment(doc) || handoffFromKeywords(doc);
+  if (!payload)
+    throw new Error("That PDF has no DesignBook data in it. Use the PDF this site generated - " +
+                    "a printed or re-saved copy loses the embedded design.");
+  if (payload.version > CONFIG.HANDOFF.VERSION)
+    throw new Error(`That PDF was made by a newer version of DesignBook (v${payload.version}). Reload this page and try again.`);
+  if (!payload.job || !payload.job.cid)
+    throw new Error("That PDF's design data is incomplete - it carries no contract.");
+  return payload;
+}
+
+// Rehydrate. Same landing path as a saved design: values are not
+// provisional (a person entered them), but where they originally came
+// from is kept so the "from Sheet1!C14" notes survive the round trip.
+function applyHandoff(payload) {
+  state.job = payload.job;
+  state.mode = payload.origin === "legacy" ? "legacy" : "new";
+  state.mix = payload.mix || null;
+  state.extracted = { scalars: payload.values || {}, tables: payload.rows || {} };
+  state.sources = {};
+  state.savedExtractedFrom = payload.extracted_from || {};
+  state.legacy = payload.legacy_import ? {
+    version: { label: payload.legacy_import.version }, context: payload.legacy_import.context || [],
+    unmapped: payload.legacy_import.unmapped || [], designValues: payload.legacy_import.design_values || [],
+    log: [], sheets: [], scalars: {}, sources: {}, tables: {},
+  } : null;
+  state.history = payload.history || [];
+  const at = CONFIG.STAGES.findIndex((x) => x.key === payload.stage);
+  state.stageIdx = at < 0 ? 0 : at;
+}
+
+/* ---------- the button ---------- */
+
+async function downloadReviewPDF() {
+  const btn = $("pdfBtn");
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = "Building PDF...";
+  try {
+    const payload = handoffPayload("Downloaded review PDF");
+    const bytes = await buildReviewPDF(payload);
+    const name = handoffFileName(payload);
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    state.history = payload.history;      // the copy on disk is now the record
+    state.dirty = false;
+    msg($("saveMsg"), `${name} downloaded. That file is your copy - the site keeps nothing.`, "ok");
+    audit(`Review PDF generated - ${state.tech ? state.tech.sm_id : ""}`);
+  } catch (err) {
+    msg($("saveMsg"), err.message || "Couldn't build the PDF.", "error");
+  } finally {
+    btn.disabled = false; btn.textContent = was;
+  }
+}
+
+/* ---------- reopening one ---------- */
+
+// The Portal parks a payload here when the PDF was opened there, so the
+// file is read once, on the page that has the picker. One-shot on
+// purpose: a page reload must not silently reopen a design the person
+// has since navigated away from.
+function takeParkedHandoff() {
+  try {
+    const raw = localStorage.getItem(CONFIG.HANDOFF.STORAGE_KEY);
+    if (!raw) return null;
+    localStorage.removeItem(CONFIG.HANDOFF.STORAGE_KEY);
+    const obj = JSON.parse(raw);
+    return obj && obj.format === CONFIG.HANDOFF.FORMAT ? obj : null;
+  } catch (_) { return null; }
+}
+
+function handoffOrigin(payload) {
+  const by = payload.generated_by && payload.generated_by.name ? payload.generated_by.name : "someone";
+  const when = payload.generated_at ? new Date(payload.generated_at).toLocaleString() : "an earlier session";
+  return `prepared by ${by}, ${when}`;
+}
+
+// Landing an uploaded PDF. Everything comes from the file - it replaces
+// the job, the mix and the stage, because it is the record.
+function enterFromHandoff(payload, label) {
+  applyHandoff(payload);
+  enterForm();
+  // Replay the file's own trail into the audit log. With no design_events
+  // table this is the only place a reviewer can see who touched it before
+  // them - and it is the evidence that an internal review happened.
+  state.history.forEach((h) => {
+    const when = h.at ? new Date(h.at) : null;
+    const ts = when ? `${String(when.getMonth() + 1).padStart(2, "0")}/${String(when.getDate()).padStart(2, "0")} ` +
+                      `${String(when.getHours()).padStart(2, "0")}:${String(when.getMinutes()).padStart(2, "0")}` : "";
+    audit(`${ts} ${h.action || "Edited"} - ${h.name || h.sm_id || "unknown"}`.trim());
+  });
+  msg($("saveMsg"),
+      `Reopened from ${label} - ${handoffOrigin(payload)}. Every value is editable; ` +
+      `download a new PDF when you are done or the changes are lost.`, "ok");
+  audit(`Reopened from ${label} - ${state.tech ? state.tech.sm_id : ""}`);
+}
+
+async function resumeFromPDF(file) {
+  try {
+    const payload = await readHandoffPDF(await file.arrayBuffer());
+    enterFromHandoff(payload, file.name);
+  } catch (err) {
+    msg($("uploadMsg"), err.message || "Couldn't read that PDF.", "error");
+  }
+}
+
+/* ===== END HANDOFF ===== */
+
 /* ---------- boot ---------- */
 function readParams() {
   const p = new URLSearchParams(location.search);
   const cid = p.get("cid"), letting = p.get("letting"), plant = p.get("plant");
   return {
-    mode: p.get("mode") === "legacy" ? "legacy" : "new",
+    mode: ["legacy", "resume"].includes(p.get("mode")) ? p.get("mode") : "new",
     job: cid && letting && plant ? { cid, letting, plant } : null,
     mix: p.get("mix") || null,
     design: p.get("design") || null,
@@ -2494,6 +3046,18 @@ async function boot(session) {
       return;
     }
 
+    // Reopening a review PDF. It carries its own contract, plant and mix,
+    // so it needs no job from the query string. The Portal parks the
+    // payload when the file was picked there; otherwise ask for it here.
+    if (mode === "resume") {
+      const parked = takeParkedHandoff();
+      if (parked) { enterFromHandoff(parked, "the review PDF"); return; }
+      show("gateCard", false);
+      show("uploadCard", true);
+      msg($("uploadMsg"), "Choose the review PDF to reopen this design.", "");
+      return;
+    }
+
     if (!job) {
       msg($("gateMsg"),
         "No job selected. Start from the Portal so a contract, letting date, and plant come with you.", "error");
@@ -2521,6 +3085,7 @@ wireDrop();
 $("portalLink").addEventListener("click", toPortal);
 $("signOutLink").addEventListener("click", async () => { await sb.auth.signOut(); toLogin(); });
 $("saveBtn").addEventListener("click", saveDesign);
+document.addEventListener("click", (e) => { if (e.target && e.target.id === "pdfBtn") downloadReviewPDF(); });
 $("skipUpload").addEventListener("click", () => {
   state.mode = "new";
   enterForm();
