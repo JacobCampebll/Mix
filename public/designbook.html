@@ -196,6 +196,8 @@
   .fp-lower{display:flex; flex-direction:column; gap:16px; margin-top:18px;}
   .fp-results{display:grid; grid-template-columns:repeat(6,1fr); gap:10px;}
   @media (max-width:700px){ .fp-results{grid-template-columns:repeat(2,1fr);} }
+  .fp-defaultnote{font-size:11px; color:var(--flag); display:none;}
+  .fp-defaultnote.show{display:block;}
   .fp-card{background:var(--accent-soft); border-radius:var(--radius); padding:9px 12px;}
   .fp-card .l{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--accent); margin-bottom:2px;}
   .fp-card .v{font-family:'IBM Plex Mono',monospace; font-size:16px; color:var(--ink);}
@@ -927,7 +929,7 @@ const CONFIG = {
         { key: "gse",        label: "Gse" },
         { key: "pbe",        label: "Pbe (%)" },
         { key: "dust_pbe",   label: "Dust / Pbe" },
-        { key: "density",    label: "Density (kg/m³)" },
+        { key: "density",    label: "Density (pcf)" },
       ],
     },
     {
@@ -1253,12 +1255,13 @@ function fourpointHTML(section) {
     <table class="fptable">
       <thead><tr>
         <th>Pb (%)</th><th>Gmb</th><th>Gmm</th>
-        <th>Va (%)</th><th>VMA (%)</th><th>VFA (%)</th><th>Density (kg/m³)</th>
+        <th>Va (%)</th><th>VMA (%)</th><th>VFA (%)</th><th>Density (pcf)</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div class="fp-lower">
       <div class="chartwrap"><div class="cap">Va vs Pb — best-fit curve, solved at the air-void target</div><div id="fpchart"></div></div>
+      <div class="fp-defaultnote" id="fpDefaultNote"></div>
       <div class="fp-results" id="fpResults"></div>
     </div>
     <div class="fpnote">Va, VMA and density fit with a 2nd-order least-squares curve; VFA linear — matching R35 Figure 2. Design Pb is the point on the Va curve at the target, rounded to 0.1%. Combined Gsb and %#200 pull from Aggregate Structure / Gradation; type over them to override.</div>`;
@@ -1527,10 +1530,30 @@ function computeRapNote() {
   el.classList.add("autofilled");
 }
 
+// Small warning caption under the Four Points chart when one or more
+// constants still sit on CONFIG's untouched default - Gb still "1.030",
+// Va target still "3.5", or Combined Gsb/%#200 never auto-derived because
+// Aggregate Structure/Gradation haven't been entered yet. Compares against
+// the raw CONFIG default (not whatever resolveFourpointConstants seeded the
+// box with), so a saved/imported design that genuinely carries those exact
+// values still gets flagged - the note is a "did you check this" nudge, not
+// a data-provenance indicator.
+function updateFpDefaultNote(section) {
+  const el = $("fpDefaultNote");
+  if (!el) return;
+  const stillDefault = section.constants.some((c) => {
+    const live = document.querySelector(`[data-fp="const:${c.key}"]`);
+    return live && String(live.value || "").trim() === String(c.value || "").trim();
+  });
+  el.textContent = stillDefault ? "Using default constants — confirm before submitting." : "";
+  el.classList.toggle("show", stillDefault);
+}
+
 function computeFourPoint() {
   const sec = fpSection();
   if (!sec || !$("fpResults")) return;
   autoFpInputs();
+  updateFpDefaultNote(sec);
   const cv = (k) => num(document.querySelector(`[data-fp="const:${k}"]`)?.value);
   const gsb = cv("fp_gsb"), gb = cv("fp_gb"), p075 = cv("fp_p075"), vaTgt = cv("fp_vatgt");
 
@@ -1545,7 +1568,7 @@ function computeFourPoint() {
       va = 100 * (1 - gmb / gmm);
       vma = 100 - (gmb * ps / gsb);
       vfa = 100 * ((vma - va) / vma);
-      dens = gmb * 997;
+      dens = gmb * 62.4;   // pcf - Gmb is a specific gravity, 62.4 = water's density in lb/ft3 (KY convention, not kg/m3)
       pbs.push(pb); vas.push(va); vmas.push(vma); vfas.push(vfa); denss.push(dens);
     }
     const put = (m, val, d) => { const el = document.querySelector(`[data-fpout="${m}:${i}"]`); if (el) el.textContent = val == null ? "—" : val.toFixed(d); };
@@ -1572,7 +1595,7 @@ function computeFourPoint() {
     vmaD = evalPoly(vmaFit, designPb);
     vfaD = evalPoly(vfaFit, designPb);
     densD = evalPoly(densFit, designPb);
-    gmbD = densD / 997;
+    gmbD = densD / 62.4;   // pcf, matching the per-row density above
     gmmD = gmbD / (1 - vaTgt / 100);
     gse = (100 - designPb) / ((100 / gmmD) - (designPb / gb));
     const psD = 100 - designPb;
@@ -1953,13 +1976,17 @@ function extractLegacy(wb, ctx) {
       }
     }
   }
-  { // tsr_additive: "<type> — <%>" (skip when the workbook says none)
+  { // tsr_additive: "<type> — <%>" - an explicit "none" is a real answer
+    // (the workbook says no additive was used), not the same as the cell
+    // being empty (nobody recorded anything). Both used to collapse into
+    // the same "missing" status; only true emptiness should.
     const rt = chase(L.TSR_ADDITIVE.type), rp = chase(L.TSR_ADDITIVE.pct);
     const typ = rt.value === null ? "" : String(rt.value).trim();
     const pct = rp.value === null ? "" : coerce(rp.value, "number");
     const source = `${rt.source} + ${rp.source}`;
     const none = /^(none|none required|n\/?a)$/i.test(typ) && (pct === "" || Number(pct) === 0);
-    if ((typ === "" && pct === "") || none) miss("tsr_additive", { source, tried: [...rt.tried, ...rp.tried] });
+    if (typ === "" && pct === "") miss("tsr_additive", { source, tried: [...rt.tried, ...rp.tried] });
+    else if (none) put("tsr_additive", "None", source, "workbook recorded no additive used");
     else put("tsr_additive", typ !== "" && pct !== "" ? `${typ} — ${pct}%` : (typ || `${pct}%`), source);
   }
 
