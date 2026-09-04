@@ -196,6 +196,8 @@
   .fp-lower{display:flex; flex-direction:column; gap:16px; margin-top:18px;}
   .fp-results{display:grid; grid-template-columns:repeat(6,1fr); gap:10px;}
   @media (max-width:700px){ .fp-results{grid-template-columns:repeat(2,1fr);} }
+  .fp-defaultnote{font-size:11px; color:var(--flag); display:none;}
+  .fp-defaultnote.show{display:block;}
   .fp-card{background:var(--accent-soft); border-radius:var(--radius); padding:9px 12px;}
   .fp-card .l{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--accent); margin-bottom:2px;}
   .fp-card .v{font-family:'IBM Plex Mono',monospace; font-size:16px; color:var(--ink);}
@@ -1223,6 +1225,7 @@ function fourpointHTML(section) {
     </table>
     <div class="fp-lower">
       <div class="chartwrap"><div class="cap">Va vs Pb — best-fit curve, solved at the air-void target</div><div id="fpchart"></div></div>
+      <div class="fp-defaultnote" id="fpDefaultNote"></div>
       <div class="fp-results" id="fpResults"></div>
     </div>
     <div class="fpnote">Va, VMA and density fit with a 2nd-order least-squares curve; VFA linear — matching R35 Figure 2. Design Pb is the point on the Va curve at the target, rounded to 0.1%. Combined Gsb and %#200 pull from Aggregate Structure / Gradation; type over them to override.</div>`;
@@ -1491,10 +1494,30 @@ function computeRapNote() {
   el.classList.add("autofilled");
 }
 
+// Small warning caption under the Four Points chart when one or more
+// constants still sit on CONFIG's untouched default - Gb still "1.030",
+// Va target still "3.5", or Combined Gsb/%#200 never auto-derived because
+// Aggregate Structure/Gradation haven't been entered yet. Compares against
+// the raw CONFIG default (not whatever resolveFourpointConstants seeded the
+// box with), so a saved/imported design that genuinely carries those exact
+// values still gets flagged - the note is a "did you check this" nudge, not
+// a data-provenance indicator.
+function updateFpDefaultNote(section) {
+  const el = $("fpDefaultNote");
+  if (!el) return;
+  const stillDefault = section.constants.some((c) => {
+    const live = document.querySelector(`[data-fp="const:${c.key}"]`);
+    return live && String(live.value || "").trim() === String(c.value || "").trim();
+  });
+  el.textContent = stillDefault ? "Using default constants — confirm before submitting." : "";
+  el.classList.toggle("show", stillDefault);
+}
+
 function computeFourPoint() {
   const sec = fpSection();
   if (!sec || !$("fpResults")) return;
   autoFpInputs();
+  updateFpDefaultNote(sec);
   const cv = (k) => num(document.querySelector(`[data-fp="const:${k}"]`)?.value);
   const gsb = cv("fp_gsb"), gb = cv("fp_gb"), p075 = cv("fp_p075"), vaTgt = cv("fp_vatgt");
 
