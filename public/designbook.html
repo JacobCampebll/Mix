@@ -783,6 +783,27 @@ const CONFIG = {
     "0.38": { s12_5: [100, null], s9_5: [90, 100], s4_75: [32, 67], s0_075: [2, 10] },
     "4":    { s9_5: [null, 100], s1_18: [30, 55], s0_075: [6, 13] },
   },
+  // RAP -> required virgin binder, per the MixPack v12.1 Recycle Data tab
+  // (screenshot supplied 2026-09-04; cite the exact R35 recycle-spec section
+  // here once confirmed). Keyed by course (SURF/BASE, from state.mix.layer),
+  // then the mixture's BID item (the proposal's original binder grade,
+  // state.mix.binder_grade — NOT the Contract Info "Binder grade" field,
+  // which is the actual/final virgin binder this table exists to help pick).
+  // Each cell is either a grade string, { grade, antistrip:true } when an
+  // approved Anti-Stripping Agent must also be used, or null when that
+  // RAP%/bid-item/course combination isn't permitted at all ("--" in the
+  // table). Same footing as GRADATION_CONTROL_POINTS above — static spec
+  // data, ships in CONFIG, not Supabase.
+  RAP_BINDER_SPEC: {
+    SURF: {
+      "PG76-22": { "0-20": "PG76-22", "21-30": null,                                "31-35": null },
+      "PG64-22": { "0-20": "PG64-22", "21-30": "PG58-28",                           "31-35": null },
+    },
+    BASE: {
+      "PG76-22": { "0-20": "PG76-22", "21-30": { grade: "PG76-22", antistrip: true }, "31-35": null },
+      "PG64-22": { "0-20": "PG64-22", "21-30": { grade: "PG64-22", antistrip: true }, "31-35": { grade: "PG58-28", antistrip: true } },
+    },
+  },
   SECTIONS: [
     {
       id: "contract", label: "Contract Information",
@@ -1415,6 +1436,61 @@ function autoFpInputs() {
   set("fp_p075", p075);
 }
 
+// RAP % is entered as an ordinary Aggregate Structure row (Producer = "RAP",
+// its own % Blend), not a separate field — per Andrew 2026-09-04, "treated
+// like an aggregate with bin percentages, like the rest of the rock". Reads
+// that row, then looks up CONFIG.RAP_BINDER_SPEC by course (state.mix.layer)
+// and bid item (state.mix.binder_grade, the proposal's original grade - the
+// spec exists to tell you whether the ACTUAL virgin binder has to differ
+// from that).
+function rapPercent() {
+  let pct = null;
+  document.querySelectorAll('[data-rowlist="aggregate"] .rowitem').forEach((row) => {
+    const producer = String(row.querySelector('[data-col="producer"]')?.value || "").trim();
+    if (producer.toLowerCase() !== "rap") return;
+    const v = num(row.querySelector('[data-col="pct_blend"]')?.value);
+    if (v != null) pct = v;
+  });
+  return pct;
+}
+function rapBucket(pct) {
+  if (pct == null) return null;
+  if (pct <= 20) return "0-20";
+  if (pct <= 30) return "21-30";
+  if (pct <= 35) return "31-35";
+  return "over";
+}
+function computeRapNote() {
+  const el = document.querySelector('[data-field="rap_note"]');
+  if (!el || document.activeElement === el) return;   // never stomp what's being typed
+  const pct = rapPercent();
+  if (pct == null) { return; }   // no RAP row yet — leave whatever is there (typed, imported, or blank)
+
+  const bucket = rapBucket(pct);
+  const layerRaw = state.mix ? String(state.mix.layer || "").toUpperCase() : "";
+  const course = layerRaw.startsWith("SURF") ? "SURF" : layerRaw.startsWith("BASE") ? "BASE" : null;
+  const bidItem = state.mix ? state.mix.binder_grade : null;
+
+  if (bucket === "over") {
+    el.value = `RAP at ${fmt(pct, 1)}% exceeds the spec's 35% limit — reduce RAP or contact KYTC.`;
+  } else if (!course || !bidItem || !CONFIG.RAP_BINDER_SPEC[course][bidItem]) {
+    // Can't resolve course and/or bid item (design wasn't started from a
+    // Portal mix lookup, or the bid item isn't PG76-22/PG64-22) — leave the
+    // note for the technician to fill in by hand rather than guessing.
+    return;
+  } else {
+    const cell = CONFIG.RAP_BINDER_SPEC[course][bidItem][bucket];
+    if (cell == null) {
+      el.value = `${fmt(pct, 1)}% RAP has no permitted virgin binder for ${bidItem} ${course === "SURF" ? "surface" : "base"} — reduce RAP % or change the bid item.`;
+    } else {
+      const grade = typeof cell === "string" ? cell : cell.grade;
+      const antistrip = typeof cell === "object" && cell.antistrip;
+      el.value = `Use ${grade} virgin binder` + (antistrip ? " (must supplement with an approved Anti-Stripping Agent)" : "") + ` — ${fmt(pct, 1)}% RAP, ${course === "SURF" ? "surface" : "base"}.`;
+    }
+  }
+  el.classList.add("autofilled");
+}
+
 function computeFourPoint() {
   const sec = fpSection();
   if (!sec || !$("fpResults")) return;
@@ -1583,6 +1659,7 @@ function recompute() {
   });
   drawChart();
   computeFourPoint();
+  computeRapNote();
 }
 
 function jumpTo(id, focusFirstEmpty) {
