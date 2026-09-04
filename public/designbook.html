@@ -537,8 +537,11 @@ const CONFIG = {
       hamburg: "Hamburg Data", kyct: "KYCT Data",
       perfSpec: "Performance Specimens", chartData: "Chart Data",
     },
-    // KYTC ESAL class number -> the form's range option, in order.
-    ESAL_CLASS_TO_OPTION: { 1: "<0.3M", 2: "0.3 – 3M", 3: "3 – 10M", 4: "10 – 30M", 5: ">30M" },
+    // AADTT Class (KYTC's workbook cell still calls it ESAL class) - the
+    // form only offers 2/3/4, matching the proposal's CL2/CL3/CL4. A
+    // legacy value outside that range (old workbooks could carry 1 or 5)
+    // is reported unmapped, never forced into the dropdown.
+    AADTT_CLASSES: [2, 3, 4],
 
     // Scalar fields: ordered candidate chains [sheetKey, address]; the first
     // non-empty wins and the import log says which one it was. Keyed by the
@@ -552,10 +555,10 @@ const CONFIG = {
         binder_grade:    [["designData", "C18"]],
         binder_terminal: [["designData", "A17"]],   // "Binder source & loc." - resolves to a LAP number by name
         funding:         [["designData", "C12"]],   // FED/STATE #
-        project_number:  [["designData", "C14"]],   // PROJ. (ITEM)
+        project_number:  [["designData", "C14"]],   // PROJ. (ITEM) - "<number> (<line items>)"; split on import, see below
         depth_mm:        [["designData", "K20"]],
         rap_note:        [["designData", "A19"], ["recycle", "C27"]],
-        esal:            [["designData", "H20"]],
+        aadtt_class:     [["designData", "H20"]],    // KYTC calls this ESAL class in the workbook; same cell
         designer:        [["designData", "K16"]],   // SUBMITTED BY (an SM ID)
         // --- TSR box ---
         tsr_pct:          [["tsr", "G57"], ["designData", "O72"]],   // % TSR without additive
@@ -581,7 +584,7 @@ const CONFIG = {
         project_number:  [["designData", "C14"]],
         depth_mm:        [["designData", "K20"]],
         rap_note:        [["recycle", "F18"]],
-        esal:            [["designData", "H20"]],
+        aadtt_class:     [["designData", "H20"]],
         designer:        [["designData", "K16"]],
         tsr_pct:          [["tsr", "G57"], ["designData", "O72"]],
         tsr_pct_additive: [["tsr", "N57"], ["designData", "O73"]],
@@ -788,16 +791,16 @@ const CONFIG = {
         { key: "county",          label: "County",          type: "text",   req: true },
         { key: "total_tons",      label: "Tonnage",         type: "number", req: true, mono: true },
         { key: "submittal_type",  label: "Submittal type",  type: "select", req: true,
-          options: ["Mix design spreadsheet", "Field change", "Annual renewal"] },
+          options: ["New Mix Design", "Reference Mix Design"] },
         { key: "binder_grade",    label: "Binder grade",    type: "text",   req: true, mono: true, source: "binder_grades" },
         { key: "binder_terminal", label: "Binder supplier", type: "text",   req: true, source: "binder_terminals" },
         { key: "funding",         label: "Funding",         type: "text",   req: true },
-        { key: "project_items",   label: "Project items",   type: "text",   req: false },
         { key: "project_number",  label: "Project number",  type: "text",   req: true, mono: true },
+        { key: "line_items",      label: "Line items",      type: "text",   req: false, mono: true },
         { key: "depth_mm",        label: "Depth (mm)",      type: "number", req: true, mono: true },
         { key: "rap_note",        label: "RAP note",        type: "text",   req: false },
-        { key: "esal",            label: "ESAL class",      type: "select", req: true,
-          options: ["<0.3M", "0.3 – 3M", "3 – 10M", "10 – 30M", ">30M"] },
+        { key: "aadtt_class",     label: "AADTT Class",     type: "select", req: true,
+          options: ["2", "3", "4"] },
         { key: "designer",        label: "Designer",        type: "text",   req: true },
       ],
     },
@@ -1787,7 +1790,7 @@ function extractLegacy(wb, ctx) {
   }
 
   const plain = [
-    "county", "total_tons", "binder_grade", "binder_terminal", "funding", "project_number",
+    "county", "total_tons", "binder_grade", "binder_terminal", "funding",
     "depth_mm", "rap_note", "designer",
     "tsr_pct", "tsr_pct_additive", "tsr_wet_strength", "tsr_dry_strength",
     "perf_binder", "hamburg_left_maxdef", "hamburg_right_maxdef",
@@ -1812,14 +1815,29 @@ function extractLegacy(wb, ctx) {
              unmapped.push({ label: "Submittal type (legacy wording)", source: r.source, value: r.value }); }
     }
   }
-  { // esal: KYTC class number -> range option
-    const r = chase(cells.esal);
-    if (r.value === null) miss("esal", r);
+  { // aadtt_class: KYTC's workbook cell holds a bare class number; only 2-4 are real options
+    const r = chase(cells.aadtt_class);
+    if (r.value === null) miss("aadtt_class", r);
     else {
-      const cls = parseInt(String(r.value).trim(), 10), opt = L.ESAL_CLASS_TO_OPTION[cls];
-      if (opt) put("esal", opt, r.source, `ESAL class ${cls} → "${opt}"`);
-      else { log.push({ field: "esal", source: r.source, value: r.value, status: "unmapped-value", note: "not a class 1-5" });
-             unmapped.push({ label: "ESAL class (unrecognised)", source: r.source, value: r.value }); }
+      const cls = parseInt(String(r.value).trim(), 10);
+      if (L.AADTT_CLASSES.includes(cls)) put("aadtt_class", String(cls), r.source);
+      else { log.push({ field: "aadtt_class", source: r.source, value: r.value, status: "unmapped-value", note: "not class 2, 3 or 4" });
+             unmapped.push({ label: "AADTT Class (unrecognised)", source: r.source, value: r.value }); }
+    }
+  }
+  { // project_number: legacy "PROJ. (ITEM)" cell is "<project number> (<line items>)" -
+    // split into the two real form fields. No parens present -> whole string
+    // is the project number, line items left blank (never guessed).
+    const r = chase(cells.project_number);
+    if (r.value === null) miss("project_number", r);
+    else {
+      const m = /^(.*?)\s*\(([^)]*)\)\s*$/.exec(String(r.value).trim());
+      if (m) {
+        put("project_number", m[1].trim(), r.source, "split from \"<number> (<line items>)\"");
+        if (m[2].trim()) put("line_items", m[2].trim(), r.source, "split from \"<number> (<line items>)\"");
+      } else {
+        put("project_number", String(r.value).trim(), r.source);
+      }
     }
   }
   { // tsr_additive: "<type> — <%>" (skip when the workbook says none)
