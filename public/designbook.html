@@ -519,10 +519,6 @@ const CONFIG = {
     // the finest 100% so the curve is visibly flat before it departs.
     CHART: { sieveHeadroom: 1, bandOpacity: 0.30, capW: 6 },
 
-    // KYTC's MixPack reports unit weight as Gmb x 62.4 (pcf). Do not convert
-    // the kg/m3 figure - match the workbook's own arithmetic.
-    PCF_PER_GMB: 62.4,
-
     // Team Kentucky palette, 0-1 per channel (same tokens as the pages' CSS).
     BRAND: {
       navy:   [0x00 / 255, 0x20 / 255, 0x50 / 255],
@@ -2893,22 +2889,22 @@ async function buildReviewPDF(payload) {
       fourpointBlock(section);
     },
     "design-values"(section) {
-      const list = (section.outputs || []).map((o) => {
-        const short = o.label.replace(/\s*at design\s*/i, "").replace(/\s*\(kg\/m3?\)/i, "").replace(/\s*\(kg\/m³\)/i, "");
-        if (o.key === "density") {
-          const gmb = parseFloat(dv.gmb_design);
-          return ["Density", Number.isFinite(gmb) ? `${(gmb * H.PCF_PER_GMB).toFixed(1)} pcf` : ""];
-        }
-        return [short, hdNum(dv[o.key], null)];
-      }).filter((p) => p[1] !== "" && p[1] != null);
+      // Every output prints straight from the field. Density used to be
+      // re-derived here as Gmb x 62.4 because the page computed kg/m3;
+      // Andrew fixed that at source (PR #8), so re-deriving would now drift
+      // from the on-page value by up to ~0.5 pcf - it would be reading an
+      // already-rounded gmb_design instead of the field itself.
+      const list = (section.outputs || []).map((o) =>
+        [o.label.replace(/\s*at design\s*/i, ""), hdNum(dv[o.key], hdDP(o.key))])
+        .filter((p) => p[1] !== "" && p[1] != null);
       if (!list.length) return;
       sectionHead(section.label);
       pairs(list, { cols: 5 });
     },
     // One line: the result, the binder it was run with, and the additive.
-    // A blank additive is NOT "None" - the importer collapses the workbook's
-    // "None required" into the same blank as an empty cell, so claiming
-    // None would be asserting something the file does not say.
+    // Since PR #8 the importer records an explicit "None" when the workbook
+    // says so, and leaves the field empty only when nobody recorded
+    // anything - so a blank here really does mean "not stated".
     tsr(section) {
       const pct = hdNum(values.tsr_pct, 0), withAdd = hdNum(values.tsr_pct_additive, 0);
       if (pct === "" && withAdd === "") return;
