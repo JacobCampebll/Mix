@@ -553,10 +553,12 @@ const CONFIG = {
     // tab's own additive cells, Design Data O74/O75 as fallback.
     TSR_ADDITIVE: { type: [["tsr", "H19"], ["designData", "O75"]], pct: [["tsr", "H17"], ["designData", "O74"]] },
 
-    // Read-only "from the uploaded workbook" panel in Design Values. A completed
-    // MixPack carries no 4-point gyratory data, so the computed path stays
-    // empty on a legacy import - these are the workbook's own stated results
-    // (Design Data column O, populated in a natively-saved file).
+    // Read-only "from the uploaded workbook" panel in Design Values - the
+    // workbook's own stated results (Design Data column O, populated in a
+    // natively-saved file), shown alongside whatever the computed path
+    // derives from the FOURPOINT trial data above (both are useful: this
+    // panel is what the technician originally submitted, the computed path
+    // is what today's curve fit says from the same four trial points).
     DESIGN_VALUES: {
       "AC (%)":              ["designData", "O63"],
       "VMA (%)":             ["designData", "O57"],
@@ -573,13 +575,37 @@ const CONFIG = {
       "Dust / binder ratio": ["designData", "O58"],
       "Film thickness (µm)": ["designData", "O69"],
     },
-    // The 4 gyratory trial points (Pb/Gmb/Gmm) that would seed the Four Points
-    // section. NOT in #489PA (Ver 12.1) - the MixPack keeps only the design
-    // result, and t_tst_rslt_dtl's "4-PT. GYRATORY MIX" block is a single set.
-    // Some MixPacks may carry the trial sweep on the Graphs tab (per Andrew) -
-    // wire this once we have a sample that has it, then seed `tables.fourpoint`
-    // and let computeFourPoint() run instead of the read-only panel below.
-    FOURPOINT: null,
+    // The 4 gyratory trial points (Pb/Gmb/Gmm), found 2026-09-04 in a real
+    // Ver 11.3 sample (CL3 0.38A 64-22 Haydon NEW.xlsm) - it was wrong to
+    // assume a completed MixPack never carries the trial sweep. Design Data
+    // rows 30-43 hold the raw trial-blend table (Sample #/Average rows per
+    // AC%); row 30's header labels column G "BSG" - that IS Gmb, not a
+    // derived unit-weight figure, so pull it straight, no /62.4 conversion.
+    // The four "Average" rows are 34 (Pb 5.5), 37 (6.0), 40 (6.5), 43 (7.0).
+    // 12.1 is NOT yet verified against a real workbook - copied from 11.x as
+    // a provisional best guess (same address, per Andrew, until a 12.1
+    // sample confirms or corrects it). Do not trust the 12.1 entry the way
+    // the rest of CELLS is trusted; re-verify before relying on it.
+    // Each pb/gmb/gmm is a chase() CHAIN (array of [sheetKey, addr]
+    // fallbacks), same shape as every other CELLS entry - a bare
+    // [sheetKey, addr] pair here would make chase() destructure the two
+    // characters of "designData"/"B34" instead of a real cell reference,
+    // silently, with no error. Only one address per point in practice, so
+    // each chain holds exactly one fallback.
+    FOURPOINT: {
+      "11.x": [
+        { pb: [["designData", "B34"]], gmb: [["designData", "G34"]], gmm: [["designData", "I34"]] },
+        { pb: [["designData", "B37"]], gmb: [["designData", "G37"]], gmm: [["designData", "I37"]] },
+        { pb: [["designData", "B40"]], gmb: [["designData", "G40"]], gmm: [["designData", "I40"]] },
+        { pb: [["designData", "B43"]], gmb: [["designData", "G43"]], gmm: [["designData", "I43"]] },
+      ],
+      "12.1": [   // UNVERIFIED — provisional copy of 11.x, see comment above
+        { pb: [["designData", "B34"]], gmb: [["designData", "G34"]], gmm: [["designData", "I34"]] },
+        { pb: [["designData", "B37"]], gmb: [["designData", "G37"]], gmm: [["designData", "I37"]] },
+        { pb: [["designData", "B40"]], gmb: [["designData", "G40"]], gmm: [["designData", "I40"]] },
+        { pb: [["designData", "B43"]], gmb: [["designData", "G43"]], gmm: [["designData", "I43"]] },
+      ],
+    },
 
     // Gradation: JMF input column T, Design Data rows 15-28, keyed by the new
     // sieve keys (CONFIG.SECTIONS gradation `key`s). Same in both versions.
@@ -1024,14 +1050,46 @@ function sievesHTML(section) {
 }
 
 /* ---------- Four Points (R35 §10.5.5 curve fit) ---------- */
+// Four Points is the one section that did NOT follow the rest of the page's
+// "read the initial value from state.extracted" convention (see gridHTML,
+// rowsHTML, sievesHTML) - it always rendered CONFIG.SECTIONS' static default
+// seed, so neither a fresh legacy import NOR a reopened saved design ever
+// showed real points here, silently. Found 2026-09-04 while wiring the
+// legacy importer. Two source shapes to reconcile: a fresh import puts an
+// array of {pb,gmb,gmm} in state.extracted.tables.fourpoint (same shape as
+// every other extracted table); a reopened saved design instead carries the
+// flat data-fp-keyed object collectForm() wrote into values.fourpoint
+// (state.extracted.scalars.fourpoint, e.g. {"pt:0:pb": "5.5", ...}) - kept
+// as-is rather than reshaping the save format, since that's a JSONB column
+// already holding rows in production. A fresh import wins over a reload.
+function resolveFourpointPoints(section) {
+  const ex = state.extracted;
+  if (ex && Array.isArray(ex.tables && ex.tables.fourpoint) && ex.tables.fourpoint.length) {
+    return ex.tables.fourpoint;
+  }
+  if (ex && ex.scalars && ex.scalars.fourpoint) {
+    const saved = ex.scalars.fourpoint;
+    return section.points.map((_, i) => ({
+      pb: saved[`pt:${i}:pb`] ?? "", gmb: saved[`pt:${i}:gmb`] ?? "", gmm: saved[`pt:${i}:gmm`] ?? "",
+    }));
+  }
+  return section.points;
+}
+function resolveFourpointConstants(section) {
+  const ex = state.extracted;
+  const saved = ex && ex.scalars && ex.scalars.fourpoint ? ex.scalars.fourpoint : null;
+  return section.constants.map((c) => saved && saved[`const:${c.key}`] != null
+    ? { ...c, value: saved[`const:${c.key}`] } : c);
+}
 function fourpointHTML(section) {
-  const consts = section.constants.map((c) =>
+  const constants = resolveFourpointConstants(section), points = resolveFourpointPoints(section);
+  const consts = constants.map((c) =>
     `<div class="field">
       <label>${c.label}${c.auto ? ` <span class="opt">(auto)</span>` : ""}</label>
       <input type="text" inputmode="decimal" class="box mono${c.auto ? "" : " req"}"
              data-fp="const:${c.key}" value="${esc(c.value || "")}" placeholder="—">
     </div>`).join("");
-  const rows = section.points.map((p, i) => `<tr data-fprow="${i}">
+  const rows = points.map((p, i) => `<tr data-fprow="${i}">
       <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:pb"  value="${esc(p.pb || "")}"></td>
       <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmb" value="${esc(p.gmb || "")}" placeholder="—"></td>
       <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmm" value="${esc(p.gmm || "")}" placeholder="—"></td>
@@ -1056,10 +1114,13 @@ function fourpointHTML(section) {
 }
 
 function computedHTML(section) {
-  // Legacy MixPack upload: a completed workbook has no 4-point data to compute
-  // from, so show its own stated design results read-only. Rebuilt on every
-  // render from state.legacy.designValues (set by the importer / a reopened
-  // legacy design).
+  // Legacy MixPack upload: alongside the computed path (now seeded from the
+  // workbook's own FOURPOINT trial data, when the version's cell map has
+  // it), show the workbook's own stated design results read-only so a
+  // reviewer can compare "what the curve fit says today" against "what the
+  // technician originally submitted". Rebuilt on every render from
+  // state.legacy.designValues (set by the importer / a reopened legacy
+  // design).
   const wb = state.legacy && Array.isArray(state.legacy.designValues)
     ? state.legacy.designValues.filter((d) => d.status === "found") : [];
   const wbPanel = wb.length ? `
@@ -1067,7 +1128,7 @@ function computedHTML(section) {
     <div class="computed-grid">` + wb.map((d) =>
       `<div class="computed-cell"><div class="l">${esc(d.label)}</div>
          <div class="v">${esc(String(d.value))}</div></div>`).join("") + `</div>
-    <div class="computed-note">${wb.length} value(s) from ${esc(wb[0].source.split("!")[0])}. The workbook stores no 4-point gyratory data, so the calculator below stays empty unless a tech enters the points.</div>
+    <div class="computed-note">${wb.length} value(s) from ${esc(wb[0].source.split("!")[0])}. Compare against the calculator below, which is fit from the four trial points (also pulled from the workbook, where the version's cell map has them).</div>
     <div style="height:18px"></div>` : "";
   return wbPanel + `<div class="rowgroup-head">Computed from Four Points</div>
     <div class="computed-grid">` + section.outputs.map((o) =>
@@ -1560,7 +1621,7 @@ function extractLegacy(wb, ctx) {
   const cells = L.CELLS[ver.version];
   const src = (key, addr) => `${L.SHEET_NAMES[key]}!${addr}`;
   const scalars = {}, sources = {}, log = [], unmapped = [], context = [], designValues = [];
-  const tables = { aggregate: [], ct: [], perf_specimens: [], hamburg_curve: [] };
+  const tables = { aggregate: [], ct: [], perf_specimens: [], hamburg_curve: [], fourpoint: [] };
 
   function chase(chain) {
     const tried = [];
@@ -1711,9 +1772,35 @@ function extractLegacy(wb, ctx) {
                note: skipped ? `${skipped} slot(s) with no CT index skipped` : "" });
   }
 
-  { // Design Values — read-only "from the uploaded workbook" panel (no 4-point
-    // data in a MixPack, so this is what the computed section shows on a
-    // legacy import). Design Data column O in a natively-saved file.
+  { // Four Points trial data (Pb/Gmb/Gmm) — seeds the Four Points calculator
+    // directly, same as a technician typing the four rows in by hand. A
+    // point counts as found only when all three of Pb/Gmb/Gmm resolved;
+    // a partial point is reported as missing rather than saved half-blank.
+    // Rounded to the precision a tech would type (Pb 0.1%, Gmb/Gmm 0.001) -
+    // the raw cells are formula results with 10+ decimal digits, which
+    // coerce()'s plain parseFloat would otherwise carry straight into the
+    // input box.
+    const fp = L.FOURPOINT ? L.FOURPOINT[ver.version] : null;
+    const round = (v, d) => { const n = parseFloat(coerce(v, "number")); return Number.isFinite(n) ? n.toFixed(d) : ""; };
+    let gotPoints = 0;
+    (fp || []).forEach((pt, i) => {
+      const rpb = chase(pt.pb), rgmb = chase(pt.gmb), rgmm = chase(pt.gmm);
+      if (rpb.value !== null && rgmb.value !== null && rgmm.value !== null) {
+        tables.fourpoint.push({ pb: round(rpb.value, 1), gmb: round(rgmb.value, 3), gmm: round(rgmm.value, 3) });
+        gotPoints++;
+      } else {
+        log.push({ field: `four points trial ${i + 1}`, source: `${rpb.source} / ${rgmb.source} / ${rgmm.source}`,
+                   value: null, status: "missing", note: "Pb/Gmb/Gmm not all present for this trial" });
+      }
+    });
+    log.push({ field: "four points", source: fp ? `${L.SHEET_NAMES.designData} rows 34/37/40/43` : "(no source in this version)",
+               value: gotPoints, status: gotPoints ? "found" : "missing",
+               note: fp && ver.version === "12.1" ? "12.1 address unverified — confirm against a real 12.1 sample" : "" });
+  }
+
+  { // Design Values — read-only "from the uploaded workbook" panel, shown
+    // alongside the computed path above. Design Data column O in a
+    // natively-saved file.
     Object.entries(L.DESIGN_VALUES).forEach(([label, [sk, addr]]) => {
       const r = legacyCell(S[sk], addr);
       const v = r.status === "found" ? coerce(r.value, "number") : (r.status === "found" ? String(r.value) : "");
@@ -1759,7 +1846,7 @@ function renderLegacyLog(res, fileName) {
     lines.push(`  ${pad(l.field, 15)} ${pad(l.source, 29)} ${pad(val, 23)} ${l.status}${l.note ? "  · " + l.note : ""}`);
   });
   if (res.designValues && res.designValues.length) {
-    lines.push("", "Workbook design values (shown read-only in Design Values — no 4-point data to compute):");
+    lines.push("", "Workbook design values (shown read-only in Design Values, alongside the computed path):");
     res.designValues.forEach((d) => lines.push(`  ${pad(d.label, 22)} ${pad(d.source, 22)} ${pad(d.value == null ? "—" : String(d.value), 12)} ${d.status}`));
   }
   lines.push("", "Job context checks:");
@@ -1792,7 +1879,7 @@ async function handleFile(file) {
 
     enterForm();
     let summary = `${res.version.label}: prefilled ${found} field(s), ${res.tables.aggregate.length} aggregate row(s), ` +
-                  `${res.tables.ct.length} CT specimen(s) from ${file.name}. Check every value.`;
+                  `${res.tables.ct.length} CT specimen(s), ${res.tables.fourpoint.length} four-point trial(s) from ${file.name}. Check every value.`;
     if (notCached) summary += ` ${notCached} value(s) are formulas with no cached result — open the workbook in Excel and save it, or enter them by hand.`;
     if (mismatch.length) summary += ` ⚠ Workbook ${mismatch.map((m) => m.what).join(" and ")} does not match this job.`;
     msg($("saveMsg"), summary, mismatch.length ? "error" : (found ? "warn" : "error"));

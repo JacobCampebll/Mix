@@ -274,3 +274,70 @@ extraction path returned real values.
   only)") is not one of the three form options; reported as an off-list
   value, left blank. Widen the option list or add a mapping.
 - RAP / RAS / Virgin AC have no home in the restructured form.
+
+---
+
+# `FOURPOINT` wired — 2026-09-04, against `CL3 0.38A 64-22 Haydon NEW.xlsm`
+
+The `FOURPOINT: null` placeholder above was wrong to assume away — this is a
+real, **approved**, natively-saved **Ver 11.3** MixPack (`Design Data!U3 =
+"Ver 11.3"`), and it does carry the 4-point gyratory trial sweep. It isn't on
+the Graphs tab or in a chart at all (both prior guesses); it's a plain input
+table on `Design Data` itself, rows 30–43, that the Graphs-tab charts and
+the `GRAPH DATA` block (`C84:F99`) both pull from.
+
+## Where it actually lives
+
+`Design Data!A30:P43` — one "Sample #" pair of rows per trial blend (rows
+32–33, 35–36, 38–39, 41–42) plus an "Average" row per blend (34, 37, 40, 43).
+Column headers, row 30/31:
+
+| Col | Header | Meaning |
+|---|---|---|
+| B | `% AC` (`(Mix)`) | Pb for that trial |
+| G | `BSG` (`@ Ndes`) | **this is Gmb** — KYTC's MixPack calls bulk specific gravity "BSG", not "Gmb". Pull it directly; do not derive from Unit Weight. |
+| H | `Unit Wt. @ Ndes (pcf)` | `= G × 62.4` — a display-only derived column, dead end, not a separate measurement |
+| I | `Max Spec. Gravity` | this is Gmm |
+
+The four "Average" rows are the four design points:
+
+| Trial | Pb | Gmb (BSG) | Gmm |
+|---|---|---|---|
+| 1 | `B34` | `G34` | `I34` |
+| 2 | `B37` | `G37` | `I37` |
+| 3 | `B40` | `G40` | `I40` |
+| 4 | `B43` | `G43` | `I43` |
+
+In this sample: Pb 5.5/6.0/6.5/7.0, Gmb 2.3657/2.3836/2.3939/2.4020, Gmm
+2.4895/2.4710/2.4527/2.4348 — cross-checked against the sheet's own Va
+column (`D86:D89` in the `GRAPH DATA` block): `(1 − Gmb/Gmm) × 100` on row 1
+gives 4.97%, matching `D86 = 4.973710900626655` exactly.
+
+## Version risk — 12.1 is unverified
+
+Only an 11.3 sample has been checked. `CONFIG.LEGACY.FOURPOINT["12.1"]` is a
+**provisional copy** of the 11.x addresses, not a verified one — Design
+Data's overall input layout is identical 11.x/12.1 per the finding above,
+which is why this is a reasonable placeholder rather than a guess out of
+nowhere, but it has not been checked against a real 12.1 file the way every
+other `CELLS` entry has. Re-verify (or correct) once a completed 12.1
+MixPack is available, and drop the "UNVERIFIED" comment in
+`CONFIG.LEGACY.FOURPOINT` once it's confirmed.
+
+## Rendering bug found and fixed in the same pass
+
+Separately from extraction: `fourpointHTML()` never read from
+`state.extracted` at all — every other section (`gridHTML`, `rowsHTML`,
+`sievesHTML`) seeds its initial value from extracted/saved state, but Four
+Points always rendered `CONFIG.SECTIONS`' static default seed regardless of
+what a legacy import or a previously **saved design** actually held. That
+means before this fix, reopening *any* saved design with typed-in Four
+Points data showed the default placeholder rows, not what was saved — the
+data was safe in the `values.fourpoint` JSONB column the whole time, just
+never displayed. Fixed via `resolveFourpointPoints()` /
+`resolveFourpointConstants()` in `public/designbook.html`, which reconcile
+two source shapes: a fresh import's `state.extracted.tables.fourpoint`
+(array of `{pb,gmb,gmm}`, same shape as every other extracted table) and a
+reopened design's `state.extracted.scalars.fourpoint` (the flat
+`data-fp`-keyed object `collectForm()` has always saved into
+`values.fourpoint`) — the save shape itself was left alone.
