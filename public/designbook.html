@@ -476,11 +476,46 @@ const CONFIG = {
     // opened there. Same string as portal.html's CONFIG.HANDOFF_KEY -
     // shared ground, change both.
     STORAGE_KEY: "mix_designbook_handoff",
-    // US Letter, in points.
-    PAGE: { w: 612, h: 792, mx: 46, top: 62, bottom: 52 },
+
+    // US Letter LANDSCAPE, two columns. Landscape plus two columns is what
+    // fits a full design on one sheet; chosen from five drawn layouts
+    // 2026-09-04.
+    PAGE: { w: 792, h: 612, mx: 40, top: 58, bottom: 40 },
+    COLS: 2,
+    COL_GAP: 22,
     BAR: 5,
-    // Sieves are folded into this many side-by-side label/value pairs.
-    SIEVE_COLUMNS: 3,
+    LOGO: { src: "assets/kytc-logo.png", w: 78, ratio: 1.76 },
+
+    TYPE: { title: 16, sec: 8.5, sub: 7, lab: 6.2, val: 8.4, cell: 7.6, foot: 6.2 },
+    ROW: { pairH: 16, pairGap: 11, rowH: 10.5, headH: 10,
+           secGap: 3, afterSec: 6, afterTable: 3, headerGap: 7 },
+
+    // Fields and row columns deliberately not PRINTED. They stay in the
+    // payload and in the CSV to KYTC - this only controls what is drawn.
+    // Keyed "<section id>.<field or column key>".
+    OMIT: {
+      "aggregate.mat_code": "SiteManager code - auto-filled, not read by a reviewer",
+      "gradation.s6_3": "1/4in sieve is not used in practice",
+      "tsr.tsr_dry_strength": "TSR % is the reported result",
+      "tsr.tsr_wet_strength": "TSR % is the reported result",
+    },
+
+    // Decimal places by field/column key when printing. Anything unlisted
+    // falls back to DEFAULT_DP. The payload always keeps full precision -
+    // a workbook import arrives with 14 decimals and 14 decimals on a
+    // submittal reads as an error.
+    DP: { gsb: 2, air_voids: 1, tsr_pct: 0, index: 1 },
+    DEFAULT_DP: 3,
+
+    // Gradation chart. The coarse end of a gradation is a flat run of 100s
+    // that eats ~40% of the plot; trim it, keeping this many sieves above
+    // the finest 100% so the curve is visibly flat before it departs.
+    CHART: { sieveHeadroom: 1, bandOpacity: 0.30, capW: 6 },
+
+    // KYTC's MixPack reports unit weight as Gmb x 62.4 (pcf). Do not convert
+    // the kg/m3 figure - match the workbook's own arithmetic.
+    PCF_PER_GMB: 62.4,
+
     // Team Kentucky palette, 0-1 per channel (same tokens as the pages' CSS).
     BRAND: {
       navy:   [0x00 / 255, 0x20 / 255, 0x50 / 255],
@@ -953,6 +988,7 @@ const state = {
          ...Object.keys(CONFIG.REFERENCE.TABLES).map((k) => ({ [k]: [] }))),
   dirty: false,      // edits since the last save (a stage move saves them first)
   history: [],      // append-only trail carried in the review PDF (no design_events any more)
+  plantName: null,   // resolved from the plants table; travels in the review PDF
   savedExtractedFrom: null, // extracted_from as loaded from a saved design
   designId: null,    // designs.id once saved / when opened via ?design=
   authorUserId: null,
@@ -2262,9 +2298,11 @@ function wireDrop() {
    dropped the attachment on re-save. If BOTH are gone the file is
    reported as unreadable rather than silently importing nothing.
 
-   Everything drawn comes from CONFIG.SECTIONS, same single source as
-   the form, the xlsx extractor and the validation rail. Adding a
-   field must not need an edit here.
+   Layout is US Letter LANDSCAPE, two columns - chosen from five drawn
+   alternatives against a real design on 2026-09-04, because it is what
+   fits a complete design on one sheet. Field lists come from
+   CONFIG.SECTIONS; what a section does NOT print is named in
+   CONFIG.HANDOFF.OMIT rather than being silently absent here.
    ================================================================== */
 
 // pdf-lib's standard fonts are WinAnsi: an unencodable character throws
@@ -2272,13 +2310,13 @@ function wireDrop() {
 // actually use and drop anything else.
 function wa(v) {
   return String(v == null ? "" : v)
-    .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201C\u201D]/g, '"')
-    .replace(/\u2192/g, "->")
-    .replace(/[\u2013\u2014]/g, "-")
-    .replace(/\u2264/g, "<=").replace(/\u2265/g, ">=")
-    .replace(/\u00b3/g, "3").replace(/\u00b2/g, "2")
-    .replace(/[^\x20-\x7E\u00A0-\u00FF]/g, "");
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/→/g, "->")
+    .replace(/[–—]/g, "-")
+    .replace(/≤/g, "<=").replace(/≥/g, ">=")
+    .replace(/³/g, "3").replace(/²/g, "2")
+    .replace(/[^\x20-\x7E -ÿ]/g, "");
 }
 
 function b64encode(bytes) {
@@ -2292,6 +2330,48 @@ function b64decode(s) {
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
+}
+
+/* ---------- display formatting ---------- */
+// The payload keeps every value exactly as entered or imported. These
+// only decide how many digits reach the paper: a MixPack import arrives
+// with 14 decimals, and 14 decimals on a submittal reads as an error.
+function hdDP(key) {
+  const dp = CONFIG.HANDOFF.DP[key];
+  return dp == null ? null : dp;
+}
+function hdNum(v, dp) {
+  const t = String(v == null ? "" : v).trim();
+  if (t === "") return "";
+  const n = parseFloat(t);
+  if (!Number.isFinite(n)) return t;
+  if (dp != null) return n.toFixed(dp);
+  // No explicit rule: leave short values alone, trim long ones.
+  return /^-?\d*\.\d{4,}$/.test(t)
+    ? String(parseFloat(n.toFixed(CONFIG.HANDOFF.DEFAULT_DP))) : t;
+}
+function hdOmit(sectionId, key) {
+  return Object.prototype.hasOwnProperty.call(CONFIG.HANDOFF.OMIT, `${sectionId}.${key}`);
+}
+
+// ESAL is stored as the range option; KYTC talks in class numbers. Derive
+// the reverse from the importer's own map so there is one source.
+function esalClassLabel(value) {
+  const norm = (s) => String(s == null ? "" : s).replace(/[\s–—-]/g, "").toLowerCase();
+  const hit = Object.entries(CONFIG.LEGACY.ESAL_CLASS_TO_OPTION)
+    .find(([, opt]) => norm(opt) === norm(value));
+  return hit ? `Class ${hit[0]}` : (value == null ? "" : String(value));
+}
+
+// "CL3 ASPH SURF 0.38A PG64-22" already names the mix; this spells out
+// what the class and layer mean so the sheet is readable without the code.
+function mixTypeLabel(mix) {
+  if (!mix) return "";
+  const layer = { SURF: "Surface", BASE: "Base", INT: "Intermediate", WEDGE: "Wedge" };
+  const parts = [];
+  if (mix.mix_class) parts.push(`Class ${mix.mix_class}`);
+  if (mix.layer) parts.push(layer[String(mix.layer).toUpperCase()] || mix.layer);
+  return parts.join(" ");
 }
 
 /* ---------- the payload ---------- */
@@ -2313,6 +2393,10 @@ function handoffPayload(action) {
     generated_by: who,
     stage: CONFIG.STAGES[state.stageIdx] ? CONFIG.STAGES[state.stageIdx].key : "Draft",
     job: state.job,
+    // Resolved from the plants table at page load. Carried in the file so
+    // the header still names the plant when the PDF is reopened before
+    // that lookup returns - or by someone whose lookup fails.
+    plant_name: state.plantName || null,
     mix: state.mix,
     origin: state.mode,
     values,
@@ -2334,218 +2418,486 @@ function handoffFileName(payload) {
     .replace(/[^A-Za-z0-9_.-]/g, "");
 }
 
-/* ---------- what to print, straight off CONFIG.SECTIONS ---------- */
-
-// One flat list of blocks the drawer knows how to lay out. Driven by
-// section.type, so a new section appears here without an edit.
-function handoffBlocks(payload) {
-  const values = payload.values || {}, rows = payload.rows || {};
-  const fp = values.fourpoint || {}, dv = values.design_values || {};
-  const out = [];
-  CONFIG.SECTIONS.forEach((s) => {
-    if (s.type === "status") return;              // the footer carries this
-    const parts = [];
-    if (s.fields) {
-      const pairs = s.fields.map((f) => [f.label, values[f.key]]);
-      if (pairs.some((p) => !isBlank(p[1]))) parts.push({ kind: "pairs", pairs });
-    }
-    if (s.type === "sieves") {
-      const pairs = s.sieves.map((v) => [v.label, values[v.key]]);
-      if (pairs.some((r) => !isBlank(r[1]))) {
-        // One row per sieve is 14 rows down a narrow column and half a
-        // wasted page. Fold into three side-by-side pairs instead.
-        const cols = CONFIG.HANDOFF.SIEVE_COLUMNS;
-        const per = Math.ceil(pairs.length / cols);
-        const body = [];
-        for (let r = 0; r < per; r++) {
-          const line = [];
-          for (let c = 0; c < cols; c++) {
-            const cell = pairs[c * per + r];
-            line.push(cell ? cell[0] : "", cell ? cell[1] : "");
-          }
-          body.push(line);
-        }
-        const head = [];
-        for (let c = 0; c < cols; c++) head.push("Sieve", "% passing");
-        parts.push({ kind: "table", head, body, blankAs: "" });
-      }
-    }
-    if (s.type === "fourpoint") {
-      const pairs = s.constants.map((c) => [c.label, fp["const:" + c.key]]);
-      if (pairs.some((p) => !isBlank(p[1]))) parts.push({ kind: "pairs", pairs });
-      const body = s.points.map((p, i) => [fp[`pt:${i}:pb`], fp[`pt:${i}:gmb`], fp[`pt:${i}:gmm`]]);
-      if (body.some((r) => r.some((c) => !isBlank(c))))
-        parts.push({ kind: "table", head: ["Pb (%)", "Gmb", "Gmm"], body, widths: [80, 80, 80] });
-    }
-    if (s.type === "computed") {
-      const pairs = (s.outputs || []).map((o) => [o.label, dv[o.key]]);
-      if (pairs.some((p) => !isBlank(p[1]))) parts.push({ kind: "pairs", pairs });
-    }
-    if (s.rows) {
-      (Array.isArray(s.rows) ? s.rows : [s.rows]).forEach((spec) => {
-        const list = rows[spec.key] || [];
-        if (!list.length) return;
-        const cols = spec.columns || [];
-        parts.push({
-          kind: "table", heading: spec.heading || null,
-          head: cols.map((c) => c.label),
-          body: list.map((r) => cols.map((c) => r[c.key])),
-          weights: gridWeights(spec, cols.length),
-        });
-      });
-    }
-    if (parts.length) out.push({ label: s.label, parts });
-  });
-  return out;
-}
-
-// A row spec's screen grid ("1.4fr 1.2fr 1fr .8fr .8fr auto") already says
-// how wide each column wants to be. Reuse it so the PDF and the form agree
-// and nobody maintains a second set of widths. Trailing non-fr tracks (the
-// remove button) are dropped; no grid means equal columns.
-function gridWeights(spec, n) {
-  const fr = String(spec.grid || "").split(/\s+/)
-    .map((t) => /^([\d.]*)fr$/.exec(t))
-    .filter(Boolean)
-    .map((m) => parseFloat(m[1] || "1"));
-  return fr.length >= n ? fr.slice(0, n) : null;
-}
-
 /* ---------- the document ---------- */
 
 async function buildReviewPDF(payload) {
-  const { PDFDocument, StandardFonts, rgb } = PDFLib;
-  const H = CONFIG.HANDOFF, P = H.PAGE, C = H.BRAND;
+  const { PDFDocument, StandardFonts, rgb, degrees } = PDFLib;
+  const H = CONFIG.HANDOFF, P = H.PAGE, C = H.BRAND, T = H.TYPE, RW = H.ROW;
   const col = (a) => rgb(a[0], a[1], a[2]);
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const inner = P.w - P.mx * 2;
-  const pages = [];
-  let page = null, y = 0;
+  const logo = await loadHandoffLogo(doc);
 
-  // The logo's blue-to-gold bar, faked with slices: PDF has no gradient
-  // primitive and this is the one piece of brand the document needs.
-  function brandBar(pg) {
+  const values = payload.values || {}, rows = payload.rows || {};
+  const fpv = values.fourpoint || {}, dv = values.design_values || {};
+  const pages = [];
+  let page = null, y = 0, colIdx = 0, colX = 0, colW = 0, colTop = 0, inHeader = false;
+
+  /* --- page furniture --- */
+  function bar(pg) {
     const n = 72, w = P.w / n;
     for (let i = 0; i < n; i++) {
-      const t = i / (n - 1);
-      const k = t <= 0.35 ? 0 : t >= 0.80 ? 1 : (t - 0.35) / 0.45;
-      pg.drawRectangle({
-        x: i * w, y: P.h - H.BAR, width: w + 0.7, height: H.BAR,
-        color: col([0, 1, 2].map((j) => C.sky[j] + (C.gold[j] - C.sky[j]) * k)),
-      });
+      const t = i / (n - 1), k = t <= 0.35 ? 0 : t >= 0.80 ? 1 : (t - 0.35) / 0.45;
+      pg.drawRectangle({ x: i * w, y: P.h - H.BAR, width: w + 0.7, height: H.BAR,
+        color: col([0, 1, 2].map((j) => C.sky[j] + (C.gold[j] - C.sky[j]) * k)) });
     }
   }
-  function newPage() {
-    page = doc.addPage([P.w, P.h]); pages.push(page); brandBar(page);
-    y = P.h - P.top;
+  function setCol(i) {
+    colW = (P.w - P.mx * 2 - H.COL_GAP * (H.COLS - 1)) / H.COLS;
+    colX = P.mx + i * (colW + H.COL_GAP);
   }
-  function need(h) { if (!page || y - h < P.bottom) newPage(); }
+  function newPage() {
+    page = doc.addPage([P.w, P.h]); pages.push(page); bar(page);
+    colIdx = 0; setCol(0); colTop = P.h - P.top; y = colTop;
+  }
+  // The header spans the full width above the columns, so it must never
+  // wrap into column 2, and columns must begin BELOW it.
+  function need(h) {
+    if (!page) { newPage(); return; }
+    if (y - h < P.bottom) {
+      if (!inHeader && colIdx < H.COLS - 1) { colIdx++; setCol(colIdx); y = colTop; }
+      else newPage();
+    }
+  }
   function fit(s, max, f, size) {
     let t = wa(s);
     if (f.widthOfTextAtSize(t, size) <= max) return t;
     while (t.length > 1 && f.widthOfTextAtSize(t + "...", size) > max) t = t.slice(0, -1);
     return t + "...";
   }
-  function put(s, x, size, f, c, maxW) {
-    page.drawText(fit(s, maxW == null ? inner : maxW, f, size), { x, y, size, font: f, color: col(c) });
+  // Wrapping, so a sentence-shaped value (the RAP note) is read in full
+  // rather than cut off at the column edge.
+  function wrap(s, max, f, size) {
+    const words = wa(s).split(/\s+/).filter(Boolean), out = [];
+    let line = "";
+    for (const wd of words) {
+      const next = line ? line + " " + wd : wd;
+      if (f.widthOfTextAtSize(next, size) <= max) { line = next; continue; }
+      if (line) out.push(line);
+      line = f.widthOfTextAtSize(wd, size) <= max ? wd : fit(wd, max, f, size);
+    }
+    if (line) out.push(line);
+    return out.length ? out : [""];
   }
 
-  function drawPairs(pairs, x0, width) {
-    const cols = 2, gap = 16, cw = (width - gap * (cols - 1)) / cols;
-    const shown = pairs.filter((p) => !isBlank(p[1]));
-    for (let i = 0; i < shown.length; i += cols) {
-      need(26);
-      for (let c = 0; c < cols && i + c < shown.length; c++) {
-        const x = x0 + c * (cw + gap);
-        page.drawText(fit(shown[i + c][0], cw, font, 7), { x, y: y, size: 7, font, color: col(C.muted) });
-        page.drawText(fit(shown[i + c][1], cw, bold, 9.5), { x, y: y - 11, size: 9.5, font: bold, color: col(C.ink) });
-      }
-      y -= 26;
+  /* --- primitives, all resolving x per row so a mid-block column change
+         does not draw the overflow back on top of the column we left --- */
+  function pairs(list, opts) {
+    const o = opts || {}, n = o.cols || 3, gap = RW.pairGap;
+    for (let i = 0; i < list.length; i += n) {
+      const slice = list.slice(i, i + n);
+      // A wrapping value grows its row; the rest of the row aligns to it.
+      const width0 = (colW - gap * (n - 1)) / n;
+      const linesFor = slice.map((p) => o.wrapValues ? wrap(p[1], width0, bold, T.val) : [wa(p[1])]);
+      const rowH = RW.pairH + (Math.max(...linesFor.map((l) => l.length)) - 1) * (T.val + 2);
+      need(rowH);
+      const cw = (colW - gap * (n - 1)) / n;
+      slice.forEach((p, c) => {
+        const x = colX + c * (cw + gap);
+        page.drawText(fit(p[0], cw, font, T.lab), { x, y, size: T.lab, font, color: col(C.muted) });
+        linesFor[c].forEach((ln, li) =>
+          page.drawText(fit(ln, cw, bold, T.val),
+            { x, y: y - T.lab - 2 - li * (T.val + 2), size: T.val, font: bold, color: col(C.ink) }));
+      });
+      y -= rowH;
     }
   }
 
-  function drawTable(t, x0, width) {
+  function table(t, opts) {
+    const o = opts || {}, x0off = o.inset || 0, W = o.width || (colW - x0off);
     const n = t.head.length;
-    const w = t.weights && t.weights.length === n ? t.weights : t.head.map(() => 1);
-    const sum = w.reduce((a, b) => a + b, 0);
-    const cw = t.widths && t.widths[0] ? t.widths : w.map((k) => (width * k) / sum);
-    const total = cw.reduce((a, b) => a + b, 0);
-    if (t.heading) { need(18); put(t.heading, x0, 8.5, bold, C.ink); y -= 15; }
-    need(20);
-    page.drawRectangle({ x: x0, y: y - 4, width: total, height: 15, color: col(C.wash) });
-    t.head.forEach((h, i) => {
-      const x = x0 + cw.slice(0, i).reduce((a, b) => a + b, 0) + 4;
-      page.drawText(fit(h, cw[i] - 8, bold, 7), { x, y: y + 1, size: 7, font: bold, color: col(C.muted) });
-    });
-    y -= 17;
+    const wts = t.weights && t.weights.length === n ? t.weights : t.head.map(() => 1);
+    const sum = wts.reduce((a, b) => a + b, 0);
+    const geom = () => {
+      const x0 = (o.x != null ? o.x : colX) + x0off;
+      return { x0, cw: wts.map((k) => W * k / sum) };
+    };
+    if (t.heading) { need(RW.rowH + 6); const g = geom();
+      page.drawText(fit(t.heading, W, bold, T.sub), { x: g.x0, y, size: T.sub, font: bold, color: col(C.ink) });
+      y -= T.sub + 4; }
+    // Keep the header with at least one body row - a header alone at the
+    // foot of a column reads as a table with no data.
+    need(RW.rowH * 2 + 8);
+    let g = geom();
+    page.drawRectangle({ x: g.x0, y: y - 3, width: W, height: RW.headH, color: col(C.wash) });
+    t.head.forEach((h, i) => page.drawText(fit(h, g.cw[i] - 6, bold, T.lab),
+      { x: g.x0 + g.cw.slice(0, i).reduce((a, b) => a + b, 0) + 3, y: y + 0.5, size: T.lab, font: bold, color: col(C.muted) }));
+    y -= RW.headH + 2;
     t.body.forEach((r) => {
-      need(15);
-      r.forEach((cell, i) => {
-        const x = x0 + cw.slice(0, i).reduce((a, b) => a + b, 0) + 4;
-        const txt = isBlank(cell) ? (t.blankAs == null ? "-" : t.blankAs) : cell;
-        if (txt !== "") page.drawText(fit(txt, cw[i] - 8, font, 8.5), { x, y, size: 8.5, font, color: col(C.ink) });
+      g = geom();
+      const lines = r.map((cell, i) => {
+        const txt = cell == null || String(cell).trim() === "" ? (t.blankAs == null ? "-" : t.blankAs) : String(cell);
+        if (txt === "") return [];
+        return t.wrapCols && t.wrapCols[i] ? wrap(txt, g.cw[i] - 6, font, T.cell) : [fit(txt, g.cw[i] - 6, font, T.cell)];
       });
-      y -= 6;
-      page.drawRectangle({ x: x0, y: y, width: total, height: 0.5, color: col(C.rule) });
-      y -= 8;
+      const extra = (Math.max(1, ...lines.map((l) => l.length)) - 1) * (T.cell + 1);
+      need(RW.rowH + extra); g = geom();
+      lines.forEach((ls, i) => ls.forEach((ln, li) =>
+        page.drawText(ln, { x: g.x0 + g.cw.slice(0, i).reduce((a, b) => a + b, 0) + 3,
+          y: y - li * (T.cell + 1), size: T.cell, font, color: col(C.ink) })));
+      y -= 4 + extra;
+      page.drawRectangle({ x: g.x0, y, width: W, height: 0.4, color: col(C.rule) });
+      y -= RW.rowH - 4;
     });
-    y -= 4;
+    y -= RW.afterTable;
   }
 
-  /* --- cover block --- */
-  newPage();
-  put("KYTC Mix Design", P.mx, 19, bold, C.navy); y -= 21;
-  put("Internal review copy - not an approval", P.mx, 10.5, font, C.muted); y -= 22;
+  function sectionHead(label, reserve) {
+    need(T.sec + RW.secGap + (reserve == null ? 22 : reserve));
+    page.drawText(wa(label.toUpperCase()), { x: colX, y, size: T.sec, font: bold, color: col(C.accent) });
+    y -= T.sec + RW.secGap;
+  }
 
-  const j = payload.job || {};
-  drawPairs([
-    ["Contract", j.cid], ["Letting date", j.letting],
-    ["Plant", j.plant], ["Mix", payload.mix ? payload.mix.signature : null],
-    ["Stage", payload.stage],
-    ["Prepared by", payload.generated_by ? `${payload.generated_by.name || ""} (${payload.generated_by.sm_id || ""})` : null],
-  ], P.mx, inner);
-  y -= 4;
-  page.drawRectangle({ x: P.mx, y: y, width: inner, height: 1, color: col(C.rule) });
-  y -= 18;
+  /* --- gradation: sieve table and 0.45 chart, same height, side by side --- */
+  const SIEVE_ROW = 8.4;      // the sieve table sets the block height
+  function gradationBlock(section) {
+    const list = section.sieves
+      .filter((s) => !hdOmit(section.id, s.key))
+      .map((s) => ({ ...s, pct: values[s.key] }))
+      .filter((s) => s.pct != null && String(s.pct).trim() !== "" && Number.isFinite(parseFloat(s.pct)));
+    if (!list.length) return;
+    const cp = controlPointsForNominalSize(payload.mix && payload.mix.nominal_size);
+    const cpts = cp ? list.filter((s) => cp[s.key]).map((s) => ({
+      mm: s.mm, rawLo: cp[s.key][0], rawHi: cp[s.key][1],
+      lo: cp[s.key][0] == null ? 0 : cp[s.key][0], hi: cp[s.key][1] == null ? 100 : cp[s.key][1],
+    })).sort((a, b) => a.mm - b.mm) : [];
+    const plot = trimFlatCoarseEnd(list, cpts);
 
-  /* --- every section --- */
-  handoffBlocks(payload).forEach((b) => {
-    need(40);
-    put(b.label.toUpperCase(), P.mx, 8.5, bold, C.accent); y -= 14;
-    b.parts.forEach((p) => {
-      if (p.kind === "pairs") drawPairs(p.pairs, P.mx, inner);
-      else drawTable(p, P.mx, inner);
+    const tw = colW * 0.30, gap = 12, padL = 15, padB = 11;
+    const bodyH = list.length * SIEVE_ROW, blockH = 11 + bodyH;
+    const x0 = colX, top = y;
+
+    // table
+    let ty = top - 11 + 3;
+    page.drawRectangle({ x: x0, y: ty - 2, width: tw, height: 11, color: col(C.wash) });
+    page.drawText("Sieve", { x: x0 + 3, y: ty, size: T.lab, font: bold, color: col(C.muted) });
+    page.drawText("% pass", { x: x0 + tw * 0.40, y: ty, size: T.lab, font: bold, color: col(C.muted) });
+    page.drawText("Limits", { x: x0 + tw * 0.72, y: ty, size: T.lab, font: bold, color: col(C.muted) });
+    ty -= 11;
+    list.forEach((s) => {
+      page.drawText(fit(s.label, tw * 0.38, font, T.cell), { x: x0 + 3, y: ty, size: T.cell, font, color: col(C.ink) });
+      page.drawText(hdNum(s.pct, hdDP(s.key)), { x: x0 + tw * 0.40, y: ty, size: T.cell, font, color: col(C.ink) });
+      const c = cpts.find((q) => q.mm === s.mm);
+      if (c) page.drawText(
+        c.rawLo != null && c.rawHi != null ? `${c.rawLo}-${c.rawHi}`
+        : c.rawLo != null ? `${c.rawLo} min` : `${c.rawHi} max`,
+        { x: x0 + tw * 0.72, y: ty, size: T.lab, font, color: col(C.accent) });
+      page.drawRectangle({ x: x0, y: ty - 3, width: tw, height: 0.35, color: col(C.rule) });
+      ty -= SIEVE_ROW;
     });
-    y -= 10;
-  });
 
-  /* --- history --- */
+    // chart, exactly as tall as the table
+    const gx = x0 + tw + gap + padL, gy = top - blockH + padB;
+    const gw = colW - (tw + gap + padL), gh = blockH - padB;
+    const p45 = (mm) => Math.pow(mm, 0.45);
+    const xmin = p45(Math.min(...plot.map((s) => s.mm))), xmax = p45(Math.max(...plot.map((s) => s.mm)));
+    const X = (mm) => gx + (p45(mm) - xmin) / (xmax - xmin) * gw;
+    const Y = (p) => gy + p / 100 * gh;
+
+    // The band flows across every sieve, guided by the control points; the
+    // caps mark where a real M323 limit actually sits.
+    const at = (px, a, b, k) => a[k] + (b[k] - a[k]) * ((px - p45(a.mm)) / (p45(b.mm) - p45(a.mm)));
+    for (let i = 0; i < cpts.length - 1; i++) {
+      const a = cpts[i], b = cpts[i + 1], xa = X(a.mm), xb = X(b.mm);
+      const steps = Math.max(2, Math.round(Math.abs(xb - xa) * 2));
+      for (let s = 0; s < steps; s++) {
+        const px = p45(a.mm) + (p45(b.mm) - p45(a.mm)) * (s / steps);
+        page.drawRectangle({ x: gx + (px - xmin) / (xmax - xmin) * gw, y: Y(at(px, a, b, "lo")),
+          width: Math.abs(xb - xa) / steps + 0.6, height: Y(at(px, a, b, "hi")) - Y(at(px, a, b, "lo")),
+          color: col(C.sky), opacity: H.CHART.bandOpacity });
+      }
+      page.drawLine({ start: { x: X(a.mm), y: Y(a.lo) }, end: { x: X(b.mm), y: Y(b.lo) }, thickness: 0.4, color: col(C.sky) });
+      page.drawLine({ start: { x: X(a.mm), y: Y(a.hi) }, end: { x: X(b.mm), y: Y(b.hi) }, thickness: 0.4, color: col(C.sky) });
+    }
+    plot.forEach((s) => page.drawLine({ start: { x: X(s.mm), y: gy }, end: { x: X(s.mm), y: gy + gh }, thickness: 0.2, color: col(C.rule) }));
+    for (let p = 20; p < 100; p += 20)
+      page.drawLine({ start: { x: gx, y: Y(p) }, end: { x: gx + gw, y: Y(p) }, thickness: 0.2, color: col(C.rule) });
+    page.drawRectangle({ x: gx, y: gy, width: gw, height: gh, borderColor: col(C.rule), borderWidth: 0.5 });
+    cpts.filter((c) => c.mm <= Math.max(...plot.map((s) => s.mm))).forEach((c) => {
+      const bw = H.CHART.capW;
+      if (c.rawLo != null) page.drawLine({ start: { x: X(c.mm) - bw / 2, y: Y(c.lo) }, end: { x: X(c.mm) + bw / 2, y: Y(c.lo) }, thickness: 1, color: col(C.accent) });
+      if (c.rawHi != null) page.drawLine({ start: { x: X(c.mm) - bw / 2, y: Y(c.hi) }, end: { x: X(c.mm) + bw / 2, y: Y(c.hi) }, thickness: 1, color: col(C.accent) });
+    });
+    for (let i = 0; i < plot.length - 1; i++) {
+      const a = plot[i], b = plot[i + 1];
+      page.drawLine({ start: { x: X(a.mm), y: Y(parseFloat(a.pct)) }, end: { x: X(b.mm), y: Y(parseFloat(b.pct)) },
+        thickness: 1.1, color: col(C.navy) });
+    }
+    // Fine sieves bunch at the left of a 0.45 plot; label a subset, tick all.
+    const SHOW = new Set(['#200', '#50', '#30', '#16', '#8', '#4', '3/8"', '1/2"', '3/4"', '1"', '2"']);
+    plot.forEach((s) => {
+      page.drawLine({ start: { x: X(s.mm), y: gy }, end: { x: X(s.mm), y: gy - 2 }, thickness: 0.3, color: col(C.muted) });
+      if (SHOW.has(s.label)) page.drawText(s.label, { x: X(s.mm) - 5, y: gy - 8, size: 4.8, font, color: col(C.muted) });
+    });
+    [0, 50, 100].forEach((p) => page.drawText(String(p), { x: gx - 11, y: Y(p) - 1.5, size: 4.8, font, color: col(C.muted) }));
+    page.drawText("% passing", { x: gx - 13, y: gy + gh / 2 - 13, size: 5, font, color: col(C.muted), rotate: degrees(90) });
+    // The sieve table's last rule and the axis labels both sit near the
+    // block's foot, so the next heading needs a little more air than a
+    // plain table would.
+    y = top - blockH - RW.afterTable - 5;
+  }
+
+  /* --- four points: Pb/Gmb/Gmm/Va and the Va-vs-Pb curve, same height --- */
+  function fourpointBlock(section) {
+    const gsb = parseFloat(fpv["const:fp_gsb"]), vaTgt = parseFloat(fpv["const:fp_vatgt"]);
+    const gb = fpv["const:fp_gb"];
+    const pts = section.points.map((_, i) => ({
+      pb: parseFloat(fpv[`pt:${i}:pb`]), gmb: parseFloat(fpv[`pt:${i}:gmb`]), gmm: parseFloat(fpv[`pt:${i}:gmm`]),
+    })).filter((p) => [p.pb, p.gmb, p.gmm].every(Number.isFinite));
+    if (!pts.length) return;
+    const pbs = [], vas = [];
+    const body = pts.map((p) => {
+      const va = 100 * (1 - p.gmb / p.gmm);
+      pbs.push(p.pb); vas.push(va);
+      return [p.pb.toFixed(1), p.gmb.toFixed(3), p.gmm.toFixed(3), va.toFixed(1)];
+    });
+    const fitOk = pbs.length >= 3 && Number.isFinite(vaTgt);
+    const vaFit = fitOk ? polyFit(pbs, vas, 2) : null;
+    let designPb = vaFit ? solveQuadForTarget(vaFit, vaTgt, Math.min(...pbs), Math.max(...pbs)) : null;
+    designPb = designPb == null ? null : Math.round(designPb * 10) / 10;
+
+    const tw = colW * 0.42, gap = 12, padL = 16, padB = 12;
+    const blockH = RW.headH + body.length * RW.rowH;
+    const x0 = colX, top = y;
+
+    let ty = top - RW.headH + 3;
+    const head = ["Pb (%)", "Gmb", "Gmm", "Va (%)"], cw = tw / 4;
+    page.drawRectangle({ x: x0, y: ty - 2, width: tw, height: RW.headH, color: col(C.wash) });
+    head.forEach((h, i) => page.drawText(h, { x: x0 + i * cw + 3, y: ty, size: T.lab, font: bold, color: col(C.muted) }));
+    ty -= RW.headH;
+    body.forEach((r) => {
+      r.forEach((c, i) => page.drawText(c, { x: x0 + i * cw + 3, y: ty, size: T.cell, font, color: col(C.ink) }));
+      page.drawRectangle({ x: x0, y: ty - 3, width: tw, height: 0.35, color: col(C.rule) });
+      ty -= RW.rowH;
+    });
+
+    const gx = x0 + tw + gap + padL, gy = top - blockH + padB;
+    const gw = colW - (tw + gap + padL), gh = blockH - padB;
+    const minPb = Math.min(...pbs) - 0.3, maxPb = Math.max(...pbs) + 0.3;
+    const allVa = vas.concat(Number.isFinite(vaTgt) ? [vaTgt] : []);
+    const minVa = Math.min(...allVa) - 1, maxVa = Math.max(...allVa) + 1;
+    const X = (pb) => gx + (pb - minPb) / (maxPb - minPb) * gw;
+    const Y = (va) => gy + (va - minVa) / (maxVa - minVa) * gh;
+    page.drawRectangle({ x: gx, y: gy, width: gw, height: gh, borderColor: col(C.rule), borderWidth: 0.5 });
+    for (let i = 1; i < 4; i++) page.drawLine({ start: { x: gx, y: gy + gh * i / 4 }, end: { x: gx + gw, y: gy + gh * i / 4 }, thickness: 0.2, color: col(C.rule) });
+    pbs.forEach((pb) => page.drawLine({ start: { x: X(pb), y: gy }, end: { x: X(pb), y: gy + gh }, thickness: 0.2, color: col(C.rule) }));
+    if (Number.isFinite(vaTgt)) {
+      page.drawLine({ start: { x: gx, y: Y(vaTgt) }, end: { x: gx + gw, y: Y(vaTgt) }, thickness: 0.7, color: col(C.gold), dashArray: [3, 2] });
+      page.drawText(`target ${vaTgt}%`, { x: gx + gw - 30, y: Y(vaTgt) + 2.5, size: 5, font, color: col(C.muted) });
+    }
+    if (vaFit) {
+      let prev = null;
+      for (let i = 0; i <= 60; i++) {
+        const pb = minPb + i / 60 * (maxPb - minPb), pt = { x: X(pb), y: Y(evalPoly(vaFit, pb)) };
+        if (prev) page.drawLine({ start: prev, end: pt, thickness: 1.1, color: col(C.accent) });
+        prev = pt;
+      }
+    }
+    pbs.forEach((pb, i) => page.drawCircle({ x: X(pb), y: Y(vas[i]), size: 1.9, color: col(C.navy) }));
+    if (designPb != null && Number.isFinite(vaTgt)) {
+      page.drawLine({ start: { x: X(designPb), y: gy }, end: { x: X(designPb), y: Y(vaTgt) }, thickness: 0.6, color: col(C.gold), dashArray: [2, 2] });
+      page.drawCircle({ x: X(designPb), y: Y(vaTgt), size: 2.6, color: col(C.gold) });
+      page.drawText(`Pb ${designPb.toFixed(1)}%`, { x: X(designPb) - 14, y: Y(vaTgt) + 6, size: 5.4, font: bold, color: col(C.ink) });
+    }
+    pbs.forEach((pb) => page.drawText(pb.toFixed(1), { x: X(pb) - 5, y: gy - 8, size: 4.8, font, color: col(C.muted) }));
+    [minVa, maxVa].forEach((v) => page.drawText(v.toFixed(1), { x: gx - 13, y: Y(v) - 1.5, size: 4.8, font, color: col(C.muted) }));
+    page.drawText("Pb (%)", { x: gx + gw / 2 - 9, y: gy - 16, size: 5, font, color: col(C.muted) });
+    page.drawText("Va (%)", { x: gx - 14, y: gy + gh / 2 - 8, size: 5, font, color: col(C.muted), rotate: degrees(90) });
+    y = top - blockH - 18;
+    // The constants are off the table but they drive every number on it -
+    // one caption keeps the design Pb reproducible.
+    const caption = [gsb ? `Gsb ${gsb.toFixed(3)}` : null, gb ? `Gb ${gb}` : null,
+                     Number.isFinite(vaTgt) ? `target Va ${vaTgt}%` : null].filter(Boolean).join("  ·  ");
+    if (caption) { page.drawText(caption, { x: colX, y, size: T.lab, font, color: col(C.muted) }); y -= T.lab + 6; }
+  }
+
+  /* --- per-section layout. Field lists still come from CONFIG.SECTIONS;
+         these decide arrangement, and OMIT decides what is left out. --- */
+  function gridPairs(section) {
+    return (section.fields || [])
+      .filter((f) => !hdOmit(section.id, f.key))
+      .map((f) => [f.label, section.id === "contract" && f.key === "esal"
+        ? esalClassLabel(values[f.key]) : hdNum(values[f.key], hdDP(f.key))])
+      .filter((p) => p[1] !== "" && p[1] != null);
+  }
+  function rowTables(section) {
+    return (Array.isArray(section.rows) ? section.rows : [section.rows]).map((spec) => {
+      const list = rows[spec.key] || [];
+      if (!list.length) return null;
+      const all = spec.columns || [];
+      const keptIdx = all.map((c, i) => [c, i]).filter(([c]) => !hdOmit(section.id, c.key)).map(([, i]) => i);
+      const cols = keptIdx.map((i) => all[i]);
+      return { heading: spec.heading || null, spec,
+        head: cols.map((c) => c.label),
+        body: list.map((r) => cols.map((c) => hdNum(r[c.key], hdDP(c.key)))),
+        // Names must read in full (producer, type & size), so text columns
+        // wrap rather than truncate; numbers never need to.
+        wrapCols: cols.map((c) => c.type !== "number"),
+        weights: gridWeights(spec, keptIdx) };
+    }).filter(Boolean);
+  }
+
+  const RENDER = {
+    // ESAL prints as a class; the RAP note is a sentence, so it wraps.
+    contract(section) {
+      sectionHead(section.label);
+      const all = gridPairs(section);
+      const sentence = all.filter((p) => /rap note/i.test(p[0]));
+      pairs(all.filter((p) => !sentence.includes(p)), { cols: 3 });
+      if (sentence.length) pairs(sentence, { cols: 1, wrapValues: true });
+    },
+    gradation(section) {
+      // Reserve head + block together; a heading alone at the foot of a
+      // column with its chart in the next one is worse than a page break.
+      const n = section.sieves.filter((sv) => !hdOmit(section.id, sv.key) &&
+        values[sv.key] != null && String(values[sv.key]).trim() !== "").length;
+      if (!n) return;
+      sectionHead(section.label, 11 + n * SIEVE_ROW + 10);
+      gradationBlock(section);
+    },
+    fourpoint(section) {
+      const n = section.points.filter((_, i) =>
+        [`pt:${i}:pb`, `pt:${i}:gmb`, `pt:${i}:gmm`].every((k) => Number.isFinite(parseFloat(fpv[k])))).length;
+      if (!n) return;
+      sectionHead(section.label, RW.headH + n * RW.rowH + 22);
+      fourpointBlock(section);
+    },
+    "design-values"(section) {
+      const list = (section.outputs || []).map((o) => {
+        const short = o.label.replace(/\s*at design\s*/i, "").replace(/\s*\(kg\/m3?\)/i, "").replace(/\s*\(kg\/m³\)/i, "");
+        if (o.key === "density") {
+          const gmb = parseFloat(dv.gmb_design);
+          return ["Density", Number.isFinite(gmb) ? `${(gmb * H.PCF_PER_GMB).toFixed(1)} pcf` : ""];
+        }
+        return [short, hdNum(dv[o.key], null)];
+      }).filter((p) => p[1] !== "" && p[1] != null);
+      if (!list.length) return;
+      sectionHead(section.label);
+      pairs(list, { cols: 5 });
+    },
+    // One line: the result, the binder it was run with, and the additive.
+    // A blank additive is NOT "None" - the importer collapses the workbook's
+    // "None required" into the same blank as an empty cell, so claiming
+    // None would be asserting something the file does not say.
+    tsr(section) {
+      const pct = hdNum(values.tsr_pct, 0), withAdd = hdNum(values.tsr_pct_additive, 0);
+      if (pct === "" && withAdd === "") return;
+      sectionHead(section.label);
+      const list = [];
+      if (pct !== "") list.push(["TSR", pct + "%"]);
+      if (withAdd !== "") list.push(["TSR with additive", withAdd + "%"]);
+      list.push(["Binder grade", values.binder_grade || "-"]);
+      list.push(["Anti-strip additive", values.tsr_additive || "not stated"]);
+      pairs(list, { cols: 4 });
+    },
+    // Binder alone above the specimens; KYCT and the Hamburg readings side
+    // by side below, instead of three stacked full-width tables.
+    performance(section) {
+      const tables = rowTables(section);
+      const spec = tables.find((t) => t.spec.key === "perf_specimens");
+      const ct = tables.find((t) => t.spec.key === "ct");
+      const hasHamburg = ["hamburg_left_maxdef", "hamburg_right_maxdef", "hamburg_left_passmax",
+        "hamburg_right_passmax", "hamburg_left_sip", "hamburg_right_sip"]
+        .some((k) => values[k] != null && String(values[k]).trim() !== "");
+      if (!spec && !ct && !hasHamburg) return;
+      sectionHead(section.label, RW.headH + Math.min(4, spec ? spec.body.length : 1) * RW.rowH + 26);
+      if (values.perf_binder) pairs([["Specimens made with (binder)", values.perf_binder]], { cols: 3 });
+      if (spec) table(spec);
+
+      const half = (colW - 14) / 2;
+      const startY = y, startCol = colIdx;
+      let ctEnd = y;
+      if (ct) {
+        // Every KYCT id repeats the mix name; say it once in the header.
+        const ids = ct.body.map((r) => String(r[0] || ""));
+        const pre = commonIdPrefix(ids);
+        table({ head: [pre ? `Specimen (${pre}...)` : ct.head[0], ct.head[1]],
+                body: ct.body.map((r) => [pre && String(r[0]).startsWith(pre) ? String(r[0]).slice(pre.length) : r[0], r[1]]),
+                weights: [1.4, 1] }, { width: half });
+        ctEnd = y;
+      }
+      if (hasHamburg) {
+        // Only draw the Hamburg table beside KYCT when they are still on the
+        // same column; a column break mid-section would stack them anyway.
+        const beside = ct && colIdx === startCol;
+        if (beside) y = startY;
+        const hb = [["Max deformation", values.hamburg_left_maxdef, values.hamburg_right_maxdef],
+                    ["Pass # at max", values.hamburg_left_passmax, values.hamburg_right_passmax],
+                    ["SIP (passes)", values.hamburg_left_sip, values.hamburg_right_sip]]
+          .filter((r) => [r[1], r[2]].some((v) => v != null && String(v).trim() !== ""));
+        table({ head: ["Hamburg", "Left (mm)", "Right (mm)"],
+                body: hb.map((r) => [r[0], hdNum(r[1], null), hdNum(r[2], null)]),
+                weights: [1.6, 1, 1] },
+              beside ? { width: half, x: colX + half + 14 } : { width: colW });
+        if (beside) y = Math.min(y, ctEnd);
+      }
+      y -= RW.afterSec;
+    },
+  };
+
+  function renderSection(section) {
+    if (section.type === "status") return;          // the footer carries this
+    const bespoke = RENDER[section.id];
+    if (bespoke) { bespoke(section); y -= RW.afterSec; return; }
+    const pr = gridPairs(section), tbl = section.rows ? rowTables(section) : [];
+    if (!pr.length && !tbl.length) return;
+    sectionHead(section.label);
+    if (pr.length) pairs(pr, { cols: 3 });
+    tbl.forEach((t) => table(t));
+    y -= RW.afterSec;
+  }
+
+  /* --- header, sections, footer --- */
+  newPage();
+  const j = payload.job || {};
+  if (logo) {
+    const lw = H.LOGO.w, lh = lw / H.LOGO.ratio;
+    page.drawImage(logo, { x: P.w - P.mx - lw, y: P.h - P.top - lh + T.title + 2, width: lw, height: lh });
+  }
+  page.drawText("KYTC Mix Design", { x: P.mx, y, size: T.title, font: bold, color: col(C.navy) });
+  y -= T.title + 4;
+  page.drawText("Internal review copy - not an approval", { x: P.mx, y, size: T.sub, font, color: col(C.muted) });
+  y -= T.sub + RW.headerGap;
+
+  const facts = [
+    ["Contract", j.cid],
+    ["Letting", j.letting],
+    ["Plant", payload.plant_name ? `${j.plant} - ${payload.plant_name}` : j.plant],
+    ["Mix", payload.mix && payload.mix.signature],
+    ["Mix type", mixTypeLabel(payload.mix)],
+    ["Stage", payload.stage],
+    ["Prepared by", payload.generated_by && payload.generated_by.sm_id],
+  ].filter((f) => f[1] != null && String(f[1]).trim() !== "");
+  inHeader = true;
+  const savedCols = H.COLS;
+  colW = P.w - P.mx * 2; colX = P.mx;            // header spans the full width
+  pairs(facts, { cols: Math.min(facts.length, 4) });
+  inHeader = false;
+  y -= 2;
+  page.drawRectangle({ x: P.mx, y, width: P.w - P.mx * 2, height: 0.8, color: col(C.rule) });
+  y -= RW.headerGap + 2;
+  colTop = y; colIdx = 0; setCol(0);              // columns begin below the header
+
+  CONFIG.SECTIONS.forEach(renderSection);
+
   const hist = payload.history || [];
   if (hist.length) {
-    need(40);
-    put("HISTORY", P.mx, 8.5, bold, C.accent); y -= 14;
-    drawTable({
-      head: ["When", "Who", "Action"],
+    sectionHead("History");
+    table({ head: ["When", "Who", "Action"],
       body: hist.map((h) => [
         h.at ? new Date(h.at).toLocaleString() : "-",
-        h.name ? `${h.name} (${h.sm_id || ""})` : (h.sm_id || "-"),
-        h.action,
-      ]),
-      widths: [130, 170, inner - 300],
-    }, P.mx, inner);
+        h.sm_id || (h.name || "-"),
+        h.action]),
+      weights: [1.3, 0.9, 1.4] });
   }
 
-  /* --- footer on every page --- */
   const note = "This PDF carries the full design inside it. Upload it to DesignBook to reopen and edit. " +
                "The site stores nothing - this file is the record.";
   pages.forEach((pg, i) => {
-    pg.drawRectangle({ x: P.mx, y: P.bottom - 14, width: inner, height: 0.5, color: col(C.rule) });
-    pg.drawText(fit(note, inner - 60, font, 6.8), { x: P.mx, y: P.bottom - 26, size: 6.8, font, color: col(C.muted) });
-    pg.drawText(`${i + 1} / ${pages.length}`, {
-      x: P.w - P.mx - 30, y: P.bottom - 26, size: 6.8, font, color: col(C.muted),
-    });
+    pg.drawRectangle({ x: P.mx, y: P.bottom - 13, width: P.w - P.mx * 2, height: 0.4, color: col(C.rule) });
+    pg.drawText(fit(note, P.w - P.mx * 2 - 60, font, T.foot), { x: P.mx, y: P.bottom - 24, size: T.foot, font, color: col(C.muted) });
+    pg.drawText(`${i + 1} / ${pages.length}`, { x: P.w - P.mx - 28, y: P.bottom - 24, size: T.foot, font, color: col(C.muted) });
   });
 
   /* --- the payload itself --- */
@@ -2560,6 +2912,68 @@ async function buildReviewPDF(payload) {
   doc.setProducer("KYTC DesignBook");
   doc.setKeywords([CONFIG.HANDOFF.MARKER + b64encode(bytes)]);
   return doc.save();
+}
+
+/* ---------- helpers the document uses ---------- */
+
+// The logo is same-origin. A failure must not stop the export - the sheet
+// is still correct without it.
+let handoffLogoBytes = null;
+async function loadHandoffLogo(doc) {
+  try {
+    if (!handoffLogoBytes) {
+      const res = await fetch(CONFIG.HANDOFF.LOGO.src);
+      if (!res.ok) return null;
+      handoffLogoBytes = new Uint8Array(await res.arrayBuffer());
+    }
+    return await doc.embedPng(handoffLogoBytes);
+  } catch (_) { return null; }
+}
+
+// A row spec's screen grid ("1.4fr 1.2fr 1fr .8fr .8fr auto") already says
+// how wide each column wants to be. Reuse it so the PDF and the form agree.
+// Trailing non-fr tracks (the remove button) are dropped; no grid, or a
+// grid that no longer matches after OMIT, means equal columns.
+function gridWeights(spec, keptIdx) {
+  const fr = String(spec.grid || "").split(/\s+/)
+    .map((t) => /^([\d.]*)fr$/.exec(t)).filter(Boolean)
+    .map((m) => parseFloat(m[1] || "1"));
+  // OMIT can remove a column; keep that column's track out of the weights
+  // rather than falling back to equal widths, which is what squeezed the
+  // producer names.
+  if (fr.length < Math.max(...keptIdx) + 1) return null;
+  return keptIdx.map((i) => fr[i]);
+}
+
+// Longest shared prefix, backed off to a separator so a shared leading
+// digit is not eaten ("..._SPEC_1".."_SPEC_6" -> "..._SPEC_").
+function commonIdPrefix(list) {
+  if (list.length < 2) return "";
+  let p = list[0];
+  for (const s of list.slice(1)) {
+    let i = 0; while (i < p.length && i < s.length && p[i] === s[i]) i++;
+    p = p.slice(0, i);
+  }
+  return p.replace(/[^_\-. ]*$/, "");
+}
+
+// The coarse end of a gradation is a flat run of 100s that says nothing
+// and eats ~40% of the plot. Plot up to the finest sieve still reading 100
+// (the run must be contiguous from the coarse end, so one stray 100 further
+// down cannot trigger it), plus CHART.sieveHeadroom sieves above it so the
+// curve is visibly flat before it departs. Never trims past a control
+// point; nothing at 100 means nothing is trimmed.
+function trimFlatCoarseEnd(sieves, cpts) {
+  const coarseFirst = [...sieves].sort((a, b) => b.mm - a.mm);
+  let cutIdx = -1;
+  for (let i = 0; i < coarseFirst.length; i++) {
+    if (parseFloat(coarseFirst[i].pct) >= 100) cutIdx = i; else break;
+  }
+  if (cutIdx < 0) return sieves;
+  const keep = coarseFirst[Math.max(0, cutIdx - CONFIG.HANDOFF.CHART.sieveHeadroom)];
+  const cpMax = cpts.length ? Math.max(...cpts.map((c) => c.mm)) : 0;
+  const keepTo = Math.max(keep.mm, cpMax);
+  return sieves.filter((s) => s.mm <= keepTo);
 }
 
 /* ---------- reading one back ---------- */
@@ -2643,6 +3057,7 @@ async function readHandoffPDF(buf) {
 // from is kept so the "from Sheet1!C14" notes survive the round trip.
 function applyHandoff(payload) {
   state.job = payload.job;
+  state.plantName = payload.plant_name || null;
   state.mode = payload.origin === "legacy" ? "legacy" : "new";
   state.mix = payload.mix || null;
   state.extracted = { scalars: payload.values || {}, tables: payload.rows || {} };
@@ -2989,7 +3404,7 @@ async function loadPlantName() {
   if (!amp) return;
   try {
     const { data } = await sb.from("plants").select("name").eq("amp_number", amp).maybeSingle();
-    if (data && data.name) $("outPlant").textContent = `${amp} — ${data.name}`;
+    if (data && data.name) { state.plantName = data.name; $("outPlant").textContent = `${amp} — ${data.name}`; }
   } catch (_) { /* leave the bare AMP number */ }
 }
 
