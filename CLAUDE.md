@@ -278,8 +278,61 @@ TBD — cite the governing spec section when encoding a limit in code.
   `CONFIG.LEGACY` an edit in the same commit.
   Still open from PR #3: Contract Information's KYTC contract lookup (binder
   supplier, funding, project items/number) is not built - Jacob's, since it is
-  the same shape as the `kytc-lookup` function - and neither is the target
-  gradation band trimmed to the mix's nominal max size, which is Andrew's.
+  the same shape as the `kytc-lookup` function. The target gradation band
+  (Andrew's) landed 2026-09-04 - see the two entries below.
+
+- **A completed MixPack *can* carry the 4-point gyratory trial sweep after
+  all — `CONFIG.LEGACY.FOURPOINT: null` was a wrong assumption, corrected
+  2026-09-04 against a real approved Ver 11.3 file
+  (`CL3 0.38A 64-22 Haydon NEW.xlsm`).** It's neither on the Graphs tab nor
+  in any chart (both prior guesses) - it's a plain input table, `Design
+  Data!A30:P43`, that the Graphs-tab charts and the sheet's own `GRAPH DATA`
+  block both read from. The four "Average" rows (34/37/40/43) are the four
+  design points. **KYTC's MixPack calls Gmb "BSG"** (column `G`, header
+  `BSG` at row 30) - pull it directly as Gmb, do not derive it from the
+  adjacent `Unit Wt. @ Ndes (pcf)` column (`H = G × 62.4`, a display-only
+  dead end). Full cell map and the cross-check math in
+  `docs/legacy-mixpack-map.md`. **12.1 is unverified** - the 11.x addresses
+  were copied over as a provisional placeholder (Design Data's overall
+  layout is identical 11.x/12.1 per the PR #3-era finding above, so it's a
+  reasonable guess, not a blind one) but not checked against a real 12.1
+  file; re-verify before trusting it the way the rest of `CELLS` is trusted.
+
+- **Four Points silently never restored on a reopened design — a rendering
+  gap unrelated to RLS or the database, found while wiring the legacy
+  importer above.** Every other section (`gridHTML`, `rowsHTML`,
+  `sievesHTML`) seeds its initial DOM value from `state.extracted`;
+  `fourpointHTML()` alone always rendered `CONFIG.SECTIONS`' static default
+  seed instead, regardless of what a legacy import or a previously **saved**
+  design actually held. The data was never lost - it was sitting safely in
+  the `values.fourpoint` JSONB column the whole time, saved correctly by
+  `collectForm()` - it just never made it back onto the screen on reopen.
+  Fixed by `resolveFourpointPoints()`/`resolveFourpointConstants()`, which
+  read that same saved shape (and a fresh import's `tables.fourpoint`) before
+  falling back to the CONFIG default. Worth remembering as a class of bug:
+  a section with its own bespoke render function is easy to leave off the
+  "read from state" convention the rest of the page follows, and nothing
+  errors when that happens - the page just quietly shows the wrong static
+  values, same family as the `supabase`/`sb` naming gotcha above in spirit
+  (silent, no console error, looks like a data problem instead of a code one).
+
+- **Gradation control points (the shaded target band on the 0.45 power
+  chart) are a `CONFIG` constant, not a Supabase table — deliberately, on
+  the same footing as the sieve mm list and the R35 Pb tolerance already in
+  `CONFIG`, unlike the aggregates/binder-grades tables.** The dividing line
+  used to decide: **how often does the source document change, not whether
+  the values vary by some key.** Aggregates/binder terminals/grades grow
+  routinely (new producer certified, terminal added) independent of any
+  spec revision, so they're Supabase, correctable without a deploy.
+  Gradation control points (`CONFIG.GRADATION_CONTROL_POINTS`, cited
+  **AASHTO M323 Table 4**) only change if that AASHTO table itself is
+  revised - rare, and would likely come bundled with other spec-driven code
+  changes anyway - so it ships in `designbook.html` like the other spec
+  constants. Varying by NMAS is just shape (a small object keyed by NMAS),
+  not by itself a reason to reach for a database. `state.mix.nominal_size`
+  (e.g. `"0.38A"`) maps to a key by stripping the trailing letter -
+  confirmed with Andrew 2026-09-04 that the letter is unrelated to NMAS or
+  gradation control points, so don't try to derive meaning from it here.
 
 
 ### Technician login & plant access

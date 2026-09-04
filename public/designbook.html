@@ -714,6 +714,24 @@ const CONFIG = {
      Where a legacy MixPack supplies the value is NOT
        here — see CONFIG.LEGACY, keyed by these same field keys.
      -------------------------------------------------------------- */
+  // Aggregate gradation control points — AASHTO M323 Table 4. Keyed by
+  // nominal maximum aggregate size (NMAS); each entry is
+  // { <gradation sieve key>: [min, max] }, either side null where the
+  // spec leaves that sieve unbounded for that NMAS. Drives the shadow
+  // band on the 0.45 power chart, trimmed to state.mix.nominal_size
+  // (strip the trailing letter, e.g. "0.38A" -> "0.38" -> this table's
+  // "0.38" key; "#4"/"4" both resolve to the "4" key). Static spec data,
+  // same footing as the sieve mm list and the R35 Pb tolerance below —
+  // not a Supabase reference table, since it only changes if M323 itself
+  // is revised, unlike the aggregate/binder rosters which grow routinely.
+  GRADATION_CONTROL_POINTS: {
+    "1.5":  { s50: [100, null], s37_5: [90, 100], s25: [null, 90], s4_75: [15, 41], s0_075: [0, 6] },
+    "1.0":  { s37_5: [100, null], s25: [90, 100], s19: [null, 90], s4_75: [19, 45], s0_075: [1, 7] },
+    "0.75": { s25: [100, null], s19: [90, 100], s12_5: [null, 90], s4_75: [23, 49], s0_075: [2, 8] },
+    "0.5":  { s19: [100, null], s12_5: [90, 100], s9_5: [null, 90], s4_75: [28, 58], s0_075: [2, 10] },
+    "0.38": { s12_5: [100, null], s9_5: [90, 100], s4_75: [32, 67], s0_075: [2, 10] },
+    "4":    { s9_5: [null, 100], s1_18: [30, 55], s0_075: [6, 13] },
+  },
   SECTIONS: [
     {
       id: "contract", label: "Contract Information",
@@ -923,6 +941,20 @@ function toPortal() { location.href = CONFIG.PORTAL_URL; }
 function sieveKey(label) { return "sieve_" + String(label).replace(/[^0-9a-z]/gi, ""); }
 function gradSection() { return CONFIG.SECTIONS.find((s) => s.type === "sieves"); }
 function fpSection() { return CONFIG.SECTIONS.find((s) => s.type === "fourpoint"); }
+// state.mix.nominal_size is like "0.38A" (trailing letter is a gradation-type
+// suffix, not part of the NMAS — confirmed with Andrew 2026-09-04, unrelated
+// to which control-points column applies). Strip it and match the number;
+// "#4"/"4" both resolve to CONFIG.GRADATION_CONTROL_POINTS["4"].
+function controlPointsForNominalSize(nominalSize) {
+  if (!nominalSize) return null;
+  const raw = String(nominalSize).trim();
+  if (/^#?4$/i.test(raw)) return CONFIG.GRADATION_CONTROL_POINTS["4"];
+  const num = parseFloat(raw);   // parseFloat stops at the first non-numeric char, so "0.38A" -> 0.38
+  if (!Number.isFinite(num)) return null;
+  const key = Object.keys(CONFIG.GRADATION_CONTROL_POINTS)
+    .find((k) => k !== "4" && Math.abs(parseFloat(k) - num) < 0.01);
+  return key ? CONFIG.GRADATION_CONTROL_POINTS[key] : null;
+}
 function num(v) { const n = parseFloat(v); return Number.isFinite(n) ? n : null; }
 function fmt(v, d) { return v == null || !Number.isFinite(v) ? "—" : v.toFixed(d); }
 // Row spec by key — `s.rows` is one spec or an array of specs.
@@ -1210,6 +1242,37 @@ function drawChart() {
          enter at least two sieve values</text>`
     : "";
 
+  // Target gradation band (AASHTO M323 Table 4 control points for this mix's
+  // NMAS) — drawn under the plotted line so the design's own gradation reads
+  // on top. Sieves with both a min and a max fill as a shaded corridor;
+  // sieves with only one bound (the control point just above/below the NMAS
+  // itself) draw as a single tick, since there is nothing to shade between.
+  const nominalSize = state.mix ? state.mix.nominal_size : null;
+  const cp = controlPointsForNominalSize(nominalSize);
+  const band = cp ? gradSection().sieves
+    .map((s) => ({ mm: s.mm, min: cp[s.key] ? cp[s.key][0] : null, max: cp[s.key] ? cp[s.key][1] : null }))
+    .filter((p) => p.min != null || p.max != null) : null;
+  let bandSvg = "", bandNote = "";
+  if (band && band.length) {
+    const both = band.filter((p) => p.min != null && p.max != null);
+    const fill = both.length >= 2
+      ? `<polygon points="${both.map((p) => `${x(p.mm).toFixed(1)},${y(p.max).toFixed(1)}`).join(" ")} ${
+            [...both].reverse().map((p) => `${x(p.mm).toFixed(1)},${y(p.min).toFixed(1)}`).join(" ")}"
+           fill="var(--ok-soft)" stroke="none"/>`
+      : "";
+    const rungs = both.map((p) =>
+      `<line x1="${x(p.mm).toFixed(1)}" y1="${y(p.max).toFixed(1)}" x2="${x(p.mm).toFixed(1)}" y2="${y(p.min).toFixed(1)}"
+         stroke="var(--ok)" stroke-width="1" stroke-dasharray="2,1.5"/>`).join("");
+    const ticks = band.filter((p) => p.min == null || p.max == null).map((p) => {
+      const yy = y(p.max != null ? p.max : p.min).toFixed(1);
+      return `<line x1="${(x(p.mm) - 5).toFixed(1)}" y1="${yy}" x2="${(x(p.mm) + 5).toFixed(1)}" y2="${yy}" stroke="var(--ok)" stroke-width="1.4"/>`;
+    }).join("");
+    bandSvg = fill + rungs + ticks;
+  } else if (nominalSize) {
+    bandNote = `<text x="${W - pad.r}" y="${pad.t + 8}" font-size="7" fill="var(--muted)" text-anchor="end">
+      no control points for NMAS "${esc(nominalSize)}"</text>`;
+  }
+
   chart.innerHTML =
     `<svg viewBox="0 0 ${W} ${H}">
       <line x1="${pad.l}" y1="${H - pad.b}" x2="${W - pad.r}" y2="${H - pad.b}" stroke="var(--line)" stroke-width="1"/>
@@ -1218,7 +1281,7 @@ function drawChart() {
         `<line x1="${pad.l}" y1="${y(v).toFixed(1)}" x2="${W - pad.r}" y2="${y(v).toFixed(1)}" stroke="var(--line)" stroke-width="0.4"/>
          <text x="${pad.l - 4}" y="${(y(v) + 3).toFixed(1)}" font-size="8" fill="var(--muted)" text-anchor="end">${v}</text>`).join("")}
       <text x="${(pad.l + (W - pad.r)) / 2}" y="${H - 4}" font-size="8" fill="var(--muted)" text-anchor="middle">sieve (0.45 power scale)</text>
-      ${grid}${line}${dots}${empty}
+      ${bandSvg}${grid}${line}${dots}${empty}${bandNote}
     </svg>`;
 }
 
