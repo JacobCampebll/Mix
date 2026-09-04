@@ -382,38 +382,78 @@ one column:
   (`plant_name` says Boonesborough, the aggregate producer entry says
   Boonesboro); Boonesboro is what people expect.
 
-### Designs (DesignBook storage)
+### Designs: the file is the record, not a table
 
-- **`designs` + `design_events` (`supabase/designs.sql`) hold saved designs
-  and their audit trail.** Real columns for what gets filtered and reported
-  on (contract, letting date, plant, author, mix signature, stage, origin);
-  JSONB for the form body (`values`, `rows`) until the MixPack field map
-  settles. Applied live 2026-09-03.
-- **Who can see a design is derived in one place:** its author, plus anyone
-  whose `technician_effective_plant_access` includes its plant — so Central
-  Office sees everything via `all_plants`. Contractors do not see other
-  plants' designs. `design_summaries` is the list view; it inherits that RLS.
-- **Stage rules live in a trigger, not in page code.** Draft → Internal
-  Review by the author; Internal Review → Released → Approved by a
-  **reviewer** (`technicians.can_review`) only, and **never their own
-  design**; any → Draft by a reviewer only; Approved content is read-only
-  until sent back. Pages mirror the rules to keep buttons honest, but the
-  database is the one saying no — its error text is shown verbatim.
-- `can_review` is deliberately separate from `all_plants`: "sees every
-  plant" and "may approve" are different powers, even though the same 12
-  Central Office people hold both today. The seed script sets both by
-  company.
-- **`author_name` is denormalised onto `designs` on purpose.** Contractors
-  can only read their own `technicians` row, so a join would leave the
-  review queue nameless. The trigger fills it from the caller's row.
-- **Reviewers land on the Portal's Designs list; contractors reach it as
-  "My designs".** Opening a row goes to `designbook.html?design=<id>` and
-  the row is the job — nothing else is read from the URL.
-- The RLS and stage rules were verified with a rolled-back transaction
-  impersonating a contractor, a reviewer and an unrelated technician (13
-  checks) before any page pointed at the table. `execute_sql` runs
-  read-only; a write test has to go through `apply_migration` and end in
-  `raise exception` so nothing is recorded — that pattern is worth reusing.
+**Decided 2026-09-04 (Jacob). Design content is never stored in Supabase.**
+Supabase holds identity and reference data only - technicians, certs and
+capabilities, plant access, `plants`, and the four aggregate/binder reference
+tables. What a contractor types into DesignBook lives in the browser and in
+the files it produces, and nowhere else.
+
+The flow, which is deliberately *not* a linear stage ladder:
+
+1. A tech fills in DesignBook.
+2. They **either** submit straight to KYTC - internal review is optional and
+   skippable - **or** download a clean PDF, email it to their supervisor
+   themselves, and stop.
+3. The supervisor reviews it, signs in, uploads that same PDF, and the site
+   rehydrates the entire form from it. They edit **in DesignBook**, with the
+   real dropdowns and the validation rail, then submit.
+
+- **Two artifacts, two jobs. Internal review is a PDF; the KYTC submission is
+  a CSV.** The review PDF is a clean read-only one-pager with the design data
+  embedded inside it as an attachment, so one file is both the human document
+  and the machine payload - there is no separate CSV to keep in sync, and
+  nothing parses the visual layer. `pdf-lib` attaches in one call but has no
+  API to read an attachment back; that is ~30 lines walking the embedded-files
+  name tree.
+- **No editable PDF form fields - considered and rejected 2026-09-04.** An
+  AcroForm round-trip fails silently when a reader flattens it (Mac Preview
+  especially), needs every field placed at an x/y coordinate so it drifts from
+  `CONFIG.SECTIONS` on every schema change, and makes the approval PDF look
+  forgeable. The supervisor is signing in to upload anyway, so they edit in
+  the page, where the reference lists and validation actually apply.
+- **Internal review is not a stage the site can observe**, so it must not be a
+  node in the stepper - a tech who legitimately skipped it would sit staring
+  at a permanently grey step. Stages are **Draft -> Submitted -> Approved**.
+  `Released` is gone.
+- **Whoever is signed in when Submit is pressed is stamped on the package, and
+  that is the whole proof of internal review.** The site cannot tell a
+  supervisor's upload from the tech re-uploading their own file, and does not
+  need to: if the SM ID on the submission is the supervisor's, it was
+  reviewed. Contractor supervisors hold their own logins.
+- **Nothing is stored, so closing the tab loses the work.** Autosave the
+  in-progress form to `localStorage` (allowed here - see the artifacts rule
+  above, this is a standalone Netlify app, and it never leaves the machine),
+  and offer "download working copy" at any time, not only at the review step.
+- **A status carried in a file is a claim, not a fact.** Postgres used to be
+  the thing refusing to let someone approve their own design. Gate PDF and
+  submission generation on the signed-in account (`can_review` for anything
+  KYTC-side), and before anyone relies on an approval PDF, have a Netlify
+  Function sign its hash and print a verification code on it - stores nothing,
+  and it is the only place this model genuinely needs a server.
+- **Export and import both generate from `CONFIG.SECTIONS`**, same rule as the
+  form and the xlsx extractor. Never hand-write a field list for either.
+  Rehydrating an uploaded PDF is the legacy-importer pattern reused, so the
+  provisional-value rules apply: tint what came from a file, keep an off-list
+  value with a warning, never blank it.
+
+Still open: what actually happens at Submit (the hand-off to SiteManager /
+AASHTOWare Project), and how email leaves the browser - `mailto:` cannot carry
+an attachment, so that wants a Netlify Function, which is transit, not storage.
+
+**The tables from the old model are applied but empty and no longer the
+store.** `designs`, `design_events`, `design_summaries` and the stage trigger
+(`supabase/designs.sql`) were verified live and never took a row - both counts
+were 0 when the model changed. Stop writing to them; **do not drop them**, they
+cost nothing and the bridge is worth keeping. Two things from that work are
+still true and still used: `can_review` is deliberately separate from
+`all_plants` ("sees every plant" and "may approve" are different powers, even
+though the same 12 Central Office people hold both), and the way those rules
+were tested is worth reusing - a rolled-back transaction impersonating a
+contractor, a reviewer and an unrelated technician. `execute_sql` runs
+read-only, so a write test goes through `apply_migration` and ends in
+`raise exception` so nothing is recorded.
 
 ### Pages downstream of login
 
@@ -437,16 +477,17 @@ one column:
   (`from Sheet1!C14`) underneath, and ship `extracted_from` in the save
   payload. An extracted value is a starting point for a human, never an
   authority. Keep that visible in any future importer.
-- **The Portal is the act of submitting, not a catalogue.** Four steps:
+- **The Portal is the act of submitting, not a catalogue.** Steps 1-3 -
   contract & plant, mix (from `kytc-lookup`, always skippable unless
-  `CONFIG.MIX_LOOKUP.required`), how (upload a MixPack or build in
-  DesignBook), then fill in & submit - which is DesignBook's Draft ->
-  Internal Review move. "My submissions" / "Review queue" is one list behind
-  a top-bar link; contractors see stages collapsed on purpose (Draft = Not
-  submitted, Internal Review and Released = In review) via
-  `CONFIG.CONTRACTOR_STAGES`, reviewers see the raw names. Chosen from five
-  mocked directions on 2026-09-03; the approval PDF and the SiteManager /
-  AASHTOWare Project hand-off are still to build.
+  `CONFIG.MIX_LOOKUP.required`), and how (upload or build in DesignBook) -
+  are about *starting* a design and survive the 2026-09-04 storage change
+  untouched. Step 4 and the lists behind the top-bar link ("My submissions" /
+  "Review queue", `CONFIG.CONTRACTOR_STAGES`) read `design_summaries` and no
+  longer have a data source: with nothing stored, a technician who closes the
+  tab has only the files on their disk, so there is no queue to render. The
+  Portal becomes two doors - start a new design, or open a file someone
+  emailed you. Chosen from five mocked directions on 2026-09-03; the approval
+  PDF and the SiteManager / AASHTOWare Project hand-off are still to build.
 
 
 ### Reference data (aggregates, binders)
