@@ -31,42 +31,49 @@ const configSrc = (() => { const a = html.indexOf('const CONFIG = {'); return ht
 // every pure HTML builder + helpers, from the field-helpers banner to renderForm
 const buildersSrc = grab("/* ---------- field helpers ---------- */", "function renderForm()");
 
-const payload = {
-  values: {
-    county:"Fayette", total_tons:"12500", submittal_type:"Field change",
-    binder_grade:"PG 76-22", binder_terminal:"LAP-07", funding:"State",
-    project_items:"0055", project_number:"IM 64-1", depth_mm:"38",
-    rap_note:"20% RAP", esal:">30M", designer:"Jacob Campbell",
-    s50:"100", s37_5:"100", s25:"97", s19:"91", s12_5:"77", s9_5:"65", s6_3:"54",
-    s4_75:"45", s2_36:"30", s1_18:"21", s0_6:"15", s0_3:"10", s0_15:"7.1", s0_075:"4.9",
-    tsr_pct:"88.4", tsr_pct_additive:"93.1", tsr_dry_strength:"142",
-    tsr_wet_strength:"125", tsr_additive:"Morlife 5000 @ 0.5%",
-    perf_binder:"PG 76-22 (Marathon)",
-    hamburg_left_maxdef:"12.4", hamburg_right_maxdef:"12.0",
-    hamburg_left_passmax:"25000", hamburg_right_passmax:"25000",
-    hamburg_left_sip:"14200", hamburg_right_sip:"14800",
-    fourpoint: {
-      "const:fp_gsb":"2.677","const:fp_gb":"1.032","const:fp_p075":"4.9","const:fp_vatgt":"4.0",
-      "pt:0:pb":"4.6","pt:0:gmb":"2.411","pt:0:gmm":"2.522",
-      "pt:1:pb":"5.1","pt:1:gmb":"2.428","pt:1:gmm":"2.506",
-      "pt:2:pb":"5.6","pt:2:gmb":"2.439","pt:2:gmm":"2.491",
-      "pt:3:pb":"6.1","pt:3:gmb":"2.443","pt:3:gmm":"2.476" },
-    design_values: {},
-  },
-  rows: {
-    aggregate: [
-      { producer:"Allen Company", type_size:"No. 57 Crushed Stone", mat_code:"10400", pct_blend:"40", gsb:"2.681" },
-      { producer:"Nally & Hamilton", type_size:"No. 8 Crushed Stone", mat_code:"10415", pct_blend:"35", gsb:"2.664" } ],
-    perf_specimens: [
-      { specimen:"S-1", dry_wt:"4821.3", ssd_wt:"4838.9", wt_water:"2801.4", air_voids:"3.4" },
-      { specimen:"S-2", dry_wt:"4818.7", ssd_wt:"4835.1", wt_water:"2799.8", air_voids:"3.6" } ],
-    ct: [ { specimen:"CT-1", index:"72.4" }, { specimen:"CT-2", index:"75.8" } ],
-    hamburg_curve: [
-      { passes:"100", left:"1.2", right:"1.1" }, { passes:"5000", left:"3.4", right:"3.2" },
-      { passes:"10000", left:"5.1", right:"4.9" }, { passes:"15000", left:"7.0", right:"6.8" },
-      { passes:"20000", left:"9.3", right:"9.1" }, { passes:"25000", left:"12.4", right:"12.0" } ],
-  },
-};
+// The sample is DERIVED from CONFIG.SECTIONS, not hand-written: a
+// hand-written one silently stops covering a field the moment someone
+// renames or adds one (aadtt_class/line_items caught exactly that).
+function sampleFor(f, i) {
+  if (f.options && f.options.length) return String(f.options[i % f.options.length]);
+  if (f.type === "date") return "2026-03-13";
+  if (f.type === "number") return String((i % 90) + 10) + "." + ((i % 9) + 1);
+  return "Sample " + f.key + " " + i;
+}
+const CFG = (() => {
+  const a = html.indexOf('const CONFIG = {');
+  return new Function(html.slice(a, html.indexOf('\n};', a) + 3) + '; return CONFIG;')();
+})();
+const payload = (() => {
+  const values = {}, rows = {}, fourpoint = {};
+  let n = 0;
+  CFG.SECTIONS.forEach((sec) => {
+    (sec.fields || []).forEach((f) => { values[f.key] = sampleFor(f, n++); });
+    if (sec.type === "sieves") sec.sieves.forEach((sv, i) => { values[sv.key] = String(100 - i * 7); });
+    if (sec.type === "fourpoint") {
+      sec.constants.forEach((c) => { fourpoint["const:" + c.key] = String(2 + (n++ % 3)) + ".5"; });
+      sec.points.forEach((_, i) => {
+        fourpoint[`pt:${i}:pb`] = (4.3 + i * 0.5).toFixed(1);
+        fourpoint[`pt:${i}:gmb`] = (2.39 + i * 0.01).toFixed(3);
+        fourpoint[`pt:${i}:gmm`] = (2.52 - i * 0.015).toFixed(3);
+      });
+    }
+    if (sec.rows) (Array.isArray(sec.rows) ? sec.rows : [sec.rows]).forEach((spec) => {
+      const count = spec.fixed ? (spec.seed || []).length : 2;
+      rows[spec.key] = Array.from({ length: count }, (_, r) => {
+        const o = {};
+        (spec.columns || []).forEach((c) => {
+          const seeded = spec.fixed && (spec.seed || [])[r] && (spec.seed || [])[r][c.key];
+          o[c.key] = seeded != null ? String(seeded) : sampleFor(c, n++);
+        });
+        return o;
+      });
+    });
+  });
+  values.fourpoint = fourpoint;
+  values.design_values = {};
+  return { values, rows };
+})();
 
 const dom = new JSDOM('<body><div id="sections"></div></body>');
 global.document = dom.window.document;
@@ -126,5 +133,9 @@ Object.entries(payload.rows).forEach(([key, list]) => {
   list.forEach((r, i) => Object.entries(r).forEach(([c, v]) =>
     cmp(`rows.${key}[${i}].${c}`, v, rows[key] && rows[key][i] && rows[key][i][c])));
 });
-console.log(bad ? `\n${bad} field(s) LOST on re-upload` : "\nAll fields survive the round trip");
+const checked = Object.keys(payload.values).length - 2
+  + Object.keys(payload.values.fourpoint).length
+  + Object.values(payload.rows).reduce((a, l) => a + l.reduce((b, r) => b + Object.keys(r).length, 0), 0);
+console.log(bad ? `\n${bad} of ${checked} field(s) LOST on re-upload`
+                : `\nAll ${checked} fields survive the round trip`);
 process.exit(bad ? 1 : 0);

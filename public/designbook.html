@@ -2464,15 +2464,6 @@ function hdOmit(sectionId, key) {
   return Object.prototype.hasOwnProperty.call(CONFIG.HANDOFF.OMIT, `${sectionId}.${key}`);
 }
 
-// ESAL is stored as the range option; KYTC talks in class numbers. Derive
-// the reverse from the importer's own map so there is one source.
-function esalClassLabel(value) {
-  const norm = (s) => String(s == null ? "" : s).replace(/[\s–—-]/g, "").toLowerCase();
-  const hit = Object.entries(CONFIG.LEGACY.ESAL_CLASS_TO_OPTION)
-    .find(([, opt]) => norm(opt) === norm(value));
-  return hit ? `Class ${hit[0]}` : (value == null ? "" : String(value));
-}
-
 // "CL3 ASPH SURF 0.38A PG64-22" already names the mix; this spells out
 // what the class and layer mean so the sheet is readable without the code.
 function mixTypeLabel(mix) {
@@ -2827,8 +2818,9 @@ async function buildReviewPDF(payload) {
   function gridPairs(section) {
     return (section.fields || [])
       .filter((f) => !hdOmit(section.id, f.key))
-      .map((f) => [f.label, section.id === "contract" && f.key === "esal"
-        ? esalClassLabel(values[f.key]) : hdNum(values[f.key], hdDP(f.key))])
+      // aadtt_class already stores the bare class number (Andrew, PR #7) and
+      // its label says "AADTT Class", so it needs no translation here.
+      .map((f) => [f.label, hdNum(values[f.key], hdDP(f.key))])
       .filter((p) => p[1] !== "" && p[1] != null);
   }
   function rowTables(section) {
