@@ -1027,7 +1027,12 @@ function rowHTML(spec, values, idx) {
 
 function rowsHTML(spec) {
   if (spec.fixed) {
-    const rows = (spec.seed || []).map((v, i) => rowHTML(spec, v, i)).join("");
+    // Seeded rows still carry entered values - merge what is in hand over
+    // the seed so the readonly seeded column survives and the typed ones
+    // come back. Without this the Hamburg curve reverted on every reopen.
+    const held = state.extracted ? (state.extracted.tables[spec.key] || []) : [];
+    const rows = (spec.seed || []).map((v, i) =>
+      rowHTML(spec, held[i] ? Object.assign({}, v, held[i]) : v, i)).join("");
     return (spec.heading ? `<div class="rowgroup-head">${spec.heading}</div>` : "") +
       `<div class="rowlist" data-rowlist="${spec.key}">${rows}</div>`;
   }
@@ -1068,16 +1073,25 @@ function sievesHTML(section) {
 
 /* ---------- Four Points (R35 §10.5.5 curve fit) ---------- */
 function fourpointHTML(section) {
+  // Values in hand win over the CONFIG seeds. Without this the whole
+  // volumetrics core - the four constants and all four Pb/Gmb/Gmm rows -
+  // silently reverted to the defaults every time a design was reopened,
+  // from a review PDF or from a saved row. When a design HAS been through
+  // collectForm, trust it completely: a cleared cell must stay cleared,
+  // not resurrect the seed.
+  const saved = state.extracted && state.extracted.scalars
+    ? state.extracted.scalars.fourpoint : null;
+  const fpv = (k, dflt) => saved ? (saved[k] == null ? "" : saved[k]) : (dflt || "");
   const consts = section.constants.map((c) =>
     `<div class="field">
       <label>${c.label}${c.auto ? ` <span class="opt">(auto)</span>` : ""}</label>
       <input type="text" inputmode="decimal" class="box mono${c.auto ? "" : " req"}"
-             data-fp="const:${c.key}" value="${esc(c.value || "")}" placeholder="—">
+             data-fp="const:${c.key}" value="${esc(fpv("const:" + c.key, c.value))}" placeholder="—">
     </div>`).join("");
   const rows = section.points.map((p, i) => `<tr data-fprow="${i}">
-      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:pb"  value="${esc(p.pb || "")}"></td>
-      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmb" value="${esc(p.gmb || "")}" placeholder="—"></td>
-      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmm" value="${esc(p.gmm || "")}" placeholder="—"></td>
+      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:pb"  value="${esc(fpv(`pt:${i}:pb`, p.pb))}"></td>
+      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmb" value="${esc(fpv(`pt:${i}:gmb`, p.gmb))}" placeholder="—"></td>
+      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmm" value="${esc(fpv(`pt:${i}:gmm`, p.gmm))}" placeholder="—"></td>
       <td class="calc" data-fpout="va:${i}">—</td>
       <td class="calc" data-fpout="vma:${i}">—</td>
       <td class="calc" data-fpout="vfa:${i}">—</td>
