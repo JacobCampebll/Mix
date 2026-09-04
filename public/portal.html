@@ -581,14 +581,25 @@
     $("navSubmissions").textContent = (state.tech && state.tech.can_review ? "Review queue" : "My submissions") + (n == null ? "" : ` (${n})`) + " →";
   }
   function renderPlants() {
-    const list = state.plants.length ? state.plants : CONFIG.PLANT_FALLBACK;
+    const src = state.plants.length ? state.plants : CONFIG.PLANT_FALLBACK;
     const sel = $("plant");
     // The option VALUE stays the bare AMP number - it is what travels to
-    // designbook.html as ?plant= and what a saved design keys on.
+    // designbook.html as ?plant= and what a saved design keys on. The LABEL
+    // leads with the plant name so one company's plants sit together; the AMP
+    // follows. Names drive the sort; a lookup miss keeps the bare number and
+    // sorts to the end.
     const label = (amp) => {
       const name = state.plantNames[amp];
-      return name ? `${amp} — ${name}` : amp;
+      return name ? `${name} — ${amp}` : String(amp);
     };
+    const byAmp = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
+    const list = [...src].sort((a, b) => {
+      const na = state.plantNames[a], nb = state.plantNames[b];
+      if (na && nb) return na.localeCompare(nb, undefined, { sensitivity: "base" }) || byAmp(a, b);
+      if (na) return -1;
+      if (nb) return 1;
+      return byAmp(a, b);
+    });
     sel.innerHTML =
       `<option value="">— select plant —</option>` +
       list.map((p) => `<option value="${esc(p)}">${esc(label(p))}</option>`).join("");
@@ -615,7 +626,7 @@
   /* ---- the wizard ---- */
   function plantLabel(amp) {
     const name = state.plantNames[amp];
-    return name ? `${amp} · ${name}` : amp;
+    return name ? `${name} · ${amp}` : String(amp);
   }
   function renderSteps() {
     document.querySelectorAll("#steps .step").forEach((el) => {
