@@ -1401,7 +1401,10 @@ function autoFpInputs() {
   const p075 = p200El ? num(p200El.value) : null;
   const set = (k, v) => {
     const el = document.querySelector(`[data-fp="const:${k}"]`);
-    if (el && document.activeElement !== el && v != null) el.value = v.toFixed(k === "fp_p075" ? 1 : 3);
+    // Combined Gsb is rounded to the nearest 0.01 here, at the source, not
+    // just for display — KY practice rounds it before it feeds Va/VMA/Gse/
+    // Pbe below, so the calculator matches a reviewer doing it by hand.
+    if (el && document.activeElement !== el && v != null) el.value = v.toFixed(k === "fp_p075" ? 1 : k === "fp_gsb" ? 2 : 3);
   };
   set("fp_gsb", gsb);
   set("fp_p075", p075);
@@ -1457,7 +1460,11 @@ function computeFourPoint() {
     gse = (100 - designPb) / ((100 / gmmD) - (designPb / gb));
     const psD = 100 - designPb;
     pbe = designPb - (psD * gb * ((gse - gsb) / (gse * gsb)));
-    dust = p075 != null && pbe ? p075 / pbe : null;
+    // Pbe is always reported to the nearest tenth in KY; Dust/Pbe divides by
+    // that rounded Pbe (not the raw value), same rounding-before-math rule
+    // as Combined Gsb above.
+    pbe = Math.round(pbe * 10) / 10;
+    dust = p075 != null && pbe ? Math.round((p075 / pbe) * 10) / 10 : null;
   }
 
   res.innerHTML =
@@ -1465,8 +1472,8 @@ function computeFourPoint() {
      <div class="fp-card"><div class="l">VMA at design</div><div class="v">${fmt(vmaD, 1)}%</div></div>
      <div class="fp-card"><div class="l">VFA at design</div><div class="v">${fmt(vfaD, 1)}%</div></div>
      <div class="fp-card"><div class="l">Gse</div><div class="v">${fmt(gse, 3)}</div></div>
-     <div class="fp-card"><div class="l">Pbe</div><div class="v">${fmt(pbe, 2)}%</div></div>
-     <div class="fp-card"><div class="l">Dust / Pbe</div><div class="v">${fmt(dust, 2)}</div></div>`;
+     <div class="fp-card"><div class="l">Pbe</div><div class="v">${fmt(pbe, 1)}%</div></div>
+     <div class="fp-card"><div class="l">Dust / Pbe</div><div class="v">${fmt(dust, 1)}</div></div>`;
 
   dv("design_pb", fmt(designPb, 1));
   dv("gmm_design", fmt(gmmD, 3));
@@ -1475,8 +1482,8 @@ function computeFourPoint() {
   dv("vma_design", fmt(vmaD, 1));
   dv("vfa_design", fmt(vfaD, 1));
   dv("gse", fmt(gse, 3));
-  dv("pbe", fmt(pbe, 2));
-  dv("dust_pbe", fmt(dust, 2));
+  dv("pbe", fmt(pbe, 1));
+  dv("dust_pbe", fmt(dust, 1));
   dv("density", densD == null ? "—" : String(Math.round(densD)));
 
   drawFpChart(pbs, vas, vaFit, vaTgt, designPb);
