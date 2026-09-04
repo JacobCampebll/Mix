@@ -595,10 +595,12 @@ const CONFIG = {
     // tab's own additive cells, Design Data O74/O75 as fallback.
     TSR_ADDITIVE: { type: [["tsr", "H19"], ["designData", "O75"]], pct: [["tsr", "H17"], ["designData", "O74"]] },
 
-    // Read-only "from the uploaded workbook" panel in Design Values. A completed
-    // MixPack carries no 4-point gyratory data, so the computed path stays
-    // empty on a legacy import - these are the workbook's own stated results
-    // (Design Data column O, populated in a natively-saved file).
+    // Read-only "from the uploaded workbook" panel in Design Values - the
+    // workbook's own stated results (Design Data column O, populated in a
+    // natively-saved file), shown alongside whatever the computed path
+    // derives from the FOURPOINT trial data above (both are useful: this
+    // panel is what the technician originally submitted, the computed path
+    // is what today's curve fit says from the same four trial points).
     DESIGN_VALUES: {
       "AC (%)":              ["designData", "O63"],
       "VMA (%)":             ["designData", "O57"],
@@ -615,13 +617,38 @@ const CONFIG = {
       "Dust / binder ratio": ["designData", "O58"],
       "Film thickness (µm)": ["designData", "O69"],
     },
-    // The 4 gyratory trial points (Pb/Gmb/Gmm) that would seed the Four Points
-    // section. NOT in #489PA (Ver 12.1) - the MixPack keeps only the design
-    // result, and t_tst_rslt_dtl's "4-PT. GYRATORY MIX" block is a single set.
-    // Some MixPacks may carry the trial sweep on the Graphs tab (per Andrew) -
-    // wire this once we have a sample that has it, then seed `tables.fourpoint`
-    // and let computeFourPoint() run instead of the read-only panel below.
-    FOURPOINT: null,
+    // The 4 gyratory trial points (Pb/Gmb/Gmm), found 2026-09-04 in a real
+    // Ver 11.3 sample (CL3 0.38A 64-22 Haydon NEW.xlsm) - it was wrong to
+    // assume a completed MixPack never carries the trial sweep. Design Data
+    // rows 30-43 hold the raw trial-blend table (Sample #/Average rows per
+    // AC%); row 30's header labels column G "BSG" - that IS Gmb, not a
+    // derived unit-weight figure, so pull it straight, no /62.4 conversion.
+    // The four "Average" rows are 34 (Pb 5.5), 37 (6.0), 40 (6.5), 43 (7.0).
+    // 12.1 confirmed 2026-09-04 against a second real workbook (#492PA.xlsm,
+    // Ver 12.1, Haydon 0.38B) - identical headers and row numbers, cross-
+    // checked (1-Gmb/Gmm)*100 against the sheet's own %Voids column to 9
+    // decimal places. Both versions verified; same addresses, no longer
+    // provisional.
+    // Each pb/gmb/gmm is a chase() CHAIN (array of [sheetKey, addr]
+    // fallbacks), same shape as every other CELLS entry - a bare
+    // [sheetKey, addr] pair here would make chase() destructure the two
+    // characters of "designData"/"B34" instead of a real cell reference,
+    // silently, with no error. Only one address per point in practice, so
+    // each chain holds exactly one fallback.
+    FOURPOINT: {
+      "11.x": [
+        { pb: [["designData", "B34"]], gmb: [["designData", "G34"]], gmm: [["designData", "I34"]] },
+        { pb: [["designData", "B37"]], gmb: [["designData", "G37"]], gmm: [["designData", "I37"]] },
+        { pb: [["designData", "B40"]], gmb: [["designData", "G40"]], gmm: [["designData", "I40"]] },
+        { pb: [["designData", "B43"]], gmb: [["designData", "G43"]], gmm: [["designData", "I43"]] },
+      ],
+      "12.1": [   // verified 2026-09-04 against #492PA.xlsm — same addresses as 11.x
+        { pb: [["designData", "B34"]], gmb: [["designData", "G34"]], gmm: [["designData", "I34"]] },
+        { pb: [["designData", "B37"]], gmb: [["designData", "G37"]], gmm: [["designData", "I37"]] },
+        { pb: [["designData", "B40"]], gmb: [["designData", "G40"]], gmm: [["designData", "I40"]] },
+        { pb: [["designData", "B43"]], gmb: [["designData", "G43"]], gmm: [["designData", "I43"]] },
+      ],
+    },
 
     // Gradation: JMF input column T, Design Data rows 15-28, keyed by the new
     // sieve keys (CONFIG.SECTIONS gradation `key`s). Same in both versions.
@@ -730,6 +757,24 @@ const CONFIG = {
      Where a legacy MixPack supplies the value is NOT
        here — see CONFIG.LEGACY, keyed by these same field keys.
      -------------------------------------------------------------- */
+  // Aggregate gradation control points — AASHTO M323 Table 4. Keyed by
+  // nominal maximum aggregate size (NMAS); each entry is
+  // { <gradation sieve key>: [min, max] }, either side null where the
+  // spec leaves that sieve unbounded for that NMAS. Drives the shadow
+  // band on the 0.45 power chart, trimmed to state.mix.nominal_size
+  // (strip the trailing letter, e.g. "0.38A" -> "0.38" -> this table's
+  // "0.38" key; "#4"/"4" both resolve to the "4" key). Static spec data,
+  // same footing as the sieve mm list and the R35 Pb tolerance below —
+  // not a Supabase reference table, since it only changes if M323 itself
+  // is revised, unlike the aggregate/binder rosters which grow routinely.
+  GRADATION_CONTROL_POINTS: {
+    "1.5":  { s50: [100, null], s37_5: [90, 100], s25: [null, 90], s4_75: [15, 41], s0_075: [0, 6] },
+    "1.0":  { s37_5: [100, null], s25: [90, 100], s19: [null, 90], s4_75: [19, 45], s0_075: [1, 7] },
+    "0.75": { s25: [100, null], s19: [90, 100], s12_5: [null, 90], s4_75: [23, 49], s0_075: [2, 8] },
+    "0.5":  { s19: [100, null], s12_5: [90, 100], s9_5: [null, 90], s4_75: [28, 58], s0_075: [2, 10] },
+    "0.38": { s12_5: [100, null], s9_5: [90, 100], s4_75: [32, 67], s0_075: [2, 10] },
+    "4":    { s9_5: [null, 100], s1_18: [30, 55], s0_075: [6, 13] },
+  },
   SECTIONS: [
     {
       id: "contract", label: "Contract Information",
@@ -940,6 +985,20 @@ function toPortal() { location.href = CONFIG.PORTAL_URL; }
 function sieveKey(label) { return "sieve_" + String(label).replace(/[^0-9a-z]/gi, ""); }
 function gradSection() { return CONFIG.SECTIONS.find((s) => s.type === "sieves"); }
 function fpSection() { return CONFIG.SECTIONS.find((s) => s.type === "fourpoint"); }
+// state.mix.nominal_size is like "0.38A" (trailing letter is a gradation-type
+// suffix, not part of the NMAS — confirmed with Andrew 2026-09-04, unrelated
+// to which control-points column applies). Strip it and match the number;
+// "#4"/"4" both resolve to CONFIG.GRADATION_CONTROL_POINTS["4"].
+function controlPointsForNominalSize(nominalSize) {
+  if (!nominalSize) return null;
+  const raw = String(nominalSize).trim();
+  if (/^#?4$/i.test(raw)) return CONFIG.GRADATION_CONTROL_POINTS["4"];
+  const num = parseFloat(raw);   // parseFloat stops at the first non-numeric char, so "0.38A" -> 0.38
+  if (!Number.isFinite(num)) return null;
+  const key = Object.keys(CONFIG.GRADATION_CONTROL_POINTS)
+    .find((k) => k !== "4" && Math.abs(parseFloat(k) - num) < 0.01);
+  return key ? CONFIG.GRADATION_CONTROL_POINTS[key] : null;
+}
 function num(v) { const n = parseFloat(v); return Number.isFinite(n) ? n : null; }
 function fmt(v, d) { return v == null || !Number.isFinite(v) ? "—" : v.toFixed(d); }
 // Row spec by key — `s.rows` is one spec or an array of specs.
@@ -1072,26 +1131,54 @@ function sievesHTML(section) {
 }
 
 /* ---------- Four Points (R35 §10.5.5 curve fit) ---------- */
+// Four Points renders from state, not the CONFIG seed - fixed twice,
+// independently, the same day (this branch and upstream 751f8e9), so
+// reconciled here rather than picking one side over the other:
+// - A design that has been through collectForm at all (loadDesign(), or a
+//   review PDF re-uploaded) has its saved values win outright, per field -
+//   a cell a person cleared must stay cleared, never resurrect the CONFIG
+//   seed. That's 751f8e9's rule, kept as-is: it's stricter/more correct
+//   than this branch's original per-field fallback-to-default.
+// - A fresh legacy import puts an array of {pb,gmb,gmm} in
+//   state.extracted.tables.fourpoint (same shape as every other extracted
+//   table). 751f8e9 didn't handle this shape because, in that world, the
+//   importer supplied no Four Points data at all - CONFIG.LEGACY.FOURPOINT
+//   was still null. This branch wires it (see CONFIG.LEGACY.FOURPOINT,
+//   verified against real Ver 11.3 and Ver 12.1 files), so a fresh import
+//   still needs to win here, same priority as every other extracted table.
+function resolveFourpointConstants(section) {
+  const saved = state.extracted && state.extracted.scalars ? state.extracted.scalars.fourpoint : null;
+  return section.constants.map((c) => ({
+    ...c, value: saved ? (saved[`const:${c.key}`] == null ? "" : saved[`const:${c.key}`]) : c.value,
+  }));
+}
+function resolveFourpointPoints(section) {
+  const ex = state.extracted;
+  if (ex && Array.isArray(ex.tables && ex.tables.fourpoint) && ex.tables.fourpoint.length) {
+    return ex.tables.fourpoint;
+  }
+  const saved = ex && ex.scalars ? ex.scalars.fourpoint : null;
+  if (saved) {
+    return section.points.map((_, i) => ({
+      pb:  saved[`pt:${i}:pb`]  == null ? "" : saved[`pt:${i}:pb`],
+      gmb: saved[`pt:${i}:gmb`] == null ? "" : saved[`pt:${i}:gmb`],
+      gmm: saved[`pt:${i}:gmm`] == null ? "" : saved[`pt:${i}:gmm`],
+    }));
+  }
+  return section.points;
+}
 function fourpointHTML(section) {
-  // Values in hand win over the CONFIG seeds. Without this the whole
-  // volumetrics core - the four constants and all four Pb/Gmb/Gmm rows -
-  // silently reverted to the defaults every time a design was reopened,
-  // from a review PDF or from a saved row. When a design HAS been through
-  // collectForm, trust it completely: a cleared cell must stay cleared,
-  // not resurrect the seed.
-  const saved = state.extracted && state.extracted.scalars
-    ? state.extracted.scalars.fourpoint : null;
-  const fpv = (k, dflt) => saved ? (saved[k] == null ? "" : saved[k]) : (dflt || "");
-  const consts = section.constants.map((c) =>
+  const constants = resolveFourpointConstants(section), points = resolveFourpointPoints(section);
+  const consts = constants.map((c) =>
     `<div class="field">
       <label>${c.label}${c.auto ? ` <span class="opt">(auto)</span>` : ""}</label>
       <input type="text" inputmode="decimal" class="box mono${c.auto ? "" : " req"}"
-             data-fp="const:${c.key}" value="${esc(fpv("const:" + c.key, c.value))}" placeholder="—">
+             data-fp="const:${c.key}" value="${esc(c.value || "")}" placeholder="—">
     </div>`).join("");
-  const rows = section.points.map((p, i) => `<tr data-fprow="${i}">
-      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:pb"  value="${esc(fpv(`pt:${i}:pb`, p.pb))}"></td>
-      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmb" value="${esc(fpv(`pt:${i}:gmb`, p.gmb))}" placeholder="—"></td>
-      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmm" value="${esc(fpv(`pt:${i}:gmm`, p.gmm))}" placeholder="—"></td>
+  const rows = points.map((p, i) => `<tr data-fprow="${i}">
+      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:pb"  value="${esc(p.pb || "")}"></td>
+      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmb" value="${esc(p.gmb || "")}" placeholder="—"></td>
+      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmm" value="${esc(p.gmm || "")}" placeholder="—"></td>
       <td class="calc" data-fpout="va:${i}">—</td>
       <td class="calc" data-fpout="vma:${i}">—</td>
       <td class="calc" data-fpout="vfa:${i}">—</td>
@@ -1113,10 +1200,13 @@ function fourpointHTML(section) {
 }
 
 function computedHTML(section) {
-  // Legacy MixPack upload: a completed workbook has no 4-point data to compute
-  // from, so show its own stated design results read-only. Rebuilt on every
-  // render from state.legacy.designValues (set by the importer / a reopened
-  // legacy design).
+  // Legacy MixPack upload: alongside the computed path (now seeded from the
+  // workbook's own FOURPOINT trial data, when the version's cell map has
+  // it), show the workbook's own stated design results read-only so a
+  // reviewer can compare "what the curve fit says today" against "what the
+  // technician originally submitted". Rebuilt on every render from
+  // state.legacy.designValues (set by the importer / a reopened legacy
+  // design).
   const wb = state.legacy && Array.isArray(state.legacy.designValues)
     ? state.legacy.designValues.filter((d) => d.status === "found") : [];
   const wbPanel = wb.length ? `
@@ -1124,7 +1214,7 @@ function computedHTML(section) {
     <div class="computed-grid">` + wb.map((d) =>
       `<div class="computed-cell"><div class="l">${esc(d.label)}</div>
          <div class="v">${esc(String(d.value))}</div></div>`).join("") + `</div>
-    <div class="computed-note">${wb.length} value(s) from ${esc(wb[0].source.split("!")[0])}. The workbook stores no 4-point gyratory data, so the calculator below stays empty unless a tech enters the points.</div>
+    <div class="computed-note">${wb.length} value(s) from ${esc(wb[0].source.split("!")[0])}. Compare against the calculator below, which is fit from the four trial points (also pulled from the workbook, where the version's cell map has them).</div>
     <div style="height:18px"></div>` : "";
   return wbPanel + `<div class="rowgroup-head">Computed from Four Points</div>
     <div class="computed-grid">` + section.outputs.map((o) =>
@@ -1212,6 +1302,37 @@ function drawChart() {
          enter at least two sieve values</text>`
     : "";
 
+  // Target gradation band (AASHTO M323 Table 4 control points for this mix's
+  // NMAS) — drawn under the plotted line so the design's own gradation reads
+  // on top. Sieves with both a min and a max fill as a shaded corridor;
+  // sieves with only one bound (the control point just above/below the NMAS
+  // itself) draw as a single tick, since there is nothing to shade between.
+  const nominalSize = state.mix ? state.mix.nominal_size : null;
+  const cp = controlPointsForNominalSize(nominalSize);
+  const band = cp ? gradSection().sieves
+    .map((s) => ({ mm: s.mm, min: cp[s.key] ? cp[s.key][0] : null, max: cp[s.key] ? cp[s.key][1] : null }))
+    .filter((p) => p.min != null || p.max != null) : null;
+  let bandSvg = "", bandNote = "";
+  if (band && band.length) {
+    const both = band.filter((p) => p.min != null && p.max != null);
+    const fill = both.length >= 2
+      ? `<polygon points="${both.map((p) => `${x(p.mm).toFixed(1)},${y(p.max).toFixed(1)}`).join(" ")} ${
+            [...both].reverse().map((p) => `${x(p.mm).toFixed(1)},${y(p.min).toFixed(1)}`).join(" ")}"
+           fill="var(--ok-soft)" stroke="none"/>`
+      : "";
+    const rungs = both.map((p) =>
+      `<line x1="${x(p.mm).toFixed(1)}" y1="${y(p.max).toFixed(1)}" x2="${x(p.mm).toFixed(1)}" y2="${y(p.min).toFixed(1)}"
+         stroke="var(--ok)" stroke-width="1" stroke-dasharray="2,1.5"/>`).join("");
+    const ticks = band.filter((p) => p.min == null || p.max == null).map((p) => {
+      const yy = y(p.max != null ? p.max : p.min).toFixed(1);
+      return `<line x1="${(x(p.mm) - 5).toFixed(1)}" y1="${yy}" x2="${(x(p.mm) + 5).toFixed(1)}" y2="${yy}" stroke="var(--ok)" stroke-width="1.4"/>`;
+    }).join("");
+    bandSvg = fill + rungs + ticks;
+  } else if (nominalSize) {
+    bandNote = `<text x="${W - pad.r}" y="${pad.t + 8}" font-size="7" fill="var(--muted)" text-anchor="end">
+      no control points for NMAS "${esc(nominalSize)}"</text>`;
+  }
+
   chart.innerHTML =
     `<svg viewBox="0 0 ${W} ${H}">
       <line x1="${pad.l}" y1="${H - pad.b}" x2="${W - pad.r}" y2="${H - pad.b}" stroke="var(--line)" stroke-width="1"/>
@@ -1220,7 +1341,7 @@ function drawChart() {
         `<line x1="${pad.l}" y1="${y(v).toFixed(1)}" x2="${W - pad.r}" y2="${y(v).toFixed(1)}" stroke="var(--line)" stroke-width="0.4"/>
          <text x="${pad.l - 4}" y="${(y(v) + 3).toFixed(1)}" font-size="8" fill="var(--muted)" text-anchor="end">${v}</text>`).join("")}
       <text x="${(pad.l + (W - pad.r)) / 2}" y="${H - 4}" font-size="8" fill="var(--muted)" text-anchor="middle">sieve (0.45 power scale)</text>
-      ${grid}${line}${dots}${empty}
+      ${bandSvg}${grid}${line}${dots}${empty}${bandNote}
     </svg>`;
 }
 
@@ -1623,7 +1744,7 @@ function extractLegacy(wb, ctx) {
   const cells = L.CELLS[ver.version];
   const src = (key, addr) => `${L.SHEET_NAMES[key]}!${addr}`;
   const scalars = {}, sources = {}, log = [], unmapped = [], context = [], designValues = [];
-  const tables = { aggregate: [], ct: [], perf_specimens: [], hamburg_curve: [] };
+  const tables = { aggregate: [], ct: [], perf_specimens: [], hamburg_curve: [], fourpoint: [] };
 
   function chase(chain) {
     const tried = [];
@@ -1774,9 +1895,34 @@ function extractLegacy(wb, ctx) {
                note: skipped ? `${skipped} slot(s) with no CT index skipped` : "" });
   }
 
-  { // Design Values — read-only "from the uploaded workbook" panel (no 4-point
-    // data in a MixPack, so this is what the computed section shows on a
-    // legacy import). Design Data column O in a natively-saved file.
+  { // Four Points trial data (Pb/Gmb/Gmm) — seeds the Four Points calculator
+    // directly, same as a technician typing the four rows in by hand. A
+    // point counts as found only when all three of Pb/Gmb/Gmm resolved;
+    // a partial point is reported as missing rather than saved half-blank.
+    // Rounded to the precision a tech would type (Pb 0.1%, Gmb/Gmm 0.001) -
+    // the raw cells are formula results with 10+ decimal digits, which
+    // coerce()'s plain parseFloat would otherwise carry straight into the
+    // input box.
+    const fp = L.FOURPOINT ? L.FOURPOINT[ver.version] : null;
+    const round = (v, d) => { const n = parseFloat(coerce(v, "number")); return Number.isFinite(n) ? n.toFixed(d) : ""; };
+    let gotPoints = 0;
+    (fp || []).forEach((pt, i) => {
+      const rpb = chase(pt.pb), rgmb = chase(pt.gmb), rgmm = chase(pt.gmm);
+      if (rpb.value !== null && rgmb.value !== null && rgmm.value !== null) {
+        tables.fourpoint.push({ pb: round(rpb.value, 1), gmb: round(rgmb.value, 3), gmm: round(rgmm.value, 3) });
+        gotPoints++;
+      } else {
+        log.push({ field: `four points trial ${i + 1}`, source: `${rpb.source} / ${rgmb.source} / ${rgmm.source}`,
+                   value: null, status: "missing", note: "Pb/Gmb/Gmm not all present for this trial" });
+      }
+    });
+    log.push({ field: "four points", source: fp ? `${L.SHEET_NAMES.designData} rows 34/37/40/43` : "(no source in this version)",
+               value: gotPoints, status: gotPoints ? "found" : "missing", note: "" });
+  }
+
+  { // Design Values — read-only "from the uploaded workbook" panel, shown
+    // alongside the computed path above. Design Data column O in a
+    // natively-saved file.
     Object.entries(L.DESIGN_VALUES).forEach(([label, [sk, addr]]) => {
       const r = legacyCell(S[sk], addr);
       const v = r.status === "found" ? coerce(r.value, "number") : (r.status === "found" ? String(r.value) : "");
@@ -1822,7 +1968,7 @@ function renderLegacyLog(res, fileName) {
     lines.push(`  ${pad(l.field, 15)} ${pad(l.source, 29)} ${pad(val, 23)} ${l.status}${l.note ? "  · " + l.note : ""}`);
   });
   if (res.designValues && res.designValues.length) {
-    lines.push("", "Workbook design values (shown read-only in Design Values — no 4-point data to compute):");
+    lines.push("", "Workbook design values (shown read-only in Design Values, alongside the computed path):");
     res.designValues.forEach((d) => lines.push(`  ${pad(d.label, 22)} ${pad(d.source, 22)} ${pad(d.value == null ? "—" : String(d.value), 12)} ${d.status}`));
   }
   lines.push("", "Job context checks:");
@@ -1859,7 +2005,7 @@ async function handleFile(file) {
 
     enterForm();
     let summary = `${res.version.label}: prefilled ${found} field(s), ${res.tables.aggregate.length} aggregate row(s), ` +
-                  `${res.tables.ct.length} CT specimen(s) from ${file.name}. Check every value.`;
+                  `${res.tables.ct.length} CT specimen(s), ${res.tables.fourpoint.length} four-point trial(s) from ${file.name}. Check every value.`;
     if (notCached) summary += ` ${notCached} value(s) are formulas with no cached result — open the workbook in Excel and save it, or enter them by hand.`;
     if (mismatch.length) summary += ` ⚠ Workbook ${mismatch.map((m) => m.what).join(" and ")} does not match this job.`;
     msg($("saveMsg"), summary, mismatch.length ? "error" : (found ? "warn" : "error"));
