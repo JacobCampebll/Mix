@@ -1,0 +1,8 @@
+{
+  "name": "mix-scripts",
+  "private": true,
+  "description": "Dev tooling only. Deliberately NOT at the repo root: Netlify publishes public/ with no build command, and a root package.json would start it installing dependencies for a static site. Nothing here ships.",
+  "devDependencies": {
+    "jsdom": "^30.0.1"
+  }
+}

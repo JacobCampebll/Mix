@@ -12,7 +12,7 @@
 //
 // Run it after touching CONFIG.SECTIONS or any *HTML() builder:
 //
-//   npm install jsdom          # one-off, anywhere; this is the only dep
+//   npm install --prefix scripts     # one-off; jsdom is the only dep
 //   node scripts/check_form_roundtrip.mjs
 //
 // Exit code is the number of lost fields, so it drops straight into CI.
