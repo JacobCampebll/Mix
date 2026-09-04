@@ -292,11 +292,9 @@ TBD — cite the governing spec section when encoding a limit in code.
   `BSG` at row 30) - pull it directly as Gmb, do not derive it from the
   adjacent `Unit Wt. @ Ndes (pcf)` column (`H = G × 62.4`, a display-only
   dead end). Full cell map and the cross-check math in
-  `docs/legacy-mixpack-map.md`. **12.1 is unverified** - the 11.x addresses
-  were copied over as a provisional placeholder (Design Data's overall
-  layout is identical 11.x/12.1 per the PR #3-era finding above, so it's a
-  reasonable guess, not a blind one) but not checked against a real 12.1
-  file; re-verify before trusting it the way the rest of `CELLS` is trusted.
+  `docs/legacy-mixpack-map.md`. **12.1 confirmed 2026-09-04** against a
+  second real file (`#492PA.xlsm`) - identical headers and row numbers,
+  cross-checked the same way. Both versions now trusted equally.
 
 - **Four Points silently never restored on a reopened design — a rendering
   gap unrelated to RLS or the database, found while wiring the legacy

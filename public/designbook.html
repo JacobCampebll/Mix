@@ -582,10 +582,11 @@ const CONFIG = {
     // AC%); row 30's header labels column G "BSG" - that IS Gmb, not a
     // derived unit-weight figure, so pull it straight, no /62.4 conversion.
     // The four "Average" rows are 34 (Pb 5.5), 37 (6.0), 40 (6.5), 43 (7.0).
-    // 12.1 is NOT yet verified against a real workbook - copied from 11.x as
-    // a provisional best guess (same address, per Andrew, until a 12.1
-    // sample confirms or corrects it). Do not trust the 12.1 entry the way
-    // the rest of CELLS is trusted; re-verify before relying on it.
+    // 12.1 confirmed 2026-09-04 against a second real workbook (#492PA.xlsm,
+    // Ver 12.1, Haydon 0.38B) - identical headers and row numbers, cross-
+    // checked (1-Gmb/Gmm)*100 against the sheet's own %Voids column to 9
+    // decimal places. Both versions verified; same addresses, no longer
+    // provisional.
     // Each pb/gmb/gmm is a chase() CHAIN (array of [sheetKey, addr]
     // fallbacks), same shape as every other CELLS entry - a bare
     // [sheetKey, addr] pair here would make chase() destructure the two
@@ -599,7 +600,7 @@ const CONFIG = {
         { pb: [["designData", "B40"]], gmb: [["designData", "G40"]], gmm: [["designData", "I40"]] },
         { pb: [["designData", "B43"]], gmb: [["designData", "G43"]], gmm: [["designData", "I43"]] },
       ],
-      "12.1": [   // UNVERIFIED — provisional copy of 11.x, see comment above
+      "12.1": [   // verified 2026-09-04 against #492PA.xlsm — same addresses as 11.x
         { pb: [["designData", "B34"]], gmb: [["designData", "G34"]], gmm: [["designData", "I34"]] },
         { pb: [["designData", "B37"]], gmb: [["designData", "G37"]], gmm: [["designData", "I37"]] },
         { pb: [["designData", "B40"]], gmb: [["designData", "G40"]], gmm: [["designData", "I40"]] },
@@ -1857,8 +1858,7 @@ function extractLegacy(wb, ctx) {
       }
     });
     log.push({ field: "four points", source: fp ? `${L.SHEET_NAMES.designData} rows 34/37/40/43` : "(no source in this version)",
-               value: gotPoints, status: gotPoints ? "found" : "missing",
-               note: fp && ver.version === "12.1" ? "12.1 address unverified — confirm against a real 12.1 sample" : "" });
+               value: gotPoints, status: gotPoints ? "found" : "missing", note: "" });
   }
 
   { // Design Values — read-only "from the uploaded workbook" panel, shown

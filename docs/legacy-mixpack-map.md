@@ -313,16 +313,31 @@ In this sample: Pb 5.5/6.0/6.5/7.0, Gmb 2.3657/2.3836/2.3939/2.4020, Gmm
 column (`D86:D89` in the `GRAPH DATA` block): `(1 − Gmb/Gmm) × 100` on row 1
 gives 4.97%, matching `D86 = 4.973710900626655` exactly.
 
-## Version risk — 12.1 is unverified
+## 12.1 verified — 2026-09-04, against `#492PA.xlsm`
 
-Only an 11.3 sample has been checked. `CONFIG.LEGACY.FOURPOINT["12.1"]` is a
-**provisional copy** of the 11.x addresses, not a verified one — Design
-Data's overall input layout is identical 11.x/12.1 per the finding above,
-which is why this is a reasonable placeholder rather than a guess out of
-nowhere, but it has not been checked against a real 12.1 file the way every
-other `CELLS` entry has. Re-verify (or correct) once a completed 12.1
-MixPack is available, and drop the "UNVERIFIED" comment in
-`CONFIG.LEGACY.FOURPOINT` once it's confirmed.
+A second real, approved workbook (`N:\MATERIAL\BITSHARE\Mxpack2026\#492\
+#492PA.xlsm`, `Design Data!U3 = "Ver 12.1"`, mix `00388 CL3 ASPH SURF
+0.38B PG64-22`, contract `262205`) confirms the FOURPOINT layout is
+**identical** in 12.1 — same `BSG`/`Max Spec` headers at row 30/31, same
+four "Average" rows (34/37/40/43):
+
+| Trial | Pb | Gmb (BSG) | Gmm |
+|---|---|---|---|
+| 1 | `B34` = 5.3 | `G34` = 2.3900 | `I34` = 2.5227 |
+| 2 | `B37` = 5.8 | `G37` = 2.4161 | `I37` = 2.5035 |
+| 3 | `B40` = 6.3 | `G40` = 2.4300 | `I40` = 2.4846 |
+| 4 | `B43` = 6.8 | `G43` = 2.4468 | `I43` = 2.4660 |
+
+Cross-checked the same way as the 11.3 sample: `(1 − Gmb/Gmm) × 100` on
+trial 1 gives 5.2579%, matching the sheet's own `%Voids @ Ndes` column
+(`J34 = 5.257933766705055`) to 9 decimal places. Both versions now use
+the same addresses in `CONFIG.LEGACY.FOURPOINT`, both confirmed against
+real files — no longer provisional.
+
+Bonus confirmation from the same file: this mix's nominal size reads
+`"0.38B"` (letter `B`, not `A` as in the 11.3 sample) — real-world proof
+the trailing letter is unrelated to NMAS, as expected from the gradation
+control-points mapping logic (`controlPointsForNominalSize()`).
 
 ## Rendering bug found and fixed in the same pass
 
