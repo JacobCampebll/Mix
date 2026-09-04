@@ -892,7 +892,7 @@ const CONFIG = {
         { key: "gse",        label: "Gse" },
         { key: "pbe",        label: "Pbe (%)" },
         { key: "dust_pbe",   label: "Dust / Pbe" },
-        { key: "density",    label: "Density (kg/m³)" },
+        { key: "density",    label: "Density (pcf)" },
       ],
     },
     {
@@ -1217,7 +1217,7 @@ function fourpointHTML(section) {
     <table class="fptable">
       <thead><tr>
         <th>Pb (%)</th><th>Gmb</th><th>Gmm</th>
-        <th>Va (%)</th><th>VMA (%)</th><th>VFA (%)</th><th>Density (kg/m³)</th>
+        <th>Va (%)</th><th>VMA (%)</th><th>VFA (%)</th><th>Density (pcf)</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -1509,7 +1509,7 @@ function computeFourPoint() {
       va = 100 * (1 - gmb / gmm);
       vma = 100 - (gmb * ps / gsb);
       vfa = 100 * ((vma - va) / vma);
-      dens = gmb * 997;
+      dens = gmb * 62.4;   // pcf - Gmb is a specific gravity, 62.4 = water's density in lb/ft3 (KY convention, not kg/m3)
       pbs.push(pb); vas.push(va); vmas.push(vma); vfas.push(vfa); denss.push(dens);
     }
     const put = (m, val, d) => { const el = document.querySelector(`[data-fpout="${m}:${i}"]`); if (el) el.textContent = val == null ? "—" : val.toFixed(d); };
@@ -1536,7 +1536,7 @@ function computeFourPoint() {
     vmaD = evalPoly(vmaFit, designPb);
     vfaD = evalPoly(vfaFit, designPb);
     densD = evalPoly(densFit, designPb);
-    gmbD = densD / 997;
+    gmbD = densD / 62.4;   // pcf, matching the per-row density above
     gmmD = gmbD / (1 - vaTgt / 100);
     gse = (100 - designPb) / ((100 / gmmD) - (designPb / gb));
     const psD = 100 - designPb;
