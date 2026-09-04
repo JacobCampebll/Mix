@@ -1940,13 +1940,17 @@ function extractLegacy(wb, ctx) {
       }
     }
   }
-  { // tsr_additive: "<type> — <%>" (skip when the workbook says none)
+  { // tsr_additive: "<type> — <%>" - an explicit "none" is a real answer
+    // (the workbook says no additive was used), not the same as the cell
+    // being empty (nobody recorded anything). Both used to collapse into
+    // the same "missing" status; only true emptiness should.
     const rt = chase(L.TSR_ADDITIVE.type), rp = chase(L.TSR_ADDITIVE.pct);
     const typ = rt.value === null ? "" : String(rt.value).trim();
     const pct = rp.value === null ? "" : coerce(rp.value, "number");
     const source = `${rt.source} + ${rp.source}`;
     const none = /^(none|none required|n\/?a)$/i.test(typ) && (pct === "" || Number(pct) === 0);
-    if ((typ === "" && pct === "") || none) miss("tsr_additive", { source, tried: [...rt.tried, ...rp.tried] });
+    if (typ === "" && pct === "") miss("tsr_additive", { source, tried: [...rt.tried, ...rp.tried] });
+    else if (none) put("tsr_additive", "None", source, "workbook recorded no additive used");
     else put("tsr_additive", typ !== "" && pct !== "" ? `${typ} — ${pct}%` : (typ || `${pct}%`), source);
   }
 
