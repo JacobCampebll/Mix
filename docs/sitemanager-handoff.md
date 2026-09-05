@@ -12,10 +12,29 @@ durable half.
 
 ## The short version
 
-The MixPack is not really a spreadsheet as far as SiteManager is concerned. It
-is an **XML document with an Excel front end**.
+**The artifact is the workbook.** KYTC's own procedure documents settle it, and
+they are public:
 
-`xl/xmlMaps.xml` inside the workbook carries a complete XSD - target namespace
+> "The user initiates the Applet and directs the application as to the location
+> of the spreadsheet, and the Applet then attempts to successfully load the
+> spreadsheet. If any errors are encountered, the load is aborted and the
+> specific errors returned to the user. Once successfully loaded into
+> SiteManager, the Applet archives a copy of the spreadsheet for audit trail
+> purposes."
+> - *SUPERPAVE Mix Design Window - Superpave (MIXPACK) QCQA Spreadsheet*
+
+**MEDL is the Materials *Excel* Data Loader** - not "Electronic", as we had been
+saying. It is the intranet front end (`apps.intranet.kytc.ky.gov/medl`) for the
+Spreadsheet Applet, an application KYTC ITI wrote. It takes an Excel file. There
+is one of these per discipline, eight in all: MIXPACK (asphalt mix design), AMAW
+(asphalt mixtures acceptance), CONCMIX, CONCPVMT, CONCSTRT, AGG, DENSITY,
+STRIPING - which is to say DesignBook and PlantBook are two of KYTC's eight.
+
+So: **no CSV, and no bare XML either.** What we hand over has to be a MixPack.
+
+That said, the workbook is a thin shell over an XML payload, and knowing the
+payload is what makes generating the workbook tractable. `xl/xmlMaps.xml` inside
+the file carries a complete XSD - target namespace
 `http://tempuri.org/XMLSchema.xsd`, root element `MaterialDisciplines` - and a
 single map, `MaterialDisciplines_Map`. Nine `veryHidden` worksheets named after
 SiteManager tables are bound to that map as XML-typed ListObjects
@@ -24,16 +43,32 @@ SiteManager tables are bound to that map as XML-typed ListObjects
     /ns1:MaterialDisciplines/ns1:t_tst_rslt_dtl/ns1:t_tst_rslt_dtlTable/ns1:tst_fld_sn
 
 Every cell on those sheets is a formula pointing back at `Design Data` (and the
-other visible tabs). So the visible workbook is data entry; the hidden sheets
-are a staging area that restates the same values in SiteManager's own column
-names; and the XML map is what turns that staging area into the payload.
+other visible tabs). So the visible workbook is data entry; the hidden sheets are
+a staging area that restates the same values in SiteManager's own column names;
+and the XML map is the contract between that staging area and the Applet.
 
-**Nothing in the VBA generates the XML.** `ThisWorkbook.Workbook_BeforeSave`
-runs a long list of "Contract ID Required", "Letting Date Required",
-"Enter Appropriate County" style checks and cancels the save if one fails - the
-same class of check MEDL runs - but the export itself is Excel's built-in XML
-map export. That matters: the payload is fully specified by data we can compute,
-with no macro logic to reverse-engineer.
+**Nothing in the VBA generates the XML.** `ThisWorkbook.Workbook_BeforeSave` runs
+a long list of "Contract ID Required", "Letting Date Required", "Enter
+Appropriate County" style checks and cancels the save if one fails - the same
+class of check the Applet runs on load - but there is no export routine. The
+binding is declarative.
+
+Two consequences worth stating plainly:
+
+- **KYTC's blank templates are public downloads.** `MIXPACK2026_VER12_01.xlsm`
+  (Ver 12.1), `MIXPACK2019_VER11_03.xlsm` (11.3) and the AMAW workbooks all sit
+  on the SiteManager page. The blank 12.1 template has the identical nine
+  staging sheets with their formulas intact. So the realistic build is to fill
+  KYTC's own template rather than construct a workbook from nothing.
+- **Which raises the one real engineering question**: those staging cells are
+  formulas, and a browser-side xlsx writer cannot evaluate them. It is the same
+  "not-cached" trap already recorded in CLAUDE.md for migrated 12.1 files - a
+  formula cell with no cached value reads as blank. Either the Applet
+  recalculates on load, or we must write both the `Design Data` cells *and* the
+  staging cells ourselves. We know all 247 mappings, so the second path is open
+  either way; it just doubles the work and has to be re-checked on every template
+  revision. **Ask Andrew to try loading a workbook saved by something other than
+  Excel before committing to a design.**
 
 ## The schema
 
@@ -83,8 +118,16 @@ way we guessed when we built the approval number:
              (LU00642 minus   type    year    within the year
               the LU/leading)
 
-and `t_superpave.mix_id` / `t_smpl.smpl_mix_id` is the same tail with a `00`
-prefix instead of the district/lab/type: **`00260467`**. That is the number
+and `t_superpave.mix_id` / `t_smpl.smpl_mix_id` is **`00260467`** - which is not
+a `00` prefix at all. KYTC's own procedure spells the format out:
+
+> "KYTC Central Office Mix Designs will use DDYYSSSS: DD is the District
+> (**Central Office is 00**), YY is the Year, SSSS is the Mix ID."
+
+So the leading `00` is the district, and it is `00` because Central Office
+approves these - a district-approved design would carry that district's number.
+That closes the open "verify the `00` prefix" question; no second workbook
+needed. That is the number
 printed on the sheet as `MIX ID NUM.`, and `#467PA` is how KYTC refers to it in
 conversation - sequence `467`, `PA` because it was performance-reviewed. This
 independently confirms the decomposition already built into
@@ -160,6 +203,20 @@ in pcf** (a ~147 value), not the bulk specific gravity. On
 `t_bit_conc_mixblnd` the identically-named column really is a specific gravity
 (~2.66). Same column name, two meanings, one workbook.
 
+KYTC's own procedure carries the same contradiction and confirms it is
+deliberate: it describes the field as "Bulk specific gravity of the SUPERPAVE mix
+design @ optimum AC %. (Unit Weight (lb/ft3) divided by 62.4.)" and then gives
+its source as `<Design Data.Design Property.Unit Weight (lb/ft3)>` - the pcf
+value, undivided. Load the unit weight.
+
+Two more fields the procedure settles: **`air_voids_p` is not used** ("Applet
+will not use this field for this discipline"), which is why the sample workbook
+has a space in it despite air voids being a headline number. And
+`t_mix_dsn_grdn` is marked **"NOT USED BY THE APPLET"**, with the reason - each
+material code can have a different set of sieves with different Sieve Size Serial
+Numbers, so the mapping was impossible. That is why gradation rides in
+`t_tst_rslt_dtl` instead.
+
 ## `t_bit_conc_mixblnd` - seven rows
 
 Row 1 is the binder, rows 2-7 the aggregates (all six slots emitted whether or
@@ -221,19 +278,18 @@ things it does not yet:
 5. **A SiteManager user ID for the approver that carries the right sampler
    qualification** - which KYTC controls, not us.
 
-The open decision is which artifact we hand over:
+There is no longer an open question about *which* artifact: it is the workbook.
+What is still open is how we produce one whose staging sheets carry values rather
+than uncomputed formulas - see the short version above.
 
-- **Generate the XML.** The payload is a single `MaterialDisciplines` document
-  and we now have its complete schema. No Excel, no template file, no zip
-  writer - a few hundred lines of string building, and it round-trips against
-  the XSD we can ship next to it. This is what SiteManager consumes.
-- **Generate the `.xlsm`.** Guaranteed to satisfy MEDL because it *is* the
-  MixPack, but it means shipping KYTC's blank template in the repo, writing an
-  xlsx zip from the browser, and re-verifying against every template revision.
+Two of the five gaps above may already be closed by KYTC's published procedure
+documents, which give a source for every `t_superpave` and `t_smpl` field as a
+*label* reference (`<Design Data.MIX MAT. CODE>`, `<Design Data.BINDER GRADE>`)
+rather than a cell address. Read those before hand-deriving anything:
 
-Which one is right depends on a fact only KYTC can supply: **does MEDL accept
-the XML, or only the workbook?** Worth asking Andrew before either is built.
-A CSV is not on the list - nothing in the pipeline reads one.
+- [SUPERPAVE (MIXPACK) Mix Design Hand Out for Applet](https://transportation.ky.gov/Materials/Documents/SUPERPAVE%20_MIXPACK_%20Mix%20Design%20Hand%20OUt%20for%20Applet%20FINAL.pdf) - 16 pages, `t_superpave` and `t_bit_conc_mixblnd` field by field
+- [SUPERPAVE (MIXPACK) QCQA Sample Information Field Hand Out for Applet](https://transportation.ky.gov/Materials/Documents/SUPERPAVE%20_MIXPACK_%20QCQA%20Sample%20Information%20Field%20Hand%20OUT%20for%20Applet%20FINAL.pdf) - 28 pages, `t_smpl` and the rest
+- [KYTC SiteManager page](https://transportation.ky.gov/Materials/Pages/SiteManager.aspx) - the blank templates, MEDL, and the equivalent documents for the other seven disciplines
 
 ## Appendix: the AMMIXPACK field dictionary
 
