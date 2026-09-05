@@ -81,10 +81,12 @@ export const APPROVAL_RULES = {
   // letting 2/19/26). Check Design Data!H10 in another workbook before
   // trusting the "00" prefix or the 4-digit sequence.
   MIX_ID: { prefix: "00", seqDigits: 4 },
-  // Every example seen is 3 digits (#467, #489, #492), so whether a low
-  // number pads is not yet known. Unpadded until KYTC says otherwise.
+  // Always at least three digits (#050, #467). A minimum, not a maximum -
+  // at ~2,000 designs a year the sequence runs past 999 and simply becomes
+  // four, which sorts correctly because the pad only ever adds leading
+  // zeros.
   SHORT_PREFIX: "#",
-  SHORT_PAD: 0,
+  SHORT_PAD: 3,
   // Sizes that require a performance review (CT + Hamburg). C is absent on
   // purpose: Jake listed A, B and D only.
   PA_SIZES: [0.38, 0.5],

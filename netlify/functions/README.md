@@ -85,10 +85,11 @@ test. So approval is **refused** with a message naming what is missing.
 
 ### Not yet verified
 
-Two things read off a single example (`#467PA` / `00260467`, letting 2/19/26)
+One thing read off a single example (`#467PA` / `00260467`, letting 2/19/26)
 and isolated in `APPROVAL_RULES` so they are a one-line change:
 
 - the `00` prefix and the 4-digit sequence — check `Design Data!H10` in
   another workbook (`#489PA` should read `00260489`);
-- whether a low number pads in the short form (`#50PA` or `#050PA`). Every
-  example seen is three digits. Currently unpadded.
+Confirmed since: the short form is padded to at least three digits
+(`#050PA`), which is a minimum rather than a maximum — past 999 it simply
+runs to four.
