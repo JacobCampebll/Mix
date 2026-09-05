@@ -3259,22 +3259,28 @@ async function buildApprovalPDF(payload) {
   text("Mix Design Approval", P.mx, y, 22, bold, C.navy); y -= 24;
   text("Kentucky Transportation Cabinet - Division of Materials", P.mx, y, 9, font, C.muted); y -= 20;
 
-  /* --- the answer, first --- */
-  const boxH = 78;
+  /* --- the answer, first. One band, four columns: at a glance a district
+         office needs the number, the system id, when and by whom, and
+         whether a performance review is part of it. --- */
+  const boxH = 40;
   page.drawRectangle({ x: P.mx, y: y - boxH, width: W, height: boxH, color: col(C.wash) });
   page.drawRectangle({ x: P.mx, y: y - boxH, width: 4, height: boxH, color: col(C.navy) });
-  let by = y - 18;
-  text("APPROVAL NUMBER", P.mx + 16, by, 7.5, bold, C.muted);
-  text(a.approval_no || "-", P.mx + 16, by - 22, 24, bold, C.navy);
-  text("MIX ID NUM.", P.mx + 210, by, 7.5, bold, C.muted);
-  text(a.mix_id || "-", P.mx + 210, by - 18, 14, bold, C.ink);
-  text("APPROVED", P.mx + 350, by, 7.5, bold, C.muted);
-  text(a.issued_at ? new Date(a.issued_at).toLocaleDateString() : "-", P.mx + 350, by - 18, 14, bold, C.ink);
-  text(`by ${a.approved_by || "-"}`, P.mx + 350, by - 33, 9, font, C.muted);
-  if (a.pa) {
-    text("Performance reviewed (CT + Hamburg)", P.mx + 16, by - 40, 8, font, C.muted);
-  }
-  y -= boxH + 20;
+  const bandX = [P.mx + 16, P.mx + 168, P.mx + 288, P.mx + 396];
+  const band = [
+    ["APPROVAL NUMBER", a.approval_no || "-", 17, C.navy],
+    ["MIX ID NUM.", a.mix_id || "-", 12, C.ink],
+    ["APPROVED", a.issued_at ? `${new Date(a.issued_at).toLocaleDateString()} - ${a.approved_by || "-"}` : "-", 10, C.ink],
+    // Short enough to fit the band's last column - "Performance (CT +
+    // Hamburg)" truncated, and a truncated word on the one line that says
+    // what kind of approval this is would be worse than a terse one.
+    ["REVIEW", a.pa ? "CT + Hamburg" : "Volumetric", 10, C.ink],
+  ];
+  band.forEach(([lab, val, sz, c], i) => {
+    const max = (i + 1 < bandX.length ? bandX[i + 1] : P.mx + W) - bandX[i] - 10;
+    page.drawText(fit(lab, max, bold, 7), { x: bandX[i], y: y - 14, size: 7, font: bold, color: col(C.muted) });
+    page.drawText(fit(val, max, bold, sz), { x: bandX[i], y: y - 30, size: sz, font: bold, color: col(c) });
+  });
+  y -= boxH + 22;
 
   /* --- what it is --- */
   function pairs(list, cols, gap) {
@@ -3283,14 +3289,14 @@ async function buildApprovalPDF(payload) {
       list.slice(i, i + cols).forEach((p, c) => {
         const x = P.mx + c * (cw + gap);
         page.drawText(fit(p[0], cw, font, 7), { x, y, size: 7, font, color: col(C.muted) });
-        page.drawText(fit(p[1] == null ? "-" : String(p[1]), cw, bold, 9.5), { x, y: y - 11, size: 9.5, font: bold, color: col(C.ink) });
+        page.drawText(fit(p[1] == null ? "-" : String(p[1]), cw, bold, 10), { x, y: y - 12, size: 10, font: bold, color: col(C.ink) });
       });
-      y -= 26;
+      y -= 30;
     }
   }
   function heading(t) {
-    page.drawRectangle({ x: P.mx, y: y + 10, width: W, height: 0.8, color: col(C.rule) });
-    text(t.toUpperCase(), P.mx, y - 2, 8.5, bold, C.accent); y -= 16;
+    page.drawRectangle({ x: P.mx, y: y + 13, width: W, height: 0.8, color: col(C.rule) });
+    text(t.toUpperCase(), P.mx, y, 8.5, bold, C.accent); y -= 20;
   }
 
   heading("The mix");
@@ -3326,12 +3332,12 @@ async function buildApprovalPDF(payload) {
     sieves.slice(cIdx * per, (cIdx + 1) * per).forEach((r) => {
       page.drawText(r[0], { x: x + 4, y: ty, size: 8.5, font, color: col(C.ink) });
       page.drawText(hdNum(r[1], hdDP("s")), { x: x + half * 0.45, y: ty, size: 8.5, font, color: col(C.ink) });
-      page.drawRectangle({ x, y: ty - 3.5, width: half, height: 0.35, color: col(C.rule) });
-      ty -= 11;
+      page.drawRectangle({ x, y: ty - 4, width: half, height: 0.35, color: col(C.rule) });
+      ty -= 13;
     });
     lowest = Math.min(lowest, ty);
   });
-  y = lowest - 12;
+  y = lowest - 18;
 
   const outs = (CONFIG.SECTIONS.find((s) => s.id === "design-values") || {}).outputs || [];
   pairs(outs.map((o) => [o.label.replace(/\s*at design\s*/i, ""), hdNum(dv[o.key], hdDP(o.key))])
@@ -3351,21 +3357,25 @@ async function buildApprovalPDF(payload) {
       [r.producer, r.type_size, hdNum(r.pct_blend, null), hdNum(r.gsb, hdDP("gsb"))].forEach((v, i) =>
         page.drawText(fit(v == null ? "-" : String(v), cw[i] - 8, font, 8.5),
           { x: P.mx + cw.slice(0, i).reduce((s2, q) => s2 + q, 0) + 4, y, size: 8.5, font, color: col(C.ink) }));
-      y -= 4; page.drawRectangle({ x: P.mx, y, width: W, height: 0.35, color: col(C.rule) }); y -= 8;
+      y -= 5; page.drawRectangle({ x: P.mx, y, width: W, height: 0.35, color: col(C.rule) }); y -= 10;
     });
-    y -= 8;
+    y -= 10;
   }
 
-  /* --- how to know this is real --- */
-  const vH = 56;
-  page.drawRectangle({ x: P.mx, y: y - vH, width: W, height: vH, borderColor: col(C.rule), borderWidth: 0.8 });
-  text("VERIFICATION CODE", P.mx + 14, y - 16, 7.5, bold, C.muted);
-  page.drawText(wa(a.code || "-"), { x: P.mx + 14, y: y - 34, size: 15, font: bold, color: col(C.ink) });
-  const vx = P.mx + 200;
-  page.drawText(wa("This approval is signed. Upload this PDF to DesignBook to check it against"), { x: vx, y: y - 16, size: 7.5, font, color: col(C.muted) });
-  page.drawText(wa("the code above - it confirms the design has not been altered since approval,"), { x: vx, y: y - 26, size: 7.5, font, color: col(C.muted) });
-  page.drawText(wa("and who approved it. An edited design will not verify."), { x: vx, y: y - 36, size: 7.5, font, color: col(C.muted) });
-  y -= vH;
+  /* --- how to know this is real. Anchored above the footer rather than
+         wherever the content happens to end, so the page reads as composed
+         and the reclaimed height spreads through the sections above. --- */
+  const vH = 60;
+  const vy = Math.min(y, P.bottom + 34 + vH);
+  page.drawRectangle({ x: P.mx, y: vy - vH, width: W, height: vH, borderColor: col(C.rule), borderWidth: 0.8 });
+  text("VERIFICATION CODE", P.mx + 14, vy - 17, 7.5, bold, C.muted);
+  page.drawText(wa(a.code || "-"), { x: P.mx + 14, y: vy - 38, size: 16, font: bold, color: col(C.ink) });
+  const vx = P.mx + 210;
+  ["This approval is signed. Upload this PDF to DesignBook to check it against",
+   "the code above - it confirms the design has not been altered since approval,",
+   "and who approved it. An edited design will not verify."]
+    .forEach((ln, i) => page.drawText(wa(ln), { x: vx, y: vy - 18 - i * 11, size: 7.8, font, color: col(C.muted) }));
+  y = vy - vH;
 
   page.drawRectangle({ x: P.mx, y: P.bottom - 12, width: W, height: 0.4, color: col(C.rule) });
   page.drawText(wa("The full design is embedded in this file - upload it to DesignBook to open it. KYTC DesignBook stores nothing; this document is the record."),
