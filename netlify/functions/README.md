@@ -26,7 +26,7 @@ never sees a secret.
 | `SUPABASE_ANON_KEY` | all | The public anon key. Safe here; RLS is the control. |
 | `APPROVAL_SIGNING_SECRET` | sign, verify | **The real secret.** Long random string. Changing it invalidates every approval already issued. |
 | `RESEND_API_KEY` | send | Or swap the provider in `send-submission.mjs`. |
-| `KYTC_SUBMIT_TO` | send | Where submissions go. Comma-separated for several. |
+| `KYTC_SUBMIT_TO` | send | Where submissions go. Every design goes to the same two Central Office people (Andrew Denmark, Tate Salle) — comma-separated. |
 | `SUBMIT_FROM` | send | A verified sender on the mail provider. |
 
 Until they are set, the functions return a clear "not configured yet"
@@ -50,3 +50,45 @@ that exact design and cannot be moved onto another one.
 Verified against tampering: editing the design after approval, swapping the
 approver, and reusing a code on a different design all fail; reordering JSON
 keys and appending later history entries still pass.
+
+## The approval number
+
+KYTC numbers designs sequentially from 001 at the start of each year, around
+2,000 a year, and the **same counter appears two ways**:
+
+```
+00250467   MIX ID NUM. on the sheet      #467PA   what KYTC calls it
+  │ │  └── 0467  sequence                    └───  467 + PA
+  │ └───── 25    the LETTING year
+  └─────── 00    prefix
+```
+
+So the reviewer types **one thing — the sequence** — and both renderings come
+from it (`_canonical.mjs`, `approvalNumbers`).
+
+**There is no counter and no register here.** Sequential numbering needs
+shared state and this model stores nothing, so the number comes from whatever
+KYTC uses today. Nothing can prevent a duplicate or a skip. What *is*
+guaranteed is that the number cannot be altered afterwards: it is inside what
+the signature covers.
+
+The year is the **letting** year, not the approval year — a design let in
+December and approved in January still belongs to the letting year.
+
+### PA
+
+Mixes of nominal size **0.38 and 0.50 in A, B or D** (not C) are approved with
+a performance review, and get `PA` after the number. That is only printed when
+the CT and Hamburg results are actually present: asserting a review that did
+not happen would be false, and dropping `PA` silently would hide a missing
+test. So approval is **refused** with a message naming what is missing.
+
+### Not yet verified
+
+Two things read off a single example (`#467PA` / `00260467`, letting 2/19/26)
+and isolated in `APPROVAL_RULES` so they are a one-line change:
+
+- the `00` prefix and the 4-digit sequence — check `Design Data!H10` in
+  another workbook (`#489PA` should read `00260489`);
+- whether a low number pads in the short form (`#50PA` or `#050PA`). Every
+  example seen is three digits. Currently unpadded.
