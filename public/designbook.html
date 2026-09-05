@@ -1328,6 +1328,7 @@ function statusHTML() {
         along with the design so it cannot be altered afterwards.</div>
     </div>
     <div class="handoff">
+      <button class="stagebtn hidden" id="approvalPdfBtn">Download approval</button>
       <button class="stagebtn" id="pdfBtn">Download review PDF</button>
       <div class="handoffnote">This site stores nothing. The PDF is your copy of the design &mdash;
         it carries every value inside it, so uploading it back reopens the form exactly as it is now.
@@ -1820,6 +1821,11 @@ function renderStage() {
   back.classList.toggle("hidden", !(state.canReview && s.key === "Submitted" && !iSubmitted));
   const box = $("approvalBox");
   if (box) box.classList.toggle("hidden", !(s.key === "Submitted" && state.canReview && !iSubmitted));
+  // The approval document only exists once there is an approval to put on it.
+  const apdf = $("approvalPdfBtn");
+  if (apdf) apdf.classList.toggle("hidden", !state.approval);
+  const rpdf = $("pdfBtn");
+  if (rpdf) rpdf.textContent = state.approval ? "Download full design sheet" : "Download review PDF";
   back.disabled = state.saving;
   note.textContent = why;
 
@@ -3202,6 +3208,179 @@ function trimFlatCoarseEnd(sieves, cpts) {
   return sieves.filter((s) => s.mm <= keepTo);
 }
 
+
+/* ---------- the approval document ----------
+ *
+ * A different artifact from the review sheet, deliberately. The review sheet
+ * is a landscape working document for someone checking a design; this is the
+ * single page a district office files and acts on, so it answers one
+ * question first - is this mix approved, and is this real - and carries the
+ * job mix formula underneath.
+ *
+ * Portrait, so the two can never be confused at a glance even face down on a
+ * desk. It embeds the same payload, so uploading it to DesignBook still
+ * rebuilds the whole design.
+ */
+async function buildApprovalPDF(payload) {
+  const { PDFDocument, StandardFonts, rgb } = PDFLib;
+  const H = CONFIG.HANDOFF, C = H.BRAND, T = H.TYPE;
+  const col = (a) => rgb(a[0], a[1], a[2]);
+  const P = { w: 612, h: 792, mx: 46, top: 58, bottom: 46 };
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const logo = await loadHandoffLogo(doc);
+  const page = doc.addPage([P.w, P.h]);
+  const W = P.w - P.mx * 2;
+  let y = P.h - P.top;
+
+  const fit = (s, max, f, sz) => {
+    let t = wa(s);
+    if (f.widthOfTextAtSize(t, sz) <= max) return t;
+    while (t.length > 1 && f.widthOfTextAtSize(t + "...", sz) > max) t = t.slice(0, -1);
+    return t + "...";
+  };
+  const text = (s, x, yy, sz, f, c) => page.drawText(fit(s, W, f, sz), { x, y: yy, size: sz, font: f, color: col(c) });
+
+  for (let i = 0; i < 72; i++) {
+    const t = i / 71, k = t <= 0.35 ? 0 : t >= 0.80 ? 1 : (t - 0.35) / 0.45;
+    page.drawRectangle({ x: i * P.w / 72, y: P.h - H.BAR, width: P.w / 72 + 0.7, height: H.BAR,
+      color: col([0, 1, 2].map((j) => C.sky[j] + (C.gold[j] - C.sky[j]) * k)) });
+  }
+  if (logo) {
+    const lw = 86, lh = lw / H.LOGO.ratio;
+    page.drawImage(logo, { x: P.w - P.mx - lw, y: P.h - P.top - lh + 20, width: lw, height: lh });
+  }
+
+  const a = payload.approval || {};
+  const j = payload.job || {}, mix = payload.mix || {};
+  const values = payload.values || {}, dv = values.design_values || {}, rows = payload.rows || {};
+
+  text("Mix Design Approval", P.mx, y, 22, bold, C.navy); y -= 24;
+  text("Kentucky Transportation Cabinet - Division of Materials", P.mx, y, 9, font, C.muted); y -= 20;
+
+  /* --- the answer, first --- */
+  const boxH = 78;
+  page.drawRectangle({ x: P.mx, y: y - boxH, width: W, height: boxH, color: col(C.wash) });
+  page.drawRectangle({ x: P.mx, y: y - boxH, width: 4, height: boxH, color: col(C.navy) });
+  let by = y - 18;
+  text("APPROVAL NUMBER", P.mx + 16, by, 7.5, bold, C.muted);
+  text(a.approval_no || "-", P.mx + 16, by - 22, 24, bold, C.navy);
+  text("MIX ID NUM.", P.mx + 210, by, 7.5, bold, C.muted);
+  text(a.mix_id || "-", P.mx + 210, by - 18, 14, bold, C.ink);
+  text("APPROVED", P.mx + 350, by, 7.5, bold, C.muted);
+  text(a.issued_at ? new Date(a.issued_at).toLocaleDateString() : "-", P.mx + 350, by - 18, 14, bold, C.ink);
+  text(`by ${a.approved_by || "-"}`, P.mx + 350, by - 33, 9, font, C.muted);
+  if (a.pa) {
+    text("Performance reviewed (CT + Hamburg)", P.mx + 16, by - 40, 8, font, C.muted);
+  }
+  y -= boxH + 20;
+
+  /* --- what it is --- */
+  function pairs(list, cols, gap) {
+    const cw = (W - gap * (cols - 1)) / cols;
+    for (let i = 0; i < list.length; i += cols) {
+      list.slice(i, i + cols).forEach((p, c) => {
+        const x = P.mx + c * (cw + gap);
+        page.drawText(fit(p[0], cw, font, 7), { x, y, size: 7, font, color: col(C.muted) });
+        page.drawText(fit(p[1] == null ? "-" : String(p[1]), cw, bold, 9.5), { x, y: y - 11, size: 9.5, font: bold, color: col(C.ink) });
+      });
+      y -= 26;
+    }
+  }
+  function heading(t) {
+    page.drawRectangle({ x: P.mx, y: y + 10, width: W, height: 0.8, color: col(C.rule) });
+    text(t.toUpperCase(), P.mx, y - 2, 8.5, bold, C.accent); y -= 16;
+  }
+
+  heading("The mix");
+  pairs([
+    ["Mix", mix.signature], ["Mix type", mixTypeLabel(mix)],
+    ["Binder grade", values.binder_grade], ["Binder supplier", values.binder_terminal],
+    ["Plant", payload.plant_name ? `${j.plant} - ${payload.plant_name}` : j.plant], ["County", values.county],
+    ["Contract", j.cid], ["Letting date", j.letting],
+    ["Project number", values.project_number], ["Submitted by", a.submitted_by || (payload.generated_by || {}).sm_id],
+  ], 2, 20);
+  y -= 6;
+
+  /* --- the job mix formula, which is what a district office uses --- */
+  heading("Job mix formula");
+  const grad = CONFIG.SECTIONS.find((s) => s.type === "sieves");
+  const sieves = grad.sieves
+    .filter((sv) => !hdOmit(grad.id, sv.key))
+    .map((sv) => [sv.label, values[sv.key]])
+    .filter((r) => r[1] != null && String(r[1]).trim() !== "");
+  const half = (W - 24) / 2, per = Math.ceil(sieves.length / 2);
+  const top = y;
+  // The two sieve columns can differ in length (13 sieves = 7 and 6), so the
+  // block ends at the LOWER of the two - taking the second one's end would
+  // run the design values back over the first.
+  let lowest = top;
+  [0, 1].forEach((cIdx) => {
+    let ty = top;
+    const x = P.mx + cIdx * (half + 24);
+    page.drawRectangle({ x, y: ty - 3, width: half, height: 12, color: col(C.wash) });
+    page.drawText("Sieve", { x: x + 4, y: ty, size: 7, font: bold, color: col(C.muted) });
+    page.drawText("% passing", { x: x + half * 0.45, y: ty, size: 7, font: bold, color: col(C.muted) });
+    ty -= 13;
+    sieves.slice(cIdx * per, (cIdx + 1) * per).forEach((r) => {
+      page.drawText(r[0], { x: x + 4, y: ty, size: 8.5, font, color: col(C.ink) });
+      page.drawText(hdNum(r[1], hdDP("s")), { x: x + half * 0.45, y: ty, size: 8.5, font, color: col(C.ink) });
+      page.drawRectangle({ x, y: ty - 3.5, width: half, height: 0.35, color: col(C.rule) });
+      ty -= 11;
+    });
+    lowest = Math.min(lowest, ty);
+  });
+  y = lowest - 12;
+
+  const outs = (CONFIG.SECTIONS.find((s) => s.id === "design-values") || {}).outputs || [];
+  pairs(outs.map((o) => [o.label.replace(/\s*at design\s*/i, ""), hdNum(dv[o.key], hdDP(o.key))])
+    .filter((p) => p[1] !== "" && p[1] != null), 5, 12);
+
+  /* --- the blend --- */
+  const aggs = rows.aggregate || [];
+  if (aggs.length) {
+    heading("Aggregate blend");
+    const cols = [["Producer", 2.2], ["Type & size", 1.8], ["% blend", 0.6], ["Gsb", 0.6]];
+    const sum = cols.reduce((s2, c) => s2 + c[1], 0);
+    const cw = cols.map((c) => W * c[1] / sum);
+    page.drawRectangle({ x: P.mx, y: y - 3, width: W, height: 12, color: col(C.wash) });
+    cols.forEach((c, i) => page.drawText(c[0], { x: P.mx + cw.slice(0, i).reduce((s2, v) => s2 + v, 0) + 4, y, size: 7, font: bold, color: col(C.muted) }));
+    y -= 14;
+    aggs.forEach((r) => {
+      [r.producer, r.type_size, hdNum(r.pct_blend, null), hdNum(r.gsb, hdDP("gsb"))].forEach((v, i) =>
+        page.drawText(fit(v == null ? "-" : String(v), cw[i] - 8, font, 8.5),
+          { x: P.mx + cw.slice(0, i).reduce((s2, q) => s2 + q, 0) + 4, y, size: 8.5, font, color: col(C.ink) }));
+      y -= 4; page.drawRectangle({ x: P.mx, y, width: W, height: 0.35, color: col(C.rule) }); y -= 8;
+    });
+    y -= 8;
+  }
+
+  /* --- how to know this is real --- */
+  const vH = 56;
+  page.drawRectangle({ x: P.mx, y: y - vH, width: W, height: vH, borderColor: col(C.rule), borderWidth: 0.8 });
+  text("VERIFICATION CODE", P.mx + 14, y - 16, 7.5, bold, C.muted);
+  page.drawText(wa(a.code || "-"), { x: P.mx + 14, y: y - 34, size: 15, font: bold, color: col(C.ink) });
+  const vx = P.mx + 200;
+  page.drawText(wa("This approval is signed. Upload this PDF to DesignBook to check it against"), { x: vx, y: y - 16, size: 7.5, font, color: col(C.muted) });
+  page.drawText(wa("the code above - it confirms the design has not been altered since approval,"), { x: vx, y: y - 26, size: 7.5, font, color: col(C.muted) });
+  page.drawText(wa("and who approved it. An edited design will not verify."), { x: vx, y: y - 36, size: 7.5, font, color: col(C.muted) });
+  y -= vH;
+
+  page.drawRectangle({ x: P.mx, y: P.bottom - 12, width: W, height: 0.4, color: col(C.rule) });
+  page.drawText(wa("The full design is embedded in this file - upload it to DesignBook to open it. KYTC DesignBook stores nothing; this document is the record."),
+    { x: P.mx, y: P.bottom - 24, size: 6.6, font, color: col(C.muted) });
+
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  await doc.attach(bytes, CONFIG.HANDOFF.ATTACHMENT, {
+    mimeType: "application/json", description: "DesignBook design data",
+  });
+  doc.setTitle(wa(`KYTC Mix Design Approval ${a.approval_no || ""} - ${j.cid || ""}`));
+  doc.setProducer("KYTC DesignBook");
+  doc.setKeywords([CONFIG.HANDOFF.MARKER + b64encode(bytes)]);
+  return doc.save();
+}
+
 /* ---------- reading one back ---------- */
 
 function handoffFromStream(stream) {
@@ -3301,6 +3480,35 @@ function applyHandoff(payload) {
 }
 
 /* ---------- the button ---------- */
+
+// The document a district office files. Separate from the review sheet so
+// the two can never be mistaken for each other.
+async function downloadApprovalPDF() {
+  const btn = $("approvalPdfBtn");
+  if (!btn || btn.disabled) return;
+  if (!state.approval) { msg($("saveMsg"), "This design has not been approved.", "error"); return; }
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = "Building...";
+  try {
+    const payload = handoffPayload("Downloaded approval");
+    const bytes = await buildApprovalPDF(payload);
+    const a2 = payload.approval || {};
+    const name = `KYTC_Approval_${(a2.approval_no || "").replace(/[^A-Za-z0-9]/g, "")}_${(payload.job || {}).cid || ""}.pdf`
+      .replace(/[^A-Za-z0-9_.-]/g, "");
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    state.history = payload.history;
+    msg($("saveMsg"), `${name} downloaded. Send it to the contractor - the site keeps nothing.`, "ok");
+  } catch (err) {
+    msg($("saveMsg"), err.message || "Couldn't build the approval.", "error");
+  } finally {
+    btn.disabled = false; btn.textContent = was;
+  }
+}
 
 async function downloadReviewPDF() {
   const btn = $("pdfBtn");
@@ -3910,7 +4118,11 @@ wireDrop();
 $("portalLink").addEventListener("click", toPortal);
 $("signOutLink").addEventListener("click", async () => { await sb.auth.signOut(); toLogin(); });
 $("saveBtn").addEventListener("click", saveDesign);
-document.addEventListener("click", (e) => { if (e.target && e.target.id === "pdfBtn") downloadReviewPDF(); });
+document.addEventListener("click", (e) => {
+  if (!e.target) return;
+  if (e.target.id === "pdfBtn") downloadReviewPDF();
+  if (e.target.id === "approvalPdfBtn") downloadApprovalPDF();
+});
 $("skipUpload").addEventListener("click", () => {
   state.mode = "new";
   enterForm();

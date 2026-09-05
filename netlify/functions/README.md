@@ -26,7 +26,7 @@ never sees a secret.
 | `SUPABASE_ANON_KEY` | all | The public anon key. Safe here; RLS is the control. |
 | `APPROVAL_SIGNING_SECRET` | sign, verify | **The real secret.** Long random string. Changing it invalidates every approval already issued. |
 | `RESEND_API_KEY` | send | Or swap the provider in `send-submission.mjs`. |
-| `KYTC_SUBMIT_TO` | send | Where submissions go. Every design goes to the same two Central Office people (Andrew Denmark, Tate Salle) — comma-separated. |
+| `KYTC_SUBMIT_TO` | send | Where submissions go. **Every** design, no routing: `Andrew.Denmark@ky.gov,Tate.Salle@ky.gov`. The env var is authoritative — the page never names the recipient, or this function becomes an open relay. |
 | `SUBMIT_FROM` | send | A verified sender on the mail provider. |
 
 Until they are set, the functions return a clear "not configured yet"
