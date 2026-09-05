@@ -27,6 +27,22 @@ is a GitHub branch *rename* of this branch to `main` - that moves the default,
 retargets open PRs, and Netlify follows a renamed production branch - done when
 no session is mid-task, since both sessions push to this branch by name.
 
+**One temporary exception: `claude/jake-sandbox` (Jake's, added 2026-09-05).**
+A scratch branch to try things on without touching what is currently built.
+Forked from `9c27043`, exactly what production was serving that day. It has
+its own Netlify branch deploy at
+`https://claude-jake-sandbox--kytcmix.netlify.app`; `kytcmix.netlify.app`
+keeps building from `claude/mix-conventions-setup-w3dq6s` and does not move
+whatever lands on the sandbox. **Do not merge it, and do not build on it** -
+it is expected to be deleted, not integrated, and anything from it that
+turns out to be worth keeping comes back as its own reviewed change.
+
+Note what a branch does **not** isolate: **Supabase is shared.** Same
+project, same tables, same rows. Jake has confirmed the sandbox will not
+change the database - reads only, no DDL, no RLS edits - so the live schema
+Andrew depends on stays put. If sandbox work ever does need schema changes,
+it needs its own Supabase project first, not a shared one with extra tables.
+
 Collaborators: **Jacob** and **Andrew**, working from separate Claude accounts
 against this shared repo. Neither can see the other's chats — this file is the
 shared context. If you learn something durable about the project, add it here
