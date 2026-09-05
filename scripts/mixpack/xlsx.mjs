@@ -81,6 +81,11 @@ export const sheetXml = (xlsm, n) =>
 export const STAGING = {t_smpl:17, t_cont_smpl:18, t_rmks_dtl:19, t_smpl_tst:20, t_smpl_tstr:21,
                         t_tst_rslt_hdr:22, t_tst_rslt_dtl:23, t_superpave:24, t_bit_conc_mixblnd:25,
                         discipline:15};
+
+// First data row per staging sheet. The t_* sheets carry a seven-row header
+// block (SM Table, SM Column, Logical Validation, Comment, Long Description,
+// Column Name); `discipline` has one header row and its data on row 2.
+export const FIRST_DATA_ROW = name => name === 'discipline' ? 2 : 8;
 export const SOURCE = {'Design Data':1, 'Recycle Data':4, 'Project Items':5, '1-Pt. Check':6,
                        'Graphs':7, 'TSR':8, 'Performance Specimens':9, 'KYCT Data':10,
                        'Hamburg Data':11, 'Chart Data':13, 'Workbook Edits':14};

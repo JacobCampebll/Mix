@@ -8,7 +8,7 @@
 // the result as a literal.
 import fs from 'fs';
 import { execSync } from 'child_process';
-import { cellsOf, sheetXml, sharedStrings, STAGING, SOURCE, colNum, rowNum } from './xlsx.mjs';
+import { cellsOf, sheetXml, sharedStrings, STAGING, SOURCE, colNum, rowNum, FIRST_DATA_ROW } from './xlsx.mjs';
 import { evaluate } from './formula.mjs';
 
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -114,7 +114,7 @@ export function fillWorkbook({ template, values, now = new Date() }) {
   for (const name of Object.keys(STAGING)) {
     read(name);
     for (const [ref, c] of cells.get(name))
-      if (rowNum(ref) >= 8 && c.f) todo.push({ name, ref, f: c.f.replace(/TEXT\(NOW\(\)[^)]*\)/g, JSON.stringify(stamp)) });
+      if (rowNum(ref) >= FIRST_DATA_ROW(name) && c.f) todo.push({ name, ref, f: c.f.replace(/TEXT\(NOW\(\)[^)]*\)/g, JSON.stringify(stamp)) });
   }
 
   // Staging cells reference each other (t_smpl reads t_rmks_dtl; several

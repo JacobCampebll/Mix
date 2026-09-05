@@ -15,7 +15,7 @@
 //
 // Real MixPacks are gitignored - they carry technician SM IDs and contractor
 // data - so this takes a path rather than shipping a fixture.
-import { cellsOf, sheetXml, sharedStrings, STAGING, SOURCE } from './xlsx.mjs';
+import { cellsOf, sheetXml, sharedStrings, STAGING, SOURCE, rowNum, FIRST_DATA_ROW } from './xlsx.mjs';
 import { evaluate } from './formula.mjs';
 
 const XLSM = process.argv[2];
@@ -45,7 +45,7 @@ let ok = 0, differs = 0, threw = 0, skipped = 0;
 const notes = [];
 for (const [name, n] of Object.entries(STAGING)) {
   for (const [ref, c] of cellsOf(sheetXml(XLSM, n), SST)) {
-    if (+/(\d+)$/.exec(ref)[1] < 8 || !c.f) continue;
+    if (rowNum(ref) < FIRST_DATA_ROW(name) || !c.f) continue;
     if (/NOW\(/.test(c.f)) { skipped++; continue; }   // stamped at generation time
     if (c.v == null) { skipped++; continue; }         // nothing cached to compare
     let got;
