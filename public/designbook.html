@@ -3420,14 +3420,14 @@ async function buildApprovalPDF(payload) {
   text("VERIFICATION CODE", P.mx + 14, vy - 17, 7.5, bold, C.muted);
   page.drawText(wa(a.code || "-"), { x: P.mx + 14, y: vy - 38, size: 16, font: bold, color: col(C.ink) });
   const vx = P.mx + 210;
-  ["This approval is signed. Upload this PDF to DesignBook to check it against",
-   "the code above - it confirms the design has not been altered since approval,",
-   "and who approved it. An edited design will not verify."]
+  ["This approval is signed. Anyone can check it - no account needed - by",
+   "dropping this PDF in at kytcmix.netlify.app/verify.html. It confirms the",
+   "design has not been altered since approval, and who approved it."]
     .forEach((ln, i) => page.drawText(wa(ln), { x: vx, y: vy - 18 - i * 11, size: 7.8, font, color: col(C.muted) }));
   y = vy - vH;
 
   page.drawRectangle({ x: P.mx, y: P.bottom - 12, width: W, height: 0.4, color: col(C.rule) });
-  page.drawText(wa("The full design is embedded in this file - upload it to DesignBook to open it. KYTC DesignBook stores nothing; this document is the record."),
+  page.drawText(wa("The full design is embedded in this file - upload it to DesignBook to open it, or to verify.html to check the approval. KYTC DesignBook stores nothing; this document is the record."),
     { x: P.mx, y: P.bottom - 24, size: 6.6, font, color: col(C.muted) });
 
   const bytes = new TextEncoder().encode(JSON.stringify(payload));

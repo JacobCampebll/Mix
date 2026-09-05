@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mix — Verify an approval</title>
+
+<!--
+  PUBLIC ON PURPOSE. No sign-in, no Supabase client.
+
+  A KYTC mix design approval is a document that leaves the site: it is
+  emailed to a contractor, forwarded, printed, filed at a district office.
+  Whoever ends up holding one has to be able to check it, and most of them
+  will never have a DesignBook account. So this page asks for nothing.
+
+  It is also the only thing that makes the verification code on an approval
+  mean anything. Without it the code is decoration.
+
+  Nothing is uploaded anywhere except to the verify-approval Function, which
+  recomputes the signature and stores nothing. The PDF is read in the
+  browser.
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  /* Theme tokens shared with login.html, portal.html and designbook.html.
+     Keep in sync - self-contained pages mean no shared import (CLAUDE.md). */
+  :root{
+    --paper:#F2F1EC; --panel:#FFFFFF; --ink:#083860; --muted:#6E7580;
+    --line:#DAD7CE; --accent:#1C7CC0; --accent-soft:#E4F2FB;
+    --navy:#002050; --sky:#5FB2E4; --gold:#FFC312;
+    --flag:#A56F00; --flag-soft:#FDF1C7; --ok:#3F7A56; --ok-soft:#E3EFE7;
+    --bad:#9B2C2C; --bad-soft:#F7E4E4;
+    --radius:6px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; min-height:100vh; background:var(--paper); color:var(--ink);
+       font-family:'IBM Plex Sans',sans-serif; font-size:14px; line-height:1.5;
+       padding:32px 16px; display:flex; justify-content:center;}
+  h1,h2,h3{font-family:'Space Grotesk',sans-serif; font-weight:600; margin:0;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .hidden{display:none !important;}
+
+  .wrap{width:100%; max-width:680px;}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden;}
+  .brand{padding:24px 28px 18px; display:flex; flex-direction:column; align-items:center; gap:14px;}
+  .brand img{width:min(230px,100%); height:auto; display:block;}
+  .brand .rule{width:100%; height:4px; border-radius:2px;
+               background:linear-gradient(90deg, var(--sky) 0 35%, var(--gold) 80% 100%);}
+  .brand h1{font-size:21px; text-align:center;}
+  .brand p{margin:0; font-size:13px; color:var(--muted); text-align:center; max-width:44ch;}
+
+  .body{padding:0 28px 26px;}
+  .drop{border:2px dashed var(--line); border-radius:10px; padding:34px 20px; text-align:center;
+        cursor:pointer; transition:border-color .15s, background .15s;}
+  .drop:hover, .drop.over{border-color:var(--accent); background:var(--accent-soft);}
+  .drop strong{display:block; font-size:15px; margin-bottom:4px;}
+  .drop span{font-size:12.5px; color:var(--muted);}
+  input[type=file]{display:none;}
+
+  .status{font-size:13px; margin-top:14px; min-height:19px;}
+  .status.error{color:var(--bad);} .status.ok{color:var(--ok);}
+
+  .result{margin-top:18px; border-radius:10px; overflow:hidden; border:1px solid var(--line);}
+  .verdict{padding:16px 20px; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;}
+  .verdict.good{background:var(--ok-soft); border-bottom:1px solid var(--line);}
+  .verdict.bad{background:var(--bad-soft); border-bottom:1px solid var(--line);}
+  .verdict h2{font-size:17px;}
+  .verdict.good h2{color:var(--ok);} .verdict.bad h2{color:var(--bad);}
+  .verdict .num{font-family:'IBM Plex Mono',monospace; font-size:19px; font-weight:500;}
+  .detail{padding:16px 20px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 20px;}
+  .detail .k{font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted);}
+  .detail .v{font-size:14px; font-weight:500; word-break:break-word;}
+  .why{padding:0 20px 18px; font-size:12.5px; color:var(--muted); line-height:1.6;}
+
+  .foot{margin-top:20px; font-size:12px; color:var(--muted); line-height:1.6;}
+  .foot strong{color:var(--ink);}
+  a{color:var(--accent);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <div class="brand">
+      <img src="assets/kytc-logo.png" alt="Team Kentucky Transportation Cabinet">
+      <div class="rule"></div>
+      <h1>Verify a mix design approval</h1>
+      <p>Drop in a KYTC approval PDF. This checks the signature on it &mdash;
+         whether the design has been altered since it was approved, and who approved it.</p>
+    </div>
+    <div class="body">
+      <div class="drop" id="drop">
+        <strong>Choose an approval PDF</strong>
+        <span>or drag it here</span>
+      </div>
+      <input type="file" id="file" accept=".pdf,application/pdf">
+      <div class="status" id="status"></div>
+      <div class="result hidden" id="result"></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <strong>What this proves.</strong> That the design inside this file is exactly what KYTC
+    signed, under that approval number, by that reviewer, on that date. Change any value in
+    the design and it stops verifying.<br><br>
+    <strong>What it does not prove.</strong> That the approval is still current. KYTC may have
+    superseded or withdrawn it since &mdash; this page has no way to know, because nothing is
+    stored. For anything that matters, confirm with Central Office.
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script>
+/* ==================================================================
+   CONFIG — everything tunable lives here.
+   No Supabase on this page: verification is public and needs no account.
+   FORMAT and MARKER are duplicated from designbook.html's CONFIG.HANDOFF
+   on purpose (self-contained pages, CLAUDE.md) - change both together.
+   ================================================================== */
+const CONFIG = {
+  VERIFY_FN: "/.netlify/functions/verify-approval",
+  FORMAT: "kytc-designbook",
+  MARKER: "KYTC-DESIGNBOOK-V1:",
+  MAX_BYTES: 12 * 1024 * 1024,
+};
+
+const $ = (id) => document.getElementById(id);
+// Everything below is read out of a file a stranger handed us, and every bit
+// of it reaches innerHTML. Escape it all (CLAUDE.md).
+function esc(v) {
+  return String(v == null ? "" : v).replace(/[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function say(text, kind) { const el = $("status"); el.textContent = text || ""; el.className = "status" + (kind ? " " + kind : ""); }
+
+/* ---------- reading the payload out of a PDF ----------
+   Mirrors readHandoffPDF() in designbook.html. That page writes these files
+   and this one only reads them; change both together. */
+function streamBytes(stream) {
+  try {
+    if (PDFLib.decodePDFRawStream && stream instanceof PDFLib.PDFRawStream)
+      return PDFLib.decodePDFRawStream(stream).decode();
+  } catch (_) { /* fall through to the raw bytes */ }
+  try { return stream.getContents ? stream.getContents() : stream.contents; } catch (_) { return null; }
+}
+// pdf-lib's typed lookup throws when a key is absent rather than returning
+// null, so an ordinary PDF blows up here instead of falling through to the
+// friendly message. Guard the whole walk.
+function fromAttachment(doc) {
+  try { return findAttachment(doc); } catch (_) { return null; }
+}
+function findAttachment(doc) {
+  const { PDFName, PDFDict, PDFArray } = PDFLib;
+  const names = doc.catalog.lookup(PDFName.of("Names"), PDFDict);
+  if (!names) return null;
+  const ef = names.lookup(PDFName.of("EmbeddedFiles"), PDFDict);
+  if (!ef) return null;
+  const arr = ef.lookup(PDFName.of("Names"), PDFArray);
+  if (!arr) return null;
+  for (let i = 1; i < arr.size(); i += 2) {
+    const spec = arr.lookup(i, PDFDict);
+    if (!spec) continue;
+    const efd = spec.lookup(PDFName.of("EF"), PDFDict);
+    if (!efd) continue;
+    const bytes = streamBytes(efd.lookup(PDFName.of("F")));
+    if (!bytes) continue;
+    try {
+      const obj = JSON.parse(new TextDecoder().decode(bytes));
+      if (obj && obj.format === CONFIG.FORMAT) return obj;
+    } catch (_) { /* try the next attachment */ }
+  }
+  return null;
+}
+function fromKeywords(doc) {
+  let kw = "";
+  try { kw = doc.getKeywords() || ""; } catch (_) { return null; }
+  const at = kw.indexOf(CONFIG.MARKER);
+  if (at < 0) return null;
+  try {
+    const bin = atob(kw.slice(at + CONFIG.MARKER.length).trim());
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const obj = JSON.parse(new TextDecoder().decode(bytes));
+    return obj && obj.format === CONFIG.FORMAT ? obj : null;
+  } catch (_) { return null; }
+}
+
+/* ---------- the check ---------- */
+async function handleFile(file) {
+  if (!file) return;
+  $("result").classList.add("hidden");
+  if (file.size > CONFIG.MAX_BYTES) { say("That file is too large to be a DesignBook approval.", "error"); return; }
+  say(`Reading ${file.name}…`);
+  try {
+    let doc;
+    try {
+      doc = await PDFLib.PDFDocument.load(await file.arrayBuffer(), { ignoreEncryption: true, updateMetadata: false });
+    } catch (_) { throw new Error("That file isn't a readable PDF."); }
+
+    const payload = fromAttachment(doc) || fromKeywords(doc);
+    if (!payload)
+      throw new Error("That PDF carries no DesignBook design. A printed or re-saved copy loses the embedded data - use the file KYTC sent.");
+    if (!payload.approval || !payload.approval.code)
+      throw new Error("That design has never been approved - there is no approval on it to check. It may be a review copy or a submission.");
+
+    say("Checking the signature…");
+    const res = await fetch(CONFIG.VERIFY_FN, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ payload, approval: payload.approval }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `Couldn't check this approval (${res.status}).`);
+    say("");
+    render(body, payload);
+  } catch (err) {
+    say(err.message || "Couldn't check that file.", "error");
+  }
+}
+
+function render(body, payload) {
+  const el = $("result");
+  const a = payload.approval || {}, j = payload.job || {}, mix = payload.mix || {};
+  if (!body.valid) {
+    el.innerHTML =
+      `<div class="verdict bad"><h2>Not verified</h2></div>
+       <div class="why">${esc(body.error || "This does not match an approval issued by KYTC.")}
+       <br><br>The most likely reason is that the design was changed after it was approved.
+       Do not rely on this document; check with Central Office.</div>`;
+    el.classList.remove("hidden");
+    return;
+  }
+  // Safe to show the design now: a valid signature means these are the exact
+  // values KYTC approved. Still escaped - a valid file is not a trusted one.
+  const when = body.issued_at ? new Date(body.issued_at).toLocaleDateString() : "-";
+  const rows = [
+    ["Mix", mix.signature], ["Plant", payload.plant_name ? `${j.plant} - ${payload.plant_name}` : j.plant],
+    ["Contract", j.cid], ["Letting date", j.letting],
+    ["Approved by", body.approved_by], ["Approved on", when],
+    ["Submitted by", body.submitted_by], ["Mix ID num.", body.mix_id],
+  ].filter((r) => r[1] != null && String(r[1]).trim() !== "");
+  el.innerHTML =
+    `<div class="verdict good"><h2>Verified</h2><span class="num">${esc(body.approval_no || "")}</span></div>
+     <div class="detail">${rows.map((r) =>
+       `<div><div class="k">${esc(r[0])}</div><div class="v">${esc(r[1])}</div></div>`).join("")}</div>
+     <div class="why">This design has not been altered since it was approved.
+       ${a.pa ? "It carries a performance review (CT and Hamburg)." : ""}</div>`;
+  el.classList.remove("hidden");
+}
+
+const drop = $("drop"), input = $("file");
+drop.addEventListener("click", () => input.click());
+input.addEventListener("change", () => handleFile(input.files[0]));
+["dragenter", "dragover"].forEach((ev) =>
+  drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) =>
+  drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => handleFile(e.dataTransfer.files[0]));
+</script>
+</body>
+</html>
