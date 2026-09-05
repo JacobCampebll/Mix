@@ -233,6 +233,12 @@
   .stagebtn.ghost{background:none; color:var(--accent); border-color:var(--accent); margin-left:8px;}
   .stagebtn.ghost:disabled{color:var(--muted); border-color:var(--line); background:none;}
   .stagenote{font-size:12px; color:var(--muted); margin-top:8px;}
+  .stagewarn{font-size:12px; color:var(--bad); margin-top:6px; max-width:62ch; line-height:1.5;}
+  .approvalbox{margin-top:14px; padding:12px 14px; border:1px solid var(--line); border-radius:var(--radius); background:var(--wash);}
+  .approvalbox label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:6px;}
+  .approvalbox input{width:120px; padding:7px 9px; border:1px solid var(--line); border-radius:var(--radius);
+    font-family:'IBM Plex Mono',monospace; font-size:15px;}
+  .approvalhint{font-size:11.5px; color:var(--muted); margin-top:8px; max-width:60ch; line-height:1.5;}
   /* Review PDF: the save button of a site that stores nothing. */
   .handoff{margin-top:18px; padding-top:16px; border-top:1px solid var(--line);}
   .handoff .stagebtn{margin-top:0;}
@@ -532,14 +538,32 @@ const CONFIG = {
     },
   },
 
-  // Workflow stages, in order. Button label is what advances INTO the
-  // next stage; the last stage has none.
+  // Workflow stages, in order. Only three, because these are the only three
+  // the site can actually observe: internal review happens off-site (a tech
+  // emails a PDF to their supervisor) and a tech may legitimately skip it,
+  // so it is not a stage - a permanently grey step would be a lie.
+  // The button label is what advances INTO the next stage.
   STAGES: [
-    { key: "Draft",           css: "draft",    next: "Move to internal review →" },
-    { key: "Internal Review", css: "review",   next: "Release to Department →" },
-    { key: "Released",        css: "released", next: "Mark approved →" },
-    { key: "Approved",        css: "approved", next: null },
+    { key: "Draft",     css: "draft",    next: "Submit to KYTC →" },
+    { key: "Submitted", css: "review",   next: "Approve →" },
+    { key: "Approved",  css: "approved", next: null },
   ],
+
+  // ---- Submit and approve ----
+  // With nothing stored, the file's own history IS the chain of custody:
+  // who submitted, who approved, when. The rules the Postgres trigger used
+  // to enforce are re-expressed against that history, and the ones that
+  // actually matter are enforced again server-side when an approval is
+  // signed - a status carried in a file is a claim, not a fact.
+  SUBMIT: {
+    // Netlify Functions. They are transit, not storage: nothing is kept.
+    SEND_FN: "/.netlify/functions/send-submission",
+    SIGN_FN: "/.netlify/functions/sign-approval",
+    VERIFY_FN: "/.netlify/functions/verify-approval",
+    // History actions. These strings are the record - changing one orphans
+    // the chain of custody in every file already issued.
+    ACTION: { submitted: "Submitted to KYTC", approved: "Approved by KYTC" },
+  },
 
   // How far right of a label to look for its value during extraction.
   // ---- Legacy MixPack import: fixed cells, versioned ----
@@ -1016,6 +1040,8 @@ const state = {
   dirty: false,      // edits since the last save (a stage move saves them first)
   history: [],      // append-only trail carried in the review PDF (no design_events any more)
   plantName: null,   // resolved from the plants table; travels in the review PDF
+  approval: null,    // { approval_no, code, issued_at, approved_by, submitted_by } once KYTC signs it
+  signedDesign: null,// the design exactly as the approval signature covers it
   savedExtractedFrom: null, // extracted_from as loaded from a saved design
   designId: null,    // designs.id once saved / when opened via ?design=
   authorUserId: null,
@@ -1292,9 +1318,18 @@ function statusHTML() {
     `<div class="tstep" data-stage="${s.key}"><div class="tline"></div>
        <div class="dot"></div><div class="tl">${s.key}</div></div>`).join("");
   return `<div class="timeline" id="timeline">${steps}</div>
-    <button class="stagebtn" id="advanceStage"></button><button class="stagebtn ghost hidden" id="sendBackStage">Send back to Draft</button>
+    <button class="stagebtn" id="advanceStage"></button><button class="stagebtn ghost hidden" id="sendBackStage">Send back to the contractor</button>
     <div class="stagenote" id="stageNote"></div>
+    <div class="stagewarn hidden" id="stageWarn"></div>
+    <div class="approvalbox hidden" id="approvalBox">
+      <label for="approvalSeq">KYTC approval number</label>
+      <input id="approvalSeq" type="number" min="1" max="9999" step="1" inputmode="numeric" placeholder="467">
+      <div class="approvalhint">The next number in KYTC's sequence for this design's <strong>letting year</strong>.
+        Type the number only &mdash; the MIX ID NUM. and the PA suffix are derived from it, and it is signed
+        along with the design so it cannot be altered afterwards.</div>
+    </div>
     <div class="handoff">
+      <button class="stagebtn hidden" id="approvalPdfBtn">Download approval</button>
       <button class="stagebtn" id="pdfBtn">Download review PDF</button>
       <div class="handoffnote">This site stores nothing. The PDF is your copy of the design &mdash;
         it carries every value inside it, so uploading it back reopens the form exactly as it is now.
@@ -1731,6 +1766,17 @@ function jumpTo(id, focusFirstEmpty) {
 }
 
 /* ---------- workflow stage ---------- */
+// The file's history IS the chain of custody - who submitted, who approved,
+// when. With no database there is nothing else to ask, so every rule the
+// Postgres trigger used to enforce is re-expressed against these entries.
+// The ones that actually matter are enforced again server-side when an
+// approval is signed: a status carried in a file is a claim, not a fact.
+function custody() {
+  const h = Array.isArray(state.history) ? state.history : [];
+  const last = (action) => h.filter((e) => e.action === action).slice(-1)[0] || null;
+  return { submitted: last(CONFIG.SUBMIT.ACTION.submitted), approved: last(CONFIG.SUBMIT.ACTION.approved) };
+}
+
 function renderStage() {
   const s = CONFIG.STAGES[state.stageIdx];
   $("statuspill").textContent = s.key;
@@ -1741,27 +1787,63 @@ function renderStage() {
     if (i === state.stageIdx) el.classList.add("current");
   });
 
-  // Who may do what is decided by the database trigger (supabase/designs.sql);
-  // this only mirrors those rules so the button is honest before you click.
-  const isAuthor = !state.designId || state.authorUserId === (state.tech && state.tech.user_id);
-  // The SELECT policy lets anyone with access to the plant read a design; the
-  // UPDATE policy lets only its author or a reviewer change it. Everyone else
-  // gets a read-only form, not a Save that silently updates zero rows.
-  const canEdit = isAuthor || state.canReview;
+  const me = state.tech ? state.tech.sm_id : null;
+  const c = custody();
+  const iSubmitted = !!(c.submitted && c.submitted.sm_id && c.submitted.sm_id === me);
   const btn = $("advanceStage"), back = $("sendBackStage"), note = $("stageNote");
   let allowed = true, why = "";
-  if (!s.next) { allowed = false; }
-  else if (!canEdit) { allowed = false; why = "Read-only: only the author or a KYTC reviewer can change this design."; }
-  else if (state.stageIdx >= 1 && !state.canReview) { allowed = false; why = "Moving a design past Internal Review is a KYTC Central Office reviewer's action."; }
-  else if (state.stageIdx >= 1 && state.canReview && isAuthor) { allowed = false; why = "You authored this design; another reviewer must release or approve it."; }
+
+  if (s.key === "Draft") {
+    // Anyone holding the file who can use DesignBook may submit it. Whoever
+    // is signed in gets stamped on the package, and that stamp is the whole
+    // evidence of who reviewed it internally.
+    why = "Submitting emails the package to KYTC and stamps your SM ID on it.";
+  } else if (s.key === "Submitted") {
+    if (!state.canReview) {
+      allowed = false;
+      why = "Approving is a KYTC Central Office reviewer's action. This design is with KYTC.";
+    } else if (iSubmitted) {
+      allowed = false;
+      why = "You submitted this design; another reviewer must approve it.";
+    } else {
+      why = "Approving signs the design and issues an approval number.";
+    }
+  } else {
+    allowed = false;
+    why = c.approved
+      ? `Approved by ${c.approved.sm_id || "KYTC"}. Editing would invalidate the approval signature.`
+      : "Approved.";
+  }
+
   btn.disabled = !allowed || state.saving;
-  btn.textContent = s.next || "Fully approved";
-  back.classList.toggle("hidden", !(state.canReview && state.stageIdx > 0 && state.designId));
+  btn.textContent = s.next || "Approved";
+  // Sending back to the contractor is a real KYTC action (a rejection), so
+  // it stays - but only a reviewer, and only on something submitted.
+  back.classList.toggle("hidden", !(state.canReview && s.key === "Submitted" && !iSubmitted));
+  const box = $("approvalBox");
+  if (box) box.classList.toggle("hidden", !(s.key === "Submitted" && state.canReview && !iSubmitted));
+  // The approval document only exists once there is an approval to put on it.
+  const apdf = $("approvalPdfBtn");
+  if (apdf) apdf.classList.toggle("hidden", !state.approval);
+  const rpdf = $("pdfBtn");
+  if (rpdf) rpdf.textContent = state.approval ? "Download full design sheet" : "Download review PDF";
   back.disabled = state.saving;
-  note.textContent = why || (s.key === "Approved" ? "Approved designs are read-only until a reviewer sends them back to Draft." : "");
-  const frozen = s.key === "Approved" || !canEdit;
-  $("saveBtn").disabled = frozen || state.saving;
+  note.textContent = why;
+
+  // Only an approved design is locked, and it is locked because an edit
+  // changes the payload the signature covers. A submitted design stays
+  // editable on purpose: the holder of a file can always edit it, so a lock
+  // here would be theatre. The warning is honest instead.
+  const frozen = s.key === "Approved";
   document.querySelectorAll("#sections input, #sections select").forEach((el) => { el.disabled = frozen; });
+  const warn = $("stageWarn");
+  if (warn) {
+    const stale = s.key === "Submitted" && state.dirty;
+    warn.textContent = stale
+      ? "You have edited this design since it was submitted. KYTC still holds the version you sent - submit again to replace it."
+      : "";
+    warn.classList.toggle("hidden", !stale);
+  }
 }
 
 // Persisted trail: design_events, written by the database trigger on every
@@ -2274,19 +2356,32 @@ async function saveDesign() {
   }
 }
 
-// Stage moves are a single-column update; the trigger enforces who may do
-// what and one step at a time. Its error text is shown verbatim.
-async function setStage(nextKey) {
-  // Unsaved edits go with the stage move; otherwise a reviewer opens stale content.
-  if (!state.designId || state.dirty) { const saved = await saveDesign(); if (!saved) return; }
-  state.saving = true; renderStage();
-  const { data, error } = await sb.from("designs").update({ stage: nextKey }).eq("id", state.designId).select("stage").single();
-  state.saving = false;
-  if (error) { msg($("saveMsg"), `Stage not changed — ${error.message}`, "error"); renderStage(); return; }
-  state.stageIdx = Math.max(0, CONFIG.STAGES.findIndex((x) => x.key === data.stage));
+// A stage move is now a local fact recorded in the file's history, not a
+// database write. It takes effect the moment the next package is generated -
+// which is the only thing anyone downstream will ever see.
+function setStage(nextKey, entry) {
+  const at = CONFIG.STAGES.findIndex((x) => x.key === nextKey);
+  if (at < 0) return;
+  state.stageIdx = at;
+  if (entry) {
+    state.history = (Array.isArray(state.history) ? state.history : []).concat([entry]);
+    const when = entry.at ? new Date(entry.at) : new Date();
+    const ts = `${String(when.getMonth() + 1).padStart(2, "0")}/${String(when.getDate()).padStart(2, "0")} ` +
+               `${String(when.getHours()).padStart(2, "0")}:${String(when.getMinutes()).padStart(2, "0")}`;
+    audit(`${ts} ${entry.action} - ${entry.name || entry.sm_id || "unknown"}`);
+  }
   renderStage();
-  msg($("saveMsg"), `Now ${data.stage}.`, "ok");
-  await loadEvents();
+}
+
+// One history entry, in the shape the review PDF already appends.
+function custodyEntry(action, extra) {
+  const t = state.tech;
+  return Object.assign({
+    at: new Date().toISOString(),
+    sm_id: t ? t.sm_id : null,
+    name: t ? `${t.first_name} ${t.last_name}` : null,
+    action,
+  }, extra || {});
 }
 
 function designLabel() {
@@ -2342,14 +2437,17 @@ function wireForm() {
     item.addEventListener("click", () => jumpTo(item.dataset.target, false));
   });
 
-  // Stage advance.
+  // Stage advance. Each stage has a real action behind it, not just a
+  // relabelled counter: Draft submits, Submitted approves.
   $("advanceStage").addEventListener("click", () => {
     const s = CONFIG.STAGES[state.stageIdx];
-    if (!s.next) return;
-    setStage(CONFIG.STAGES[state.stageIdx + 1].key);
+    if (s.key === "Draft") return submitToKYTC();
+    if (s.key === "Submitted") return approveDesign();
   });
   $("sendBackStage").addEventListener("click", () => {
-    if (confirm("Send this design back to Draft? The author will be able to edit it again.")) setStage("Draft");
+    if (!confirm("Send this design back to the contractor? They will need to fix it and submit again.")) return;
+    setStage("Draft", custodyEntry("Sent back by KYTC"));
+    msg($("saveMsg"), "Sent back to Draft. Tell the contractor what needs changing - the site does not notify them.", "ok");
   });
 
   // Any edit: recompute completeness, drop the "prefilled" marker. A cell a
@@ -2530,6 +2628,9 @@ function handoffPayload(action) {
       version: state.legacy.version.label, context: state.legacy.context,
       unmapped: state.legacy.unmapped, design_values: state.legacy.designValues || [],
     } : null,
+    // Signed by sign-approval, never by this page. Present only once KYTC
+    // has approved; everything else in the payload is a claim, this is not.
+    approval: state.approval || null,
     // Append only. Never rewrite an earlier entry - this is the audit trail.
     history: prior.concat([{ at: new Date().toISOString(), sm_id: who.sm_id, name: who.name, action }]),
   };
@@ -2982,7 +3083,10 @@ async function buildReviewPDF(payload) {
   }
   page.drawText("KYTC Mix Design", { x: P.mx, y, size: T.title, font: bold, color: col(C.navy) });
   y -= T.title + 4;
-  page.drawText("Internal review copy - not an approval", { x: P.mx, y, size: T.sub, font, color: col(C.muted) });
+  const subtitle = payload.stage === "Submitted" ? "Submitted to KYTC - pending review"
+                 : payload.stage === "Approved" ? "Approved by KYTC - this copy carries its own verification code"
+                 : "Internal review copy - not an approval";
+  page.drawText(subtitle, { x: P.mx, y, size: T.sub, font, color: col(C.muted) });
   y -= T.sub + RW.headerGap;
 
   const facts = [
@@ -2993,6 +3097,10 @@ async function buildReviewPDF(payload) {
     ["Mix type", mixTypeLabel(payload.mix)],
     ["Stage", payload.stage],
     ["Prepared by", payload.generated_by && payload.generated_by.sm_id],
+    ["KYTC approval", payload.approval && payload.approval.approval_no],
+    ["Mix ID num.", payload.approval && payload.approval.mix_id],
+    ["Verification code", payload.approval && payload.approval.code],
+    ["Approved by", payload.approval && payload.approval.approved_by],
   ].filter((f) => f[1] != null && String(f[1]).trim() !== "");
   inHeader = true;
   const savedCols = H.COLS;
@@ -3101,6 +3209,237 @@ function trimFlatCoarseEnd(sieves, cpts) {
   return sieves.filter((s) => s.mm <= keepTo);
 }
 
+
+// The parts of a payload the approval signature actually covers. Must match
+// canonicalDesign() in netlify/functions/_canonical.mjs - if the two lists
+// drift, approvals stop verifying with no visible cause.
+function designParts(payload) {
+  return {
+    format: payload.format, version: payload.version,
+    job: payload.job, plant_name: payload.plant_name || null,
+    mix: payload.mix || null, origin: payload.origin || null,
+    values: payload.values || {}, rows: payload.rows || {},
+  };
+}
+
+// Regenerating an approved document must embed the design that was SIGNED,
+// not a fresh reading of the form. The form is frozen once approved, so in
+// practice they match - but if a recompute ever nudged a rounded value, the
+// file would carry a payload that fails its own signature, and that failure
+// would look like nothing at all until someone tried to verify it.
+function approvedPayload(action) {
+  const p = handoffPayload(action);
+  if (state.signedDesign) Object.assign(p, state.signedDesign);
+  return p;
+}
+
+/* ---------- the approval document ----------
+ *
+ * A different artifact from the review sheet, deliberately. The review sheet
+ * is a landscape working document for someone checking a design; this is the
+ * single page a district office files and acts on, so it answers one
+ * question first - is this mix approved, and is this real - and carries the
+ * job mix formula underneath.
+ *
+ * Portrait, so the two can never be confused at a glance even face down on a
+ * desk. It embeds the same payload, so uploading it to DesignBook still
+ * rebuilds the whole design.
+ */
+async function buildApprovalPDF(payload) {
+  const { PDFDocument, StandardFonts, rgb } = PDFLib;
+  const H = CONFIG.HANDOFF, C = H.BRAND, T = H.TYPE;
+  const col = (a) => rgb(a[0], a[1], a[2]);
+  const P = { w: 612, h: 792, mx: 46, top: 58, bottom: 46 };
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const logo = await loadHandoffLogo(doc);
+  const page = doc.addPage([P.w, P.h]);
+  const W = P.w - P.mx * 2;
+  let y = P.h - P.top;
+
+  const fit = (s, max, f, sz) => {
+    let t = wa(s);
+    if (f.widthOfTextAtSize(t, sz) <= max) return t;
+    while (t.length > 1 && f.widthOfTextAtSize(t + "...", sz) > max) t = t.slice(0, -1);
+    return t + "...";
+  };
+  const text = (s, x, yy, sz, f, c) => page.drawText(fit(s, W, f, sz), { x, y: yy, size: sz, font: f, color: col(c) });
+
+  for (let i = 0; i < 72; i++) {
+    const t = i / 71, k = t <= 0.35 ? 0 : t >= 0.80 ? 1 : (t - 0.35) / 0.45;
+    page.drawRectangle({ x: i * P.w / 72, y: P.h - H.BAR, width: P.w / 72 + 0.7, height: H.BAR,
+      color: col([0, 1, 2].map((j) => C.sky[j] + (C.gold[j] - C.sky[j]) * k)) });
+  }
+  if (logo) {
+    const lw = 86, lh = lw / H.LOGO.ratio;
+    page.drawImage(logo, { x: P.w - P.mx - lw, y: P.h - P.top - lh + 20, width: lw, height: lh });
+  }
+
+  const a = payload.approval || {};
+  const j = payload.job || {}, mix = payload.mix || {};
+  const values = payload.values || {}, dv = values.design_values || {}, rows = payload.rows || {};
+
+  text("Mix Design Approval", P.mx, y, 22, bold, C.navy); y -= 24;
+  text("Kentucky Transportation Cabinet - Division of Materials", P.mx, y, 9, font, C.muted); y -= 20;
+
+  /* --- the answer, first. One band, four columns: at a glance a district
+         office needs the number, the system id, when and by whom, and
+         whether a performance review is part of it. --- */
+  const boxH = 40;
+  page.drawRectangle({ x: P.mx, y: y - boxH, width: W, height: boxH, color: col(C.wash) });
+  page.drawRectangle({ x: P.mx, y: y - boxH, width: 4, height: boxH, color: col(C.navy) });
+  const bandX = [P.mx + 16, P.mx + 168, P.mx + 288, P.mx + 396];
+  const band = [
+    ["APPROVAL NUMBER", a.approval_no || "-", 17, C.navy],
+    ["MIX ID NUM.", a.mix_id || "-", 12, C.ink],
+    ["APPROVED", a.issued_at ? `${new Date(a.issued_at).toLocaleDateString()} - ${a.approved_by || "-"}` : "-", 10, C.ink],
+    // Short enough to fit the band's last column - "Performance (CT +
+    // Hamburg)" truncated, and a truncated word on the one line that says
+    // what kind of approval this is would be worse than a terse one.
+    ["REVIEW", a.pa ? "CT + Hamburg" : "Volumetric", 10, C.ink],
+  ];
+  band.forEach(([lab, val, sz, c], i) => {
+    const max = (i + 1 < bandX.length ? bandX[i + 1] : P.mx + W) - bandX[i] - 10;
+    page.drawText(fit(lab, max, bold, 7), { x: bandX[i], y: y - 14, size: 7, font: bold, color: col(C.muted) });
+    page.drawText(fit(val, max, bold, sz), { x: bandX[i], y: y - 30, size: sz, font: bold, color: col(c) });
+  });
+  y -= boxH + 22;
+
+  /* --- what it is --- */
+  function pairs(list, cols, gap) {
+    const cw = (W - gap * (cols - 1)) / cols;
+    for (let i = 0; i < list.length; i += cols) {
+      list.slice(i, i + cols).forEach((p, c) => {
+        const x = P.mx + c * (cw + gap);
+        page.drawText(fit(p[0], cw, font, 7), { x, y, size: 7, font, color: col(C.muted) });
+        page.drawText(fit(p[1] == null ? "-" : String(p[1]), cw, bold, 10), { x, y: y - 12, size: 10, font: bold, color: col(C.ink) });
+      });
+      y -= 28;
+    }
+  }
+  function heading(t) {
+    page.drawRectangle({ x: P.mx, y: y + 13, width: W, height: 0.8, color: col(C.rule) });
+    text(t.toUpperCase(), P.mx, y, 8.5, bold, C.accent); y -= 20;
+  }
+
+  heading("The mix");
+  pairs([
+    ["Mix", mix.signature], ["Mix type", mixTypeLabel(mix)],
+    ["Binder grade", values.binder_grade], ["Binder supplier", values.binder_terminal],
+    ["Plant", payload.plant_name ? `${j.plant} - ${payload.plant_name}` : j.plant], ["County", values.county],
+    ["Contract", j.cid], ["Letting date", j.letting],
+    ["Project number", values.project_number], ["Submitted by", a.submitted_by || (payload.generated_by || {}).sm_id],
+  ], 2, 20);
+  y -= 6;
+
+  /* --- the job mix formula, which is what a district office uses --- */
+  heading("Job mix formula");
+  const grad = CONFIG.SECTIONS.find((s) => s.type === "sieves");
+  const sieves = grad.sieves
+    .filter((sv) => !hdOmit(grad.id, sv.key))
+    .map((sv) => [sv.label, values[sv.key]])
+    .filter((r) => r[1] != null && String(r[1]).trim() !== "");
+  const half = (W - 24) / 2, per = Math.ceil(sieves.length / 2);
+  const top = y;
+  // The two sieve columns can differ in length (13 sieves = 7 and 6), so the
+  // block ends at the LOWER of the two - taking the second one's end would
+  // run the design values back over the first.
+  let lowest = top;
+  [0, 1].forEach((cIdx) => {
+    let ty = top;
+    const x = P.mx + cIdx * (half + 24);
+    page.drawRectangle({ x, y: ty - 3, width: half, height: 12, color: col(C.wash) });
+    page.drawText("Sieve", { x: x + 4, y: ty, size: 7, font: bold, color: col(C.muted) });
+    page.drawText("% passing", { x: x + half * 0.45, y: ty, size: 7, font: bold, color: col(C.muted) });
+    ty -= 13;
+    sieves.slice(cIdx * per, (cIdx + 1) * per).forEach((r) => {
+      page.drawText(r[0], { x: x + 4, y: ty, size: 8.5, font, color: col(C.ink) });
+      page.drawText(hdNum(r[1], hdDP("s")), { x: x + half * 0.45, y: ty, size: 8.5, font, color: col(C.ink) });
+      page.drawRectangle({ x, y: ty - 4, width: half, height: 0.35, color: col(C.rule) });
+      ty -= 12;
+    });
+    lowest = Math.min(lowest, ty);
+  });
+  y = lowest - 18;
+
+  const outs = (CONFIG.SECTIONS.find((s) => s.id === "design-values") || {}).outputs || [];
+  pairs(outs.map((o) => [o.label.replace(/\s*at design\s*/i, ""), hdNum(dv[o.key], hdDP(o.key))])
+    .filter((p) => p[1] !== "" && p[1] != null), 5, 12);
+
+  /* --- the evidence for PA ---
+     #467PA asserts a performance review happened. The specimen tables that
+     justify it are in the embedded data, not on the page, so the numbers a
+     reader would want to see are summarised here rather than left to
+     "upload the file and look". Omitted entirely when there is nothing. --- */
+  const cts = (rows.ct || []).map((r) => parseFloat(r && r.index)).filter(Number.isFinite);
+  const hL = values.hamburg_left_maxdef, hR = values.hamburg_right_maxdef;
+  const perf = [];
+  if (values.tsr_pct != null && String(values.tsr_pct).trim() !== "")
+    perf.push(["TSR", hdNum(values.tsr_pct, hdDP("tsr_pct")) + "%"]);
+  if (cts.length) {
+    perf.push([`CT index (avg of ${cts.length})`, (cts.reduce((x, v) => x + v, 0) / cts.length).toFixed(1)]);
+    perf.push(["CT index range", `${Math.min(...cts).toFixed(1)} - ${Math.max(...cts).toFixed(1)}`]);
+  }
+  if ((hL != null && String(hL).trim() !== "") || (hR != null && String(hR).trim() !== ""))
+    perf.push(["Hamburg max deformation", `${hdNum(hL, 2) || "-"} / ${hdNum(hR, 2) || "-"} mm`]);
+  if (perf.length) {
+    heading(a.pa ? "Performance review" : "Performance testing");
+    pairs(perf, 4, 12);
+    y -= 4;
+  }
+
+  /* --- the blend --- */
+  const aggs = rows.aggregate || [];
+  if (aggs.length) {
+    heading("Aggregate blend");
+    const cols = [["Producer", 2.2], ["Type & size", 1.8], ["% blend", 0.6], ["Gsb", 0.6]];
+    const sum = cols.reduce((s2, c) => s2 + c[1], 0);
+    const cw = cols.map((c) => W * c[1] / sum);
+    page.drawRectangle({ x: P.mx, y: y - 3, width: W, height: 12, color: col(C.wash) });
+    cols.forEach((c, i) => page.drawText(c[0], { x: P.mx + cw.slice(0, i).reduce((s2, v) => s2 + v, 0) + 4, y, size: 7, font: bold, color: col(C.muted) }));
+    y -= 14;
+    aggs.forEach((r) => {
+      [r.producer, r.type_size, hdNum(r.pct_blend, null), hdNum(r.gsb, hdDP("gsb"))].forEach((v, i) =>
+        page.drawText(fit(v == null ? "-" : String(v), cw[i] - 8, font, 8.5),
+          { x: P.mx + cw.slice(0, i).reduce((s2, q) => s2 + q, 0) + 4, y, size: 8.5, font, color: col(C.ink) }));
+      y -= 5; page.drawRectangle({ x: P.mx, y, width: W, height: 0.35, color: col(C.rule) }); y -= 10;
+    });
+    y -= 10;
+  }
+
+  /* --- how to know this is real. Anchored above the footer rather than
+         wherever the content happens to end, so the page reads as composed
+         and the reclaimed height spreads through the sections above. --- */
+  const vH = 60;
+  // Rests just above the footer on a short design, follows the content down
+  // on a long one, and never crosses the footer rule - which it did the
+  // moment the performance row was added.
+  const vy = Math.max(P.bottom + 10 + vH, Math.min(y, P.bottom + 34 + vH));
+  page.drawRectangle({ x: P.mx, y: vy - vH, width: W, height: vH, borderColor: col(C.rule), borderWidth: 0.8 });
+  text("VERIFICATION CODE", P.mx + 14, vy - 17, 7.5, bold, C.muted);
+  page.drawText(wa(a.code || "-"), { x: P.mx + 14, y: vy - 38, size: 16, font: bold, color: col(C.ink) });
+  const vx = P.mx + 210;
+  ["This approval is signed. Anyone can check it - no account needed - by",
+   "dropping this PDF in at kytcmix.netlify.app/verify.html. It confirms the",
+   "design has not been altered since approval, and who approved it."]
+    .forEach((ln, i) => page.drawText(wa(ln), { x: vx, y: vy - 18 - i * 11, size: 7.8, font, color: col(C.muted) }));
+  y = vy - vH;
+
+  page.drawRectangle({ x: P.mx, y: P.bottom - 12, width: W, height: 0.4, color: col(C.rule) });
+  page.drawText(wa("The full design is embedded in this file - upload it to DesignBook to open it, or to verify.html to check the approval. KYTC DesignBook stores nothing; this document is the record."),
+    { x: P.mx, y: P.bottom - 24, size: 6.6, font, color: col(C.muted) });
+
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  await doc.attach(bytes, CONFIG.HANDOFF.ATTACHMENT, {
+    mimeType: "application/json", description: "DesignBook design data",
+  });
+  doc.setTitle(wa(`KYTC Mix Design Approval ${a.approval_no || ""} - ${j.cid || ""}`));
+  doc.setProducer("KYTC DesignBook");
+  doc.setKeywords([CONFIG.HANDOFF.MARKER + b64encode(bytes)]);
+  return doc.save();
+}
+
 /* ---------- reading one back ---------- */
 
 function handoffFromStream(stream) {
@@ -3183,6 +3522,10 @@ async function readHandoffPDF(buf) {
 function applyHandoff(payload) {
   state.job = payload.job;
   state.plantName = payload.plant_name || null;
+  state.approval = payload.approval || null;
+  // An approved file arrives carrying the signed design; keep it, so
+  // regenerating the document does not re-derive it from the form.
+  state.signedDesign = payload.approval ? designParts(payload) : null;
   state.mode = payload.origin === "legacy" ? "legacy" : "new";
   state.mix = payload.mix || null;
   state.extracted = { scalars: payload.values || {}, tables: payload.rows || {} };
@@ -3200,6 +3543,35 @@ function applyHandoff(payload) {
 
 /* ---------- the button ---------- */
 
+// The document a district office files. Separate from the review sheet so
+// the two can never be mistaken for each other.
+async function downloadApprovalPDF() {
+  const btn = $("approvalPdfBtn");
+  if (!btn || btn.disabled) return;
+  if (!state.approval) { msg($("saveMsg"), "This design has not been approved.", "error"); return; }
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = "Building...";
+  try {
+    const payload = approvedPayload("Downloaded approval");
+    const bytes = await buildApprovalPDF(payload);
+    const a2 = payload.approval || {};
+    const name = `KYTC_Approval_${(a2.approval_no || "").replace(/[^A-Za-z0-9]/g, "")}_${(payload.job || {}).cid || ""}.pdf`
+      .replace(/[^A-Za-z0-9_.-]/g, "");
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    state.history = payload.history;
+    msg($("saveMsg"), `${name} downloaded. Send it to the contractor - the site keeps nothing.`, "ok");
+  } catch (err) {
+    msg($("saveMsg"), err.message || "Couldn't build the approval.", "error");
+  } finally {
+    btn.disabled = false; btn.textContent = was;
+  }
+}
+
 async function downloadReviewPDF() {
   const btn = $("pdfBtn");
   if (!btn || btn.disabled) return;
@@ -3207,7 +3579,8 @@ async function downloadReviewPDF() {
   const was = btn.textContent;
   btn.textContent = "Building PDF...";
   try {
-    const payload = handoffPayload("Downloaded review PDF");
+    const payload = state.approval ? approvedPayload("Downloaded design sheet")
+                                   : handoffPayload("Downloaded review PDF");
     const bytes = await buildReviewPDF(payload);
     const name = handoffFileName(payload);
     const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
@@ -3224,6 +3597,191 @@ async function downloadReviewPDF() {
   } finally {
     btn.disabled = false; btn.textContent = was;
   }
+}
+
+/* ---------- the KYTC submission ---------- */
+
+// The CSV KYTC receives. Generated from CONFIG.SECTIONS like the form, the
+// xlsx extractor and the PDF - never a hand-written column list, or the four
+// drift apart. One row per value, so a design of any shape fits without the
+// header changing: Section, Key, Label, Value. Repeating rows carry an index
+// in the key (aggregate[2].producer) so they rebuild unambiguously.
+//
+// This is deliberately NOT a SiteManager import file. That mapping is KYTC's
+// to specify; this is the complete design in a shape anything can read, and
+// a translation layer goes on top of it when Andrew has the spec.
+function csvCell(v) {
+  const t = String(v == null ? "" : v);
+  return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+}
+function buildSubmissionCSV(payload) {
+  const values = payload.values || {}, rows = payload.rows || {};
+  const fp = values.fourpoint || {}, dv = values.design_values || {};
+  const out = [["Section", "Key", "Label", "Value"]];
+  const push = (sec, key, label, val) => {
+    if (val == null || String(val).trim() === "") return;
+    out.push([sec, key, label, val]);
+  };
+  const j = payload.job || {}, gb = payload.generated_by || {};
+  push("meta", "format", "Format", payload.format);
+  push("meta", "version", "Payload version", payload.version);
+  push("meta", "stage", "Stage", payload.stage);
+  push("meta", "generated_at", "Generated at", payload.generated_at);
+  push("meta", "submitted_by", "Submitted by (SM ID)", gb.sm_id);
+  push("meta", "company", "Company", gb.company);
+  push("meta", "contract_id", "Contract", j.cid);
+  push("meta", "letting_date", "Letting date", j.letting);
+  push("meta", "amp_number", "Plant (AMP)", j.plant);
+  push("meta", "plant_name", "Plant name", payload.plant_name);
+  if (payload.mix) {
+    push("meta", "mix_signature", "Mix", payload.mix.signature);
+    push("meta", "mix_class", "Mix class", payload.mix.mix_class);
+    push("meta", "layer", "Layer", payload.mix.layer);
+    push("meta", "nominal_size", "Nominal max size", payload.mix.nominal_size);
+  }
+  if (payload.approval) {
+    push("approval", "mix_id", "Mix ID num.", payload.approval.mix_id);
+    push("approval", "approval_no", "KYTC approval number", payload.approval.approval_no);
+    push("approval", "code", "Verification code", payload.approval.code);
+    push("approval", "approved_by", "Approved by (SM ID)", payload.approval.approved_by);
+    push("approval", "issued_at", "Approved at", payload.approval.issued_at);
+  }
+  CONFIG.SECTIONS.forEach((sec) => {
+    if (sec.type === "status") return;
+    (sec.fields || []).forEach((f) => push(sec.id, f.key, f.label, values[f.key]));
+    if (sec.type === "sieves") sec.sieves.forEach((sv) => push(sec.id, sv.key, sv.label + " passing", values[sv.key]));
+    if (sec.type === "fourpoint") {
+      sec.constants.forEach((c) => push(sec.id, "const:" + c.key, c.label, fp["const:" + c.key]));
+      sec.points.forEach((_, i) => ["pb", "gmb", "gmm"].forEach((k) =>
+        push(sec.id, `pt:${i}:${k}`, `Point ${i + 1} ${k}`, fp[`pt:${i}:${k}`])));
+    }
+    if (sec.type === "computed") (sec.outputs || []).forEach((o) => push(sec.id, o.key, o.label, dv[o.key]));
+    if (sec.rows) (Array.isArray(sec.rows) ? sec.rows : [sec.rows]).forEach((spec) => {
+      (rows[spec.key] || []).forEach((r, i) => (spec.columns || []).forEach((c) =>
+        push(sec.id, `${spec.key}[${i + 1}].${c.key}`, `${spec.heading || spec.key} ${i + 1} ${c.label}`, r[c.key])));
+    });
+  });
+  // History last: the chain of custody travels with the data.
+  (payload.history || []).forEach((h, i) => {
+    push("history", `history[${i + 1}].at`, "When", h.at);
+    push("history", `history[${i + 1}].sm_id`, "Who (SM ID)", h.sm_id);
+    push("history", `history[${i + 1}].action`, "Action", h.action);
+  });
+  return out.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
+}
+
+function packageBaseName(payload) {
+  const j = payload.job || {};
+  const d = new Date().toISOString().slice(0, 10);
+  return `DesignBook_${j.cid || "design"}_${j.plant || "plant"}_${d}`.replace(/[^A-Za-z0-9_.-]/g, "");
+}
+
+function bytesToB64(bytes) { return b64encode(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)); }
+
+// Submit. The package is the same PDF plus the CSV, and it is SENT by a
+// Netlify Function - the browser cannot attach a file to a mailto:, and the
+// function owns the KYTC address so the page cannot be used to mail a design
+// anywhere else.
+async function submitToKYTC() {
+  if (!state.job || !state.tech) { msg($("saveMsg"), "Sign in and start from the Portal before submitting.", "error"); return; }
+  const who = state.tech.sm_id;
+  if (!confirm(`Submit this design to KYTC as ${who}?\n\nYour SM ID is stamped on the package - if you are the supervisor who reviewed it, that stamp is the record of the internal review.`)) return;
+
+  const btn = $("advanceStage"); const was = btn.textContent;
+  state.saving = true; renderStage(); btn.textContent = "Submitting...";
+  const prevIdx = state.stageIdx;
+  try {
+    // Stage first, so the package itself says Submitted and the history
+    // entry the payload appends IS the submission record.
+    state.stageIdx = CONFIG.STAGES.findIndex((x) => x.key === "Submitted");
+    const payload = handoffPayload(CONFIG.SUBMIT.ACTION.submitted);
+    const pdf = await buildReviewPDF(payload);
+    const csv = buildSubmissionCSV(payload);
+    const base = packageBaseName(payload);
+
+    const res = await fetch(CONFIG.SUBMIT.SEND_FN, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${await accessToken()}` },
+      body: JSON.stringify({
+        base, payload,
+        pdf_b64: bytesToB64(pdf),
+        csv,                       // text, not base64 - it is already ASCII
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `The submission was not sent (${res.status}).`);
+
+    state.history = payload.history;
+    state.dirty = false;
+    renderStage();
+    audit(`${CONFIG.SUBMIT.ACTION.submitted} - ${who}`);
+    msg($("saveMsg"),
+      `Submitted to KYTC as ${who}${body.to ? ` (${body.to})` : ""}. Download the PDF for your own records - the site keeps nothing.`, "ok");
+  } catch (err) {
+    state.stageIdx = prevIdx;               // nothing was sent, so nothing moved
+    renderStage();
+    msg($("saveMsg"), err.message || "Couldn't submit.", "error");
+  } finally {
+    state.saving = false; btn.textContent = was; renderStage();
+  }
+}
+
+// Approve. The page does not decide this - it asks a Function, which checks
+// the reviewer's own token and the file's chain of custody before it will
+// sign anything. If the Function says no, nothing here moves.
+async function approveDesign() {
+  if (!state.tech) { msg($("saveMsg"), "Sign in first.", "error"); return; }
+  const c = custody();
+  if (!c.submitted) { msg($("saveMsg"), "This design has no submission on record, so there is nothing to approve.", "error"); return; }
+  // The page only checks the shape. What the number becomes - the MIX ID
+  // NUM., the PA suffix, whether a performance review is required at all -
+  // is decided by the Function, because that is what signs it.
+  const raw = ($("approvalSeq") && $("approvalSeq").value || "").trim();
+  const seq = Number(raw);
+  if (!raw || !Number.isInteger(seq) || seq < 1 || seq > 9999) {
+    msg($("saveMsg"), "Enter KYTC's approval number for this design - a whole number from 1 to 9999.", "error");
+    if ($("approvalSeq")) $("approvalSeq").focus();
+    return;
+  }
+  if (!confirm(`Approve this design as ${state.tech.sm_id}, number ${seq}?\n\nThis issues a signed approval. It is checkable by anyone holding the file, so it cannot be undone by editing.`)) return;
+
+  const btn = $("advanceStage"), was = btn.textContent;
+  state.saving = true; renderStage(); btn.textContent = "Approving...";
+  try {
+    // Signed over the design as it stands, so the approval covers what is
+    // in front of the reviewer - not a later edit.
+    const payload = handoffPayload("Requested approval");
+    const res = await fetch(CONFIG.SUBMIT.SIGN_FN, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${await accessToken()}` },
+      body: JSON.stringify({ payload, sequence: seq, submitted_action: CONFIG.SUBMIT.ACTION.submitted }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `The approval was not issued (${res.status}).`);
+
+    // Freeze the design as signed, so every later copy carries these bytes.
+    state.signedDesign = designParts(payload);
+    state.approval = {
+      mix_id: body.mix_id, approval_no: body.approval_no, sequence: body.sequence,
+      year: body.year, pa: body.pa, code: body.code, issued_at: body.issued_at,
+      approved_by: body.approved_by, submitted_by: body.submitted_by,
+    };
+    setStage("Approved", custodyEntry(CONFIG.SUBMIT.ACTION.approved, { approval_no: body.approval_no }));
+    msg($("saveMsg"),
+      `Approved as ${body.approval_no} (MIX ID ${body.mix_id}) - verification code ${body.code}. ` +
+      `Download the PDF and send it to the contractor; the site keeps nothing.`, "ok");
+  } catch (err) {
+    msg($("saveMsg"), err.message || "Couldn't approve.", "error");
+  } finally {
+    state.saving = false; btn.textContent = was; renderStage();
+  }
+}
+
+// The Supabase session token, so a Function can verify who is calling
+// instead of trusting a field in the request body.
+async function accessToken() {
+  const { data } = await sb.auth.getSession();
+  return data && data.session ? data.session.access_token : "";
 }
 
 /* ---------- reopening one ---------- */
@@ -3625,7 +4183,11 @@ wireDrop();
 $("portalLink").addEventListener("click", toPortal);
 $("signOutLink").addEventListener("click", async () => { await sb.auth.signOut(); toLogin(); });
 $("saveBtn").addEventListener("click", saveDesign);
-document.addEventListener("click", (e) => { if (e.target && e.target.id === "pdfBtn") downloadReviewPDF(); });
+document.addEventListener("click", (e) => {
+  if (!e.target) return;
+  if (e.target.id === "pdfBtn") downloadReviewPDF();
+  if (e.target.id === "approvalPdfBtn") downloadApprovalPDF();
+});
 $("skipUpload").addEventListener("click", () => {
   state.mode = "new";
   enterForm();
