@@ -1041,6 +1041,7 @@ const state = {
   history: [],      // append-only trail carried in the review PDF (no design_events any more)
   plantName: null,   // resolved from the plants table; travels in the review PDF
   approval: null,    // { approval_no, code, issued_at, approved_by, submitted_by } once KYTC signs it
+  signedDesign: null,// the design exactly as the approval signature covers it
   savedExtractedFrom: null, // extracted_from as loaded from a saved design
   designId: null,    // designs.id once saved / when opened via ?design=
   authorUserId: null,
@@ -3209,6 +3210,29 @@ function trimFlatCoarseEnd(sieves, cpts) {
 }
 
 
+// The parts of a payload the approval signature actually covers. Must match
+// canonicalDesign() in netlify/functions/_canonical.mjs - if the two lists
+// drift, approvals stop verifying with no visible cause.
+function designParts(payload) {
+  return {
+    format: payload.format, version: payload.version,
+    job: payload.job, plant_name: payload.plant_name || null,
+    mix: payload.mix || null, origin: payload.origin || null,
+    values: payload.values || {}, rows: payload.rows || {},
+  };
+}
+
+// Regenerating an approved document must embed the design that was SIGNED,
+// not a fresh reading of the form. The form is frozen once approved, so in
+// practice they match - but if a recompute ever nudged a rounded value, the
+// file would carry a payload that fails its own signature, and that failure
+// would look like nothing at all until someone tried to verify it.
+function approvedPayload(action) {
+  const p = handoffPayload(action);
+  if (state.signedDesign) Object.assign(p, state.signedDesign);
+  return p;
+}
+
 /* ---------- the approval document ----------
  *
  * A different artifact from the review sheet, deliberately. The review sheet
@@ -3291,7 +3315,7 @@ async function buildApprovalPDF(payload) {
         page.drawText(fit(p[0], cw, font, 7), { x, y, size: 7, font, color: col(C.muted) });
         page.drawText(fit(p[1] == null ? "-" : String(p[1]), cw, bold, 10), { x, y: y - 12, size: 10, font: bold, color: col(C.ink) });
       });
-      y -= 30;
+      y -= 28;
     }
   }
   function heading(t) {
@@ -3333,7 +3357,7 @@ async function buildApprovalPDF(payload) {
       page.drawText(r[0], { x: x + 4, y: ty, size: 8.5, font, color: col(C.ink) });
       page.drawText(hdNum(r[1], hdDP("s")), { x: x + half * 0.45, y: ty, size: 8.5, font, color: col(C.ink) });
       page.drawRectangle({ x, y: ty - 4, width: half, height: 0.35, color: col(C.rule) });
-      ty -= 13;
+      ty -= 12;
     });
     lowest = Math.min(lowest, ty);
   });
@@ -3342,6 +3366,28 @@ async function buildApprovalPDF(payload) {
   const outs = (CONFIG.SECTIONS.find((s) => s.id === "design-values") || {}).outputs || [];
   pairs(outs.map((o) => [o.label.replace(/\s*at design\s*/i, ""), hdNum(dv[o.key], hdDP(o.key))])
     .filter((p) => p[1] !== "" && p[1] != null), 5, 12);
+
+  /* --- the evidence for PA ---
+     #467PA asserts a performance review happened. The specimen tables that
+     justify it are in the embedded data, not on the page, so the numbers a
+     reader would want to see are summarised here rather than left to
+     "upload the file and look". Omitted entirely when there is nothing. --- */
+  const cts = (rows.ct || []).map((r) => parseFloat(r && r.index)).filter(Number.isFinite);
+  const hL = values.hamburg_left_maxdef, hR = values.hamburg_right_maxdef;
+  const perf = [];
+  if (values.tsr_pct != null && String(values.tsr_pct).trim() !== "")
+    perf.push(["TSR", hdNum(values.tsr_pct, hdDP("tsr_pct")) + "%"]);
+  if (cts.length) {
+    perf.push([`CT index (avg of ${cts.length})`, (cts.reduce((x, v) => x + v, 0) / cts.length).toFixed(1)]);
+    perf.push(["CT index range", `${Math.min(...cts).toFixed(1)} - ${Math.max(...cts).toFixed(1)}`]);
+  }
+  if ((hL != null && String(hL).trim() !== "") || (hR != null && String(hR).trim() !== ""))
+    perf.push(["Hamburg max deformation", `${hdNum(hL, 2) || "-"} / ${hdNum(hR, 2) || "-"} mm`]);
+  if (perf.length) {
+    heading(a.pa ? "Performance review" : "Performance testing");
+    pairs(perf, 4, 12);
+    y -= 4;
+  }
 
   /* --- the blend --- */
   const aggs = rows.aggregate || [];
@@ -3366,7 +3412,10 @@ async function buildApprovalPDF(payload) {
          wherever the content happens to end, so the page reads as composed
          and the reclaimed height spreads through the sections above. --- */
   const vH = 60;
-  const vy = Math.min(y, P.bottom + 34 + vH);
+  // Rests just above the footer on a short design, follows the content down
+  // on a long one, and never crosses the footer rule - which it did the
+  // moment the performance row was added.
+  const vy = Math.max(P.bottom + 10 + vH, Math.min(y, P.bottom + 34 + vH));
   page.drawRectangle({ x: P.mx, y: vy - vH, width: W, height: vH, borderColor: col(C.rule), borderWidth: 0.8 });
   text("VERIFICATION CODE", P.mx + 14, vy - 17, 7.5, bold, C.muted);
   page.drawText(wa(a.code || "-"), { x: P.mx + 14, y: vy - 38, size: 16, font: bold, color: col(C.ink) });
@@ -3474,6 +3523,9 @@ function applyHandoff(payload) {
   state.job = payload.job;
   state.plantName = payload.plant_name || null;
   state.approval = payload.approval || null;
+  // An approved file arrives carrying the signed design; keep it, so
+  // regenerating the document does not re-derive it from the form.
+  state.signedDesign = payload.approval ? designParts(payload) : null;
   state.mode = payload.origin === "legacy" ? "legacy" : "new";
   state.mix = payload.mix || null;
   state.extracted = { scalars: payload.values || {}, tables: payload.rows || {} };
@@ -3501,7 +3553,7 @@ async function downloadApprovalPDF() {
   const was = btn.textContent;
   btn.textContent = "Building...";
   try {
-    const payload = handoffPayload("Downloaded approval");
+    const payload = approvedPayload("Downloaded approval");
     const bytes = await buildApprovalPDF(payload);
     const a2 = payload.approval || {};
     const name = `KYTC_Approval_${(a2.approval_no || "").replace(/[^A-Za-z0-9]/g, "")}_${(payload.job || {}).cid || ""}.pdf`
@@ -3527,7 +3579,8 @@ async function downloadReviewPDF() {
   const was = btn.textContent;
   btn.textContent = "Building PDF...";
   try {
-    const payload = handoffPayload("Downloaded review PDF");
+    const payload = state.approval ? approvedPayload("Downloaded design sheet")
+                                   : handoffPayload("Downloaded review PDF");
     const bytes = await buildReviewPDF(payload);
     const name = handoffFileName(payload);
     const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
@@ -3706,6 +3759,8 @@ async function approveDesign() {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `The approval was not issued (${res.status}).`);
 
+    // Freeze the design as signed, so every later copy carries these bytes.
+    state.signedDesign = designParts(payload);
     state.approval = {
       mix_id: body.mix_id, approval_no: body.approval_no, sequence: body.sequence,
       year: body.year, pa: body.pa, code: body.code, issued_at: body.issued_at,
