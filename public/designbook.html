@@ -433,6 +433,10 @@ const CONFIG = {
     binder_grade: (m) => m.binder_grade,
     total_tons:   (m) => m.total_quantity,
     county:       (m) => m.county,
+    // The signature's size token, split into the two Contract Information
+    // fields: "0.38B" -> nominal_size "0.38", mix_type "B".
+    nominal_size: (m) => splitMixDesignation(m.nominal_size).size,
+    mix_type:     (m) => splitMixDesignation(m.nominal_size).letter,
   },
 
   // Mix Design Tech cert (unexpired), from technician_capabilities.
@@ -960,6 +964,28 @@ const CONFIG = {
         { key: "total_tons",      label: "Tonnage",         type: "number", req: true, mono: true },
         { key: "submittal_type",  label: "Submittal type",  type: "select", req: true,
           options: ["New Mix Design", "Reference Mix Design"] },
+        // The mix designation, split in two. The Portal's contract/mix lookup
+        // prefills both (MIX_PREFILL splits "0.38B" for it) and a legacy
+        // MixPack fills them from Design Data!O8, but these fields are the
+        // authority either way - a custom build starts with neither, and
+        // without them there is no NMAS for the gradation control-point band
+        // and no type letter for 403.03.03 A). Value is KYTC's own token so
+        // it recombines to the signature's size ("0.38" + "B" = "0.38B").
+        { key: "nominal_size",    label: "Nominal size",    type: "select", req: true, mono: true,
+          options: [
+            { value: "1.50", label: "1.50 (1-1/2\")" }, { value: "1.00", label: "1.00 (1\")" },
+            { value: "0.75", label: "0.75 (3/4\")" },   { value: "0.50", label: "0.50 (1/2\")" },
+            { value: "0.38", label: "0.38 (3/8\")" },   { value: "NO.4", label: "NO.4 (4.75 mm)" },
+          ] },
+        // A, B or D - there is no C mix (Jake, 2026-09-07). A and B carry the
+        // polish-resistant requirements; D does not, which is why the
+        // Polish-Resistant section only appears for the first two.
+        { key: "mix_type",        label: "Mix type",        type: "select", req: true,
+          options: [
+            { value: "A", label: "A \u2014 polish-resistant" },
+            { value: "B", label: "B \u2014 polish-resistant" },
+            { value: "D", label: "D \u2014 no polish requirement" },
+          ] },
         { key: "binder_grade",    label: "Binder grade",    type: "text",   req: true, mono: true, source: "binder_grades" },
         { key: "binder_terminal", label: "Binder supplier", type: "text",   req: true, source: "binder_terminals" },
         { key: "funding",         label: "Funding",         type: "text",   req: true },
@@ -1185,6 +1211,33 @@ function controlPointsForNominalSize(nominalSize) {
     .find((k) => k !== "4" && Math.abs(parseFloat(k) - num) < 0.01);
   return key ? CONFIG.GRADATION_CONTROL_POINTS[key] : null;
 }
+// The two halves of a mix designation: "0.38B" -> { size: "0.38", letter: "B" },
+// "NO.4A" -> { size: "NO.4", letter: "A" }, "0.38" -> letter "". Used to seed
+// Contract Information's two fields from whatever supplied a whole token.
+function splitMixDesignation(raw) {
+  const t = String(raw == null ? "" : raw).trim();
+  if (!t) return { size: "", letter: "" };
+  const m = /^(.*[^A-Za-z])([A-Za-z])$/.exec(t);
+  return m ? { size: m[1], letter: m[2].toUpperCase() } : { size: t, letter: "" };
+}
+
+// What this design is actually being built to. Contract Information's own
+// two fields win: the Portal's mix lookup and a legacy MixPack only PREFILL
+// them, so a technician can correct a wrong guess, and a custom build (no
+// contract lookup at all, state.mix null) still has a designation. Falls back
+// to state.mix so a design saved before those fields existed still resolves.
+function effectiveMix() {
+  const size = fieldValue("nominal_size"), letter = fieldValue("mix_type");
+  if (size || letter) return { nominal_size: size + letter };
+  return state.mix;
+}
+
+// Current on-screen value of a scalar field, by CONFIG.SECTIONS key.
+function fieldValue(key) {
+  const el = document.querySelector(`[data-field="${key}"]`);
+  return el ? String(el.value || "").trim() : "";
+}
+
 function num(v) { const n = parseFloat(v); return Number.isFinite(n) ? n : null; }
 function fmt(v, d) { return v == null || !Number.isFinite(v) ? "—" : v.toFixed(d); }
 // Row spec by key — `s.rows` is one spec or an array of specs.
@@ -1236,7 +1289,10 @@ function inputFor(f, value) {
   const attrs = `data-field="${f.key}"`;
   if (f.source) return refControlHTML(f, cls, attrs, value);
   if (f.type === "select") {
-    return selectHTML(cls, attrs, (f.options || []).map((o) => ({ value: o, label: o })), value);
+    // An option is either a bare string (value and label are the same) or an
+    // explicit { value, label } - the mix-designation fields need the second.
+    return selectHTML(cls, attrs, (f.options || []).map((o) =>
+      (typeof o === "string" ? { value: o, label: o } : o)), value);
   }
   const type = f.type === "date" ? "date" : "text";
   const im = f.type === "number" ? ' inputmode="decimal"' : "";
@@ -1510,7 +1566,8 @@ function drawChart() {
   // on top. Sieves with both a min and a max fill as a shaded corridor;
   // sieves with only one bound (the control point just above/below the NMAS
   // itself) draw as a single tick, since there is nothing to shade between.
-  const nominalSize = state.mix ? state.mix.nominal_size : null;
+  const em = effectiveMix();
+  const nominalSize = em ? em.nominal_size : null;
   const cp = controlPointsForNominalSize(nominalSize);
   const band = cp ? gradSection().sieves
     .map((s) => ({ mm: s.mm, min: cp[s.key] ? cp[s.key][0] : null, max: cp[s.key] ? cp[s.key][1] : null }))
@@ -1961,10 +2018,10 @@ function renderPolishGrid(force) {
   const head = comps.map((c, i) =>
     `<th><div class="prname">${esc(c.type_size || "component " + (i + 1))}</div>
       <div class="prsub">${esc(c.producer || "")}</div>
-      <div class="prsub mono">${esc(c.pct_blend || "0")}% blend</div></th>`).join("");
+      <div class="prsub mono" data-prpct="${i}">${esc(c.pct_blend || "0")}% blend</div></th>`).join("");
 
-  const selRow = (label, key, opts, pick) => `<tr><th class="prrowhead">${label}</th>` + comps.map((c, i) =>
-    `<td><select class="box" data-pr="${key}:${i}">` +
+  const selRow = (label, key, opts, pick, guess) => `<tr><th class="prrowhead">${label}</th>` + comps.map((c, i) =>
+    `<td><select class="box" data-pr="${key}:${i}"${guess && guess(i) ? ' data-guess="1"' : ""}>` +
       opts.map((o) => `<option value="${esc(o.v)}"${pick(c, i) === o.v ? " selected" : ""}>${esc(o.l)}</option>`).join("") +
     `</select></td>`).join("") + `</tr>`;
 
@@ -1980,7 +2037,8 @@ function renderPolishGrid(force) {
       const p4 = parseFloat(val(`g:${i}:${P.RETAINED_SIEVE}`, ""));
       const guess = Number.isFinite(p4) && p4 > P.FINE_SOURCE_PASSING_4 ? "fine" : "coarse";
       return val(`role:${i}`, guess);
-    });
+    },
+    (i) => saved[`role:${i}`] == null);
 
   const flagRow = (label, key) => `<tr><th class="prrowhead">${label}</th>` + comps.map((c, i) =>
     `<td><input type="checkbox" data-pr="${key}:${i}" value="1"${val(`${key}:${i}`, "") ? " checked" : ""}></td>`)
@@ -1999,6 +2057,21 @@ function renderPolishGrid(force) {
       ${flagRow("Natural sand", "sand")}${flagRow("Dolomite", "dol")}${rapRow}
       <tr class="prspacer"><th class="prrowhead">% passing</th>${comps.map(() => "<td></td>").join("")}</tr>
       ${sieveRows}</tbody></table>`;
+}
+
+// Re-run the coarse/fine prefill as #4 values arrive. The grid is built before
+// any of them are typed, so the guess made at build time was always "coarse".
+// Only touches a select still marked data-guess - one the person has chosen
+// themselves is theirs and is left exactly as they set it.
+function reguessPolishRoles() {
+  const P = CONFIG.POLISH;
+  document.querySelectorAll('[data-pr^="role:"][data-guess]').forEach((sel) => {
+    const i = sel.dataset.pr.split(":")[1];
+    const el = document.querySelector(`[data-pr="g:${i}:${P.RETAINED_SIEVE}"]`);
+    const p4 = parseFloat((el && el.value) || "");
+    if (!Number.isFinite(p4)) return;
+    sel.value = p4 > P.FINE_SOURCE_PASSING_4 ? "fine" : "coarse";
+  });
 }
 
 // Gather what evaluatePolish needs: the pulled blend % plus this section's
@@ -2026,7 +2099,20 @@ function renderPolish() {
   renderPolishGrid(false);
   const host = $("prResults");
   if (!host) return null;
-  const r = evaluatePolish(polishComponents(), polishMixType(state.mix));
+  const comps = polishComponents();
+  // The column captions are built with the grid, which is only rebuilt when
+  // the SET of components changes - so a % blend edited afterwards left the
+  // caption reading the old figure (0% while the verdicts below used 20%).
+  // Retype the caption instead of rebuilding, which would take the caret.
+  comps.forEach((c, i) => {
+    const el = document.querySelector(`[data-prpct="${i}"]`);
+    if (el) el.textContent = `${c.pct == null ? "0" : c.pct}% blend`;
+  });
+  // The grid itself already says "add aggregate components first" when there
+  // are none. Saying it again in different words directly underneath read as
+  // two separate complaints about the same empty section.
+  if (!comps.length) { host.innerHTML = ""; return null; }
+  const r = evaluatePolish(comps, polishMixType(effectiveMix()));
   if (!r.ready) { host.innerHTML = `<div class="prempty">${esc(r.reason)}</div>`; return r; }
   const t = r.totals || {};
   const totals = r.restricted
@@ -2057,6 +2143,27 @@ function polishMixType(mix) {
   const no4 = /^no\.?\s?4/i.test(raw);
   const m = /([A-Z])\s*$/i.exec(raw);
   return { letter: m ? m[1].toUpperCase() : null, no4 };
+}
+
+// 403.03.03 A) restricts Type A and Type B only, so the whole section is put
+// away for anything else - including a mix type not chosen yet, since an
+// empty checklist with no verdict is just noise. Hidden, never removed: the
+// classes and gradations already typed in stay in the DOM and in the save
+// payload, so correcting D -> B brings the answers back rather than starting
+// the matrix over.
+function polishApplies() {
+  const t = polishMixType(effectiveMix());
+  return t.letter === "A" || t.letter === "B";
+}
+function applyPolishVisibility() {
+  const on = polishApplies();
+  const sec = document.querySelector('[data-section="polish"]');
+  const nav = document.querySelector('[data-target="polish"]');
+  // .hidden, not the hidden attribute: .navitem sets display:flex, which beats
+  // the user-agent [hidden] rule, and .hidden carries !important.
+  if (sec) sec.classList.toggle("hidden", !on);
+  if (nav) nav.classList.toggle("hidden", !on);
+  return on;
 }
 
 
@@ -2128,7 +2235,7 @@ function recompute() {
   // Polish-resistant: a real spec failure is a warning on the rail, not a
   // missing field - the design is complete, it just would not qualify. An
   // unproven check says so in its own words rather than crying wolf.
-  const pr = renderPolish();
+  const pr = applyPolishVisibility() ? renderPolish() : null;
   if (pr && pr.ready && pr.restricted) {
     const sec = document.querySelector('[data-section="polish"]');
     const label = sec ? sec.dataset.label : "Polish-Resistant Aggregate";
@@ -2602,6 +2709,24 @@ function extractLegacy(wb, ctx) {
     const jobMix = ctx && ctx.mix && ctx.mix.signature ? ctx.mix.signature : null;
     context.push({ what: "mix type", workbook: wbMix, job: jobMix, source: mix.source,
                    status: !wbMix ? "unknown" : !jobMix ? "no mix chosen" : norm(wbMix).includes(norm(jobMix)) ? "match" : "MISMATCH" });
+
+    // The same cell states the mix designation, and Contract Information now
+    // has fields for it, so fill them instead of only reporting a mismatch -
+    // otherwise a MixPack uploaded on a custom build leaves the mix type
+    // blank while the workbook says it plainly. Pulled loosely (the cell is
+    // the whole bid-item wording, e.g. "CL3 ASPH SURF 0.38A PG64-22", and
+    // KYTC writes the No. 4 family as "NO.4A"), and prefilled like any other
+    // extracted value: tinted, sourced, and the technician's to correct.
+    const tok = wbMix ? /(?:^|[^A-Za-z0-9.])((?:NO\.?\s?4|\d+\.\d+)\s?[A-D])(?![A-Za-z0-9])/i.exec(wbMix) : null;
+    const desig = tok ? splitMixDesignation(tok[1].replace(/\s+/g, "").toUpperCase()) : null;
+    if (desig && desig.size && desig.letter) {
+      put("nominal_size", desig.size, mix.source);
+      put("mix_type", desig.letter, mix.source);
+    } else if (wbMix) {
+      log.push({ field: "nominal_size", source: mix.source, value: wbMix, status: "unmapped-value",
+                 note: "no mix designation found in the workbook's type-of-mix wording; choose it in Contract Information" });
+      unmapped.push({ label: "Type of mix (legacy wording)", source: mix.source, value: wbMix });
+    }
   }
 
   [...L.UNMAPPED, ...(L.UNMAPPED_BY_VERSION[ver.version] || [])].forEach(([label, sk, addr]) => {
@@ -2794,6 +2919,11 @@ function wireForm() {
   // Any edit: recompute completeness, drop the "prefilled" marker. A cell a
   // person types into stops being auto-filled - it is theirs from then on.
   $("sections").addEventListener("input", (e) => {
+    // data-pr is the Polish-Resistant matrix. It was missing here, so typing
+    // a class, a #4 or a natural-sand tick into that section left its own
+    // verdicts showing the answer from before the keystroke - the section
+    // looked broken because nothing it asked for ever changed anything.
+    if (e.target.dataset.pr) { reguessPolishRoles(); recompute(); state.dirty = true; renderSavedState(); return; }
     if (e.target.dataset.field || e.target.dataset.col || e.target.dataset.fp) {
       if (e.target.dataset.autofilled) { delete e.target.dataset.autofilled; e.target.removeAttribute("title"); }
       e.target.classList.remove("prefilled", "autofilled");
@@ -2806,6 +2936,9 @@ function wireForm() {
   // On commit, a typed value that matches a reference entry loosely (case,
   // spacing, an AGP/LAP number) takes the KYTC spelling; no match stays as typed.
   $("sections").addEventListener("change", (e) => {
+    // A role the person picked themselves is theirs - stop guessing at it.
+    if (e.target.dataset.pr && /^role:/.test(e.target.dataset.pr)) delete e.target.dataset.guess;
+    if (e.target.dataset.pr) { recompute(); state.dirty = true; renderSavedState(); return; }
     if (e.target.dataset.source) snapToReference(e.target);
     if (e.target.tagName === "SELECT" || e.target.dataset.source) { autofillFrom(e.target); recompute(); }
   });
