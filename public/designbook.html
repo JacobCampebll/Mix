@@ -238,7 +238,7 @@
   .stagebtn.ghost{background:none; color:var(--accent); border-color:var(--accent); margin-left:8px;}
   .stagebtn.ghost:disabled{color:var(--muted); border-color:var(--line); background:none;}
   .stagenote{font-size:12px; color:var(--muted); margin-top:8px;}
-  /* Review PDF: the save button of a site that stores nothing. */
+  /* Review PDF: the portable copy, offered next to the stage buttons. */
   .handoff{margin-top:18px; padding-top:16px; border-top:1px solid var(--line);}
   .handoff .stagebtn{margin-top:0;}
   .handoffnote{font-size:12px; color:var(--muted); margin-top:8px; max-width:62ch; line-height:1.5;}
@@ -1302,9 +1302,11 @@ function statusHTML() {
     <div class="stagenote" id="stageNote"></div>
     <div class="handoff">
       <button class="stagebtn" id="pdfBtn">Download review PDF</button>
-      <div class="handoffnote">This site stores nothing. The PDF is your copy of the design &mdash;
+      <div class="handoffnote">The PDF is your portable copy of the design &mdash;
         it carries every value inside it, so uploading it back reopens the form exactly as it is now.
-        Send it to your supervisor for internal review, or keep it to come back to later.</div>
+        Send it to your supervisor for internal review, or keep it to come back to later.
+        <strong>Save design</strong> is separate: it keeps this design in your KYTC
+        account so you can reopen it from the Portal on any device.</div>
     </div>
     <div class="refstatus" id="refStatus"></div>
     <div class="auditlog" id="auditlog"></div>`;
@@ -3023,8 +3025,7 @@ async function buildReviewPDF(payload) {
       weights: [1.3, 0.9, 1.4] });
   }
 
-  const note = "This PDF carries the full design inside it. Upload it to DesignBook to reopen and edit. " +
-               "The site stores nothing - this file is the record.";
+  const note = "This PDF carries the full design inside it. Upload it to DesignBook to reopen and edit.";
   pages.forEach((pg, i) => {
     pg.drawRectangle({ x: P.mx, y: P.bottom - 13, width: P.w - P.mx * 2, height: 0.4, color: col(C.rule) });
     pg.drawText(fit(note, P.w - P.mx * 2 - 60, font, T.foot), { x: P.mx, y: P.bottom - 24, size: T.foot, font, color: col(C.muted) });
