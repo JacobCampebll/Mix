@@ -108,10 +108,15 @@
 
   .layout{max-width:1220px; margin:0 auto; display:grid;
           grid-template-columns:200px minmax(0,1fr) 250px; gap:28px; padding:28px 32px 80px;}
-  @media (max-width:1080px){ .layout{grid-template-columns:minmax(0,1fr); } .nav,.valpanel{position:static;} }
+  @media (max-width:1080px){ .layout{grid-template-columns:minmax(0,1fr);} }
 
   /* left ledger rail */
   .nav{position:sticky; top:132px; align-self:start; padding-left:4px;}
+  /* Keep every "un-stick the rail" override BELOW the rule it overrides. Both
+     are one class, so equal specificity and source order decides: this used to
+     sit up with .layout, above .nav and .valpanel, and lost to them - the rail
+     stayed sticky on a phone and the section list scrolled over the form. */
+  @media (max-width:1080px){ .nav{position:static;} }
   .navtitle{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:14px;}
   .navlist{list-style:none; margin:0; padding:0; position:relative;}
   .navlist::before{content:''; position:absolute; left:5px; top:6px; bottom:6px; width:1px; background:var(--line);}
@@ -239,7 +244,7 @@
   .approvalbox input{width:120px; padding:7px 9px; border:1px solid var(--line); border-radius:var(--radius);
     font-family:'IBM Plex Mono',monospace; font-size:15px;}
   .approvalhint{font-size:11.5px; color:var(--muted); margin-top:8px; max-width:60ch; line-height:1.5;}
-  /* Review PDF: the save button of a site that stores nothing. */
+  /* Review PDF: the portable copy, offered next to the stage buttons. */
   .handoff{margin-top:18px; padding-top:16px; border-top:1px solid var(--line);}
   .handoff .stagebtn{margin-top:0;}
   .handoffnote{font-size:12px; color:var(--muted); margin-top:8px; max-width:62ch; line-height:1.5;}
@@ -254,6 +259,7 @@
   /* right validation rail */
   .valpanel{position:sticky; top:132px; align-self:start; background:var(--panel);
             border:1px solid var(--line); border-radius:10px; padding:18px;}
+  @media (max-width:1080px){ .valpanel{position:static;} }
   .valpanel h3{font-size:13px; margin-bottom:4px;}
   .valpanel .sub{font-size:11px; color:var(--muted); margin-bottom:14px;}
   .vitem{display:flex; gap:8px; padding:8px 0; border-top:1px solid var(--line);
@@ -1333,9 +1339,11 @@ function statusHTML() {
     <div class="handoff">
       <button class="stagebtn hidden" id="approvalPdfBtn">Download approval</button>
       <button class="stagebtn" id="pdfBtn">Download review PDF</button>
-      <div class="handoffnote">This site stores nothing. The PDF is your copy of the design &mdash;
+      <div class="handoffnote">The PDF is your portable copy of the design &mdash;
         it carries every value inside it, so uploading it back reopens the form exactly as it is now.
-        Send it to your supervisor for internal review, or keep it to come back to later.</div>
+        Send it to your supervisor for internal review, or keep it to come back to later.
+        <strong>Save design</strong> is separate: it keeps this design in your KYTC
+        account so you can reopen it from the Portal on any device.</div>
     </div>
     <div class="refstatus" id="refStatus"></div>
     <div class="auditlog" id="auditlog"></div>`;
@@ -3145,8 +3153,7 @@ async function buildReviewPDF(payload) {
       weights: [1.3, 0.9, 1.4] });
   }
 
-  const note = "This PDF carries the full design inside it. Upload it to DesignBook to reopen and edit. " +
-               "The site stores nothing - this file is the record.";
+  const note = "This PDF carries the full design inside it. Upload it to DesignBook to reopen and edit.";
   pages.forEach((pg, i) => {
     pg.drawRectangle({ x: P.mx, y: P.bottom - 13, width: P.w - P.mx * 2, height: 0.4, color: col(C.rule) });
     pg.drawText(fit(note, P.w - P.mx * 2 - 60, font, T.foot), { x: P.mx, y: P.bottom - 24, size: T.foot, font, color: col(C.muted) });

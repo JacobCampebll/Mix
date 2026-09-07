@@ -348,6 +348,24 @@ TBD — cite the governing spec section when encoding a limit in code.
   confirmed with Andrew 2026-09-04 that the letter is unrelated to NMAS or
   gradation control points, so don't try to derive meaning from it here.
 
+- **A `@media` block does not beat a later rule of the same specificity — a
+  media query is not a tiebreaker, it only gates when the block applies.**
+  `designbook.html` put `@media (max-width:1080px){ .nav,.valpanel{position:
+  static;} }` up beside `.layout`, above the `.nav` and `.valpanel` rules that
+  set `position:sticky`. All three are one class, so the tie went to source
+  order and the later `sticky` won at *every* width. The override was dead
+  code that read as working, and the symptom appeared far from the cause: on a
+  phone the layout correctly collapsed to one column (that half of the same
+  media query *is* below `.layout`, so it worked), the rails then stayed
+  pinned under the header, and because `.nav` has no background the section
+  list ghosted through the form as you scrolled. Reported off a phone
+  2026-09-07, and it had hit tablets too — anything at or below 1080px.
+  **Put a responsive override directly below the rule it overrides**, which is
+  what the other five media queries in that file already do; that adjacency is
+  the convention, not decoration. Worth checking with
+  `getComputedStyle(el).position` at a phone viewport rather than by eye,
+  since a dead override looks identical to a live one in the source.
+
 
 ### Technician login & plant access
 
@@ -508,6 +526,20 @@ The flow, which is deliberately *not* a linear stage ladder:
 Still open: what actually happens at Submit (the hand-off to SiteManager /
 AASHTOWare Project), and how email leaves the browser - `mailto:` cannot carry
 an attachment, so that wants a Netlify Function, which is transit, not storage.
+
+**Decided is not built: production still stores designs.** Checked
+2026-09-07. Everything above is the decision and it is implemented only on
+`claude/jake-sandbox` (PR #9, do-not-merge). What `kytcmix.netlify.app`
+actually serves is still the old database-backed model - "Save design"
+inserts/updates a `designs` row, `setStage()` saves before every stage move,
+the stepper is still the four-stage `Draft -> Internal Review -> Released ->
+Approved`, and the Portal's `?design=` link only resolves against a saved
+row. The *copy* from the new model reached production ahead of the
+behaviour, so the page claimed "This site stores nothing" while saving;
+corrected 2026-09-07 rather than by ripping out a load-bearing button. Do
+not read this section as a description of the live site until PR #9 is
+resolved, and note `designs` is no longer empty - one Draft row from
+2026-09-04 testing.
 
 **The tables from the old model are applied but empty and no longer the
 store.** `designs`, `design_events`, `design_summaries` and the stage trigger
