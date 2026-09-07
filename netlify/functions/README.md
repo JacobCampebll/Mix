@@ -46,7 +46,18 @@ is looking at it:
 
 - only a `can_review` account may approve;
 - the approver may not be the person who submitted it — read out of the
-  file's own chain of custody. This used to be a Postgres trigger.
+  file's own chain of custody. This used to be a Postgres trigger. The
+  history entry it looks for is named by the server (`SUBMITTED_ACTION` in
+  `lib/canonical.mjs`), never by the request, so a caller cannot point the
+  lookup at a different entry. The history itself is still written by the
+  page, so this rule is only as strong as the file — what the server
+  guarantees is that whoever it finds is the one signed into the approval.
+
+Both `sign-approval` and `send-submission` also refuse an account that has
+not finished onboarding. The pages redirect those to login, but a function
+cannot lean on a page: a valid token can call it directly, and before
+onboarding the account's email is the fabricated `@technicians.mix.local`
+address, which would have become the reply-to on a submission.
 
 The approval number is derived from the signature, so it is a fingerprint of
 that exact design and cannot be moved onto another one.

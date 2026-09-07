@@ -30,8 +30,16 @@ export function canonicalDesign(payload) {
   });
 }
 
+// The history action that marks a submission. The server owns this string.
+// sign-approval finds the submitter by it, so if the caller could supply it,
+// a reviewer could point the lookup at some other history entry and approve a
+// design they had submitted themselves. designbook.html's
+// CONFIG.SUBMIT.ACTION.submitted must equal it: the page writes the entry,
+// this reads it, and every file already issued carries this exact text.
+export const SUBMITTED_ACTION = "Submitted to KYTC";
+
 // The last person who submitted it, from the file's own chain of custody.
-export function submitterOf(payload, submittedAction) {
+export function submitterOf(payload, submittedAction = SUBMITTED_ACTION) {
   const h = Array.isArray(payload.history) ? payload.history : [];
   const e = h.filter((x) => x && x.action === submittedAction).slice(-1)[0];
   return e && e.sm_id ? e.sm_id : null;

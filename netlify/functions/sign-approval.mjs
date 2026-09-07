@@ -13,7 +13,11 @@
  *   - only a can_review account may approve;
  *   - the approver may not be the person who submitted it.
  * The second used to be a Postgres trigger. It now reads the submitter out
- * of the file's chain of custody.
+ * of the file's chain of custody. That history is written by the page, so
+ * the rule is only as strong as the file (CLAUDE.md: a status carried in a
+ * file is a claim). What the server does guarantee is that the submitter it
+ * finds is the one signed into the approval, and that the caller cannot
+ * choose which history entry it looks at.
  *
  * Environment: SUPABASE_URL, SUPABASE_ANON_KEY, APPROVAL_SIGNING_SECRET.
  */
@@ -28,14 +32,18 @@ export default async (req) => {
 
   let body;
   try { body = await req.json(); } catch { return json(400, { error: "Bad request body." }); }
-  const { payload, submitted_action, sequence } = body || {};
+  // The body carries the design and the sequence the reviewer typed, and
+  // nothing that steers the checks below. An earlier version also accepted
+  // the history action string to look the submitter up by; it is now fixed
+  // in lib/canonical.mjs (SUBMITTED_ACTION) and anything sent is ignored.
+  const { payload, sequence } = body || {};
   if (!payload || !payload.job || !payload.job.cid)
     return json(400, { error: "That design is incomplete - it carries no contract." });
 
   const who = await verifyTechnician(req, { requireReview: true });
   if (!who.ok) return json(who.status, { error: who.error });
 
-  const submittedBy = submitterOf(payload, submitted_action || "Submitted to KYTC");
+  const submittedBy = submitterOf(payload);
   if (!submittedBy)
     return json(409, { error: "That design has no submission on record, so there is nothing to approve." });
   if (submittedBy === who.sm_id)

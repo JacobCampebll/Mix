@@ -561,7 +561,9 @@ const CONFIG = {
     SIGN_FN: "/.netlify/functions/sign-approval",
     VERIFY_FN: "/.netlify/functions/verify-approval",
     // History actions. These strings are the record - changing one orphans
-    // the chain of custody in every file already issued.
+    // the chain of custody in every file already issued. `submitted` must
+    // equal SUBMITTED_ACTION in netlify/lib/canonical.mjs: this page writes
+    // the entry, sign-approval finds the submitter by it.
     ACTION: { submitted: "Submitted to KYTC", approved: "Approved by KYTC" },
   },
 
@@ -3775,7 +3777,10 @@ async function approveDesign() {
     const res = await fetch(CONFIG.SUBMIT.SIGN_FN, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${await accessToken()}` },
-      body: JSON.stringify({ payload, sequence: seq, submitted_action: CONFIG.SUBMIT.ACTION.submitted }),
+      // The design and the number the reviewer typed, nothing that steers the
+      // server's checks. Which history entry marks the submission is the
+      // server's to decide (SUBMITTED_ACTION in netlify/lib/canonical.mjs).
+      body: JSON.stringify({ payload, sequence: seq }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `The approval was not issued (${res.status}).`);

@@ -36,12 +36,19 @@ export async function verifyTechnician(req, opts) {
   const user = await u.json();
 
   const q = await fetch(
-    `${url}/rest/v1/technicians?user_id=eq.${encodeURIComponent(user.id)}&select=sm_id,first_name,last_name,company,can_review`,
+    `${url}/rest/v1/technicians?user_id=eq.${encodeURIComponent(user.id)}&select=sm_id,first_name,last_name,company,can_review,onboarded`,
     { headers: { apikey: anon, Authorization: `Bearer ${token}` } });
   if (!q.ok) return { ok: false, status: 502, error: "Couldn't confirm your account." };
   const rows = await q.json();
   const t = Array.isArray(rows) ? rows[0] : null;
   if (!t) return { ok: false, status: 403, error: "This account isn't linked to a technician." };
+  // The pages send an un-onboarded account back to login, but a function
+  // cannot lean on a page: anyone holding a valid token can call it directly.
+  // Until onboarding the account's email is the fabricated
+  // <sm_id>@technicians.mix.local, which would otherwise become the reply-to
+  // on a submission and bounce KYTC's answer into nothing.
+  if (!t.onboarded)
+    return { ok: false, status: 403, error: "Finish setting up your account (a real email and password) before submitting or approving." };
   if (need && !t.can_review)
     return { ok: false, status: 403, error: "Approving a design is a KYTC Central Office reviewer's action." };
 
