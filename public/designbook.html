@@ -1848,6 +1848,10 @@ function renderStage() {
   // here would be theatre. The warning is honest instead.
   const frozen = s.key === "Approved";
   document.querySelectorAll("#sections input, #sections select").forEach((el) => { el.disabled = frozen; });
+  // Save follows the same lock as the inputs. The stage restructure dropped
+  // this line, which left Save live on an approved design while every field
+  // beside it was disabled.
+  $("saveBtn").disabled = frozen || state.saving;
   const warn = $("stageWarn");
   if (warn) {
     const stale = s.key === "Submitted" && state.dirty;
