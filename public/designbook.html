@@ -488,6 +488,12 @@ const CONFIG = {
   HANDOFF: {
     FORMAT: "kytc-designbook",
     VERSION: 1,
+    // Which document a file is. Carried in the payload as `doc_kind` so a
+    // reopened file still knows, and so the sheet can say plainly which one
+    // the reader is holding. Deliberately NOT part of what the approval
+    // signature covers (designParts / canonicalDesign list their fields
+    // explicitly), so adding it cannot invalidate an issued approval.
+    DOC: { review: "review", submittal: "submittal", approval: "approval" },
     ATTACHMENT: "designbook-data.json",
     // Prefix on the base64 fallback copy in the PDF's Keywords.
     MARKER: "KYTC-DESIGNBOOK-V1:",
@@ -1050,6 +1056,9 @@ const state = {
   plantName: null,   // resolved from the plants table; travels in the review PDF
   approval: null,    // { approval_no, code, issued_at, approved_by, submitted_by } once KYTC signs it
   signedDesign: null,// the design exactly as the approval signature covers it
+  submitted: null,   // the payload EXACTLY as sent to KYTC - the submittal PDF
+                     // renders from this, never from the live form, so editing
+                     // afterwards can never change what the submittal says
   savedExtractedFrom: null, // extracted_from as carried in a reopened review PDF
   downloadedAt: null, // when the last review PDF was taken - the only "saved" there is
   canReview: false,  // technicians.can_review - may move past Internal Review, send back to Draft
@@ -1337,6 +1346,7 @@ function statusHTML() {
     </div>
     <div class="handoff">
       <button class="stagebtn hidden" id="approvalPdfBtn">Download approval</button>
+      <button class="stagebtn hidden" id="submittalPdfBtn">Download submittal PDF</button>
       <button class="stagebtn" id="pdfBtn">Download review PDF</button>
       <div class="handoffnote">This is how you save. Nothing about this design is
         kept on the site &mdash; the PDF is the only copy, and it carries every value
@@ -1845,6 +1855,9 @@ function renderStage() {
   // The approval document only exists once there is an approval to put on it.
   const apdf = $("approvalPdfBtn");
   if (apdf) apdf.classList.toggle("hidden", !state.approval);
+  // Only a design that has actually been sent has a submittal to print.
+  const spdf = $("submittalPdfBtn");
+  if (spdf) spdf.classList.toggle("hidden", !state.submitted);
   const rpdf = $("pdfBtn");
   if (rpdf) rpdf.textContent = state.approval ? "Download full design sheet" : "Download review PDF";
   back.disabled = state.saving;
@@ -2538,6 +2551,7 @@ function handoffPayload(action) {
   return {
     format: CONFIG.HANDOFF.FORMAT,
     version: CONFIG.HANDOFF.VERSION,
+    doc_kind: CONFIG.HANDOFF.DOC.review,
     generated_at: new Date().toISOString(),
     generated_by: who,
     stage: CONFIG.STAGES[state.stageIdx] ? CONFIG.STAGES[state.stageIdx].key : "Draft",
@@ -2565,8 +2579,14 @@ function handoffPayload(action) {
 
 function handoffFileName(payload) {
   const j = payload.job || {};
-  const d = new Date().toISOString().slice(0, 10);
-  return `DesignBook_${j.cid || "design"}_${j.plant || "plant"}_${d}.pdf`
+  // A submittal is dated by the submission it records, not by the day someone
+  // happened to re-download it, and says so in the name - the two documents
+  // end up in the same folder and must not look interchangeable.
+  const submittal = payload.doc_kind === CONFIG.HANDOFF.DOC.submittal;
+  const sub_ = (payload.history || []).filter((h) => h.action === CONFIG.SUBMIT.ACTION.submitted).slice(-1)[0];
+  const d = (submittal && sub_ && sub_.at ? new Date(sub_.at) : new Date()).toISOString().slice(0, 10);
+  const kind = submittal ? "submittal_" : "";
+  return `DesignBook_${kind}${j.cid || "design"}_${j.plant || "plant"}_${d}.pdf`
     .replace(/[^A-Za-z0-9_.-]/g, "");
 }
 
@@ -3010,9 +3030,20 @@ async function buildReviewPDF(payload) {
   }
   page.drawText("KYTC Mix Design", { x: P.mx, y, size: T.title, font: bold, color: col(C.navy) });
   y -= T.title + 4;
-  const subtitle = payload.stage === "Submitted" ? "Submitted to KYTC - pending review"
-                 : payload.stage === "Approved" ? "Approved by KYTC - this copy carries its own verification code"
-                 : "Internal review copy - not an approval";
+  // Which document this IS decides the line, not the stage. After a
+  // submission the stage is "Submitted", so keying off stage alone made a
+  // freshly downloaded working copy claim to be the submitted document.
+  const D = CONFIG.HANDOFF.DOC;
+  const sub_ = (payload.history || []).filter((h) => h.action === CONFIG.SUBMIT.ACTION.submitted).slice(-1)[0];
+  const subWhen = sub_ && sub_.at ? new Date(sub_.at).toLocaleDateString() : null;
+  const subtitle =
+      payload.doc_kind === D.submittal
+        ? `Submitted to KYTC${subWhen ? ` on ${subWhen}` : ""}${sub_ && sub_.sm_id ? ` by ${sub_.sm_id}` : ""} - this is the submitted document`
+    : payload.stage === "Approved"
+        ? "Approved by KYTC - this copy carries its own verification code"
+    : payload.stage === "Submitted"
+        ? "Working copy of a submitted design - the submitted document is a separate download"
+    : "Internal review copy - not an approval";
   page.drawText(subtitle, { x: P.mx, y, size: T.sub, font, color: col(C.muted) });
   y -= T.sub + RW.headerGap;
 
@@ -3139,6 +3170,14 @@ function trimFlatCoarseEnd(sieves, cpts) {
 // The parts of a payload the approval signature actually covers. Must match
 // canonicalDesign() in netlify/lib/canonical.mjs - if the two lists
 // drift, approvals stop verifying with no visible cause.
+// A submittal must not move. A spread would share `values` and `rows` with
+// the payload it came from, so this deep-copies: the payload is JSON by
+// definition (it is embedded in the PDF as JSON), so a round-trip is both
+// sufficient and a guarantee that what we keep is exactly what can be re-read.
+function freezeSubmittal(payload) {
+  return { ...JSON.parse(JSON.stringify(payload)), doc_kind: CONFIG.HANDOFF.DOC.submittal };
+}
+
 function designParts(payload) {
   return {
     format: payload.format, version: payload.version,
@@ -3471,6 +3510,11 @@ function applyHandoff(payload) {
     log: [], sheets: [], scalars: {}, sources: {}, tables: {},
   } : null;
   state.history = payload.history || [];
+  // A file that carries a submission IS the record of that submission, so it
+  // restores the frozen submittal too - otherwise reopening a submitted
+  // design would lose the ability to reprint what was sent.
+  const wasSubmitted = (payload.history || []).some((h) => h.action === CONFIG.SUBMIT.ACTION.submitted);
+  state.submitted = wasSubmitted ? freezeSubmittal(payload) : null;
   const at = CONFIG.STAGES.findIndex((x) => x.key === payload.stage);
   state.stageIdx = at < 0 ? 0 : at;
 }
@@ -3501,6 +3545,36 @@ async function downloadApprovalPDF() {
     msg($("saveMsg"), `${name} downloaded. Send it to the contractor - the site keeps nothing.`, "ok");
   } catch (err) {
     msg($("saveMsg"), err.message || "Couldn't build the approval.", "error");
+  } finally {
+    btn.disabled = false; btn.textContent = was;
+  }
+}
+
+// Reprint the document KYTC received. Renders the frozen snapshot, so it is
+// byte-for-byte the same design every time and is unaffected by anything
+// typed since - which is the whole point of a submittal. No history entry is
+// appended for the same reason: a record of an event should not change each
+// time someone looks at it.
+async function downloadSubmittalPDF() {
+  const btn = $("submittalPdfBtn");
+  if (!btn || btn.disabled) return;
+  if (!state.submitted) { msg($("saveMsg"), "This design has not been submitted to KYTC yet.", "error"); return; }
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = "Building PDF...";
+  try {
+    const payload = state.submitted;
+    const bytes = await buildReviewPDF(payload);
+    const name = handoffFileName(payload);
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    msg($("saveMsg"), `${name} downloaded - the design exactly as KYTC received it.`, "ok");
+    audit(`Submittal PDF generated - ${state.tech ? state.tech.sm_id : ""}`);
+  } catch (err) {
+    msg($("saveMsg"), err.message || "Couldn't build the submittal PDF.", "error");
   } finally {
     btn.disabled = false; btn.textContent = was;
   }
@@ -3648,11 +3722,15 @@ async function submitToKYTC() {
     if (!res.ok) throw new Error(body.error || `The submission was not sent (${res.status}).`);
 
     state.history = payload.history;
+    // Freeze what was actually sent. Everything after this - further edits, a
+    // resubmission attempt that fails - leaves this untouched, so the
+    // submittal PDF can never drift from the document KYTC received.
+    state.submitted = freezeSubmittal(payload);
     state.dirty = false;
     renderStage();
     audit(`${CONFIG.SUBMIT.ACTION.submitted} - ${who}`);
     msg($("saveMsg"),
-      `Submitted to KYTC as ${who}${body.to ? ` (${body.to})` : ""}. Download the PDF for your own records - the site keeps nothing.`, "ok");
+      `Submitted to KYTC as ${who}${body.to ? ` (${body.to})` : ""}. Download the submittal PDF for your records - it is the document they received, and the site keeps nothing.`, "ok");
   } catch (err) {
     state.stageIdx = prevIdx;               // nothing was sent, so nothing moved
     renderStage();
@@ -4115,6 +4193,7 @@ $("signOutLink").addEventListener("click", async () => { await sb.auth.signOut()
 document.addEventListener("click", (e) => {
   if (!e.target) return;
   if (e.target.id === "pdfBtn") downloadReviewPDF();
+  if (e.target.id === "submittalPdfBtn") downloadSubmittalPDF();
   if (e.target.id === "approvalPdfBtn") downloadApprovalPDF();
 });
 $("skipUpload").addEventListener("click", () => {
