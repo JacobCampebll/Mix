@@ -10,8 +10,8 @@
  * Environment: APPROVAL_SIGNING_SECRET (the same secret sign-approval uses).
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { json, ENV } from "./_auth.mjs";
-import { signingMaterial, encodeDigest } from "./_canonical.mjs";
+import { json, ENV } from "../lib/auth.mjs";
+import { signingMaterial, encodeDigest } from "../lib/canonical.mjs";
 
 export default async (req) => {
   if (req.method !== "POST") return json(405, { error: "POST only." });

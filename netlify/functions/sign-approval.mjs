@@ -18,8 +18,8 @@
  * Environment: SUPABASE_URL, SUPABASE_ANON_KEY, APPROVAL_SIGNING_SECRET.
  */
 import { createHmac } from "node:crypto";
-import { verifyTechnician, json, ENV } from "./_auth.mjs";
-import { signingMaterial, submitterOf, encodeDigest, approvalNumbers } from "./_canonical.mjs";
+import { verifyTechnician, json, ENV } from "../lib/auth.mjs";
+import { signingMaterial, submitterOf, encodeDigest, approvalNumbers } from "../lib/canonical.mjs";
 
 export default async (req) => {
   if (req.method !== "POST") return json(405, { error: "POST only." });

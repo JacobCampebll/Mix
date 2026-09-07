@@ -14,7 +14,7 @@
  * Environment: SUPABASE_URL, SUPABASE_ANON_KEY, RESEND_API_KEY,
  * KYTC_SUBMIT_TO, SUBMIT_FROM.
  */
-import { verifyTechnician, json, ENV } from "./_auth.mjs";
+import { verifyTechnician, json, ENV } from "../lib/auth.mjs";
 
 const MAX_BYTES = 8 * 1024 * 1024;   // a design is ~50 KB; this is a sanity bound
 

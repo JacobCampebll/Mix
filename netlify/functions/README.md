@@ -11,8 +11,12 @@ genuinely cannot do the job:
 | `sign-approval` | An approval must be impossible to forge by editing a file. That needs a secret the browser never sees. |
 | `verify-approval` | Checking an approval needs the same secret. Open on purpose — a district office with a PDF should be able to check it without an account. |
 
-`_auth.mjs` and `_canonical.mjs` are shared modules, not functions (Netlify
-skips names starting with `_`).
+The shared code they import lives in **`netlify/lib/`** (`auth.mjs`,
+`canonical.mjs`), deliberately outside this directory. Netlify deploys every
+file in `netlify/functions/` as an endpoint, and a leading underscore does
+**not** exempt it - an earlier version of this file said it did, and the deploy
+preview proved otherwise (`/.netlify/functions/_auth` returned a 502 "handler
+not found", not a 404). Anything that is not itself a function goes in `lib/`.
 
 ## Environment variables
 
@@ -35,7 +39,7 @@ will tell you what is missing.
 
 ## How an approval is trusted
 
-`sign-approval` HMACs a canonical form of the design (`_canonical.mjs`) plus
+`sign-approval` HMACs a canonical form of the design (`lib/canonical.mjs`) plus
 the approver, the submitter and the timestamp. Two rules are enforced
 **there** rather than in the page, because a page can be edited by whoever
 is looking at it:
@@ -64,7 +68,7 @@ KYTC numbers designs sequentially from 001 at the start of each year, around
 ```
 
 So the reviewer types **one thing — the sequence** — and both renderings come
-from it (`_canonical.mjs`, `approvalNumbers`).
+from it (`lib/canonical.mjs`, `approvalNumbers`).
 
 **There is no counter and no register here.** Sequential numbering needs
 shared state and this model stores nothing, so the number comes from whatever

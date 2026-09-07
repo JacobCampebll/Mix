@@ -131,7 +131,7 @@ needed. That is the number
 printed on the sheet as `MIX ID NUM.`, and `#467PA` is how KYTC refers to it in
 conversation - sequence `467`, `PA` because it was performance-reviewed. This
 independently confirms the decomposition already built into
-`netlify/functions/_canonical.mjs`.
+`netlify/lib/canonical.mjs`.
 
 ## `t_tst_rslt_dtl` - the design itself
 

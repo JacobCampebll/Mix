@@ -6,8 +6,12 @@
  * the CALLER'S OWN token, so RLS is what limits it - no service_role key is
  * involved, and this cannot be turned into a way to read the roster.
  *
- * Files starting with "_" are not deployed as functions; this is a shared
- * module the others import.
+ * This is a shared module, not a function. It lives in netlify/lib/ rather
+ * than netlify/functions/ because Netlify deploys EVERY file in the functions
+ * directory as an endpoint - a leading underscore does not exempt it. Checked
+ * on the deploy preview 2026-09-07: /.netlify/functions/_auth answered 502
+ * "handler not found" rather than 404. The bundler follows relative imports
+ * into sibling directories, so this is the tidy place.
  */
 export const ENV = (k) => process.env[k] || "";
 

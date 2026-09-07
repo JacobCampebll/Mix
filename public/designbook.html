@@ -3211,7 +3211,7 @@ function trimFlatCoarseEnd(sieves, cpts) {
 
 
 // The parts of a payload the approval signature actually covers. Must match
-// canonicalDesign() in netlify/functions/_canonical.mjs - if the two lists
+// canonicalDesign() in netlify/lib/canonical.mjs - if the two lists
 // drift, approvals stop verifying with no visible cause.
 function designParts(payload) {
   return {
