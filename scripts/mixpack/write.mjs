@@ -34,7 +34,11 @@ export function setCell(xml, ref, value) {
     : isNum(value)
       ? `<c r="${ref}"${s}><v>${+value}</v></c>`
       : `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${esc(value)}</t></is></c>`;
-  if (m) return xml.replace(re, cell);
+  // Every splice below passes the replacement as a FUNCTION. A string
+  // replacement is a pattern: "$1", "$&" and "$$" inside it are expanded, so a
+  // remark like "$1,200 change order" would have written a back-reference into
+  // the sheet. esc() only handles the XML characters; this is the other half.
+  if (m) return xml.replace(re, () => cell);
   return insertCell(xml, ref, cell);
 }
 
@@ -49,18 +53,18 @@ function insertCell(xml, ref, cell) {
     const after = [...xml.matchAll(/<row[^>]*\sr="(\d+)"[^>]*(?:\/>|>[\s\S]*?<\/row>)/g)]
       .filter(m => +m[1] < r).pop();
     if (after) return xml.slice(0, after.index + after[0].length) + row + xml.slice(after.index + after[0].length);
-    return xml.replace(/(<sheetData[^>]*>)/, `$1${row}`);
+    return xml.replace(/<sheetData[^>]*>/, (open) => open + row);
   }
   let rowXml = rm[0];
-  if (/\/>$/.test(rowXml)) rowXml = rowXml.replace(/\/>$/, `>${cell}</row>`);
+  if (/\/>$/.test(rowXml)) rowXml = rowXml.replace(/\/>$/, () => `>${cell}</row>`);
   else {
     const cells = [...rowXml.matchAll(/<c r="([A-Z]+\d+)"(?:[^>]*)(?:\/>|>[\s\S]*?<\/c>)/g)];
     const before = cells.filter(m => colNum(m[1]) < c).pop();
     rowXml = before
       ? rowXml.slice(0, before.index + before[0].length) + cell + rowXml.slice(before.index + before[0].length)
-      : rowXml.replace(/(<row[^>]*>)/, `$1${cell}`);
+      : rowXml.replace(/<row[^>]*>/, (open) => open + cell);
   }
-  return xml.replace(rowRe, rowXml);
+  return xml.replace(rowRe, () => rowXml);
 }
 
 /**
