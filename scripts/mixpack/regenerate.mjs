@@ -16,25 +16,30 @@
 // Real MixPacks are gitignored, so this takes a path rather than a fixture.
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { cellsOf, sheetXml, sharedStrings, STAGING, SOURCE, rowNum, FIRST_DATA_ROW } from './xlsx.mjs';
 import { fillWorkbook, packWorkbook } from './write.mjs';
 import { evaluate } from './formula.mjs';
 
-const HERE = path.dirname(new URL(import.meta.url).pathname);
+// fileURLToPath, not URL.pathname: the latter is percent-encoded, so a
+// checkout under a path with a space could not find the template.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE = path.join(HERE, '../../public/MIXPACK2026_VER12_01.xlsm');
+const USAGE = 'usage: regenerate.mjs <completed.xlsm> [out.xlsm] [--set "Design Data!H10=00269999" ...]';
 const argv = process.argv.slice(2);
-const overrides = {};
+const overrides = {}, positional = [];
 for (let i = 0; i < argv.length; i++) {
-  if (argv[i] !== '--set') continue;
-  const eq = argv[i + 1].indexOf('=');
-  overrides[argv[i + 1].slice(0, eq)] = argv[i + 1].slice(eq + 1);
-  argv.splice(i, 2); i--;
+  if (argv[i] !== '--set') { positional.push(argv[i]); continue; }
+  const kv = argv[++i];
+  const eq = kv == null ? -1 : kv.indexOf('=');
+  if (eq < 1) {
+    console.error(`--set needs "Sheet!Cell=value", got ${JSON.stringify(kv ?? '')}\n${USAGE}`);
+    process.exit(2);
+  }
+  overrides[kv.slice(0, eq)] = kv.slice(eq + 1);
 }
-const SRC = argv[0], OUT = argv[1];
-if (!SRC) {
-  console.error('usage: regenerate.mjs <completed.xlsm> [out.xlsm] [--set "Design Data!H10=00269999" ...]');
-  process.exit(2);
-}
+const [SRC, OUT] = positional;
+if (!SRC) { console.error(USAGE); process.exit(2); }
 
 const NUMRE = /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/;
 const SST = sharedStrings(SRC);
