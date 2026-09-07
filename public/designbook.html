@@ -217,6 +217,10 @@
   .prsub{font-size:11px; color:var(--muted); line-height:1.45;}
   .prtable .box{width:100%; padding:4px 6px; font-size:12px;}
   .prtable .prkey{background:var(--flag-soft);}  /* the #4 is the one the arithmetic keys on */
+  /* A cell KYTC's approved-materials list settled: stated, not asked. Reads as
+     data rather than as an empty control somebody forgot to fill in. */
+  .prderived{background:var(--wash);}
+  .prfact{font-size:12px;}
   .prspacer th{border-top:2px solid var(--line);}
   .prresults{margin-top:16px;}
   .prtotals{font-size:11.5px; color:var(--muted); margin-bottom:10px; line-height:1.6;}
@@ -1873,8 +1877,12 @@ function evaluatePolish(comps, mix) {
   // whose four fine components are all unclassified. Report those as
   // unproven and name what to go and find out, rather than failing a design
   // that may well be fine.
-  const anyUnclassed = use.some((c) => !c.cls);
-  const unclassed = use.filter((c) => !c.cls).map((c) => c.name || "a component");
+  // A hedge belongs only where there is real doubt. A component whose type
+  // is on KYTC's list and carries no class is not "unproven" - it is proven
+  // not polish-resistant. Only a type the list has never heard of leaves a
+  // failing check genuinely unsettled.
+  const anyUnclassed = use.some((c) => c.unknown);
+  const unclassed = use.filter((c) => c.unknown).map((c) => c.name || "a component");
   const checks = [];
   const add = (label, ok, detail, cite) => checks.push({
     label, ok, detail, cite: cite || P.CITE,
@@ -1977,24 +1985,47 @@ function polishAggregateRows() {
   }).filter((r) => r.type_size || r.producer || r.pct_blend);
 }
 
-// Class from Andrew's table when it knows, blank when it does not - never a
-// guess. aggregate_types.polish_resistant_class is null for most rows, which
-// is why a blank answer is reported as unproven rather than as "no".
-function polishClassFor(typeName) {
-  const want = String(typeName || "").trim().toLowerCase();
-  if (!want) return "";
-  // loadReferenceData stores { value, label, aliases, row } - the table row
-  // itself is under .row, which is where polish_resistant_class lives.
-  const hit = ((state.ref && state.ref.aggregate_types) || [])
-    .find((o) => String(o.value || "").trim().toLowerCase() === want);
-  const cls = hit && hit.row ? hit.row.polish_resistant_class : null;
-  return cls ? String(cls).trim().toUpperCase() : "";
+/* Everything KYTC's own approved-materials list already knows about a
+ * component, so nobody re-declares it by hand. Read against `aggregate_types`
+ * through refMatch(), the same loose matcher the rest of the page uses, so a
+ * legacy MixPack's wording resolves to the canonical KYTC entry.
+ *
+ * `known` is the point. A null polish_resistant_class is NOT a gap in the
+ * data: KYTC names the polish-resistant variants explicitly ("LS #8's Class
+ * A", "Dolomite NSG Class B") and leaves the plain ones plain ("Limestone
+ * #8's", "Natural Sand"). Checked against the live table 2026-09-07 - all 115
+ * rows agree with their own name, 30 A / 20 B / 65 with no class, and not one
+ * contradiction either way. So a type that IS on the list and carries no
+ * class is definitively not polish-resistant, and only a type that is not on
+ * the list at all is genuinely unknown.
+ *
+ * Lithology and natural sand come off the canonical name for the same reason
+ * - "Dol." and "Dolomite" are the only prefixes in the list for the dolomite
+ * lithology, and "Natural Sand" is the one uncrushed sand in it (the other
+ * sands - Granite Sand, Gravel Sand-Crushed, Siltsone Sand, the Class A
+ * sands - are manufactured, and 403.03.03 A)'s 15% cap is about natural
+ * sand).
+ */
+function polishFactsFor(typeName) {
+  const hit = refMatch("aggregate_types", typeName);
+  if (!hit) return { known: false, cls: "", dolomite: false, naturalSand: false, canonical: "" };
+  const name = String(hit.value || "");
+  const cls = hit.row && hit.row.polish_resistant_class
+    ? String(hit.row.polish_resistant_class).trim().toUpperCase() : "";
+  return {
+    known: true,
+    cls,
+    dolomite: /^dol\b|^dol\.|^dolomite/i.test(name),
+    naturalSand: /^natural\s+sand$/i.test(name.trim()),
+    canonical: name,
+  };
 }
 
 function polishHTML(section) {
   const P = CONFIG.POLISH;
-  return `<div class="prnote">Pulled from Aggregate Structure. Set each component's polish class and whether it is a
-      coarse or a fine source, then enter that component's own gradation. ${esc(P.CITE)} restricts Type A and Type B;
+  return `<div class="prnote">Pulled from Aggregate Structure. Polish class, natural sand and dolomite are read from
+      KYTC's approved aggregate types &mdash; change the component in Aggregate Structure, not here. Set whether each is a
+      coarse or a fine source, then enter its own gradation. ${esc(P.CITE)} restricts Type A and Type B;
       Type D is unrestricted.</div>
     <div class="prscroll"><div id="prGrid"></div></div>
     <div id="prResults" class="prresults"></div>
@@ -2025,9 +2056,30 @@ function renderPolishGrid(force) {
       opts.map((o) => `<option value="${esc(o.v)}"${pick(c, i) === o.v ? " selected" : ""}>${esc(o.l)}</option>`).join("") +
     `</select></td>`).join("") + `</tr>`;
 
-  const classRow = selRow("Polish class", "cls",
-    [{ v: "", l: "— not classified —" }, { v: "A", l: "Class A" }, { v: "B", l: "Class B" }],
-    (c, i) => val(`cls:${i}`, polishClassFor(c.type_size)));
+  // Facts read off KYTC's approved-materials list, once, for every column.
+  const facts = comps.map((c) => polishFactsFor(c.type_size));
+
+  // A derived cell: what the list says, stated rather than asked, with a
+  // hidden input so everything downstream still reads it through data-pr.
+  // Only a type the list does not know falls back to a control - that is the
+  // one case where a person genuinely has to answer.
+  const derived = (key, i, value, text, title) =>
+    `<td class="prderived" title="${esc(title)}">
+       <input type="hidden" data-pr="${key}:${i}" value="${esc(value)}">
+       <span class="prfact">${esc(text)}</span></td>`;
+
+  const classRow = `<tr><th class="prrowhead">Polish class</th>` + comps.map((c, i) => {
+    const f = facts[i];
+    if (f.known) {
+      return derived("cls", i, f.cls, f.cls ? `Class ${f.cls}` : "Not polish-resistant",
+        `${f.canonical} \u2014 from KYTC's approved aggregate types`);
+    }
+    const cur = val(`cls:${i}`, "");
+    return `<td><select class="box" data-pr="cls:${i}">` +
+      [{ v: "", l: "— not classified —" }, { v: "A", l: "Class A" }, { v: "B", l: "Class B" }]
+        .map((o) => `<option value="${esc(o.v)}"${cur === o.v ? " selected" : ""}>${esc(o.l)}</option>`).join("") +
+      `</select></td>`;
+  }).join("") + `</tr>`;
 
   // Prefilled from the component's own #4: mostly passing it makes it a fine
   // source. A starting point the contractor can change, not a rule.
@@ -2040,9 +2092,17 @@ function renderPolishGrid(force) {
     },
     (i) => saved[`role:${i}`] == null);
 
-  const flagRow = (label, key) => `<tr><th class="prrowhead">${label}</th>` + comps.map((c, i) =>
-    `<td><input type="checkbox" data-pr="${key}:${i}" value="1"${val(`${key}:${i}`, "") ? " checked" : ""}></td>`)
-    .join("") + `</tr>`;
+  // Natural sand and dolomite are the other two the list settles. Same rule:
+  // stated when the type is known, asked only when it is not.
+  const flagRow = (label, key, pick) => `<tr><th class="prrowhead">${label}</th>` + comps.map((c, i) => {
+    const f = facts[i];
+    if (f.known) {
+      const on = pick(f);
+      return derived(key, i, on ? "1" : "", on ? "Yes" : "No",
+        `${f.canonical} \u2014 from KYTC's approved aggregate types`);
+    }
+    return `<td><input type="checkbox" data-pr="${key}:${i}" value="1"${val(`${key}:${i}`, "") ? " checked" : ""}></td>`;
+  }).join("") + `</tr>`;
 
   const sieveRows = sieves.map((sv) => `<tr><th class="prrowhead mono">${esc(sv.label)}</th>` + comps.map((c, i) =>
     `<td><input type="text" inputmode="decimal" class="box mono${sv.key === P.RETAINED_SIEVE ? " prkey" : ""}"
@@ -2054,7 +2114,7 @@ function renderPolishGrid(force) {
 
   host.innerHTML = `<table class="prtable"><thead><tr><th class="prrowhead"></th>${head}</tr></thead>
     <tbody>${classRow}${roleRow}
-      ${flagRow("Natural sand", "sand")}${flagRow("Dolomite", "dol")}${rapRow}
+      ${flagRow("Natural sand", "sand", (f) => f.naturalSand)}${flagRow("Dolomite", "dol", (f) => f.dolomite)}${rapRow}
       <tr class="prspacer"><th class="prrowhead">% passing</th>${comps.map(() => "<td></td>").join("")}</tr>
       ${sieveRows}</tbody></table>`;
 }
@@ -2081,12 +2141,21 @@ function polishComponents() {
   const rows = polishAggregateRows();
   const get = (k) => { const el = document.querySelector(`[data-pr="${k}"]`); return el ? el : null; };
   const txt = (k) => { const el = get(k); return el ? String(el.value || "").trim() : ""; };
-  const chk = (k) => { const el = get(k); return !!(el && el.checked); };
+  // A derived cell is a hidden input carrying "1" or "", not a checkbox, so
+  // read whichever this column turned out to be.
+  const chk = (k) => {
+    const el = get(k);
+    if (!el) return false;
+    return el.type === "checkbox" ? el.checked : !!String(el.value || "").trim();
+  };
   return rows.map((r, i) => ({
     name: r.type_size || `component ${i + 1}`,
     producer: r.producer,
     pct: num(r.pct_blend),
     cls: txt(`cls:${i}`),
+    // Only a type KYTC's list does not carry is genuinely unknown; one it
+    // carries with no class is definitively not polish-resistant.
+    unknown: !polishFactsFor(r.type_size).known,
     role: txt(`role:${i}`) || "coarse",
     p4: num(txt(`g:${i}:${P.RETAINED_SIEVE}`)),
     naturalSand: chk(`sand:${i}`),
@@ -2124,7 +2193,7 @@ function renderPolish() {
     return `<div class="pritem ${cls}"><span class="prmark">${mark}</span>
       <span><strong>${esc(c.label)}</strong>
         <div class="prsub">${esc(c.detail)}</div>
-        ${c.unclassed ? `<div class="prsub">Not proven - no polish class set for: ${esc(c.unclassed.join(", "))}.</div>` : ""}
+        ${c.unclassed ? `<div class="prsub">Not proven - not on KYTC's approved aggregate list, so its polish class is unknown: ${esc(c.unclassed.join(", "))}.</div>` : ""}
         <div class="prsub mono">${esc(c.cite)}</div></span></div>`;
   }).join("");
   const cond = r.conditional
@@ -2241,7 +2310,7 @@ function recompute() {
     const label = sec ? sec.dataset.label : "Polish-Resistant Aggregate";
     pr.checks.filter((c) => !c.ok).forEach((c) => {
       outstanding.push({ id: "polish", label, kind: "warn",
-        text: c.unproven ? `${c.label} - not proven, some components have no polish class`
+        text: c.unproven ? `${c.label} - not proven, a component is not on the KYTC aggregate list`
                          : `${c.label} - ${CONFIG.POLISH.CITE}` });
     });
   }
@@ -2813,7 +2882,11 @@ function collectForm() {
   });
   const polish = {};
   document.querySelectorAll("[data-pr]").forEach((el) => {
-    polish[el.dataset.pr] = String(el.value || "").trim() || null;
+    // A checkbox's .value is its "1" attribute whether or not it is ticked,
+    // so reading .value blindly saved every flag as set - and a reopened
+    // design came back with natural sand and dolomite ticked on every column.
+    const v = el.type === "checkbox" ? (el.checked ? el.value || "1" : "") : el.value;
+    polish[el.dataset.pr] = String(v || "").trim() || null;
   });
   values.fourpoint = fourpoint;
   values.polish = polish;
@@ -4518,6 +4591,10 @@ function refreshReferenceControls() {
     el.replaceWith(nu);
   });
   applyAutofills();
+  // Every polish-resistant fact is read off aggregate_types, and the grid is
+  // built before the lists arrive - so without this the whole matrix stays in
+  // its "type not on the list" fallback, asking for answers it already has.
+  renderPolishGrid(true);
   renderRefStatus();
   recompute();
 }
