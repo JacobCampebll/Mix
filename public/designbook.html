@@ -3457,7 +3457,12 @@ async function buildApprovalPDF(payload) {
   y = vy - vH;
 
   page.drawRectangle({ x: P.mx, y: P.bottom - 12, width: W, height: 0.4, color: col(C.rule) });
-  page.drawText(wa("The full design is embedded in this file - upload it to DesignBook to open it, or to verify.html to check the approval. KYTC DesignBook stores nothing; this document is the record."),
+  // "DesignBook stores nothing" used to sit at the end of this line and was
+  // false - Save still writes a designs row. What IS true, and is the point
+  // for whoever holds this, is that no copy of the APPROVAL is kept anywhere:
+  // sign-approval is stateless, so the signature in this file is the only one.
+  // Through fit() like the rest of the page, so it can never overrun the page.
+  page.drawText(fit("The full design is embedded in this file - upload it to DesignBook to open it, or to verify.html to check the approval. No copy of this approval is kept; this document is the record.", W, font, 6.6),
     { x: P.mx, y: P.bottom - 24, size: 6.6, font, color: col(C.muted) });
 
   const bytes = new TextEncoder().encode(JSON.stringify(payload));
