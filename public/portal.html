@@ -12,10 +12,11 @@
   "What it is for"). So this page is the act of submitting, in four steps:
     1. Contract & plant   2. Mix on that contract   3. How (upload a MixPack
     or build in DesignBook)   4. Fill in & submit — which happens in
-    designbook.html, where "Submit" is the move from Draft to Internal
-    Review. What has been submitted, and where each one stands, sits behind
-    "My submissions". Central Office reviewers land on the review queue
-    instead; the wizard is still one click away for them.
+    designbook.html.
+
+    Nothing about a design is stored, so there is no queue and no list: the
+    review PDF is the record. This page is two doors - start a new design,
+    or open a PDF someone sent you. Reviewers use the same two.
 
   Sits downstream of login.html and shares its session: the Supabase JS
   client persists the session in localStorage per-origin, so once
@@ -34,7 +35,6 @@
     technician_capabilities            — can_access_plantbook / can_access_designbook
     technician_effective_plant_access  — which AMP numbers fill the Plant dropdown
     plants                             — AMP number -> plant name
-    design_summaries                   — the submissions list (RLS decides whose)
     kytc-lookup (edge function)        — the mixes a contract requires
 -->
 
@@ -190,7 +190,6 @@
   <img class="logo" src="assets/kytc-logo.png" alt="Team Kentucky Transportation Cabinet">
   <div class="wordmark">Design<span>Book</span></div>
   <div class="crumb" id="crumb">Portal</div>
-  <a class="navlink hidden" id="navSubmissions">My submissions →</a>
   <a class="navlink hidden" id="navSubmit">Submit a design →</a>
   <div class="spacer"></div>
   <div class="who">
@@ -294,24 +293,10 @@
     <div class="actions">
       <button class="ghost" id="step3Back">← Back</button>
     </div>
-    <div class="foot">After you submit, Central Office reviews the design. Where it stands, and later its approval, is under <a id="footSubmissions">My submissions</a>.</div>
+    <div class="foot">After you submit, Central Office reviews the design. Keep the PDF DesignBook gives you - it is your copy, and the site keeps none.</div>
   </div>
 </div>
 <!-- ===== END SUBMIT ===== -->
-
-<!-- ===== SUBMISSIONS LIST (contractors: My submissions; reviewers: the review queue) ===== -->
-<div class="card hidden" id="designsView">
-  <h2 id="designsTitle">My submissions</h2>
-  <p class="lead" id="designsLead"></p>
-  <div class="dfilters">
-    <select id="dStage"></select>
-    <input id="dSearch" type="search" placeholder="Contract, plant, mix, author…">
-  </div>
-  <div class="dlist" id="dList"></div>
-  <div class="status" id="dStatus"></div>
-  <div class="linkrow"><a id="dNewLink">Submit a design →</a></div>
-</div>
-<!-- ===== END SUBMISSIONS LIST ===== -->
 
 <!-- ===== PLANTBOOK (not built) ===== -->
 <div class="card hidden" id="plantbookView">
@@ -399,24 +384,6 @@
       storageKey: "mix_portal_selected_mix",
     },
 
-    // What a contractor sees a database stage called. Internal Review and
-    // Released are both "In review" from the outside - the distinction is
-    // Central Office's. Reviewers see the raw stage names.
-    CONTRACTOR_STAGES: {
-      "Draft":           { label: "Not submitted", css: "draft" },
-      "Internal Review": { label: "In review",     css: "review" },
-      "Released":        { label: "In review",     css: "review" },
-      "Approved":        { label: "Approved",      css: "approved" },
-    },
-    REVIEWER_STAGES: {
-      "Draft":           { label: "Draft",           css: "draft" },
-      "Internal Review": { label: "Internal Review", css: "review" },
-      "Released":        { label: "Released",        css: "released" },
-      "Approved":        { label: "Approved",        css: "approved" },
-    },
-    // How many submissions to list before asking for a narrower search.
-    LIST_LIMIT: 300,
-
     // Remember the last job locally so a reload doesn't re-type it.
     // (Standalone Netlify app, so localStorage is allowed per CLAUDE.md.)
     JOB_STORAGE_KEY: "mix_portal_job",
@@ -436,7 +403,6 @@
     step: 1,
     lookup: null,              // "loading" | "ok" | "failed" | "off" for the current job
     mixes: [], mix: "", mixHeader: null,
-    designs: [], designCount: null,
   };
 
   // Values here come from the database, so they are escaped before being
@@ -473,11 +439,10 @@
     el.className = "status" + (kind ? " " + kind : "");
   }
   function showOnly(view) {
-    ["bootView", "submitView", "designsView", "plantbookView"].forEach((v) =>
+    ["bootView", "submitView", "plantbookView"].forEach((v) =>
       $(v).classList.toggle("hidden", v !== view)
     );
-    const inSubmit = view === "submitView", inList = view === "designsView";
-    $("navSubmissions").classList.toggle("hidden", !state.tech || inList);
+    const inSubmit = view === "submitView";
     $("navSubmit").classList.toggle("hidden", !state.tech || inSubmit || view === "plantbookView");
   }
   function toLogin() {
@@ -525,12 +490,6 @@
     const amps = (data || []).map((r) => r.amp_number);
     return amps.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
   }
-  // How many submissions this person can see - for the "My submissions (n)" link.
-  async function loadDesignCount() {
-    const { count, error } = await sb.from("design_summaries").select("id", { count: "exact", head: true });
-    return error ? null : count;
-  }
-
   // kytc-lookup wants MM/DD/YYYY; the date input gives YYYY-MM-DD.
   function toUsDate(iso) {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
@@ -613,10 +572,6 @@
     $("whoBadges").appendChild(badge("PlantBook", c.can_access_plantbook, CONFIG.BOOKS.plantbook.built));
     if (t.can_review) $("whoBadges").appendChild(Object.assign(document.createElement("span"), { className: "badge granted", textContent: "Reviewer" }));
     $("signOutLink").classList.remove("hidden");
-  }
-  function renderNavCount() {
-    const n = state.designCount;
-    $("navSubmissions").textContent = (state.tech && state.tech.can_review ? "Review queue" : "My submissions") + (n == null ? "" : ` (${n})`) + " →";
   }
   function renderPlants() {
     const src = state.plants.length ? state.plants : CONFIG.PLANT_FALLBACK;
@@ -934,68 +889,6 @@
     if (state.step === 1) $("contractId").focus();
   }
 
-  /* ---- submissions list ---- */
-  // design_summaries is security_invoker over designs, so RLS decides what
-  // each person sees: own designs + designs at accessible plants. Central
-  // Office resolves to every plant, so they see everything.
-  function stageMap() { return state.tech && state.tech.can_review ? CONFIG.REVIEWER_STAGES : CONFIG.CONTRACTOR_STAGES; }
-  function renderStageFilter() {
-    const map = stageMap();
-    const labels = [...new Set(Object.values(map).map((s) => s.label))];
-    $("dStage").innerHTML = `<option value="">All</option>` + labels.map((l) => `<option value="${esc(l)}">${esc(l)}</option>`).join("");
-  }
-  async function loadDesigns() {
-    setStatus($("dStatus"), "Loading…");
-    const { data, error } = await sb.from("design_summaries")
-      .select("id, contract_id, letting_date, amp_number, plant_name, author_name, sm_id, mix_signature, stage, origin, updated_at")
-      .order("updated_at", { ascending: false })
-      .limit(CONFIG.LIST_LIMIT);
-    if (error) { setStatus($("dStatus"), error.message, "error"); return; }
-    state.designs = data || [];
-    state.designCount = state.designs.length >= CONFIG.LIST_LIMIT ? state.designCount : state.designs.length;
-    renderNavCount();
-    setStatus($("dStatus"), state.designs.length >= CONFIG.LIST_LIMIT ? `Showing the ${CONFIG.LIST_LIMIT} most recent. Search to find older ones.` : "");
-    renderDesigns();
-  }
-  function renderDesigns() {
-    const map = stageMap(), reviewer = state.tech && state.tech.can_review;
-    const want = $("dStage").value, q = norm($("dSearch").value);
-    const rows = state.designs.filter((d) => {
-      const s = map[d.stage] || { label: d.stage, css: "draft" };
-      return (!want || s.label === want) &&
-        (!q || norm([d.contract_id, d.plant_name, d.amp_number, d.mix_signature, d.author_name, d.sm_id].join(" ")).includes(q));
-    });
-    const list = $("dList");
-    if (!rows.length) {
-      list.innerHTML = `<div class="dempty">${state.designs.length ? "Nothing matches." : (reviewer ? "Nothing waiting for review." : "You haven't submitted a design yet.")}</div>`;
-      return;
-    }
-    list.innerHTML = rows.map((d) => {
-      const s = map[d.stage] || { label: d.stage, css: "draft" };
-      const when = new Date(d.updated_at);
-      const who = reviewer ? ` · ${esc(d.author_name)} (${esc(d.sm_id)})` : "";
-      return `<button class="drow" data-id="${esc(d.id)}">
-        <span class="spill ${s.css}">${esc(s.label)}</span>
-        <span><div class="dmain">${esc(d.mix_signature || "mix not chosen yet")}</div>
-              <div class="dsub">${esc(d.contract_id)} · ${esc(d.plant_name || d.amp_number)}${who} · ${d.origin === "legacy" ? "from a MixPack" : "built in DesignBook"}</div></span>
-        <span class="dwhen">${when.toLocaleDateString()} ${when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-      </button>`;
-    }).join("");
-    list.querySelectorAll(".drow").forEach((b) => b.addEventListener("click", () => {
-      location.href = `designbook.html?design=${encodeURIComponent(b.dataset.id)}`;
-    }));
-  }
-  function openDesigns() {
-    const reviewer = state.tech && state.tech.can_review;
-    $("designsTitle").textContent = reviewer ? "Review queue" : "My submissions";
-    $("designsLead").textContent = reviewer
-      ? "Every submission at every plant. Open one to review, release or approve it."
-      : "Where each design you submitted stands. Open one to see it, or to finish and submit a draft.";
-    renderStageFilter();
-    showOnly("designsView");
-    loadDesigns();
-  }
-
   /* ---- boot ---- */
   async function signOut() {
     await sb.auth.signOut();
@@ -1019,8 +912,6 @@
       renderPlants();
       restoreJob();
       renderSteps();
-      loadDesignCount().then((n) => { state.designCount = n; renderNavCount(); });
-      renderNavCount();
 
       if (!book.built) {
         // PlantBook is not built: say so instead of a wizard that leads nowhere.
@@ -1028,7 +919,9 @@
         showOnly("plantbookView");
         return;
       }
-      if (tech.can_review) { openDesigns(); return; }   // reviewers: the queue is the front door
+      // Everyone lands on the wizard now. There is no queue to land on: a
+      // reviewer receives a submission as a file, and opens it through the
+      // "Already have a review PDF?" door.
       openSubmit();
     } catch (err) {
       setStatus($("bootStatus"), err.message || "Couldn't load your account.", "error");
@@ -1058,13 +951,8 @@
     const n = Number(el.dataset.step);
     if (n < state.step) goStep(n);      // completed steps are revisitable; step 4 lives in DesignBook
   }));
-  $("navSubmissions").addEventListener("click", openDesigns);
-  $("footSubmissions").addEventListener("click", openDesigns);
   $("navSubmit").addEventListener("click", openSubmit);
-  $("dNewLink").addEventListener("click", openSubmit);
   $("pbToDesign").addEventListener("click", () => { location.href = "portal.html?book=designbook"; });
-  $("dStage").addEventListener("change", renderDesigns);
-  $("dSearch").addEventListener("input", renderDesigns);
   $("signOutLink").addEventListener("click", signOut);
 
   sb.auth.getSession().then(({ data }) => boot(data.session));

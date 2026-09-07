@@ -49,10 +49,10 @@
   shown as "(not in KYTC list)" and raised as a warning in the rail -
   it is never dropped or blocked.
 
-  Nothing writes to Supabase yet — there is no DesignBook table in
-  supabase/schema.sql (only the technician tables). Save builds the
-  payload and shows it, so the table and its RLS policy get written
-  against a real shape. See saveDesign().
+  Nothing about a design is written to Supabase, and there is no save.
+  The review PDF is the only copy of a design: download it to keep your
+  work, upload it here to pick up exactly where you left off. Supabase is
+  read for identity, capabilities and the reference lists - never written.
 
   FOR THE OTHER COLLABORATOR: new file, touches nothing in login.html.
   Duplicated shared ground: SUPABASE_URL / ANON_KEY, and the theme
@@ -103,6 +103,7 @@
   .pill.released,.pill.approved{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
   .spacer{flex:1;}
   .savedstate{font-size:12px; color:var(--muted);}
+  .savedstate.warn{color:var(--flag);}
   .whoami{font-size:12px; color:var(--muted); text-align:right; line-height:1.4;}
   .whoami a{cursor:pointer; text-decoration:underline; text-underline-offset:2px;}
 
@@ -373,7 +374,6 @@
     <h3>Outstanding items</h3>
     <div class="sub" id="valsub">Live — updates as you fill the form</div>
     <div id="vallist"></div>
-    <button class="savebtn" id="saveBtn">Save design</button>
     <div class="msg" id="saveMsg" style="font-size:11.5px;"></div>
   </aside>
 
@@ -1045,14 +1045,13 @@ const state = {
   // and their fields fall back to free text.
   ref: Object.assign({ loaded: false, error: null },
          ...Object.keys(CONFIG.REFERENCE.TABLES).map((k) => ({ [k]: [] }))),
-  dirty: false,      // edits since the last save (a stage move saves them first)
+  dirty: false,      // edits since the last review PDF was downloaded
   history: [],      // append-only trail carried in the review PDF (no design_events any more)
   plantName: null,   // resolved from the plants table; travels in the review PDF
   approval: null,    // { approval_no, code, issued_at, approved_by, submitted_by } once KYTC signs it
   signedDesign: null,// the design exactly as the approval signature covers it
-  savedExtractedFrom: null, // extracted_from as loaded from a saved design
-  designId: null,    // designs.id once saved / when opened via ?design=
-  authorUserId: null,
+  savedExtractedFrom: null, // extracted_from as carried in a reopened review PDF
+  downloadedAt: null, // when the last review PDF was taken - the only "saved" there is
   canReview: false,  // technicians.can_review - may move past Internal Review, send back to Draft
   saving: false,
 };
@@ -1231,8 +1230,8 @@ function sievesHTML(section) {
 // Four Points renders from state, not the CONFIG seed - fixed twice,
 // independently, the same day (this branch and upstream 751f8e9), so
 // reconciled here rather than picking one side over the other:
-// - A design that has been through collectForm at all (loadDesign(), or a
-//   review PDF re-uploaded) has its saved values win outright, per field -
+// - A design that has been through collectForm at all (a review PDF
+//   re-uploaded) has its stored values win outright, per field -
 //   a cell a person cleared must stay cleared, never resurrect the CONFIG
 //   seed. That's 751f8e9's rule, kept as-is: it's stricter/more correct
 //   than this branch's original per-field fallback-to-default.
@@ -1339,11 +1338,10 @@ function statusHTML() {
     <div class="handoff">
       <button class="stagebtn hidden" id="approvalPdfBtn">Download approval</button>
       <button class="stagebtn" id="pdfBtn">Download review PDF</button>
-      <div class="handoffnote">The PDF is your portable copy of the design &mdash;
-        it carries every value inside it, so uploading it back reopens the form exactly as it is now.
-        Send it to your supervisor for internal review, or keep it to come back to later.
-        <strong>Save design</strong> is separate: it keeps this design in your KYTC
-        account so you can reopen it from the Portal on any device.</div>
+      <div class="handoffnote">This is how you save. Nothing about this design is
+        kept on the site &mdash; the PDF is the only copy, and it carries every value
+        inside it. Download it to keep your work or to send it to your supervisor,
+        then upload it on the way back in to return to exactly this point.</div>
     </div>
     <div class="refstatus" id="refStatus"></div>
     <div class="auditlog" id="auditlog"></div>`;
@@ -1861,7 +1859,6 @@ function renderStage() {
   // Save follows the same lock as the inputs. The stage restructure dropped
   // this line, which left Save live on an approved design while every field
   // beside it was disabled.
-  $("saveBtn").disabled = frozen || state.saving;
   const warn = $("stageWarn");
   if (warn) {
     const stale = s.key === "Submitted" && state.dirty;
@@ -1872,32 +1869,6 @@ function renderStage() {
   }
 }
 
-// Persisted trail: design_events, written by the database trigger on every
-// insert, save and stage move - nothing a page says, only what it did.
-async function loadEvents() {
-  if (!state.designId) return;
-  const { data, error } = await sb.from("design_events")
-    .select("at, sm_id, kind, from_stage, to_stage, note")
-    .eq("design_id", state.designId)
-    .order("at", { ascending: false })
-    .limit(200);
-  if (error) return;
-  const log = $("auditlog");
-  log.innerHTML = "";
-  (data || []).forEach((e) => {
-    const t = new Date(e.at);
-    const ts = `${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ` +
-               `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
-    const text = e.kind === "stage" ? `${e.from_stage} → ${e.to_stage}`
-               : e.kind === "created" ? (e.note || "Created")
-               : e.kind === "saved" ? "Saved"
-               : (e.note || "");
-    const row = document.createElement("div");
-    row.className = "auditrow";
-    row.innerHTML = `<span class="ts">${ts}</span> ${esc(text)} — ${esc(e.sm_id)}`;
-    log.appendChild(row);
-  });
-}
 function esc(v) {
   return String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -2319,69 +2290,6 @@ function collectForm() {
   return { values, rows };
 }
 
-function designRow() {
-  const { values, rows } = collectForm();
-  return {
-    contract_id: state.job.cid,
-    letting_date: state.job.letting,
-    amp_number: state.job.plant,
-    author_name: `${state.tech.first_name} ${state.tech.last_name}`,
-    mix_signature: state.mix ? state.mix.signature : null,
-    mix: state.mix ? {
-      mix_class: state.mix.mix_class, layer: state.mix.layer, nominal_size: state.mix.nominal_size,
-      binder_grade: state.mix.binder_grade, bid_lines: state.mix.lines,
-    } : null,
-    origin: state.mode,
-    values,
-    rows,
-    // A fresh import/prefill records its sources; a reopened design keeps the
-    // provenance it was saved with instead of overwriting it with {}.
-    extracted_from: Object.keys(state.sources).length ? state.sources : (state.savedExtractedFrom || {}),
-    legacy_import: state.legacy ? { version: state.legacy.version.label, context: state.legacy.context, unmapped: state.legacy.unmapped, design_values: state.legacy.designValues || [] } : null,
-  };
-}
-
-// Insert on first save, update after. The database assigns the id, author,
-// stage and timestamps and refuses edits to an Approved design; the page
-// just reports what the database said.
-async function saveDesign() {
-  if (state.saving) return null;
-  state.saving = true; renderStage();
-  msg($("saveMsg"), "Saving…", "");
-  try {
-    const row = designRow();
-    let q;
-    if (state.designId) {
-      // sm_id/author/stage are not sent: the trigger owns them.
-      const { author_name, ...editable } = row;
-      q = sb.from("designs").update(editable).eq("id", state.designId).select("id, stage, updated_at").single();
-    } else {
-      q = sb.from("designs").insert(row).select("id, stage, updated_at, author_user_id").single();
-    }
-    const { data, error } = await q;
-    if (error) throw new Error(error.message);
-    if (!state.designId) {
-      state.designId = data.id;
-      state.authorUserId = data.author_user_id;
-      const u = new URL(location.href); u.searchParams.set("design", data.id); history.replaceState(null, "", u);
-    }
-    $("payload").textContent = JSON.stringify(row, null, 2);
-    show("payloadWrap", true);
-    const t = new Date(data.updated_at);
-    $("savedstate").textContent = `Saved ${t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-    state.dirty = false;
-    $("mixid").textContent = designLabel();
-    msg($("saveMsg"), `Saved. Design ${data.id.slice(0, 8)} · ${data.stage}.`, "ok");
-    await loadEvents();
-    return data;
-  } catch (err) {
-    msg($("saveMsg"), `Not saved — ${err.message}`, "error");
-    return null;
-  } finally {
-    state.saving = false; renderStage();
-  }
-}
-
 // A stage move is now a local fact recorded in the file's history, not a
 // database write. It takes effect the moment the next package is generated -
 // which is the only thing anyone downstream will ever see.
@@ -2410,32 +2318,23 @@ function custodyEntry(action, extra) {
   }, extra || {});
 }
 
+// The top-bar indicator. With no save, the only thing worth telling someone
+// is whether the work in front of them exists in a file yet - so it tracks
+// the last review PDF they took, and warns once they edit past it.
+function renderSavedState() {
+  const el = $("savedstate");
+  if (!el) return;
+  if (!state.downloadedAt) { el.textContent = "Not downloaded yet"; el.className = "savedstate warn"; return; }
+  const t = state.downloadedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  el.textContent = state.dirty ? `Edited since ${t} download` : `Downloaded ${t}`;
+  el.className = state.dirty ? "savedstate warn" : "savedstate";
+}
+
 function designLabel() {
   // The frozen job strip already carries contract / letting / plant, so the
   // top-bar chip is just the design identity: mix signature, or the saved id.
   if (state.mix) return `MIX · ${state.mix.signature}`;
-  if (state.designId) return `DESIGN ${state.designId.slice(0, 8)}`;
   return "MIX ID · —";
-}
-
-// Opening an existing design: everything comes from the row, nothing from
-// the URL except the id. The values land on the same path a workbook import
-// uses, minus the provisional tint - they were saved by a person.
-async function loadDesign(id) {
-  const { data: d, error } = await sb.from("designs").select("*").eq("id", id).maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!d) throw new Error("That design does not exist, or you do not have access to its plant.");
-  state.designId = d.id;
-  state.authorUserId = d.author_user_id;
-  state.job = { cid: d.contract_id, letting: d.letting_date, plant: d.amp_number };
-  state.mode = d.origin;
-  state.mix = d.mix_signature ? { signature: d.mix_signature, ...(d.mix || {}), lines: (d.mix && d.mix.bid_lines) || [], source: "saved design" } : null;
-  state.extracted = { scalars: d.values || {}, tables: d.rows || {} };
-  state.sources = {};                       // saved values are not provisional
-  state.savedExtractedFrom = d.extracted_from || {};   // but where they came from is kept on re-save
-  state.legacy = d.legacy_import ? { version: { label: d.legacy_import.version }, context: d.legacy_import.context || [], unmapped: d.legacy_import.unmapped || [], designValues: d.legacy_import.design_values || [], log: [], sheets: [], scalars: {}, sources: {}, tables: {} } : null;
-  state.stageIdx = Math.max(0, CONFIG.STAGES.findIndex((x) => x.key === d.stage));
-  return d;
 }
 
 /* ---------- wiring ---------- */
@@ -2487,7 +2386,7 @@ function wireForm() {
       autofillFrom(e.target);
       recompute();
       state.dirty = true;
-      $("savedstate").textContent = "Edited — not saved";
+      renderSavedState();
     }
   });
   // On commit, a typed value that matches a reference entry loosely (case,
@@ -3625,7 +3524,9 @@ async function downloadReviewPDF() {
     setTimeout(() => URL.revokeObjectURL(url), 4000);
     state.history = payload.history;      // the copy on disk is now the record
     state.dirty = false;
-    msg($("saveMsg"), `${name} downloaded. That file is your copy - the site keeps nothing.`, "ok");
+    state.downloadedAt = new Date();
+    renderSavedState();
+    msg($("saveMsg"), `${name} downloaded. That file is your only copy - keep it, and upload it here to come back to this design.`, "ok");
     audit(`Review PDF generated - ${state.tech ? state.tech.sm_id : ""}`);
   } catch (err) {
     msg($("saveMsg"), err.message || "Couldn't build the PDF.", "error");
@@ -3883,7 +3784,6 @@ function readParams() {
     mode: ["legacy", "resume"].includes(p.get("mode")) ? p.get("mode") : "new",
     job: cid && letting && plant ? { cid, letting, plant } : null,
     mix: p.get("mix") || null,
-    design: p.get("design") || null,
   };
 }
 
@@ -4113,9 +4013,8 @@ function enterForm() {
   // identity once that exists. Until then, show the chosen mix if there is
   // one, else the job it belongs to.
   $("mixid").textContent = designLabel();
-  $("savedstate").textContent = state.designId ? "Saved" : "Not saved yet";
+  renderSavedState();
   renderForm();
-  if (state.designId) loadEvents();
 }
 
 // Plant name from the plants table (supabase/plants.sql) — same lookup the
@@ -4173,14 +4072,7 @@ async function boot(session) {
     // Give the lists their head start, but never hang the form on them.
     await Promise.race([refReady, new Promise((r) => setTimeout(r, CONFIG.REFERENCE.BOOT_WAIT_MS))]);
 
-    const { mode, job, mix, design } = readParams();
-
-    // Opening a saved design: the row is the job. Reviewers arrive this way.
-    if (design) {
-      await loadDesign(design);
-      enterForm();
-      return;
-    }
+    const { mode, job, mix } = readParams();
 
     // Reopening a review PDF. It carries its own contract, plant and mix,
     // so it needs no job from the query string. The Portal parks the
@@ -4220,7 +4112,6 @@ async function boot(session) {
 wireDrop();
 $("portalLink").addEventListener("click", toPortal);
 $("signOutLink").addEventListener("click", async () => { await sb.auth.signOut(); toLogin(); });
-$("saveBtn").addEventListener("click", saveDesign);
 document.addEventListener("click", (e) => {
   if (!e.target) return;
   if (e.target.id === "pdfBtn") downloadReviewPDF();
