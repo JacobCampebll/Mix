@@ -3372,8 +3372,11 @@ async function buildApprovalPDF(payload) {
     page.drawText("% passing", { x: x + half * 0.45, y: ty, size: 7, font: bold, color: col(C.muted) });
     ty -= 13;
     sieves.slice(cIdx * per, (cIdx + 1) * per).forEach((r) => {
-      page.drawText(r[0], { x: x + 4, y: ty, size: 8.5, font, color: col(C.ink) });
-      page.drawText(hdNum(r[1], hdDP("s")), { x: x + half * 0.45, y: ty, size: 8.5, font, color: col(C.ink) });
+      // Through fit() like every other value on this page. Sieve inputs are
+      // free text and hdNum() hands anything non-numeric back unchanged, so
+      // one "≤" or a Unicode minus in a cell would otherwise abort the export.
+      page.drawText(fit(r[0], half * 0.45 - 8, font, 8.5), { x: x + 4, y: ty, size: 8.5, font, color: col(C.ink) });
+      page.drawText(fit(hdNum(r[1], hdDP("s")), half * 0.55 - 8, font, 8.5), { x: x + half * 0.45, y: ty, size: 8.5, font, color: col(C.ink) });
       page.drawRectangle({ x, y: ty - 4, width: half, height: 0.35, color: col(C.rule) });
       ty -= 12;
     });
