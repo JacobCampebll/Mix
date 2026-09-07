@@ -1777,6 +1777,16 @@ function custody() {
   return { submitted: last(CONFIG.SUBMIT.ACTION.submitted), approved: last(CONFIG.SUBMIT.ACTION.approved) };
 }
 
+// Who may approve right now: a reviewer who is not the person who submitted
+// it. One function, used by renderStage() and by the stage button's click
+// handler, so what the button says and what it does can never disagree.
+function canApproveNow() {
+  const me = state.tech ? state.tech.sm_id : null;
+  const c = custody();
+  const iSubmitted = !!(c.submitted && c.submitted.sm_id && c.submitted.sm_id === me);
+  return { ok: !!state.canReview && !iSubmitted, iSubmitted, custody: c };
+}
+
 function renderStage() {
   const s = CONFIG.STAGES[state.stageIdx];
   $("statuspill").textContent = s.key;
@@ -1787,11 +1797,9 @@ function renderStage() {
     if (i === state.stageIdx) el.classList.add("current");
   });
 
-  const me = state.tech ? state.tech.sm_id : null;
-  const c = custody();
-  const iSubmitted = !!(c.submitted && c.submitted.sm_id && c.submitted.sm_id === me);
+  const { ok: canApprove, iSubmitted, custody: c } = canApproveNow();
   const btn = $("advanceStage"), back = $("sendBackStage"), note = $("stageNote");
-  let allowed = true, why = "";
+  let allowed = true, why = "", label = s.next || "Approved";
 
   if (s.key === "Draft") {
     // Anyone holding the file who can use DesignBook may submit it. Whoever
@@ -1799,14 +1807,18 @@ function renderStage() {
     // evidence of who reviewed it internally.
     why = "Submitting emails the package to KYTC and stamps your SM ID on it.";
   } else if (s.key === "Submitted") {
-    if (!state.canReview) {
-      allowed = false;
-      why = "Approving is a KYTC Central Office reviewer's action. This design is with KYTC.";
-    } else if (iSubmitted) {
-      allowed = false;
-      why = "You submitted this design; another reviewer must approve it.";
-    } else {
+    // A reviewer who did not submit it approves. Everyone else - the
+    // contractor, or a reviewer who did submit it - can only send it again.
+    // The warning below tells an editor to "submit again to replace it", so
+    // the button that does that has to exist; it used to be disabled here,
+    // which left a tech who had edited a submitted design with no way out.
+    if (canApprove) {
       why = "Approving signs the design and issues an approval number.";
+    } else {
+      label = "Resubmit to KYTC";
+      why = iSubmitted
+        ? "You submitted this design; another reviewer must approve it. If you have changed it since, resubmit to replace the version KYTC holds."
+        : "This design is with KYTC. If you have changed it since, resubmit to replace the version they hold.";
     }
   } else {
     allowed = false;
@@ -1816,12 +1828,12 @@ function renderStage() {
   }
 
   btn.disabled = !allowed || state.saving;
-  btn.textContent = s.next || "Approved";
+  btn.textContent = label;
   // Sending back to the contractor is a real KYTC action (a rejection), so
   // it stays - but only a reviewer, and only on something submitted.
-  back.classList.toggle("hidden", !(state.canReview && s.key === "Submitted" && !iSubmitted));
+  back.classList.toggle("hidden", !(s.key === "Submitted" && canApprove));
   const box = $("approvalBox");
-  if (box) box.classList.toggle("hidden", !(s.key === "Submitted" && state.canReview && !iSubmitted));
+  if (box) box.classList.toggle("hidden", !(s.key === "Submitted" && canApprove));
   // The approval document only exists once there is an approval to put on it.
   const apdf = $("approvalPdfBtn");
   if (apdf) apdf.classList.toggle("hidden", !state.approval);
@@ -2438,11 +2450,13 @@ function wireForm() {
   });
 
   // Stage advance. Each stage has a real action behind it, not just a
-  // relabelled counter: Draft submits, Submitted approves.
+  // relabelled counter: Draft submits; Submitted approves for a reviewer who
+  // did not submit it, and resubmits for everyone else. renderStage() labels
+  // the button from the same canApproveNow() answer.
   $("advanceStage").addEventListener("click", () => {
     const s = CONFIG.STAGES[state.stageIdx];
     if (s.key === "Draft") return submitToKYTC();
-    if (s.key === "Submitted") return approveDesign();
+    if (s.key === "Submitted") return canApproveNow().ok ? approveDesign() : submitToKYTC();
   });
   $("sendBackStage").addEventListener("click", () => {
     if (!confirm("Send this design back to the contractor? They will need to fix it and submit again.")) return;
