@@ -108,10 +108,15 @@
 
   .layout{max-width:1220px; margin:0 auto; display:grid;
           grid-template-columns:200px minmax(0,1fr) 250px; gap:28px; padding:28px 32px 80px;}
-  @media (max-width:1080px){ .layout{grid-template-columns:minmax(0,1fr); } .nav,.valpanel{position:static;} }
+  @media (max-width:1080px){ .layout{grid-template-columns:minmax(0,1fr);} }
 
   /* left ledger rail */
   .nav{position:sticky; top:132px; align-self:start; padding-left:4px;}
+  /* Keep every "un-stick the rail" override BELOW the rule it overrides. Both
+     are one class, so equal specificity and source order decides: this used to
+     sit up with .layout, above .nav and .valpanel, and lost to them - the rail
+     stayed sticky on a phone and the section list scrolled over the form. */
+  @media (max-width:1080px){ .nav{position:static;} }
   .navtitle{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:14px;}
   .navlist{list-style:none; margin:0; padding:0; position:relative;}
   .navlist::before{content:''; position:absolute; left:5px; top:6px; bottom:6px; width:1px; background:var(--line);}
@@ -248,6 +253,7 @@
   /* right validation rail */
   .valpanel{position:sticky; top:132px; align-self:start; background:var(--panel);
             border:1px solid var(--line); border-radius:10px; padding:18px;}
+  @media (max-width:1080px){ .valpanel{position:static;} }
   .valpanel h3{font-size:13px; margin-bottom:4px;}
   .valpanel .sub{font-size:11px; color:var(--muted); margin-bottom:14px;}
   .vitem{display:flex; gap:8px; padding:8px 0; border-top:1px solid var(--line);
