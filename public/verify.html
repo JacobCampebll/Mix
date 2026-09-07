@@ -221,7 +221,7 @@ async function handleFile(file) {
 
 function render(body, payload) {
   const el = $("result");
-  const a = payload.approval || {}, j = payload.job || {}, mix = payload.mix || {};
+  const j = payload.job || {}, mix = payload.mix || {};
   if (!body.valid) {
     el.innerHTML =
       `<div class="verdict bad"><h2>Not verified</h2></div>
@@ -233,6 +233,9 @@ function render(body, payload) {
   }
   // Safe to show the design now: a valid signature means these are the exact
   // values KYTC approved. Still escaped - a valid file is not a trusted one.
+  // The label and the PA line come from the server's response, which
+  // recomputes them from the signed mix id. The file's own approval block is
+  // not consulted: it is the one part of the PDF a signature does not cover.
   const when = body.issued_at ? new Date(body.issued_at).toLocaleDateString() : "-";
   const rows = [
     ["Mix", mix.signature], ["Plant", payload.plant_name ? `${j.plant} - ${payload.plant_name}` : j.plant],
@@ -241,11 +244,11 @@ function render(body, payload) {
     ["Submitted by", body.submitted_by], ["Mix ID num.", body.mix_id],
   ].filter((r) => r[1] != null && String(r[1]).trim() !== "");
   el.innerHTML =
-    `<div class="verdict good"><h2>Verified</h2><span class="num">${esc(body.approval_no || "")}</span></div>
+    `<div class="verdict good"><h2>Verified</h2><span class="num">${esc(body.approval_no || body.mix_id || "")}</span></div>
      <div class="detail">${rows.map((r) =>
        `<div><div class="k">${esc(r[0])}</div><div class="v">${esc(r[1])}</div></div>`).join("")}</div>
      <div class="why">This design has not been altered since it was approved.
-       ${a.pa ? "It carries a performance review (CT and Hamburg)." : ""}</div>`;
+       ${body.pa ? "It carries a performance review (CT and Hamburg)." : ""}</div>`;
   el.classList.remove("hidden");
 }
 
