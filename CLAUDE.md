@@ -348,6 +348,24 @@ TBD — cite the governing spec section when encoding a limit in code.
   confirmed with Andrew 2026-09-04 that the letter is unrelated to NMAS or
   gradation control points, so don't try to derive meaning from it here.
 
+- **A `@media` block does not beat a later rule of the same specificity — a
+  media query is not a tiebreaker, it only gates when the block applies.**
+  `designbook.html` put `@media (max-width:1080px){ .nav,.valpanel{position:
+  static;} }` up beside `.layout`, above the `.nav` and `.valpanel` rules that
+  set `position:sticky`. All three are one class, so the tie went to source
+  order and the later `sticky` won at *every* width. The override was dead
+  code that read as working, and the symptom appeared far from the cause: on a
+  phone the layout correctly collapsed to one column (that half of the same
+  media query *is* below `.layout`, so it worked), the rails then stayed
+  pinned under the header, and because `.nav` has no background the section
+  list ghosted through the form as you scrolled. Reported off a phone
+  2026-09-07, and it had hit tablets too — anything at or below 1080px.
+  **Put a responsive override directly below the rule it overrides**, which is
+  what the other five media queries in that file already do; that adjacency is
+  the convention, not decoration. Worth checking with
+  `getComputedStyle(el).position` at a phone viewport rather than by eye,
+  since a dead override looks identical to a live one in the source.
+
 
 ### Technician login & plant access
 
