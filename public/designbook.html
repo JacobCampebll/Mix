@@ -551,16 +551,12 @@ const CONFIG = {
     // Keyed "<section id>.<field or column key>".
     OMIT: {
       "aggregate.mat_code": "SiteManager code - auto-filled, not read by a reviewer",
-      "gradation.s6_3": "1/4in sieve is not used in practice",
       "tsr.tsr_dry_strength": "TSR % is the reported result",
       "tsr.tsr_wet_strength": "TSR % is the reported result",
     },
 
-    // Decimal places by field/column key when printing. Anything unlisted
-    // falls back to DEFAULT_DP. The payload always keeps full precision -
-    // a workbook import arrives with 14 decimals and 14 decimals on a
-    // submittal reads as an error.
-    DP: { gsb: 2, air_voids: 1, tsr_pct: 0, index: 1 },
+    // Printing reads CONFIG.DP (below) - the same table the importer rounds
+    // to, so the form, the sheet and the CSV never disagree about precision.
     DEFAULT_DP: 3,
 
     // Gradation chart. The coarse end of a gradation is a flat run of 100s
@@ -711,21 +707,28 @@ const CONFIG = {
     // derives from the FOURPOINT trial data above (both are useful: this
     // panel is what the technician originally submitted, the computed path
     // is what today's curve fit says from the same four trial points).
+    // [sheet, cell, decimal places]. The third entry is the number format
+    // KYTC applies to that very cell in its own template (checked
+    // 2026-09-07) - these are formula results, so the cached value is a raw
+    // float and printing it whole gave "Gse 2.6945571050787693".
     DESIGN_VALUES: {
-      "AC (%)":              ["designData", "O63"],
-      "VMA (%)":             ["designData", "O57"],
-      "VFA (%)":             ["designData", "O56"],
-      "Air voids (%)":       ["designData", "O61"],
-      "Gmm":                 ["designData", "O65"],
-      "Gse":                 ["designData", "O68"],
-      "Gsb":                 ["designData", "O67"],
-      "%Gmm @ Nini":         ["designData", "O59"],
-      "%Gmm @ Nmax":         ["designData", "O60"],
-      "Unit weight (pcf)":   ["designData", "O62"],
-      "Effective AC (%)":    ["designData", "O64"],
-      "Absorbed AC (%)":     ["designData", "O66"],
-      "Dust / binder ratio": ["designData", "O58"],
-      "Film thickness (µm)": ["designData", "O69"],
+      "AC (%)":              ["designData", "O63", 1],
+      "VMA (%)":             ["designData", "O57", 1],
+      "VFA (%)":             ["designData", "O56", 1],
+      "Air voids (%)":       ["designData", "O61", 1],
+      "Gmm":                 ["designData", "O65", 3],
+      "Gse":                 ["designData", "O68", 3],
+      "Gsb":                 ["designData", "O67", 2],
+      "%Gmm @ Nini":         ["designData", "O59", 1],
+      "%Gmm @ Nmax":         ["designData", "O60", 1],
+      "Unit weight (pcf)":   ["designData", "O62", 1],
+      "Effective AC (%)":    ["designData", "O64", 1],
+      "Absorbed AC (%)":     ["designData", "O66", 2],
+      "Dust / binder ratio": ["designData", "O58", 1],
+      // Micrometres. Written out rather than "\u00b5m" because the panel's
+      // labels are CSS-uppercased and "\u00b5" becomes a capital Mu, which
+      // reads as "(MM)" - a 1000x wrong unit on a KYTC document.
+      "Film thickness (micron)": ["designData", "O69", 1],
     },
     // The 4 gyratory trial points (Pb/Gmb/Gmm), found 2026-09-04 in a real
     // Ver 11.3 sample (CL3 0.38A 64-22 Haydon NEW.xlsm) - it was wrong to
@@ -765,7 +768,7 @@ const CONFIG = {
     SIEVES: {
       s50:    ["designData", "T15"], s37_5:  ["designData", "T16"], s25:    ["designData", "T17"],
       s19:    ["designData", "T18"], s12_5:  ["designData", "T19"], s9_5:   ["designData", "T20"],
-      s6_3:   ["designData", "T21"], s4_75:  ["designData", "T22"], s2_36:  ["designData", "T23"],
+      s4_75:  ["designData", "T22"], s2_36:  ["designData", "T23"],
       s1_18:  ["designData", "T24"], s0_6:   ["designData", "T25"], s0_3:   ["designData", "T26"],
       s0_15:  ["designData", "T27"], s0_075: ["designData", "T28"],
     },
@@ -804,6 +807,9 @@ const CONFIG = {
       ["Binder prod. #", "designData", "H18"], ["Mix/comp temp", "designData", "K18"],
       ["Corr. factor", "designData", "H19"], ["Binder code", "designData", "C20"],
       ["Mix mat. code", "designData", "Q16"],
+      // The 1/4" sieve, dropped from the gradation schema (see there) but still
+      // read, so a workbook that carries a real number for it says so.
+      ["1/4in sieve (JMF)", "designData", "T21"],
       ["Coarse agg. angularity", "designData", "O52"], ["Fine agg. angularity", "designData", "O53"],
       ["Flat & elongated", "designData", "O54"], ["Clay content (SE)", "designData", "O55"],
       ["Specimen weight", "designData", "O70"], ["TSR weight", "designData", "O71"],
@@ -938,6 +944,40 @@ const CONFIG = {
     RETAINED_SIEVE: "s4_75",
   },
 
+  /* ---- Decimal places, by field / row-column key ----
+   *
+   * NOT a house style: these are read off the number formats KYTC applies to
+   * the corresponding cells in its own MIXPACK2026_VER12_01.xlsm (checked
+   * 2026-09-07), so a value shows the way the technician is used to seeing
+   * it. The importer rounds to this on the way in and the sheet prints to it,
+   * which is why a TSR arrived reading 79.85687134347693 - Excel's float
+   * behind a cell KYTC formats as "0", i.e. 80.
+   *
+   * A key that is not here keeps whatever precision it was given; that is
+   * deliberate for anything KYTC formats as General (percent blend, depth,
+   * the Hamburg pass counts), where the workbook itself imposes nothing.
+   */
+  DP: {
+    // Aggregate structure and gradation. Every sieve is a whole percent
+    // except the #200, which KYTC carries to a tenth.
+    gsb: 2,
+    s50: 0, s37_5: 0, s25: 0, s19: 0, s12_5: 0, s9_5: 0, s4_75: 0,
+    s2_36: 0, s1_18: 0, s0_6: 0, s0_3: 0, s0_15: 0, s0_075: 1,
+    // Contract
+    total_tons: 0,
+    // TSR tab. The ratio itself is a whole percent; the strengths a tenth.
+    tsr_pct: 0, tsr_pct_additive: 0, tsr_wet_strength: 1, tsr_dry_strength: 1,
+    // Hamburg: the deformations are millimetres to three places; the pass
+    // counts and stripping-inflection points are General in the workbook.
+    hamburg_left_maxdef: 3, hamburg_right_maxdef: 3,
+    // Four-point trial sweep, and the values computed from it.
+    pb: 1, gmb: 3, gmm: 3,
+    design_pb: 1, gmm_design: 3, gmb_design: 3, va_design: 1, vma_design: 1,
+    vfa_design: 1, gse: 3, pbe: 1, dust_pbe: 1, density: 1,
+    // Legacy keys still referenced by the sheet.
+    air_voids: 1, index: 1,
+  },
+
   // RAP -> required virgin binder, per the MixPack v12.1 Recycle Data tab
   // (screenshot supplied 2026-09-04; cite the exact R35 recycle-spec section
   // here once confirmed). Keyed by course (SURF/BASE, from state.mix.layer),
@@ -1030,7 +1070,12 @@ const CONFIG = {
         { key: "s19",    label: '3/4"',   mm: 19.0  },
         { key: "s12_5",  label: '1/2"',   mm: 12.5  },
         { key: "s9_5",   label: '3/8"',   mm: 9.5   },
-        { key: "s6_3",   label: '1/4"',   mm: 6.3   },
+        // No 1/4" (6.3 mm). It is a row on the MixPack's JMF column but is not
+        // used in practice (Jake, 2026-09-07) - a real workbook reads "N / A"
+        // there - and an always-blank sieve is a column of dashes in the
+        // gradation, on the 0.45 chart and in every polish-resistant matrix.
+        // Design Data!T21 is still READ on import, as an unmapped value, so a
+        // workbook that does carry a number is reported rather than dropped.
         { key: "s4_75",  label: "#4",     mm: 4.75  },
         { key: "s2_36",  label: "#8",     mm: 2.36  },
         { key: "s1_18",  label: "#16",    mm: 1.18  },
@@ -2483,6 +2528,26 @@ function sheetGrids(wb) {
   }));
 }
 
+// Trim an Excel float to the decimal places KYTC's own workbook shows for
+// that value. Returns a fixed-decimal STRING, so a whole number keeps its
+// trailing zero - "98.0", not "98".
+function roundTo(v, dp) {
+  if (dp == null) return v;
+  const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ""));
+  return Number.isFinite(n) ? n.toFixed(dp) : v;
+}
+
+// coerce(), then drop the false precision. A workbook's column O and its TSR
+// tab are formula cells, so the cached value behind a cell KYTC formats as
+// "0" is something like 79.85687134347693 - which is not a more accurate TSR,
+// it is the same TSR written wrong. A key absent from CONFIG.DP is left as
+// coerced, which is right for everything the workbook itself formats General.
+function coerceField(key, v, type) {
+  const out = coerce(v, type);
+  if (type !== "number" || out === "") return out;
+  return roundTo(out, CONFIG.DP[key]);
+}
+
 function coerce(v, type) {
   if (type === "number") {
     const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ""));
@@ -2595,7 +2660,7 @@ function extractLegacy(wb, ctx) {
   plain.forEach((key) => {
     const r = chase(cells[key] || []);
     if (r.value === null) return miss(key, r);
-    const def = legacyFieldDef(key), v = coerce(r.value, def ? def.type : "text");
+    const def = legacyFieldDef(key), v = coerceField(key, r.value, def ? def.type : "text");
     if (v === "") return miss(key, r, "value present but not usable as a " + (def ? def.type : "text"));
     const fb = r.tried.length > 1 && r.tried[0].source !== r.source ? `fallback (primary ${r.tried[0].source} was ${r.tried[0].status})` : "";
     put(key, v, r.source, fb);
@@ -2652,7 +2717,7 @@ function extractLegacy(wb, ctx) {
 
   Object.entries(L.SIEVES).forEach(([key, [sk, addr]]) => {   // gradation, keyed by the new sieve keys
     const r = legacyCell(S[sk], addr), source = src(sk, addr);
-    const v = r.status === "found" ? coerce(r.value, "number") : "";
+    const v = r.status === "found" ? coerceField(key, r.value, "number") : "";
     if (v !== "") put(key, v, source, "sieve JMF");
     else log.push({ field: key, source, value: r.value, status: r.status === "not-cached" ? "not-cached" : "missing",
                     note: "sieve JMF" + (r.status === "found" ? " — non-numeric (e.g. N / A)" : "") });
@@ -2666,7 +2731,7 @@ function extractLegacy(wb, ctx) {
       const row = {};
       spec.columns.forEach((col) => {
         const c = legacyCell(ws, `${A.columns[col.key]}${r}`);
-        row[col.key] = c.status === "found" ? coerce(c.value, col.type) : "";
+        row[col.key] = c.status === "found" ? coerceField(col.key, c.value, col.type) : "";
         if (col.key === "mat_code" && c.status === "not-cached") uncachedMat++;
       });
       tables.aggregate.push(row);
@@ -2737,12 +2802,12 @@ function extractLegacy(wb, ctx) {
     // coerce()'s plain parseFloat would otherwise carry straight into the
     // input box.
     const fp = L.FOURPOINT ? L.FOURPOINT[ver.version] : null;
-    const round = (v, d) => { const n = parseFloat(coerce(v, "number")); return Number.isFinite(n) ? n.toFixed(d) : ""; };
+    const round = (v, key) => { const out = coerceField(key, v, "number"); return out === "" ? "" : out; };
     let gotPoints = 0;
     (fp || []).forEach((pt, i) => {
       const rpb = chase(pt.pb), rgmb = chase(pt.gmb), rgmm = chase(pt.gmm);
       if (rpb.value !== null && rgmb.value !== null && rgmm.value !== null) {
-        tables.fourpoint.push({ pb: round(rpb.value, 1), gmb: round(rgmb.value, 3), gmm: round(rgmm.value, 3) });
+        tables.fourpoint.push({ pb: round(rpb.value, "pb"), gmb: round(rgmb.value, "gmb"), gmm: round(rgmm.value, "gmm") });
         gotPoints++;
       } else {
         log.push({ field: `four points trial ${i + 1}`, source: `${rpb.source} / ${rgmb.source} / ${rgmm.source}`,
@@ -2756,10 +2821,9 @@ function extractLegacy(wb, ctx) {
   { // Design Values — read-only "from the uploaded workbook" panel, shown
     // alongside the computed path above. Design Data column O in a
     // natively-saved file.
-    Object.entries(L.DESIGN_VALUES).forEach(([label, [sk, addr]]) => {
+    Object.entries(L.DESIGN_VALUES).forEach(([label, [sk, addr, dp]]) => {
       const r = legacyCell(S[sk], addr);
-      const v = r.status === "found" ? coerce(r.value, "number") : (r.status === "found" ? String(r.value) : "");
-      designValues.push({ label, source: src(sk, addr), value: r.status === "found" ? r.value : null,
+      designValues.push({ label, source: src(sk, addr), value: r.status === "found" ? roundTo(r.value, dp) : null,
                           status: r.status === "found" ? "found" : (r.status === "not-cached" ? "not-cached" : "missing") });
     });
     const got = designValues.filter((d) => d.status === "found").length;
@@ -3115,7 +3179,7 @@ function b64decode(s) {
 // only decide how many digits reach the paper: a MixPack import arrives
 // with 14 decimals, and 14 decimals on a submittal reads as an error.
 function hdDP(key) {
-  const dp = CONFIG.HANDOFF.DP[key];
+  const dp = CONFIG.DP[key];
   return dp == null ? null : dp;
 }
 function hdNum(v, dp) {
