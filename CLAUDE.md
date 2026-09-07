@@ -37,6 +37,31 @@ whatever lands on the sandbox. **Do not merge it, and do not build on it** -
 it is expected to be deleted, not integrated, and anything from it that
 turns out to be worth keeping comes back as its own reviewed change.
 
+**Nothing crosses from the sandbox to the live site without Andrew and Tate
+first** (Jake, 2026-09-07). Not a code-review gate - a people gate. The
+sandbox has changed how submitting and approving work, and KYTC Central
+Office are the ones who receive those submissions, so they get a say before
+contractors see any of it. Ask, then port.
+
+**And when something does cross, the Netlify environment variables are the
+pre-flight.** They are set per *site*, not per branch, so a merge does not
+carry them and the functions fail closed with "not configured yet" - a flow
+that clicks through and dead-ends rather than an error anyone would notice
+in a diff. Checked 2026-09-07 by calling the deployed functions:
+
+| Variable | Used by | State |
+|---|---|---|
+| `APPROVAL_SIGNING_SECRET` | sign, verify | **unset** - confirmed |
+| `RESEND_API_KEY` | send | **unset** - confirmed |
+| `KYTC_SUBMIT_TO` | send | **unset** - confirmed. `Andrew.Denmark@ky.gov,Tate.Salle@ky.gov` |
+| `SUBMIT_FROM` | send | **unset** - confirmed |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | all functions | unknown - the two functions that would prove it short-circuit on the vars above first, so check in the Netlify UI |
+
+`netlify/functions/` exists only on the sandbox today - production returns
+404 for all three, so none of this is live anywhere yet.
+`APPROVAL_SIGNING_SECRET` is the one that bites twice: changing it later
+invalidates every approval already issued, so set it once and keep it.
+
 Note what a branch does **not** isolate: **Supabase is shared.** Same
 project, same tables, same rows. Jake has confirmed the sandbox will not
 change the database - reads only, no DDL, no RLS edits - so the live schema
