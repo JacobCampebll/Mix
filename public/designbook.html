@@ -1097,7 +1097,8 @@ function fpSection() { return CONFIG.SECTIONS.find((s) => s.type === "fourpoint"
 function controlPointsForNominalSize(nominalSize) {
   if (!nominalSize) return null;
   const raw = String(nominalSize).trim();
-  if (/^#?4$/i.test(raw)) return CONFIG.GRADATION_CONTROL_POINTS["4"];
+  // "#4", "4", and KYTC's own "NO.4A" all mean the No. 4 (4.75 mm) family.
+  if (/^(#?4|no\.?\s?4[a-z]?)$/i.test(raw)) return CONFIG.GRADATION_CONTROL_POINTS["4"];
   const num = parseFloat(raw);   // parseFloat stops at the first non-numeric char, so "0.38A" -> 0.38
   if (!Number.isFinite(num)) return null;
   const key = Object.keys(CONFIG.GRADATION_CONTROL_POINTS)
@@ -4030,7 +4031,11 @@ function titleCase(v) {
 // -> class 3, SURF layer, 0.38A, PG64-22. Used when the localStorage
 // handoff is missing or belongs to a different job.
 function parseSignature(sig) {
-  const m = /^CL(\d)\s+ASPH\s+([A-Z]+)\s+([\d.]+[A-Z]?)\s+(PG\d{2}-\d{2})$/i.exec(sig || "");
+  // The size token is either a decimal ("0.38A") or the No. 4 family
+  // ("NO.4A") - KYTC writes both, e.g. "CL3 ASPH SURF NO.4B PG64-22". The
+  // old pattern required a leading digit, so every No. 4 mix failed the whole
+  // match and came back with a null class, layer AND nominal size.
+  const m = /^CL(\d)\s+ASPH\s+([A-Z]+)\s+((?:NO\.?\s?4|[\d.]+)[A-Z]?)\s+(PG\d{2}-\d{2})$/i.exec(sig || "");
   const pg = /PG\d{2}-\d{2}/i.exec(sig || "");
   return {
     mix_class: m ? Number(m[1]) : null,
