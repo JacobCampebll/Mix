@@ -527,6 +527,20 @@ Still open: what actually happens at Submit (the hand-off to SiteManager /
 AASHTOWare Project), and how email leaves the browser - `mailto:` cannot carry
 an attachment, so that wants a Netlify Function, which is transit, not storage.
 
+**Decided is not built: production still stores designs.** Checked
+2026-09-07. Everything above is the decision and it is implemented only on
+`claude/jake-sandbox` (PR #9, do-not-merge). What `kytcmix.netlify.app`
+actually serves is still the old database-backed model - "Save design"
+inserts/updates a `designs` row, `setStage()` saves before every stage move,
+the stepper is still the four-stage `Draft -> Internal Review -> Released ->
+Approved`, and the Portal's `?design=` link only resolves against a saved
+row. The *copy* from the new model reached production ahead of the
+behaviour, so the page claimed "This site stores nothing" while saving;
+corrected 2026-09-07 rather than by ripping out a load-bearing button. Do
+not read this section as a description of the live site until PR #9 is
+resolved, and note `designs` is no longer empty - one Draft row from
+2026-09-04 testing.
+
 **The tables from the old model are applied but empty and no longer the
 store.** `designs`, `design_events`, `design_summaries` and the stage trigger
 (`supabase/designs.sql`) were verified live and never took a row - both counts
