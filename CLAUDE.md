@@ -652,6 +652,33 @@ read-only, so a write test goes through `apply_migration` and ends in
   `aggregate_types` names resolve to only 42 distinct `mat_code`s (none
   null, 30 codes shared), so `mat_code` is a lookup from the chosen
   `type_name`, never a key to dedupe or select on — see the gotcha above.
+- **A null `polish_resistant_class` is an answer, not a blank — the table is
+  complete.** Checked against the live table 2026-09-07, all 115 rows: KYTC
+  names the polish-resistant variants explicitly (`Dolomite #8's Class A`,
+  `LS NSG Class B`) and leaves the plain ones plain (`Dolomite #8's`,
+  `Limestone #8's`, `Natural Sand`, `Fine RAP`). 30 A, 20 B, 65 with no
+  class, and **not one contradiction in either direction** — no name says
+  "Class A" without the column agreeing, and no unqualified name carries a
+  class. So a type that is on the list with no class is *definitively not
+  polish-resistant*; only a type that is **not on the list at all** is
+  genuinely unknown. Do not read the 65 as data Andrew still owes — an
+  earlier note in this project said exactly that and was wrong.
+  Two more facts fall out of the names, both used rather than asked for:
+  `Dol.`/`Dolomite` are the only prefixes for the dolomite lithology (29
+  rows, no false positives — `Sandst.` is sandstone), and `Natural Sand` is
+  the one uncrushed sand in the list, so 403.03.03 A)'s 15% natural-sand cap
+  and its dolomite footnote both resolve from the type name. `Granite Sand`,
+  `Gravel Sand-Crushed`, `Siltsone Sand` and the Class A sands are
+  manufactured and must not count as natural sand.
+- **Open for Andrew: does KYTC enforce 403.03.03 A)'s *fine* aggregate
+  column?** The spec table gives Type B two columns — coarse (100% Class B,
+  or +4 at least 50% Class A) and fine (30% of total combined from a Class B
+  fine source, or 20% from a Class A fine source). Approved design **#467PA**
+  passes the coarse column at 54.2% and has **0%** from any classed fine
+  source, so it fails the fine column under either reading of that table's
+  `-OR-` layout. The MixPack's own Polish-Resistant tab only ever computed
+  the +4/coarse side, which is probably why it went through. Not resolved
+  here; whichever way it goes it is a one-line change.
 
 ## Conventions for changing this file
 
