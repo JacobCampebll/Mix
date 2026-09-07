@@ -203,6 +203,29 @@
   .fp-results{display:grid; grid-template-columns:repeat(6,1fr); gap:10px;}
   @media (max-width:700px){ .fp-results{grid-template-columns:repeat(2,1fr);} }
   .fp-defaultnote{font-size:11px; color:var(--flag); display:none;}
+
+  /* polish-resistant: a component-per-column matrix, like the MixPack tab */
+  .prnote{font-size:12px; color:var(--muted); line-height:1.5; max-width:78ch; margin-bottom:12px;}
+  .prnote.small{font-size:11px; margin:10px 0 0;}
+  .prempty{font-size:12px; color:var(--muted); padding:10px 0;}
+  .prscroll{overflow-x:auto;}                    /* wide table scrolls itself, never the page */
+  .prtable{border-collapse:collapse; font-size:12px;}
+  .prtable th,.prtable td{border:1px solid var(--line); padding:4px 6px; vertical-align:middle;}
+  .prtable thead th{background:var(--wash); text-align:left; min-width:132px;}
+  .prrowhead{background:var(--wash); text-align:left; white-space:nowrap; font-weight:500; position:sticky; left:0;}
+  .prname{font-weight:500;}
+  .prsub{font-size:11px; color:var(--muted); line-height:1.45;}
+  .prtable .box{width:100%; padding:4px 6px; font-size:12px;}
+  .prtable .prkey{background:var(--flag-soft);}  /* the #4 is the one the arithmetic keys on */
+  .prspacer th{border-top:2px solid var(--line);}
+  .prresults{margin-top:16px;}
+  .prtotals{font-size:11.5px; color:var(--muted); margin-bottom:10px; line-height:1.6;}
+  .pritem{display:flex; gap:9px; padding:8px 0; border-top:1px solid var(--line); font-size:12.5px; line-height:1.5;}
+  .prmark{flex-shrink:0; width:14px; font-weight:600;}
+  .pritem.ok .prmark{color:var(--ok);}
+  .pritem.bad .prmark{color:var(--bad);}
+  .pritem.unproven .prmark{color:var(--flag);}
+  @media (max-width:700px){ .prtable thead th{min-width:112px;} }
   .fp-defaultnote.show{display:block;}
   .fp-card{background:var(--accent-soft); border-radius:var(--radius); padding:9px 12px;}
   .fp-card .l{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--accent); margin-bottom:2px;}
@@ -854,6 +877,59 @@ const CONFIG = {
     "0.38": { s12_5: [100, null], s9_5: [90, 100], s4_75: [32, 67], s0_075: [2, 10] },
     "4":    { s9_5: [null, 100], s1_18: [30, 55], s0_075: [6, 13] },
   },
+  /* ---- Polish-resistant aggregate: KYTC 403.03.03 A) ----
+   *
+   * 2026 Standard Specifications, Section 400 Asphalt Pavements, pp. 403-3/4.
+   * Same footing as GRADATION_CONTROL_POINTS: spec data, changes only when
+   * the spec is revised, so it ships here rather than in Supabase.
+   *
+   * The MixPack's "Polish-Resistant Data" tab implements PART of this - the
+   * +4 side only, for Type B only the 50%-from-Class-A route, and with a
+   * single YES/NO where the spec distinguishes a Class A source from a Class
+   * B source. Jake's call 2026-09-07: follow the spec, not the workbook.
+   *
+   * One interpretive call, worth knowing: the spec's own heading is "POLISH
+   * RESISTANT AGGREGATE REQUIREMENTS" and its rows are "Class A Source" and
+   * "Class B Source", so a component is treated as polish-resistant when it
+   * has EITHER class, and non-polish-resistant only when it has none. Routes
+   * that name Class A specifically are checked against Class A alone.
+   */
+  POLISH: {
+    CITE: "KYTC 403.03.03 A)",
+    // "The Department will permit a maximum of 15% natural sand by weight of
+    // total combined aggregate unless prior approval is obtained from the
+    // Division of Materials for greater amounts."
+    NATURAL_SAND_MAX: 15,
+    // Footnote 1, Type A only: "When dolomite is used as the polish resistant
+    // lithology, a minimum of 70% total combined Class A polish resistant
+    // coarse and fine aggregate is required."
+    DOLOMITE_CLASS_A_MIN: 70,
+    // "...limit the portion of non-polish-resistant fine aggregate retained
+    // on the No. 4 sieve to 5 percent of the total combined aggregates."
+    // Rounded to a whole percent, as the MixPack does.
+    NON_PR_FINE_RETAINED_MAX: 5,
+    STANDARD: {
+      A: { COARSE_CLASS_A: 100, FINE_CLASS_A: 20 },
+      B: { COARSE_CLASS_B: 100, RETAINED4_CLASS_A: 50, FINE_CLASS_B: 30, FINE_CLASS_A: 20 },
+    },
+    // Separate table in the same subsection for No. 4 (4.75mm) mixtures,
+    // stated against TOTAL combined aggregate rather than the +4 fraction.
+    NO4: { A_TOTAL_CLASS_A: 100, B_TOTAL: 85 },
+    // Footnote 2, and a standing instruction rather than a pass/fail.
+    CLASS_B_REVIEW_NOTE: "Submit all Class B blends to the Department for review " +
+      "(403.03.03 A) footnote 2). Aggregates identified as \"Not permitted as the " +
+      "polish-resistant portion of Class B blends\" cannot be used for that portion.",
+    // A RAP polish credit is not self-declaring - it is applied for.
+    RAP_CREDIT_NOTE: "A polish-resistant credit for RAP requires Division of Materials approval. " +
+      "Leave blank unless it has been granted.",
+    // Prefill only: more than this passing the #4 makes a component a fine
+    // source. The contractor can change it; it is a starting point, not a rule.
+    FINE_SOURCE_PASSING_4: 50,
+    // Which sieve the +4 arithmetic keys on - the gradation section's own key
+    // for the #4 (4.75 mm), so the two can never drift apart.
+    RETAINED_SIEVE: "s4_75",
+  },
+
   // RAP -> required virgin binder, per the MixPack v12.1 Recycle Data tab
   // (screenshot supplied 2026-09-04; cite the exact R35 recycle-spec section
   // here once confirmed). Keyed by course (SURF/BASE, from state.mix.layer),
@@ -933,6 +1009,10 @@ const CONFIG = {
         { key: "s0_15",  label: "#100",   mm: 0.150 },
         { key: "s0_075", label: "#200",   mm: 0.075 },
       ],
+    },
+    {
+      id: "polish", label: "Polish-Resistant Aggregate",
+      tag: "KYTC 403.03.03 A) \u00b7 does this blend qualify as Type A or B", type: "polish",
     },
     {
       id: "fourpoint", label: "Four Points",
@@ -1364,6 +1444,7 @@ function renderForm() {
     if (s.type === "sieves") body = sievesHTML(s);
     else if (s.type === "status") body = statusHTML();
     else if (s.type === "fourpoint") body = fourpointHTML(s);
+    else if (s.type === "polish") body = polishHTML(s);
     else if (s.type === "computed") body = computedHTML(s);
     else {
       if (s.fields) body += gridHTML(s.fields);
@@ -1374,6 +1455,10 @@ function renderForm() {
       ${body}
     </section>`;
   }).join("");
+  // The polish grid's columns come from the aggregate rows, which only exist
+  // once the markup above is in the document.
+  prGridSignature = null;
+  renderPolishGrid(true);
 
   $("navlist").innerHTML = CONFIG.SECTIONS.map((s) =>
     `<li class="navitem" data-target="${s.id}"><span class="tick" data-tick="${s.id}"></span>${s.label}</li>`
@@ -1679,6 +1764,302 @@ function computeFourPoint() {
   drawFpChart(pbs, vas, vaFit, vaTgt, designPb);
 }
 
+/* ===== POLISH-RESISTANT AGGREGATE (KYTC 403.03.03 A) =====
+ *
+ * Pure: takes the components and the mix, returns the checks. No DOM, so it
+ * can be exercised directly against a real design's numbers.
+ *
+ * comps: [{ name, producer, pct, cls: "A"|"B"|"", role: "coarse"|"fine",
+ *           p4 (% passing the #4), naturalSand, dolomite, rapCredit }]
+ * mix:   { letter: "A"|"B"|"D"|null, no4: bool }
+ */
+function evaluatePolish(comps, mix) {
+  const P = CONFIG.POLISH;
+  const use = (comps || []).filter((c) => Number.isFinite(c.pct) && c.pct > 0);
+  if (!use.length) return { ready: false, reason: "Enter the aggregate structure first.", checks: [] };
+  const missing4 = use.filter((c) => !Number.isFinite(c.p4));
+  if (missing4.length) {
+    return { ready: false, checks: [],
+             reason: `Enter the #4 passing value for ${missing4.map((c) => c.name || "a component").join(", ")}.` };
+  }
+
+  // A RAP polish credit splits one component between its class and no class:
+  // the granted share counts, the rest does not. Blank means no credit.
+  const share = (c) => (Number.isFinite(c.rapCredit) && c.cls ? Math.max(0, Math.min(100, c.rapCredit)) / 100 : (c.cls ? 1 : 0));
+  const conditional = use.some((c) => Number.isFinite(c.rapCredit) && c.cls);
+
+  const contrib = (c) => c.pct * (100 - c.p4) / 100;      // % of TOTAL combined that is +4 from c
+  const sum = (f) => use.reduce((a, c) => a + (f(c) || 0), 0);
+  const inClass = (c, k) => (c.cls === k ? share(c) : 0);
+
+  const totalBlend  = sum((c) => c.pct);
+  const plus4Total  = sum(contrib);
+  const plus4ClassA = sum((c) => contrib(c) * inClass(c, "A"));
+  const blendClassA = sum((c) => c.pct * inClass(c, "A"));
+  const blendClassB = sum((c) => c.pct * inClass(c, "B"));
+  const fineClassA  = sum((c) => (c.role === "fine" ? c.pct * inClass(c, "A") : 0));
+  const fineClassB  = sum((c) => (c.role === "fine" ? c.pct * inClass(c, "B") : 0));
+  const coarseTotal = sum((c) => (c.role === "coarse" ? c.pct : 0));
+  const coarseClassA = sum((c) => (c.role === "coarse" ? c.pct * inClass(c, "A") : 0));
+  const coarseClassB = sum((c) => (c.role === "coarse" ? c.pct * inClass(c, "B") : 0));
+  // Non-polish-resistant = no class at all (see the note on CONFIG.POLISH).
+  const nonPrFine4  = sum((c) => (c.role === "fine" ? contrib(c) * (1 - share(c)) : 0));
+  const naturalSand = sum((c) => (c.naturalSand ? c.pct : 0));
+  const dolomiteIsPR = use.some((c) => c.dolomite && c.cls);
+
+  // A component with no class set is not the same as one known not to be
+  // polish-resistant. Filling a blank class in can only ever ADD to a class
+  // total (or subtract from the non-PR figure), so a PASS stays a pass, but a
+  // FAIL might not be one - it might just be a gap in the data. Andrew's
+  // aggregate_types.polish_resistant_class is null for 65 of 115 types, so
+  // this is the common case, not the edge: #467PA is a real approved design
+  // whose four fine components are all unclassified. Report those as
+  // unproven and name what to go and find out, rather than failing a design
+  // that may well be fine.
+  const anyUnclassed = use.some((c) => !c.cls);
+  const unclassed = use.filter((c) => !c.cls).map((c) => c.name || "a component");
+  const checks = [];
+  const add = (label, ok, detail, cite) => checks.push({
+    label, ok, detail, cite: cite || P.CITE,
+    unproven: !ok && anyUnclassed,
+    unclassed: !ok && anyUnclassed ? unclassed : null,
+  });
+  const pctOf = (a, b) => (b > 0 ? (a / b) * 100 : 0);
+
+  const L = mix && mix.letter ? String(mix.letter).toUpperCase() : null;
+  if (L !== "A" && L !== "B") {
+    return { ready: true, restricted: false, conditional, totals: { totalBlend, plus4Total, plus4ClassA, nonPrFine4, naturalSand },
+             checks: [{ label: L === "D" ? "Type D - no polish-resistant restriction" : "No mix type letter - no polish-resistant restriction applies",
+                        ok: true, detail: "403.03.03 A) restricts Type A and Type B only.", cite: P.CITE }] };
+  }
+
+  if (mix.no4) {
+    // No. 4 (4.75mm) mixtures: stated against TOTAL combined, not the +4.
+    if (L === "A") {
+      add("Type A (No. 4) - total combined from a Class A source",
+          blendClassA + 1e-9 >= P.NO4.A_TOTAL_CLASS_A,
+          `${blendClassA.toFixed(1)}% of total combined is Class A; ${P.NO4.A_TOTAL_CLASS_A}% required.`);
+    } else {
+      const ab = blendClassA + blendClassB;
+      add("Type B (No. 4) - total combined from Class B, or Class A and B combined",
+          blendClassB + 1e-9 >= P.NO4.B_TOTAL || ab + 1e-9 >= P.NO4.B_TOTAL,
+          `Class B ${blendClassB.toFixed(1)}%, Class A+B ${ab.toFixed(1)}%; ${P.NO4.B_TOTAL}% required by either route.`);
+    }
+  } else if (L === "A") {
+    add("Type A - coarse aggregate 100% from a Class A source",
+        coarseTotal > 0 && pctOf(coarseClassA, coarseTotal) + 1e-9 >= P.STANDARD.A.COARSE_CLASS_A,
+        coarseTotal > 0 ? `${pctOf(coarseClassA, coarseTotal).toFixed(1)}% of the coarse aggregate is Class A; 100% required.`
+                        : "No component is marked a coarse source.");
+    add("Type A - fine aggregate from a Class A fine source",
+        fineClassA + 1e-9 >= P.STANDARD.A.FINE_CLASS_A,
+        `${fineClassA.toFixed(1)}% of total combined; ${P.STANDARD.A.FINE_CLASS_A}% required.`);
+    add("Type A - non-polish-resistant fine retained on the #4",
+        Math.round(nonPrFine4) <= P.NON_PR_FINE_RETAINED_MAX,
+        `${nonPrFine4.toFixed(2)}% of total combined (rounds to ${Math.round(nonPrFine4)}%); ` +
+        `${P.NON_PR_FINE_RETAINED_MAX}% is the maximum.`);
+    if (dolomiteIsPR) {
+      add("Type A - dolomite as the polish-resistant lithology",
+          blendClassA + 1e-9 >= P.DOLOMITE_CLASS_A_MIN,
+          `${blendClassA.toFixed(1)}% total combined Class A; ${P.DOLOMITE_CLASS_A_MIN}% required when dolomite is the ` +
+          `polish-resistant lithology.`, `${P.CITE} footnote 1`);
+    }
+  } else {
+    const coarseB = coarseTotal > 0 && pctOf(coarseClassB, coarseTotal) + 1e-9 >= P.STANDARD.B.COARSE_CLASS_B;
+    const ret50 = plus4Total > 0 && pctOf(plus4ClassA, plus4Total) + 1e-9 >= P.STANDARD.B.RETAINED4_CLASS_A;
+    add("Type B - coarse aggregate: 100% Class B, or +4 at least 50% Class A",
+        coarseB || ret50,
+        `Coarse that is Class B ${coarseTotal > 0 ? pctOf(coarseClassB, coarseTotal).toFixed(1) : "0.0"}% ` +
+        `(100% required); retained on #4 that is Class A ${plus4Total > 0 ? pctOf(plus4ClassA, plus4Total).toFixed(1) : "0.0"}% ` +
+        `(${P.STANDARD.B.RETAINED4_CLASS_A}% required). Either route qualifies.`,
+        `${P.CITE} footnote 2`);
+    add("Type B - fine aggregate: 30% Class B, or 20% Class A",
+        fineClassB + 1e-9 >= P.STANDARD.B.FINE_CLASS_B || fineClassA + 1e-9 >= P.STANDARD.B.FINE_CLASS_A,
+        `Class B fine ${fineClassB.toFixed(1)}% (${P.STANDARD.B.FINE_CLASS_B}% required); ` +
+        `Class A fine ${fineClassA.toFixed(1)}% (${P.STANDARD.B.FINE_CLASS_A}% required). Either route qualifies.`);
+  }
+
+  // Applies whatever the type is, and does not depend on any class, so a
+  // blank class never makes this one unproven.
+  checks.push({ label: "Natural sand at most 15% of total combined",
+    ok: naturalSand <= P.NATURAL_SAND_MAX + 1e-9, cite: P.CITE, unproven: false, unclassed: null,
+    detail: `${naturalSand.toFixed(1)}% natural sand; over ${P.NATURAL_SAND_MAX}% needs prior ` +
+            `Division of Materials approval.` });
+
+  return { ready: true, restricted: true, conditional,
+           totals: { totalBlend, plus4Total, plus4ClassA, nonPrFine4, naturalSand,
+                     plus4NonPr: plus4Total - sum((c) => contrib(c) * share(c)) },
+           checks };
+}
+
+/* ---------- the polish-resistant section ----------
+ *
+ * Mirrors the MixPack's second tab: the component name, producer and cold
+ * feed % are PULLED from Aggregate Structure, and this section adds what the
+ * spec needs on top - each component's polish class, whether it is a coarse
+ * or a fine source, and its own gradation.
+ *
+ * The grid is rebuilt only when the SET of components changes (their names
+ * and count). Rebuilding on every keystroke would take the caret with it.
+ */
+function polishSavedValues() {
+  const sc = state.extracted && state.extracted.scalars ? state.extracted.scalars.polish : null;
+  return sc && typeof sc === "object" ? sc : {};
+}
+
+// Read the aggregate rows straight off the form, so the columns follow what
+// the person has actually entered rather than a stale copy.
+function polishAggregateRows() {
+  const list = document.querySelector('[data-rowlist="aggregate"]');
+  if (!list) return [];
+  return Array.from(list.children).map((row) => {
+    const g = (col) => {
+      const el = row.querySelector(`[data-col="${col}"]`);
+      return el ? String(el.value || "").trim() : "";
+    };
+    return { producer: g("producer"), type_size: g("type_size"), pct_blend: g("pct_blend") };
+  }).filter((r) => r.type_size || r.producer || r.pct_blend);
+}
+
+// Class from Andrew's table when it knows, blank when it does not - never a
+// guess. aggregate_types.polish_resistant_class is null for most rows, which
+// is why a blank answer is reported as unproven rather than as "no".
+function polishClassFor(typeName) {
+  const want = String(typeName || "").trim().toLowerCase();
+  if (!want) return "";
+  // loadReferenceData stores { value, label, aliases, row } - the table row
+  // itself is under .row, which is where polish_resistant_class lives.
+  const hit = ((state.ref && state.ref.aggregate_types) || [])
+    .find((o) => String(o.value || "").trim().toLowerCase() === want);
+  const cls = hit && hit.row ? hit.row.polish_resistant_class : null;
+  return cls ? String(cls).trim().toUpperCase() : "";
+}
+
+function polishHTML(section) {
+  const P = CONFIG.POLISH;
+  return `<div class="prnote">Pulled from Aggregate Structure. Set each component's polish class and whether it is a
+      coarse or a fine source, then enter that component's own gradation. ${esc(P.CITE)} restricts Type A and Type B;
+      Type D is unrestricted.</div>
+    <div class="prscroll"><div id="prGrid"></div></div>
+    <div id="prResults" class="prresults"></div>
+    <div class="prnote small">${esc(P.CLASS_B_REVIEW_NOTE)}</div>
+    <div class="prnote small">${esc(P.RAP_CREDIT_NOTE)}</div>`;
+}
+
+let prGridSignature = null;
+function renderPolishGrid(force) {
+  const host = $("prGrid");
+  if (!host) return;
+  const P = CONFIG.POLISH, saved = polishSavedValues();
+  const comps = polishAggregateRows();
+  const sig = JSON.stringify(comps.map((c) => c.type_size + "|" + c.producer));
+  if (!force && sig === prGridSignature) return;      // same components: leave the inputs alone
+  prGridSignature = sig;
+  if (!comps.length) { host.innerHTML = `<div class="prempty">Add aggregate components first.</div>`; return; }
+
+  const sieves = gradSection().sieves;
+  const val = (k, fallback) => (saved[k] == null ? (fallback == null ? "" : fallback) : saved[k]);
+  const head = comps.map((c, i) =>
+    `<th><div class="prname">${esc(c.type_size || "component " + (i + 1))}</div>
+      <div class="prsub">${esc(c.producer || "")}</div>
+      <div class="prsub mono">${esc(c.pct_blend || "0")}% blend</div></th>`).join("");
+
+  const selRow = (label, key, opts, pick) => `<tr><th class="prrowhead">${label}</th>` + comps.map((c, i) =>
+    `<td><select class="box" data-pr="${key}:${i}">` +
+      opts.map((o) => `<option value="${esc(o.v)}"${pick(c, i) === o.v ? " selected" : ""}>${esc(o.l)}</option>`).join("") +
+    `</select></td>`).join("") + `</tr>`;
+
+  const classRow = selRow("Polish class", "cls",
+    [{ v: "", l: "— not classified —" }, { v: "A", l: "Class A" }, { v: "B", l: "Class B" }],
+    (c, i) => val(`cls:${i}`, polishClassFor(c.type_size)));
+
+  // Prefilled from the component's own #4: mostly passing it makes it a fine
+  // source. A starting point the contractor can change, not a rule.
+  const roleRow = selRow("Source", "role",
+    [{ v: "coarse", l: "Coarse" }, { v: "fine", l: "Fine" }],
+    (c, i) => {
+      const p4 = parseFloat(val(`g:${i}:${P.RETAINED_SIEVE}`, ""));
+      const guess = Number.isFinite(p4) && p4 > P.FINE_SOURCE_PASSING_4 ? "fine" : "coarse";
+      return val(`role:${i}`, guess);
+    });
+
+  const flagRow = (label, key) => `<tr><th class="prrowhead">${label}</th>` + comps.map((c, i) =>
+    `<td><input type="checkbox" data-pr="${key}:${i}" value="1"${val(`${key}:${i}`, "") ? " checked" : ""}></td>`)
+    .join("") + `</tr>`;
+
+  const sieveRows = sieves.map((sv) => `<tr><th class="prrowhead mono">${esc(sv.label)}</th>` + comps.map((c, i) =>
+    `<td><input type="text" inputmode="decimal" class="box mono${sv.key === P.RETAINED_SIEVE ? " prkey" : ""}"
+        data-pr="g:${i}:${sv.key}" value="${esc(val(`g:${i}:${sv.key}`, ""))}" placeholder="—"></td>`).join("") + `</tr>`).join("");
+
+  const rapRow = `<tr><th class="prrowhead">RAP credit %</th>` + comps.map((c, i) =>
+    `<td><input type="text" inputmode="decimal" class="box mono" data-pr="rap:${i}"
+        value="${esc(val(`rap:${i}`, ""))}" placeholder="—" title="${esc(P.RAP_CREDIT_NOTE)}"></td>`).join("") + `</tr>`;
+
+  host.innerHTML = `<table class="prtable"><thead><tr><th class="prrowhead"></th>${head}</tr></thead>
+    <tbody>${classRow}${roleRow}
+      ${flagRow("Natural sand", "sand")}${flagRow("Dolomite", "dol")}${rapRow}
+      <tr class="prspacer"><th class="prrowhead">% passing</th>${comps.map(() => "<td></td>").join("")}</tr>
+      ${sieveRows}</tbody></table>`;
+}
+
+// Gather what evaluatePolish needs: the pulled blend % plus this section's
+// own answers. Reads the DOM so it always reflects what is on screen.
+function polishComponents() {
+  const P = CONFIG.POLISH;
+  const rows = polishAggregateRows();
+  const get = (k) => { const el = document.querySelector(`[data-pr="${k}"]`); return el ? el : null; };
+  const txt = (k) => { const el = get(k); return el ? String(el.value || "").trim() : ""; };
+  const chk = (k) => { const el = get(k); return !!(el && el.checked); };
+  return rows.map((r, i) => ({
+    name: r.type_size || `component ${i + 1}`,
+    producer: r.producer,
+    pct: num(r.pct_blend),
+    cls: txt(`cls:${i}`),
+    role: txt(`role:${i}`) || "coarse",
+    p4: num(txt(`g:${i}:${P.RETAINED_SIEVE}`)),
+    naturalSand: chk(`sand:${i}`),
+    dolomite: chk(`dol:${i}`),
+    rapCredit: num(txt(`rap:${i}`)),
+  }));
+}
+
+function renderPolish() {
+  renderPolishGrid(false);
+  const host = $("prResults");
+  if (!host) return null;
+  const r = evaluatePolish(polishComponents(), polishMixType(state.mix));
+  if (!r.ready) { host.innerHTML = `<div class="prempty">${esc(r.reason)}</div>`; return r; }
+  const t = r.totals || {};
+  const totals = r.restricted
+    ? `<div class="prtotals mono">Retained on #4: total ${fmt(t.plus4Total, 2)}% \u00b7
+        Class A ${fmt(t.plus4ClassA, 2)}% \u00b7 not polish-resistant ${fmt(t.plus4NonPr, 2)}%</div>` : "";
+  const items = r.checks.map((c) => {
+    const cls = c.ok ? "ok" : (c.unproven ? "unproven" : "bad");
+    const mark = c.ok ? "\u2713" : (c.unproven ? "?" : "\u2717");
+    return `<div class="pritem ${cls}"><span class="prmark">${mark}</span>
+      <span><strong>${esc(c.label)}</strong>
+        <div class="prsub">${esc(c.detail)}</div>
+        ${c.unclassed ? `<div class="prsub">Not proven - no polish class set for: ${esc(c.unclassed.join(", "))}.</div>` : ""}
+        <div class="prsub mono">${esc(c.cite)}</div></span></div>`;
+  }).join("");
+  const cond = r.conditional
+    ? `<div class="prnote small">A RAP polish credit is applied above - this result stands only if the Division of
+        Materials has granted it.</div>` : "";
+  host.innerHTML = totals + items + cond;
+  return r;
+}
+
+// The mix type letter and whether this is a No. 4 (4.75mm) mixture, both off
+// the nominal-size token ("0.38B" -> B; "NO.4A" -> A, no4). Blank letter is
+// Type D territory: 403.03.03 A) restricts A and B only.
+function polishMixType(mix) {
+  const raw = String((mix && mix.nominal_size) || "").trim();
+  if (!raw) return { letter: null, no4: false };
+  const no4 = /^no\.?\s?4/i.test(raw);
+  const m = /([A-Z])\s*$/i.exec(raw);
+  return { letter: m ? m[1].toUpperCase() : null, no4 };
+}
+
+
 function drawFpChart(pbs, vas, vaFit, vaTgt, designPb) {
   const el = $("fpchart");
   if (!el) return;
@@ -1743,6 +2124,20 @@ function recompute() {
       });
     }
   });
+
+  // Polish-resistant: a real spec failure is a warning on the rail, not a
+  // missing field - the design is complete, it just would not qualify. An
+  // unproven check says so in its own words rather than crying wolf.
+  const pr = renderPolish();
+  if (pr && pr.ready && pr.restricted) {
+    const sec = document.querySelector('[data-section="polish"]');
+    const label = sec ? sec.dataset.label : "Polish-Resistant Aggregate";
+    pr.checks.filter((c) => !c.ok).forEach((c) => {
+      outstanding.push({ id: "polish", label, kind: "warn",
+        text: c.unproven ? `${c.label} - not proven, some components have no polish class`
+                         : `${c.label} - ${CONFIG.POLISH.CITE}` });
+    });
+  }
 
   const list = $("vallist"), sub = $("valsub");
   const missing = outstanding.filter((o) => o.kind !== "warn"), warns = outstanding.filter((o) => o.kind === "warn");
@@ -2291,7 +2686,12 @@ function collectForm() {
   document.querySelectorAll("[data-dv]").forEach((el) => {
     design_values[el.dataset.dv] = el.textContent === "—" ? null : el.textContent;
   });
+  const polish = {};
+  document.querySelectorAll("[data-pr]").forEach((el) => {
+    polish[el.dataset.pr] = String(el.value || "").trim() || null;
+  });
   values.fourpoint = fourpoint;
+  values.polish = polish;
   values.design_values = design_values;
   const rows = {};
   document.querySelectorAll("[data-rowlist]").forEach((list) => {
