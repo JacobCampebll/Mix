@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DesignBook — Mix</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=Public+Sans:wght@400;500;600&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
 
 <!--
   DesignBook — replaces the KYTC MixPack workbook. Layout A.
@@ -79,9 +79,9 @@
   }
   *{box-sizing:border-box;}
   body{margin:0; background:var(--paper); color:var(--ink);
-       font-family:'IBM Plex Sans',sans-serif; font-size:14px; line-height:1.5;}
+       font-family:'Public Sans',sans-serif; font-size:14px; line-height:1.5;}
   h1,h2,h3{font-family:'Space Grotesk',sans-serif; font-weight:600; margin:0;}
-  .mono{font-family:'IBM Plex Mono',monospace;}
+  .mono{font-family:'Roboto Mono',monospace;}
   a{color:inherit;}
   .hidden{display:none !important;}
 
@@ -106,8 +106,8 @@
   .book.on{background:var(--navy); color:#FFFFFF;}
   .book.on span{color:var(--gold);}
   .book:disabled{cursor:not-allowed;}
-  .mixid{font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--muted); white-space:nowrap;}
-  .pill{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase;
+  .mixid{font-family:'Roboto Mono',monospace; font-size:12px; color:var(--muted); white-space:nowrap;}
+  .pill{font-family:'Roboto Mono',monospace; font-size:11px; text-transform:uppercase;
         letter-spacing:.05em; padding:4px 10px; border-radius:20px; border:1px solid; transition:.15s;}
   .pill.draft{background:var(--flag-soft); color:var(--ink); border-color:var(--gold);}
   .pill.review{background:var(--accent-soft); color:var(--accent); border-color:var(--accent);}
@@ -208,7 +208,7 @@
        border-radius:var(--radius-field);
        padding:8px 10px; font-size:13px; min-height:34px; color:var(--ink);
        font-family:inherit;}
-  input.box.mono, select.box.mono{font-family:'IBM Plex Mono',monospace; color:var(--accent);}
+  input.box.mono, select.box.mono{font-family:'Roboto Mono',monospace; color:var(--accent);}
   .box:hover:not([readonly]):not(:disabled){border-color:var(--line);}
   .box:focus{outline:2px solid var(--accent); outline-offset:-1px;}
   .box.prefilled{background:var(--accent-soft);}
@@ -217,7 +217,7 @@
   /* A frozen (Approved) form: flatter than the paper, so the whole sheet
      reads as closed rather than as a page of fields that happen not to work. */
   .box:disabled{background:transparent; border-color:var(--line); color:var(--muted); opacity:1;}
-  .srcnote{font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--muted); margin-top:3px;}
+  .srcnote{font-family:'Roboto Mono',monospace; font-size:9.5px; color:var(--muted); margin-top:3px;}
   /* Consensus Properties: the resolved spec limit + pass/fail marker under
      each value, written by computeConsensus(). */
   .crit{font-size:10.5px; margin-top:3px; line-height:1.35;}
@@ -237,8 +237,8 @@
   .combo-opt:last-child{border-bottom:0;}
   .combo-opt.active, .combo-opt:hover{background:var(--accent-soft);}
   .combo-val{font-size:13px; line-height:1.35; color:var(--ink);}
-  .combo.mono .combo-val{font-family:'IBM Plex Mono',monospace; color:var(--accent);}
-  .combo-sub{font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--muted); margin-top:2px;}
+  .combo.mono .combo-val{font-family:'Roboto Mono',monospace; color:var(--accent);}
+  .combo-sub{font-family:'Roboto Mono',monospace; font-size:10px; color:var(--muted); margin-top:2px;}
   .combo-val mark, .combo-sub mark{background:var(--gold); color:var(--ink); padding:0 1px; border-radius:2px;}
   .combo-foot{padding:6px 12px; font-size:10.5px; color:var(--muted); background:#FCFCFA;
               border-top:1px solid var(--line);}
@@ -266,10 +266,10 @@
   table.sievetable th{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);
                       text-align:left; padding:6px 8px; border-bottom:1px solid var(--line);}
   table.sievetable td{padding:4px 8px; border-bottom:1px solid var(--line);}
-  table.sievetable td.sz{font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--ink); white-space:nowrap;}
+  table.sievetable td.sz{font-family:'Roboto Mono',monospace; font-size:12.5px; color:var(--ink); white-space:nowrap;}
   table.sievetable input{width:100%; border:1px solid transparent; background:var(--well);
                          border-radius:var(--radius-field);
-                         padding:5px 8px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--accent);}
+                         padding:5px 8px; font-family:'Roboto Mono',monospace; font-size:12.5px; color:var(--accent);}
   table.sievetable input:hover:not(:disabled){border-color:var(--line);}
   table.sievetable input:focus{outline:2px solid var(--accent); outline-offset:-1px;}
   .chartwrap{border:1px solid var(--line); border-radius:var(--radius); background:#FCFCFA; padding:12px;}
@@ -286,10 +286,10 @@
   table.fptable td{padding:5px 8px; border-bottom:1px solid var(--line);}
   table.fptable input{width:100%; border:1px solid transparent; background:var(--well);
                       border-radius:var(--radius-field);
-                      padding:6px 8px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--accent);}
+                      padding:6px 8px; font-family:'Roboto Mono',monospace; font-size:12.5px; color:var(--accent);}
   table.fptable input:hover:not(:disabled){border-color:var(--line);}
   table.fptable input:focus{outline:2px solid var(--accent); outline-offset:-1px;}
-  table.fptable td.calc{font-family:'IBM Plex Mono',monospace; color:var(--ink); background:#FAFAF7;}
+  table.fptable td.calc{font-family:'Roboto Mono',monospace; color:var(--ink); background:#FAFAF7;}
   /* chart full width on top, results in one left-to-right row underneath -
      chosen 2026-09-04 from two mocked options (Andrew: "Option A"). */
   .fp-lower{display:flex; flex-direction:column; gap:16px; margin-top:18px;}
@@ -326,7 +326,7 @@
   .fp-defaultnote.show{display:block;}
   .fp-card{background:var(--accent-soft); border-radius:var(--radius); padding:9px 12px;}
   .fp-card .l{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--accent); margin-bottom:2px;}
-  .fp-card .v{font-family:'IBM Plex Mono',monospace; font-size:16px; color:var(--ink);}
+  .fp-card .v{font-family:'Roboto Mono',monospace; font-size:16px; color:var(--ink);}
   .fp-card.hero{background:var(--flag-soft);} .fp-card.hero .l{color:var(--flag);} .fp-card.hero .v{font-size:20px;}
   .fpnote{font-size:11px; color:var(--muted); margin-top:12px; padding-top:10px; border-top:1px solid var(--line);}
 
@@ -335,7 +335,7 @@
   @media (max-width:700px){ .computed-grid{grid-template-columns:1fr 1fr;} }
   .computed-cell{border:1px solid var(--line); border-radius:var(--radius); background:#FAFAF7; padding:10px 12px;}
   .computed-cell .l{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:4px;}
-  .computed-cell .v{font-family:'IBM Plex Mono',monospace; font-size:16px; color:var(--accent);}
+  .computed-cell .v{font-family:'Roboto Mono',monospace; font-size:16px; color:var(--accent);}
   .computed-note{font-size:11px; color:var(--muted); margin-top:12px;}
 
   .rowgroup-head{font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);
@@ -363,19 +363,19 @@
   .approvalbox{margin-top:14px; padding:12px 14px; border:1px solid var(--line); border-radius:var(--radius); background:var(--wash);}
   .approvalbox label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:6px;}
   .approvalbox input{width:120px; padding:7px 9px; border:1px solid var(--line); border-radius:var(--radius);
-    font-family:'IBM Plex Mono',monospace; font-size:15px;}
+    font-family:'Roboto Mono',monospace; font-size:15px;}
   .approvalhint{font-size:11.5px; color:var(--muted); margin-top:8px; max-width:60ch; line-height:1.5;}
   /* Review PDF: the portable copy, offered next to the stage buttons. */
   .handoff{margin-top:18px; padding-top:16px; border-top:1px solid var(--line);}
   .handoff .stagebtn{margin-top:0;}
   .handoffnote{font-size:12px; color:var(--muted); margin-top:8px; max-width:62ch; line-height:1.5;}
-  .refstatus{font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--muted); margin-top:6px;}
+  .refstatus{font-family:'Roboto Mono',monospace; font-size:11px; color:var(--muted); margin-top:6px;}
   .refstatus.error{color:var(--bad);}
   .auditrow.local .ts{color:var(--muted);}
   .auditlog{margin-top:16px; border-top:1px solid var(--line); padding-top:12px;
             display:flex; flex-direction:column; gap:6px;}
   .auditrow{font-size:12px; color:var(--muted); display:flex; gap:10px;}
-  .auditrow .ts{font-family:'IBM Plex Mono',monospace; color:var(--ink); white-space:nowrap;}
+  .auditrow .ts{font-family:'Roboto Mono',monospace; color:var(--ink); white-space:nowrap;}
 
   /* right validation rail */
   /* The sky wash from the logo, so the rail that says what is LEFT TO DO
@@ -435,7 +435,7 @@
   summary{cursor:pointer; font-size:12px; color:var(--muted);}
   pre{background:#FCFCFA; border:1px solid var(--line); border-radius:var(--radius);
       padding:12px; overflow:auto; max-height:320px; font-size:11px; margin-top:10px;
-      font-family:'IBM Plex Mono',monospace;}
+      font-family:'Roboto Mono',monospace;}
 </style>
 </head>
 <body>

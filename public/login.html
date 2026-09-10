@@ -60,7 +60,7 @@
 -->
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&family=Public+Sans:wght@400;500;600&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
 
 <style>
   /* Theme tokens shared with portal.html and designbook.html. Keep in sync -
@@ -77,9 +77,9 @@
   *{box-sizing:border-box;}
   body{margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
        background:var(--paper); color:var(--ink);
-       font-family:'IBM Plex Sans',sans-serif; font-size:14px; line-height:1.5; padding:24px 16px;}
+       font-family:'Public Sans',sans-serif; font-size:14px; line-height:1.5; padding:24px 16px;}
   h1,h2{font-family:'Space Grotesk',sans-serif; font-weight:600; margin:0;}
-  .mono{font-family:'IBM Plex Mono',monospace;}
+  .mono{font-family:'Roboto Mono',monospace;}
   .hidden{display:none !important;}
 
   .card{width:100%; max-width:440px; background:var(--panel); border:1px solid var(--line);
@@ -107,7 +107,7 @@
         color:var(--muted); margin:14px 0 5px;}
   input{width:100%; border:1px solid var(--line); background:#FCFCFA; border-radius:var(--radius);
         padding:10px 12px; font-size:14px; min-height:40px; color:var(--ink); font-family:inherit;}
-  input.mono{font-family:'IBM Plex Mono',monospace; color:var(--accent);}
+  input.mono{font-family:'Roboto Mono',monospace; color:var(--accent);}
   input:focus{outline:2px solid var(--accent); outline-offset:-1px;}
   .hint{font-size:12px; color:var(--muted); margin-top:6px;}
 
@@ -129,7 +129,7 @@
   .steps{display:flex; align-items:center; gap:10px; margin:0 0 16px; font-size:11px; text-transform:uppercase;
          letter-spacing:.04em; color:var(--muted);}
   .steps .dot{width:22px; height:22px; border-radius:50%; border:2px solid var(--line); background:var(--panel);
-              display:flex; align-items:center; justify-content:center; font-family:'IBM Plex Mono',monospace;
+              display:flex; align-items:center; justify-content:center; font-family:'Roboto Mono',monospace;
               font-size:11px; color:var(--muted); flex-shrink:0;}
   .steps .dot.current{border-color:var(--accent); background:var(--accent); color:#fff;}
   .steps .dot.done{border-color:var(--ok); background:var(--ok); color:#fff;}
@@ -142,7 +142,7 @@
   .who .name{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:20px;}
   .who .meta{color:var(--muted); font-size:13px; margin-top:2px;}
   .badges{display:flex; justify-content:center; gap:8px; flex-wrap:wrap; margin:14px 0 6px;}
-  .badge{font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+  .badge{font-family:'Roboto Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em;
          padding:4px 10px; border-radius:20px; border:1px solid;}
   .badge.granted{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
   .badge.soon{background:var(--flag-soft); color:var(--ink); border-color:var(--gold);}
