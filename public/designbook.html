@@ -70,6 +70,12 @@
     --flag:#A56F00; --flag-soft:#FDF1C7; --ok:#3F7A56; --ok-soft:#E3EFE7;
     --bad:#9B2C2C;
     --radius:6px;
+    /* "Plates" (chosen 2026-09-10): a control is a filled plate rather than
+       an outlined box. --well is the plate ground, --radius-field the softer
+       corner they get. Cards, charts and readouts keep --radius and their
+       borders, so the only thing wearing a fill is a thing you can type in. */
+    --well:#FAF9F5;
+    --radius-field:8px;
   }
   *{box-sizing:border-box;}
   body{margin:0; background:var(--paper); color:var(--ink);
@@ -177,14 +183,22 @@
   .field label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em;
                color:var(--muted); margin-bottom:5px; min-height:28.6px;}
   .field label .opt{text-transform:none; letter-spacing:0; font-size:10px; opacity:.7;}
-  .box{width:100%; border:1px solid var(--line); background:#FCFCFA; border-radius:var(--radius);
+  /* The border is transparent rather than absent so the box model does not
+     move when hover brings it back - a 1px shift on every field under the
+     cursor is worse than the outline it replaces. */
+  .box{width:100%; border:1px solid transparent; background:var(--well);
+       border-radius:var(--radius-field);
        padding:8px 10px; font-size:13px; min-height:34px; color:var(--ink);
        font-family:inherit;}
   input.box.mono, select.box.mono{font-family:'IBM Plex Mono',monospace; color:var(--accent);}
+  .box:hover:not([readonly]):not(:disabled){border-color:var(--line);}
   .box:focus{outline:2px solid var(--accent); outline-offset:-1px;}
   .box.prefilled{background:var(--accent-soft);}
   .box.autofilled{background:var(--accent-soft);}
   .box[readonly]{background:#EFEDE6; color:var(--muted); cursor:default;}
+  /* A frozen (Approved) form: flatter than the paper, so the whole sheet
+     reads as closed rather than as a page of fields that happen not to work. */
+  .box:disabled{background:transparent; border-color:var(--line); color:var(--muted); opacity:1;}
   .srcnote{font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--muted); margin-top:3px;}
   /* Consensus Properties: the resolved spec limit + pass/fail marker under
      each value, written by computeConsensus(). */
@@ -235,8 +249,10 @@
                       text-align:left; padding:6px 8px; border-bottom:1px solid var(--line);}
   table.sievetable td{padding:4px 8px; border-bottom:1px solid var(--line);}
   table.sievetable td.sz{font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--ink); white-space:nowrap;}
-  table.sievetable input{width:100%; border:1px solid var(--line); background:#FCFCFA; border-radius:var(--radius);
+  table.sievetable input{width:100%; border:1px solid transparent; background:var(--well);
+                         border-radius:var(--radius-field);
                          padding:5px 8px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--accent);}
+  table.sievetable input:hover:not(:disabled){border-color:var(--line);}
   table.sievetable input:focus{outline:2px solid var(--accent); outline-offset:-1px;}
   .chartwrap{border:1px solid var(--line); border-radius:var(--radius); background:#FCFCFA; padding:12px;}
   .chartwrap .cap{font-size:11px; color:var(--muted); margin-bottom:6px;}
@@ -250,8 +266,10 @@
   table.fptable th{font-size:10px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);
                    text-align:left; padding:6px 8px; border-bottom:1px solid var(--line);}
   table.fptable td{padding:5px 8px; border-bottom:1px solid var(--line);}
-  table.fptable input{width:100%; border:1px solid var(--line); background:#FCFCFA; border-radius:var(--radius);
+  table.fptable input{width:100%; border:1px solid transparent; background:var(--well);
+                      border-radius:var(--radius-field);
                       padding:6px 8px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--accent);}
+  table.fptable input:hover:not(:disabled){border-color:var(--line);}
   table.fptable input:focus{outline:2px solid var(--accent); outline-offset:-1px;}
   table.fptable td.calc{font-family:'IBM Plex Mono',monospace; color:var(--ink); background:#FAFAF7;}
   /* chart full width on top, results in one left-to-right row underneath -
