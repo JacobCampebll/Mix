@@ -83,10 +83,11 @@ A mismatch is shown as an error in the summary line.
 Read and listed in the import log and in the save payload
 (`legacy_import.unmapped`), never dropped. See `CONFIG.LEGACY.UNMAPPED` and
 `UNMAPPED_BY_VERSION` for the full list (contract/job identifiers, binder and
-mix codes, consensus properties `O52–O55`, `O58/O60/O64/O66–O71/O73`, the
-Reference Information block, the seven extra sieves, WeighUp and Revised
-columns, Hamburg binder/deformation/pass numbers, KYCT row 29, and the
-version-specific Recycle table cells).
+mix codes, `O58/O60/O64/O66–O71/O73`, the Reference Information block, the
+seven extra sieves, WeighUp and Revised columns, Hamburg binder/deformation/
+pass numbers, KYCT row 29, and the version-specific Recycle table cells).
+Consensus properties `O52–O55` were unmapped until 2026-09-10 — now a real
+section, see the addendum at the end of this file.
 
 ## Verified against the two sample files
 
@@ -356,3 +357,34 @@ two source shapes: a fresh import's `state.extracted.tables.fourpoint`
 reopened design's `state.extracted.scalars.fourpoint` (the flat
 `data-fp`-keyed object `collectForm()` has always saved into
 `values.fourpoint`) — the save shape itself was left alone.
+
+---
+
+# Consensus Properties section added — 2026-09-10
+
+A new `CONFIG.SECTIONS` entry (`id: "consensus"`, "Consensus Properties",
+`type: grid`, placed between Gradation and Polish-Resistant Aggregate) with
+four number fields, one blended value each:
+
+| Field key | Label | Legacy source (both versions) |
+|---|---|---|
+| `caa` | Coarse aggregate angularity (%) | `Design Data!O52` |
+| `faa` | Fine aggregate angularity (%) | `Design Data!O53` |
+| `flat_elongated` | Flat & elongated particles (%) | `Design Data!O54` |
+| `sand_equivalent` | Clay content (SE) (%) | `Design Data!O55` |
+
+These cells were previously in `CONFIG.LEGACY.UNMAPPED`; they moved into
+`CELLS` for `11.x` and `12.1` (identical addresses — they sit in the
+`rows 8–76` Design Data input block, so no `not-cached` risk) and into the
+`plain` scalar list in `extractLegacy()`. Verified in the `#489PA.xlsm`
+(Ver 12.1) sample: `O52=100`, `O53=46`, `O54=0`, `O55=95`, all plain cached
+values.
+
+**Deferred, on Andrew's call:** the MixPack also resolves a per-mix spec
+limit for each property in its **Criteria** column (`Design Data!P52:P55`) —
+formulas keyed on traffic level (`H20`), depth (`K20`) and NMAS
+(`Chart Data!J48`), i.e. AASHTO M323 Table 5. DesignBook shows values only
+for now (no criteria column, no in/out-of-spec marker, no traffic input —
+"we don't use ESALs anymore"). `flat_elongated` can legitimately be N/A on a
+#4-nominal mix, so none of the four are `req` yet. Reproducing the Criteria
+display is a known follow-up.
