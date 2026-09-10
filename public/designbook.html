@@ -387,12 +387,24 @@
   .fpnote{font-size:11px; color:var(--muted); margin-top:12px; padding-top:10px; border-top:1px solid var(--line);}
 
   /* design values — read-only, computed from Four Points */
-  .computed-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
-  @media (max-width:700px){ .computed-grid{grid-template-columns:1fr 1fr;} }
-  .computed-cell{border:1px solid var(--line); border-radius:var(--radius); background:#FAFAF7; padding:10px 12px;}
-  .computed-cell .l{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:4px;}
-  .computed-cell .v{font-family:'Roboto Mono',monospace; font-size:16px; color:var(--accent);}
-  .computed-note{font-size:11px; color:var(--muted); margin-top:12px;}
+  /* Design Values: two lists side by side, one line per value. These are
+     read-only numbers, so they need a label and a figure and nothing else -
+     as bordered cards three across they took a full screen and put the
+     workbook's own results a scroll away from the ones fit from the curve,
+     which is the one comparison this section exists to make. */
+  .dvcols{display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+          gap:18px 28px; align-items:start;}
+  .dvcols.one{grid-template-columns:minmax(0,520px);}
+  @media (max-width:1000px){ .dvcols{grid-template-columns:1fr;} }
+  .dvcol{min-width:0;}
+  .dvlist{border-top:1px solid var(--line);}
+  .dvrow{display:flex; justify-content:space-between; align-items:baseline; gap:14px;
+         padding:5px 4px; border-bottom:1px solid var(--line);}
+  .dvrow:hover{background:var(--well);}
+  .dvrow .l{font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);}
+  .dvrow .v{font-family:'Roboto Mono',monospace; font-size:13px; color:var(--accent);
+            white-space:nowrap;}
+  .computed-note{font-size:11px; color:var(--muted); margin-top:10px;}
 
   .rowgroup-head{font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);
                  margin:14px 0 6px;}
@@ -1928,18 +1940,24 @@ function computedHTML(section) {
   // design).
   const wb = state.legacy && Array.isArray(state.legacy.designValues)
     ? state.legacy.designValues.filter((d) => d.status === "found") : [];
+  // Two lists, side by side, because the whole point of this section is
+  // reading one against the other - stacked three-wide cards put "what the
+  // technician submitted" a screen away from "what the curve fit says".
+  const line = (label, value, attr) =>
+    `<div class="dvrow"><span class="l">${label}</span><span class="v"${attr || ""}>${value}</span></div>`;
   const wbPanel = wb.length ? `
-    <div class="rowgroup-head">From the uploaded MixPack — read-only</div>
-    <div class="computed-grid">` + wb.map((d) =>
-      `<div class="computed-cell"><div class="l">${esc(d.label)}</div>
-         <div class="v">${esc(String(d.value))}</div></div>`).join("") + `</div>
-    <div class="computed-note">${wb.length} value(s) from ${esc(wb[0].source.split("!")[0])}. Compare against the calculator below, which is fit from the four trial points (also pulled from the workbook, where the version's cell map has them).</div>
-    <div style="height:18px"></div>` : "";
-  return wbPanel + `<div class="rowgroup-head">Computed from Four Points</div>
-    <div class="computed-grid">` + section.outputs.map((o) =>
-    `<div class="computed-cell"><div class="l">${o.label}</div>
-       <div class="v" data-dv="${o.key}">—</div></div>`).join("") + `</div>
-    <div class="computed-note">Read-only — derived from the Four Points inputs above.</div>`;
+    <div class="dvcol">
+      <div class="rowgroup-head">From the uploaded MixPack — read-only</div>
+      <div class="dvlist">${wb.map((d) => line(esc(d.label), esc(String(d.value)))).join("")}</div>
+      <div class="computed-note">${wb.length} value(s) from ${esc(wb[0].source.split("!")[0])}. Compare against the calculator beside it, which is fit from the four trial points (also pulled from the workbook, where the version's cell map has them).</div>
+    </div>` : "";
+  return `<div class="dvcols${wb.length ? "" : " one"}">${wbPanel}
+    <div class="dvcol">
+      <div class="rowgroup-head">Computed from Four Points</div>
+      <div class="dvlist">${section.outputs.map((o) =>
+        line(o.label, "—", ` data-dv="${o.key}"`)).join("")}</div>
+      <div class="computed-note">Read-only — derived from the Four Points inputs above.</div>
+    </div></div>`;
 }
 
 function statusHTML() {
