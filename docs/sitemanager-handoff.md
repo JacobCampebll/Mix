@@ -310,8 +310,34 @@ real file; the run takes ~14s.
 **This closes it only for regenerating from an existing workbook.** Building
 one from a DesignBook payload (task #6) cannot reproduce `KYCT Data`'s raw
 curves — DesignBook stores only the CT summary (specimen number and CT index,
-`CONFIG.LEGACY.CT`). Whether the archived MixPack needs the raw curve, or the
-index is enough, is an open question for Central Office.
+`CONFIG.LEGACY.CT`).
+
+**Settled 2026-09-10 (Jake): the CT index is enough — the archived MixPack
+does not need the raw load/displacement curve.** That puts `KYCT Data` rows
+25+ permanently out of scope and makes a DesignBook-built workbook able to be
+complete rather than partial.
+
+With that block excluded, the surface a DesignBook payload must be able to
+fill for a **complete** workbook is **454 cells**, measured against #467PA:
+
+| tab | cells |
+|---|---|
+| Chart Data | 166 |
+| Design Data | 153 |
+| Performance Specimens | 47 |
+| TSR | 42 |
+| 1-Pt. Check | 18 |
+| Hamburg Data | 10 |
+| Graphs | 9 |
+| Recycle Data | 5 |
+| Project Items | 4 |
+| **total** | **454** |
+
+That is the real scope of task #6 — not the 330 staging inputs, which only
+produce a correct *payload*, and not the ~12,700 `regenerate.mjs` carries when
+copying an existing file. `CONFIG.LEGACY` covers 102 of them today. The count
+excludes cells the template holds as formulas (they recalculate on open) and
+cells the template already holds identically (its own labels).
 - `t_smpl_tst`: `tst_meth` = `AMMIXPACK`, `smpl_tst_nbr` = `1`, `lab_id` =
   `LU00642` (the district lab), `chrg_amt` = the total unit test cost from
   `Design Data!M32`, `strt_dt` = submission date, `actl_cmpl_dt` = approval
