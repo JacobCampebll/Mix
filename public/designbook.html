@@ -1734,7 +1734,11 @@ function renderForm() {
   }).join("");
   // The polish grid's columns come from the aggregate rows, which only exist
   // once the markup above is in the document.
+  // A different design entirely: forget the previous one's per-component
+  // values, or its gradations would follow a matching type name across.
   prGridSignature = null;
+  prGridIds = null;
+  prHeld = new Map();
   renderPolishGrid(true);
 
   $("navlist").innerHTML = CONFIG.SECTIONS.map((s) =>
@@ -2265,29 +2269,92 @@ function polishFactsFor(typeName) {
 
 function polishHTML(section) {
   const P = CONFIG.POLISH;
-  return `<div class="prnote">Pulled from Aggregate Structure. Polish class, natural sand and dolomite are read from
-      KYTC's approved aggregate types &mdash; change the component in Aggregate Structure, not here. Set whether each is a
-      coarse or a fine source, then enter its own gradation. ${esc(P.CITE)} restricts Type A and Type B;
-      Type D is unrestricted.</div>
+  return `<div class="prnote">Pulled from Aggregate Structure. Polish class, natural sand and dolomite are seeded from
+      KYTC's approved aggregate types; what the list says stays printed under each one, and the class can be changed
+      here when the list does not settle it. Set whether each is a coarse or a fine source, then enter its own
+      gradation. ${esc(P.CITE)} restricts Type A and Type B; Type D is unrestricted.</div>
     <div class="prscroll"><div id="prGrid"></div></div>
     <div id="prResults" class="prresults"></div>
     <div class="prnote small">${esc(P.CLASS_B_REVIEW_NOTE)}</div>
-    <div class="prnote small">${esc(P.RAP_CREDIT_NOTE)}</div>`;
+`;
 }
 
 let prGridSignature = null;
+// What each rendered column holds, keyed by the COMPONENT rather than by its
+// position. Changing an aggregate type used to leave the previous material's
+// gradation sitting in that column under the new name - silently wrong, and
+// the verdicts went on computing from it (Jake, 2026-09-10). Values follow
+// the component now: swap a type and its column starts empty, swap it back
+// and its numbers return.
+let prGridIds = null;
+let prHeld = new Map();
+
+// A component's identity. Duplicates are disambiguated by occurrence so two
+// identical rows do not share one bag of values.
+function polishIdentity(c, i, seen) {
+  const base = `${refKey(c.type_size)}|${refKey(c.producer)}`;
+  const id = base === "|" ? `@${i}` : base;          // a wholly blank row keeps its slot
+  const n = (seen[id] = (seen[id] || 0) + 1);
+  return n > 1 ? `${id}#${n}` : id;
+}
+// "g:2:s4_75" -> { idx: 2, sub: "g:s4_75" } ; "role:2" -> { idx: 2, sub: "role" }
+function prSplit(key) {
+  const m = /^([a-z]+):(\d+)(?::(.+))?$/.exec(String(key || ""));
+  return m ? { idx: Number(m[2]), sub: m[3] ? `${m[1]}:${m[3]}` : m[1] } : null;
+}
+// Take what is on screen before it is replaced. A control still carrying
+// data-guess is deliberately NOT kept: it was auto-filled, so it should be
+// re-guessed against whatever the new component's gradation turns out to be,
+// not frozen at the old material's answer.
+function harvestPolishGrid() {
+  if (!prGridIds) return;
+  document.querySelectorAll("#prGrid [data-pr]").forEach((el) => {
+    if (el.dataset.guess) return;
+    const s = prSplit(el.dataset.pr), id = s && prGridIds[s.idx];
+    if (!id) return;
+    const bag = prHeld.get(id) || {};
+    bag[s.sub] = el.type === "checkbox" ? (el.checked ? el.value || "1" : "") : el.value;
+    prHeld.set(id, bag);
+  });
+}
+
 function renderPolishGrid(force) {
   const host = $("prGrid");
   if (!host) return;
   const P = CONFIG.POLISH, saved = polishSavedValues();
   const comps = polishAggregateRows();
-  const sig = JSON.stringify(comps.map((c) => c.type_size + "|" + c.producer));
+  const seen = {};
+  const ids = comps.map((c, i) => polishIdentity(c, i, seen));
+  const sig = JSON.stringify(ids);
   if (!force && sig === prGridSignature) return;      // same components: leave the inputs alone
+  harvestPolishGrid();
+  // First paint after an import or a reopen: the saved map is index-keyed
+  // against exactly these components, so adopt it by identity once. After
+  // that identity rules and the index means nothing.
+  if (!prGridIds) {
+    ids.forEach((id, i) => {
+      const bag = prHeld.get(id) || {};
+      Object.keys(saved).forEach((k) => {
+        const sp = prSplit(k);
+        if (sp && sp.idx === i && bag[sp.sub] == null) bag[sp.sub] = saved[k];
+      });
+      prHeld.set(id, bag);
+    });
+  }
   prGridSignature = sig;
+  prGridIds = ids;
   if (!comps.length) { host.innerHTML = `<div class="prempty">Add aggregate components first.</div>`; return; }
 
   const sieves = gradSection().sieves;
-  const val = (k, fallback) => (saved[k] == null ? (fallback == null ? "" : fallback) : saved[k]);
+  const heldFor = ids.map((id) => prHeld.get(id) || {});
+  // Presence decides, not emptiness: now that Polish class is a dropdown,
+  // choosing "not polish-resistant" IS an answer and must survive a rebuild
+  // rather than falling back to whatever KYTC's list derived.
+  const val = (k, fallback) => {
+    const sp = prSplit(k), bag = sp ? heldFor[sp.idx] : null;
+    if (bag && Object.prototype.hasOwnProperty.call(bag, sp.sub)) return bag[sp.sub];
+    return fallback == null ? "" : fallback;
+  };
   const head = comps.map((c, i) =>
     `<th><div class="prname">${esc(c.type_size || "component " + (i + 1))}</div>
       <div class="prsub">${esc(c.producer || "")}</div>
@@ -2310,17 +2377,23 @@ function renderPolishGrid(force) {
        <input type="hidden" data-pr="${key}:${i}" value="${esc(value)}">
        <span class="prfact">${esc(text)}</span></td>`;
 
+  // Polish class is seeded from KYTC's approved aggregate types and then left
+  // editable (Jake, 2026-09-10). It used to be stated read-only for any type
+  // the list knew, which is the stricter reading and is still the default -
+  // but the list cannot see every case, so the answer has to be reachable.
+  // What the list says stays printed under the control, so an override reads
+  // as an override rather than replacing the evidence.
   const classRow = `<tr><th class="prrowhead">Polish class</th>` + comps.map((c, i) => {
     const f = facts[i];
-    if (f.known) {
-      return derived("cls", i, f.cls, f.cls ? `Class ${f.cls}` : "Not polish-resistant",
-        `${f.canonical} \u2014 from KYTC's approved aggregate types`);
-    }
-    const cur = val(`cls:${i}`, "");
-    return `<td><select class="box" data-pr="cls:${i}">` +
-      [{ v: "", l: "— not classified —" }, { v: "A", l: "Class A" }, { v: "B", l: "Class B" }]
+    const cur = val(`cls:${i}`, f.known ? f.cls : "");
+    const said = !f.known ? "not on KYTC's list"
+               : f.cls ? `KYTC's list: Class ${f.cls}`
+               : "KYTC's list: no class";
+    const over = f.known && cur !== f.cls;
+    return `<td><select class="box" data-pr="cls:${i}"${over ? ' data-override="1"' : ""}>` +
+      [{ v: "", l: "Not polish-resistant" }, { v: "A", l: "Class A" }, { v: "B", l: "Class B" }]
         .map((o) => `<option value="${esc(o.v)}"${cur === o.v ? " selected" : ""}>${esc(o.l)}</option>`).join("") +
-      `</select></td>`;
+      `</select><div class="prsub">${esc(said)}${over ? " · changed here" : ""}</div></td>`;
   }).join("") + `</tr>`;
 
   // Prefilled from the component's own #4: mostly passing it makes it a fine
@@ -2332,7 +2405,7 @@ function renderPolishGrid(force) {
       const guess = Number.isFinite(p4) && p4 > P.FINE_SOURCE_PASSING_4 ? "fine" : "coarse";
       return val(`role:${i}`, guess);
     },
-    (i) => saved[`role:${i}`] == null);
+    (i) => (heldFor[i] || {}).role == null);
 
   // Natural sand and dolomite are the other two the list settles. Same rule:
   // stated when the type is known, asked only when it is not.
@@ -2350,13 +2423,15 @@ function renderPolishGrid(force) {
     `<td><input type="text" inputmode="decimal" class="box mono${sv.key === P.RETAINED_SIEVE ? " prkey" : ""}"
         data-pr="g:${i}:${sv.key}" value="${esc(val(`g:${i}:${sv.key}`, ""))}" placeholder="—"></td>`).join("") + `</tr>`).join("");
 
-  const rapRow = `<tr><th class="prrowhead">RAP credit %</th>` + comps.map((c, i) =>
-    `<td><input type="text" inputmode="decimal" class="box mono" data-pr="rap:${i}"
-        value="${esc(val(`rap:${i}`, ""))}" placeholder="—" title="${esc(P.RAP_CREDIT_NOTE)}"></td>`).join("") + `</tr>`;
+  // RAP credit % removed from the grid (Jake, 2026-09-10). It is applied for
+  // through the Division of Materials rather than declared on a design, so it
+  // was a row asking a question almost nobody answers. evaluatePolish still
+  // understands a rapCredit if one is ever supplied again - polishComponents
+  // simply reports none now, which is the same as leaving the row blank.
 
   host.innerHTML = `<table class="prtable"><thead><tr><th class="prrowhead"></th>${head}</tr></thead>
     <tbody>${classRow}${roleRow}
-      ${flagRow("Natural sand", "sand", (f) => f.naturalSand)}${flagRow("Dolomite", "dol", (f) => f.dolomite)}${rapRow}
+      ${flagRow("Natural sand", "sand", (f) => f.naturalSand)}${flagRow("Dolomite", "dol", (f) => f.dolomite)}
       <tr class="prspacer"><th class="prrowhead">% passing</th>${comps.map(() => "<td></td>").join("")}</tr>
       ${sieveRows}</tbody></table>`;
 }
@@ -2402,7 +2477,8 @@ function polishComponents() {
     p4: num(txt(`g:${i}:${P.RETAINED_SIEVE}`)),
     naturalSand: chk(`sand:${i}`),
     dolomite: chk(`dol:${i}`),
-    rapCredit: num(txt(`rap:${i}`)),
+    rapCredit: null,        // the grid no longer asks; see renderPolishGrid
+
   }));
 }
 
@@ -2638,10 +2714,14 @@ function recompute() {
     if (claims) {
       const psec = document.querySelector('[data-section="polish"]');
       const plabel = psec ? psec.dataset.label : "Polish-Resistant Aggregate";
-      polishAggregateRows().forEach((c) => {
+      polishAggregateRows().forEach((c, ci) => {
         if (claims[refKey(c.type_size)] !== "YES") return;
         const f = polishFactsFor(c.type_size);
         if (!f.known || f.cls) return;                 // off-list, or we already agree
+        // Someone has since set a class here by hand - the disagreement is
+        // answered, so stop repeating it.
+        const chosen = document.querySelector(`[data-pr="cls:${ci}"]`);
+        if (chosen && String(chosen.value || "").trim()) return;
         // Natural sand is polish-resistant by lithology, so a workbook saying
         // YES to it is not disagreeing with anything (Jake, 2026-09-10). It
         // carries no class in `aggregate_types` because KYTC classes named
@@ -3086,8 +3166,6 @@ function extractLegacy(wb, ctx) {
           if (!Number.isFinite(n)) return;
           polish[`g:${i}:${key}`] = String(roundTo(n, CONFIG.DP.polish_sieve)); cells++;
         });
-        const rap = legacyCell(ws, `${col}${PR.rapCredit}`);
-        if (rap.status === "found" && String(rap.value).trim() !== "") polish[`rap:${i}`] = String(rap.value).trim();
         // Cross-check only, never imported - see the note on CONFIG.LEGACY.POLISH.
         const says = legacyCell(ws, `${col}${PR.kytcSaysPR}`);
         if (says.status === "found") {
@@ -3442,7 +3520,14 @@ function wireForm() {
     // a class, a #4 or a natural-sand tick into that section left its own
     // verdicts showing the answer from before the keystroke - the section
     // looked broken because nothing it asked for ever changed anything.
-    if (e.target.dataset.pr) { reguessPolishRoles(); recompute(); state.dirty = true; renderSavedState(); return; }
+    if (e.target.dataset.pr) {
+      // A select fires input BEFORE change, and the change handler is where
+      // the guess marker was being cleared - so reguessPolishRoles() ran
+      // while the control still looked auto-filled and immediately undid the
+      // person's pick. Clear it here too: their first choice has to stick.
+      if (/^role:/.test(e.target.dataset.pr)) delete e.target.dataset.guess;
+      reguessPolishRoles(); recompute(); state.dirty = true; renderSavedState(); return;
+    }
     if (e.target.dataset.field || e.target.dataset.col || e.target.dataset.fp) {
       if (e.target.dataset.autofilled) { delete e.target.dataset.autofilled; e.target.removeAttribute("title"); }
       e.target.classList.remove("prefilled", "autofilled");
