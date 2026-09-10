@@ -385,22 +385,35 @@
      Kept as the pale wash rather than the logo's full #5FB2E4 - a 12px
      warning list on saturated blue is not readable, and the strong sky is
      spent on the edge and the heading instead. */
-  .valpanel{position:sticky; top:132px; align-self:start; background:var(--accent-soft);
-            border:1px solid var(--sky); border-radius:10px; padding:18px;}
+  /* Inverted: the accent becomes the ground and everything on it goes
+     light. Nothing inside may keep a paper-era colour - --ink, --muted,
+     --line, --ok and --flag are all chosen against near-white and every one
+     of them either disappears or turns muddy here, so each has an explicit
+     on-blue value below. The panel is the loudest thing on the page now,
+     which suits it: it is the list of what is still wrong. */
+  .valpanel{position:sticky; top:132px; align-self:start; background:var(--accent);
+            border:1px solid var(--accent); border-radius:10px; padding:18px;
+            color:#FFFFFF;}
   @media (max-width:1080px){ .valpanel{position:static;} }
-  .valpanel h3{font-size:13px; margin-bottom:4px; color:var(--navy);}
-  .valpanel .sub{font-size:11px; color:var(--muted); margin-bottom:14px;}
-  /* Rules inside the wash need to be the wash's own darker relative; --line
-     is a paper colour and turns muddy on blue. */
-  .vitem{display:flex; gap:8px; padding:8px 0; border-top:1px solid rgba(28,124,192,.22);
-         font-size:12px; cursor:pointer;}
+  .valpanel h3{font-size:13px; margin-bottom:4px; color:#FFFFFF;}
+  .valpanel .sub{font-size:11px; color:rgba(255,255,255,.78); margin-bottom:14px;}
+  .vitem{display:flex; gap:8px; padding:8px 0; border-top:1px solid rgba(255,255,255,.28);
+         font-size:12px; cursor:pointer; color:#FFFFFF;}
   .vitem:first-of-type{border-top:none;}
-  .vitem .flag{width:6px; height:6px; border-radius:50%; background:var(--flag);
+  /* Gold is the one hue that still reads as itself on this blue, so the
+     flags keep doing their job without a second colour being invented. */
+  .vitem .flag{width:6px; height:6px; border-radius:50%; background:var(--gold);
                margin-top:5px; flex-shrink:0;}
-  .vitem .flag.warn{background:transparent; border:1.5px solid var(--flag);}
-  .vitem a{color:var(--accent); text-decoration:underline; text-underline-offset:2px;}
-  .allclear{display:flex; gap:8px; align-items:center; font-size:12px; color:var(--ok);}
-  .dot2{width:6px; height:6px; border-radius:50%; background:var(--ok);}
+  .vitem .flag.warn{background:transparent; border:1.5px solid var(--gold);}
+  .vitem a{color:#FFFFFF; text-decoration:underline; text-underline-offset:2px;}
+  .allclear{display:flex; gap:8px; align-items:center; font-size:12px; color:#FFFFFF;}
+  .dot2{width:6px; height:6px; border-radius:50%; background:#8FE3B4;}
+  /* The save/import line lives in this panel too, so its three states need
+     on-blue values or an error would arrive as dark red on blue. */
+  .valpanel .msg{color:#FFFFFF;}
+  .valpanel .msg.error{color:#FFD9D9;}
+  .valpanel .msg.warn{color:var(--gold);}
+  .valpanel .msg.ok{color:#B8F0D2;}
   .savebtn{width:100%; margin-top:16px; padding:10px; border:none; border-radius:var(--radius);
            background:var(--ink); color:#fff; font-family:inherit; font-size:13px; font-weight:500; cursor:pointer;}
 
