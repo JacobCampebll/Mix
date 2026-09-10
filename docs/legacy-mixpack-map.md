@@ -380,11 +380,38 @@ These cells were previously in `CONFIG.LEGACY.UNMAPPED`; they moved into
 (Ver 12.1) sample: `O52=100`, `O53=46`, `O54=0`, `O55=95`, all plain cached
 values.
 
-**Deferred, on Andrew's call:** the MixPack also resolves a per-mix spec
-limit for each property in its **Criteria** column (`Design Data!P52:P55`) —
-formulas keyed on traffic level (`H20`), depth (`K20`) and NMAS
-(`Chart Data!J48`), i.e. AASHTO M323 Table 5. DesignBook shows values only
-for now (no criteria column, no in/out-of-spec marker, no traffic input —
-"we don't use ESALs anymore"). `flat_elongated` can legitimately be N/A on a
-#4-nominal mix, so none of the four are `req` yet. Reproducing the Criteria
-display is a known follow-up.
+## Per-mix criteria — added 2026-09-10 (PR #11)
+
+The MixPack resolves a per-mix spec limit for each property in its
+**Criteria** column (`Design Data!P52:P55`). Its formulas branch on traffic
+level (`H20`), depth (`K20`) and NMAS (`Chart Data!J48`) — the *old*
+ESAL-era table. KYTC's **2026 Standard Specifications p.194** replaced that
+with a table keyed only on **Class** (2 / 3 / 4):
+
+| Class | FAA min | SE min | CAA min (1-face / 2+-face) | F&E max |
+|---|---|---|---|---|
+| 2 | 40 | 40 | 85 / 80 | 10 |
+| 3 | 43 | 45 | 95 / 90 | 10 |
+| 4 | 45 | 50 | 100 / 100 | 10 |
+
+No. 4 mixture (nominal size `NO.4`): FAA min becomes 45 regardless of class;
+CAA and F&E do not apply; SE still does.
+
+This lives in `CONFIG.CONSENSUS_CRITERIA` in `designbook.html` (spec
+constant, same footing as `GRADATION_CONTROL_POINTS` / `POLISH`).
+`computeConsensus()` resolves the limit for the current `aadtt_class` +
+`nominal_size`, prints it under each value with a ✓/✗ marker (the MixPack's
+Criteria column), and an out-of-spec value raises a **non-blocking** rail
+warning — same pattern as the Polish-Resistant checks. FAA and SE are
+always `req`; CAA and F&E lose `req` on a No. 4 mix.
+
+- **`caa` stays a single field** and is checked against the **two-or-more
+  crushed faces** figure (80 / 90 / 100), AASHTO T335's primary reported
+  number. The criterion still *displays* both. **TODO (Andrew → Tate):**
+  confirm whether KYTC wants the one-crushed-face value captured
+  separately — the KM p.472 verification tolerance (`±10`, both faces)
+  implies they track both.
+- **Department verification tolerances** (KM p.472, applied when KYTC
+  re-tests a contractor design): CAA ±10, FAA ±2, SE ±15, F&E ±5 (SMA
+  only). Noted in the CONFIG comment, **not** applied — DesignBook is the
+  contractor's design-entry side.
