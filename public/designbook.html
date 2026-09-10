@@ -2624,6 +2624,50 @@ function recompute() {
   // missing field - the design is complete, it just would not qualify. An
   // unproven check says so in its own words rather than crying wolf.
   const pr = applyPolishVisibility() ? renderPolish() : null;
+  // Where an uploaded workbook's own YES/NO disagrees with KYTC's approved
+  // aggregate types, say so. The list wins - a MixPack's Polish-Resistant
+  // row 17 holds plain literals with no formula behind them, so that YES is
+  // a technician's typed declaration, and KYTC names the polish-resistant
+  // variants explicitly (Dolomite #8's Class A sits beside plain Dolomite
+  // #8's). But silently overruling the file someone uploaded is how an
+  // afternoon disappears, so it is stated on the rail rather than buried in
+  // the import log. Kept live off the current rows, so correcting the
+  // component in Aggregate Structure clears it.
+  if (pr) {
+    const claims = (state.legacy && state.legacy.polishClaims) || null;
+    if (claims) {
+      const psec = document.querySelector('[data-section="polish"]');
+      const plabel = psec ? psec.dataset.label : "Polish-Resistant Aggregate";
+      polishAggregateRows().forEach((c) => {
+        if (claims[refKey(c.type_size)] !== "YES") return;
+        const f = polishFactsFor(c.type_size);
+        if (!f.known || f.cls) return;                 // off-list, or we already agree
+        // Natural sand is polish-resistant by lithology, so a workbook saying
+        // YES to it is not disagreeing with anything (Jake, 2026-09-10). It
+        // carries no class in `aggregate_types` because KYTC classes named
+        // products, and the spec's routes are written per Class A / Class B
+        // source - which is why the arithmetic below still counts it by class.
+        // Whether it should count toward those routes, and as which class, is
+        // open with Andrew; it is NOT settled by suppressing this warning.
+        if (f.naturalSand) return;
+        // Actionable, not just informative: KYTC lists the classed variants
+        // beside the plain product (Dolomite #8's Class A sits next to plain
+        // Dolomite #8's), so where one exists the fix is to pick it. Where
+        // none exists - a washed Dol. #10's, say - saying so plainly is the
+        // answer, because there is nothing to switch to.
+        const variants = (state.ref.aggregate_types || [])
+          .filter((o) => o.row && o.row.polish_resistant_class &&
+                         refKey(o.value).startsWith(refKey(f.canonical) + "class"))
+          .map((o) => o.value);
+        outstanding.push({ id: "polish", label: plabel, kind: "warn",
+          text: `The uploaded workbook declared “${c.type_size}” polish-resistant, but KYTC's approved ` +
+                `aggregate types give it no class - it is counted as not polish-resistant here. ` +
+                (variants.length
+                  ? `If it is the polish-resistant source, pick ${variants.join(" or ")} in Aggregate Structure.`
+                  : `KYTC lists no polish-resistant variant of it.`) });
+      });
+    }
+  }
   if (pr && pr.ready && pr.restricted) {
     const sec = document.querySelector('[data-section="polish"]');
     const label = sec ? sec.dataset.label : "Polish-Resistant Aggregate";
@@ -2911,6 +2955,9 @@ function extractLegacy(wb, ctx) {
   const cells = L.CELLS[ver.version];
   const src = (key, addr) => `${L.SHEET_NAMES[key]}!${addr}`;
   const scalars = {}, sources = {}, log = [], unmapped = [], context = [], designValues = [];
+  // The workbook's own polish YES/NO per component, kept so the rail can say
+  // where it disagrees with KYTC's approved list. Never imported as an answer.
+  let polishClaims = null;
   const tables = { aggregate: [], ct: [], perf_specimens: [], hamburg_curve: [], fourpoint: [] };
 
   function chase(chain) {
@@ -3023,6 +3070,9 @@ function extractLegacy(wb, ctx) {
     } else {
       const polish = {};
       let cells = 0, comps = 0, disagree = [];
+      // Keyed loosely (case/space-insensitive) so the workbook's wording
+      // matches whatever the form ends up holding for that component.
+      polishClaims = {};
       PR.cols.forEach((col, i) => {
         const nm = legacyCell(ws, `${col}${PR.name}`);
         if (nm.status !== "found" || String(nm.value).trim() === "") return;   // no component in this column
@@ -3040,7 +3090,11 @@ function extractLegacy(wb, ctx) {
         if (rap.status === "found" && String(rap.value).trim() !== "") polish[`rap:${i}`] = String(rap.value).trim();
         // Cross-check only, never imported - see the note on CONFIG.LEGACY.POLISH.
         const says = legacyCell(ws, `${col}${PR.kytcSaysPR}`);
-        if (says.status === "found") disagree.push(`${String(nm.value).trim()}=${String(says.value).trim()}`);
+        if (says.status === "found") {
+          const claim = String(says.value).trim().toUpperCase();
+          polishClaims[refKey(nm.value)] = claim;
+          disagree.push(`${String(nm.value).trim()}=${claim}`);
+        }
       });
       if (cells) scalars.polish = polish;
       log.push({ field: "polish-resistant gradations",
@@ -3195,7 +3249,7 @@ function extractLegacy(wb, ctx) {
     if (r.status === "found") unmapped.push({ label, source: src(sk, addr), value: r.value });
   });
 
-  return { version: ver, sheets: sheetLog, scalars, sources, tables, log, unmapped, context, designValues };
+  return { version: ver, sheets: sheetLog, scalars, sources, tables, log, unmapped, context, designValues, polishClaims };
 }
 
 function renderLegacyLog(res, fileName) {
@@ -3588,6 +3642,7 @@ function handoffPayload(action) {
     legacy_import: state.legacy ? {
       version: state.legacy.version.label, context: state.legacy.context,
       unmapped: state.legacy.unmapped, design_values: state.legacy.designValues || [],
+      polish_claims: state.legacy.polishClaims || null,
     } : null,
     // Signed by sign-approval, never by this page. Present only once KYTC
     // has approved; everything else in the payload is a claim, this is not.
@@ -4572,6 +4627,7 @@ function applyHandoff(payload) {
   state.legacy = payload.legacy_import ? {
     version: { label: payload.legacy_import.version }, context: payload.legacy_import.context || [],
     unmapped: payload.legacy_import.unmapped || [], designValues: payload.legacy_import.design_values || [],
+    polishClaims: payload.legacy_import.polish_claims || null,
     log: [], sheets: [], scalars: {}, sources: {}, tables: {},
   } : null;
   state.history = payload.history || [];
