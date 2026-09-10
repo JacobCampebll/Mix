@@ -492,6 +492,31 @@ TBD — cite the governing spec section when encoding a limit in code.
   whole download, since a phone browser generally will not range-request a
   PDF the way desktop Chrome does.
 
+- **A row table's importer is a second place `CONFIG.DP` has to be applied,
+  and two of them were missing it.** The scalars and the aggregate columns
+  have always gone through `coerceField(key, ...)`; Performance Specimens and
+  KYCT called plain `coerce()`, so air voids printed
+  `6.804854270811085` and CT index `111.47418451832462` - both are MixPack
+  *formula* cells, so the cached value behind a cell KYTC formats to a tenth
+  is a full float (same family as the TSR note in `CONFIG.DP`'s comment).
+  Fixed 2026-09-10. If you add another repeating table, wire its import
+  through `coerceField`, and where a value is range-checked before it is
+  stored (KYCT skips a slot whose index is 0), **test the raw value and round
+  the stored one** - rounding first can turn a real but tiny number into
+  `"0.0"` and drop the row.
+
+- **An inline `style="grid-template-columns:..."` cannot be overridden by a
+  media query without `!important`** - the row renderer writes each table's
+  column template inline, so the phone breakpoint could restore the labels
+  but not the columns, and five columns at 390px squeezed "Specimen 1" to
+  "Spec". Same family as the `@media` gotcha above, one rung further up the
+  cascade: there the fix was source order, here no amount of ordering helps,
+  because an inline style outranks every stylesheet rule. Repeating rows now
+  render as one header strip plus thin rows (wide) or two-column cards
+  (narrow). Note the header lives *outside* `.rowlist`: `collectForm()` reads
+  that element's children as the rows, so anything else in there is collected
+  as an extra row.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
