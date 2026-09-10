@@ -423,21 +423,27 @@ TBD — cite the governing spec section when encoding a limit in code.
   computed. `isRapRow()` is now the single definition and accepts either
   spelling.
 
-- **Superpave consensus properties are captured as bare values only — the
-  per-mix spec limit is a deliberate TODO, not an oversight.** Added
+- **Superpave consensus properties: values + per-mix spec limits.** Added
   2026-09-10 (Andrew): a `CONFIG.SECTIONS` section `id: "consensus"` with
   four number fields (`caa`, `faa`, `flat_elongated`, `sand_equivalent`),
   placed between Gradation and Polish-Resistant Aggregate, legacy-wired to
-  `Design Data!O52–O55` (same in 11.x/12.1; moved out of
-  `CONFIG.LEGACY.UNMAPPED`). The MixPack additionally resolves each
-  property's limit in its **Criteria** column (`P52:P55`) via AASHTO M323
-  Table 5 — keyed on traffic level, depth and NMAS. DesignBook does **not**
-  reproduce that: no criteria column, no in/out-of-spec marker, and no
-  traffic input was added ("we don't use ESALs anymore" — Andrew). None of
-  the four are `req` yet (`flat_elongated` is legitimately N/A on a
-  #4-nominal mix). If you add the Criteria display later, that is where the
-  spec-limit logic and a traffic/depth key belong. Full cell map in
-  `docs/legacy-mixpack-map.md`.
+  `Design Data!O52–O55` (same in 11.x/12.1; PR #10). The per-mix limit for
+  each is in `CONFIG.CONSENSUS_CRITERIA` (**KYTC 2026 Std Spec p.194 /
+  AASHTO M323 Table 5** — a spec constant, same footing as
+  `GRADATION_CONTROL_POINTS` and `POLISH`), keyed on **AADTT Class** (the
+  spec's "Class" 2/3/4 — *not* ESAL or depth; the MixPack's `P52:P55`
+  Criteria formulas still branch on the old ESAL-era table, so don't copy
+  them). `computeConsensus()` prints the resolved limit + ✓/✗ under each
+  value and an out-of-spec value raises a **non-blocking** rail warning
+  (same pattern as Polish — "design is complete, it just wouldn't
+  qualify"). FAA and SE are always `req`; CAA and F&E lose `req` on a
+  No. 4 mix (`isNo4Mix()`), where they don't apply and FAA's min rises to
+  45. **Open (Andrew → Tate):** `caa` is one field checked against the
+  two-or-more-crushed-faces figure; confirm whether KYTC wants the
+  one-face value tracked separately. KM p.472 verification tolerances
+  (CAA ±10, FAA ±2, SE ±15, F&E ±5 SMA-only) are noted in the CONFIG
+  comment but not enforced — that's the Department's re-test side, not the
+  contractor's. Full table in `docs/legacy-mixpack-map.md`.
 
 ### Technician login & plant access
 
