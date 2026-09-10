@@ -598,19 +598,31 @@ Still open: what actually happens at Submit as far as the hand-off to
 SiteManager / AASHTOWare Project goes — the workbook generator exists but is
 not wired into the browser yet.
 
-**Decided is not built: production still stores designs.** Checked
-2026-09-07. Everything above is the decision and it is implemented only on
-`claude/jake-sandbox` (PR #9, do-not-merge). What `kytcmix.netlify.app`
-actually serves is still the old database-backed model - "Save design"
-inserts/updates a `designs` row, `setStage()` saves before every stage move,
-the stepper is still the four-stage `Draft -> Internal Review -> Released ->
-Approved`, and the Portal's `?design=` link only resolves against a saved
-row. The *copy* from the new model reached production ahead of the
-behaviour, so the page claimed "This site stores nothing" while saving;
-corrected 2026-09-07 rather than by ripping out a load-bearing button. Do
-not read this section as a description of the live site until PR #9 is
-resolved, and note `designs` is no longer empty - one Draft row from
-2026-09-04 testing.
+**Built and live as of 2026-09-10.** This section now describes what
+`kytcmix.netlify.app` actually serves. The sandbox branch merged that day
+with Andrew and Tate's sign-off: there is no Save button and no `designs`
+write, the stepper is the three-stage `Draft -> Submitted -> Approved`, and
+the Portal's `?design=` branch is gone. Submit downloads the submittal for
+the technician to email; Approve is signed by `sign-approval`; `verify.html`
+is public.
+
+Between 2026-09-04 and that merge, production still stored designs while
+the *copy* from the new model had already reached it, so the page claimed
+"This site stores nothing" while saving - corrected 2026-09-07 rather than
+by ripping out a load-bearing button. That is why `designs` is not quite
+empty: one Draft row from 2026-09-04 testing.
+
+**Netlify environment variables are set** (2026-09-10, on the `kytcmix`
+site, all contexts, functions scope): `SUPABASE_URL`, `SUPABASE_ANON_KEY`
+and `APPROVAL_SIGNING_SECRET`. They are per-*site*, not per-branch, so a
+deploy preview shares them. Two things learned setting them: Netlify bakes
+them into the function bundle at **build** time, so a value added after a
+deploy does nothing until the next build; and marking a variable `secret`
+through the API silently fails to store it - it upserts with a success
+message and is simply absent afterwards. Check `getAllEnvVars` after
+setting one rather than trusting the reply. **Never change
+`APPROVAL_SIGNING_SECRET`** - it invalidates every approval already
+issued.
 
 **The tables from the old model are applied but empty and no longer the
 store.** `designs`, `design_events`, `design_summaries` and the stage trigger
