@@ -17,7 +17,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { cellsOf, sheetXml, sharedStrings, STAGING, SOURCE, rowNum, FIRST_DATA_ROW } from './xlsx.mjs';
+import { cellsOf, sheetXml, sharedStrings, STAGING, SOURCE, DIRECT_READ, rowNum, FIRST_DATA_ROW } from './xlsx.mjs';
 import { fillWorkbook, packWorkbook } from './write.mjs';
 import { evaluate } from './formula.mjs';
 
@@ -84,6 +84,13 @@ for (const [stage, n] of Object.entries(STAGING))
     }
   }
 
+// Tabs the Applet reads directly. No staging formula points at them, so the
+// scan above cannot find them - carry them explicitly or they come out empty
+// and MEDL loads the design with no project items (found 2026-09-10).
+for (const [sheet, spec] of Object.entries(DIRECT_READ))
+  for (let r = spec.firstRow; r <= spec.lastRow; r++)
+    for (const col of spec.cols) inputs.add(`${sheet}!${col}${r}`);
+
 const values = {};
 for (const k of inputs) { const [s, r] = k.split('!'); values[k] = valueOf(s, r); }
 // --set replaces an input after it is read, so overriding one cell carries
@@ -95,7 +102,17 @@ for (const [k, v] of Object.entries(overrides)) {
 }
 
 const { parts, report } = fillWorkbook({ template: TEMPLATE, values });
-console.log(`input cells read      : ${inputs.size}`);
+const carried = Object.entries(DIRECT_READ)
+  .map(([sh, sp]) => `${sh} ${sp.firstRow}-${sp.lastRow}`).join(', ');
+console.log(`input cells read      : ${inputs.size}  (incl. direct-read: ${carried})`);
+for (const sheet of Object.keys(DIRECT_READ)) {
+  const rows = [];
+  for (let r = DIRECT_READ[sheet].firstRow; r <= DIRECT_READ[sheet].lastRow; r++) {
+    const cells = DIRECT_READ[sheet].cols.map((c) => values[`${sheet}!${c}${r}`]);
+    if (cells.some((v) => v !== '' && v != null)) rows.push(`row ${r}: ${cells.map((v) => JSON.stringify(v)).join(', ')}`);
+  }
+  console.log(`${sheet.padEnd(22)}: ${rows.length ? rows.join(' | ') : 'NO DATA ROWS - the design carries none, or the source is empty'}`);
+}
 console.log(`staging cells written : ${report.written} (${report.passes} passes)`);
 if (report.failed.length) {
   console.log(`could not evaluate    : ${report.failed.length}`);

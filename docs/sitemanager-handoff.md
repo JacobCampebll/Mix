@@ -255,7 +255,26 @@ One row each, and mostly constant or derivable:
   `rmrks_sn` = `1`, and `rmrks_txt_fld` is the free-text aggregate note. The
   same `rmrks_id` is referenced from `t_smpl.rmrks_id`.
 - `t_cont_smpl`: `smpl_id`, `cont_id` = the KYTC contract ID; `prj_nbr`,
-  `ln_itm_nbr`, `repr_qty` were all literal `N/A` on the sample.
+  `ln_itm_nbr`, `repr_qty` read literal `N/A` on the sample — **and that is
+  correct, not a gap.** The workbook explains itself in `t_cont_smpl!D5`:
+  "THESE THREE FIELDS COME FROM THE FIRST THREE COLUMNS ON THE \"Project
+  Item\" TAB (AND EACH ROW ON THAT TAB REPEATS FOR EVERY ROW ON THIS TAB
+  HAVING A \"Sample ID\")". So the Applet expands one `t_cont_smpl` row per
+  **Project Items** row; the staging tab carries the placeholder.
+  **This is a direct-read tab — no staging formula references it**, which is
+  the trap: an input set derived from staging-formula references (which is how
+  `regenerate.mjs` finds its 330 cells) misses it completely, and the workbook
+  generates with the tab's headers and no data. MEDL then accepts the file and
+  loads the design *without project items*. Andrew and Tate hit exactly that on
+  the `00269999` probe, 2026-09-10 — the load succeeded, the project items were
+  absent. Carried explicitly now via `DIRECT_READ` in `scripts/mixpack/xlsx.mjs`.
+  Columns on the tab: `A` `prj_nbr`, `B` `ln_itm_nbr`, `C` `repr_qty`,
+  `D` unit — and `D` is the one column SiteManager does not store, per the
+  tab's own row-5 note. On #467PA row 6 reads
+  `MP07606272601` / `0165` / `7525` / `TON`.
+  DesignBook already collects all three: Contract Information's
+  `project_number` and `line_items` (split from `Design Data!C14`,
+  `"MP07606272601 (0165)"`) and `total_tons`.
 - `t_smpl_tst`: `tst_meth` = `AMMIXPACK`, `smpl_tst_nbr` = `1`, `lab_id` =
   `LU00642` (the district lab), `chrg_amt` = the total unit test cost from
   `Design Data!M32`, `strt_dt` = submission date, `actl_cmpl_dt` = approval

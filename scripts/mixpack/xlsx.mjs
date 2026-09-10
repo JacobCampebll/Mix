@@ -89,3 +89,25 @@ export const FIRST_DATA_ROW = name => name === 'discipline' ? 2 : 8;
 export const SOURCE = {'Design Data':1, 'Recycle Data':4, 'Project Items':5, '1-Pt. Check':6,
                        'Graphs':7, 'TSR':8, 'Performance Specimens':9, 'KYCT Data':10,
                        'Hamburg Data':11, 'Chart Data':13, 'Workbook Edits':14};
+
+/* Source tabs the Applet reads DIRECTLY, which no staging formula references.
+ *
+ * Deriving the input set from staging-formula references misses these
+ * entirely - nothing points at them, so a generated workbook comes out with
+ * the tab's headers and no data, and MEDL accepts it minus those fields.
+ * Andrew and Tate found exactly that on the 00269999 probe, 2026-09-10:
+ * it loaded, with no project items.
+ *
+ * `Project Items` rows 6+ are the repeating project / line-item / quantity
+ * block. The workbook says so itself, in t_cont_smpl!D5: "THESE THREE FIELDS
+ * COME FROM THE FIRST THREE COLUMNS ON THE \"Project Item\" TAB (AND EACH ROW
+ * ON THAT TAB REPEATS FOR EVERY ROW ON THIS TAB HAVING A \"Sample ID\")" -
+ * which is why t_cont_smpl!D8:F8 legitimately read N/A in a real approved
+ * file. The Applet expands one t_cont_smpl row per Project Items row.
+ *
+ * Columns: A prj_nbr, B ln_itm_nbr, C repr_qty, D unit (D is the one column
+ * on the tab that SiteManager does not store - see its own row-5 note).
+ */
+export const DIRECT_READ = {
+  'Project Items': { firstRow: 6, lastRow: 25, cols: ['A', 'B', 'C', 'D'] },
+};
