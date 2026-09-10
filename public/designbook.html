@@ -3461,7 +3461,10 @@ function extractLegacy(wb, ctx) {
       let any = false;
       Object.entries(P.rows).forEach(([key, rowNo]) => {
         const c = legacyCell(ws, `${col}${rowNo}`);
-        row[key] = c.status === "found" ? coerce(c.value, "number") : "";
+        // coerceField, not coerce: Performance Specimens' air voids is a
+        // formula cell, so its cached value arrives as 6.804854270811085.
+        // CONFIG.DP.air_voids is 1 - the tenth is what KYTC reports.
+        row[key] = c.status === "found" ? coerceField(key, c.value, "number") : "";
         if (row[key] !== "") any = true;
       });
       if (any) tables.perf_specimens.push(row);
@@ -3494,11 +3497,15 @@ function extractLegacy(wb, ctx) {
       const vc = String.fromCharCode(lc.charCodeAt(0) + 1);
       const sc = legacyCell(ws, `${vc}${C.rows.specimen}`);
       const ic = legacyCell(ws, `${vc}${C.rows.index}`);
+      // The zero-check runs on the raw value, the stored one is rounded:
+      // KYCT index is another formula cell (111.47418451832462 as read),
+      // and CONFIG.DP.index is 1. Rounding first would turn a real but
+      // tiny index into "0.0" and drop the specimen.
       const idx = ic.status === "found" ? coerce(ic.value, "number") : "";
       if (idx === "" || Number(idx) === 0) { skipped++; return; }
       tables.ct.push({
         specimen: sc.status === "found" ? String(sc.value).trim().replace(/\.ITD$/i, "") : `CT #${i + 1}`,
-        index: idx,
+        index: roundTo(idx, CONFIG.DP.index),
       });
     });
     log.push({ field: "KYCT specimens", source: `${L.SHEET_NAMES[C.sheet]} rows ${C.rows.specimen}/${C.rows.index}`,
