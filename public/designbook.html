@@ -134,22 +134,40 @@
   @media (max-width:1080px){ .layout{grid-template-columns:minmax(0,1fr);} }
 
   /* left ledger rail */
-  .nav{position:sticky; top:132px; align-self:start; padding-left:4px;}
+  /* The rail is a navy card. Two reasons beyond looking like it belongs to
+     the same product as the wordmark: it is the one element on the page that
+     is pure navigation, so giving it the brand colour separates it from the
+     white cards that hold data; and a sticky element with no background is
+     what let the section list ghost through the form on a phone (see the
+     @media gotcha in CLAUDE.md) - an opaque card cannot do that. */
+  .nav{position:sticky; top:132px; align-self:start;
+       background:var(--navy); border-radius:10px; padding:16px 14px;}
   /* Keep every "un-stick the rail" override BELOW the rule it overrides. Both
      are one class, so equal specificity and source order decides: this used to
      sit up with .layout, above .nav and .valpanel, and lost to them - the rail
      stayed sticky on a phone and the section list scrolled over the form. */
   @media (max-width:1080px){ .nav{position:static;} }
-  .navtitle{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:14px;}
+  /* On navy every one of these needs its own light value - --muted and
+     --ink are ink-on-paper colours and vanish here. */
+  .navtitle{font-size:11px; text-transform:uppercase; letter-spacing:.08em;
+            color:var(--sky); margin-bottom:14px; font-weight:500;}
   .navlist{list-style:none; margin:0; padding:0; position:relative;}
-  .navlist::before{content:''; position:absolute; left:5px; top:6px; bottom:6px; width:1px; background:var(--line);}
+  .navlist::before{content:''; position:absolute; left:5px; top:6px; bottom:6px; width:1px;
+                   background:rgba(255,255,255,.18);}
   .navitem{display:flex; align-items:center; gap:10px; padding:7px 0; font-size:13px;
-           color:var(--muted); position:relative; cursor:pointer;}
-  .navitem.current{color:var(--ink); font-weight:500;}
-  .tick{width:11px; height:11px; border-radius:50%; border:1.5px solid var(--accent);
-        background:var(--panel); flex-shrink:0; z-index:1; transition:.15s;}
-  .tick.filled{background:var(--accent);}
-  .tick.partial{background:linear-gradient(90deg,var(--accent) 50%, var(--panel) 50%);}
+           color:#B9CBDC; position:relative; cursor:pointer; border-radius:5px;
+           transition:color .15s;}
+  .navitem:hover{color:#FFFFFF;}
+  /* The current section is the one thing gold is spent on here, so it reads
+     at a glance down a list of ten. */
+  .navitem.current{color:#FFFFFF; font-weight:600;}
+  .navitem.current .tick{border-color:var(--gold);}
+  .tick{width:11px; height:11px; border-radius:50%; border:1.5px solid var(--sky);
+        background:var(--navy); flex-shrink:0; z-index:1; transition:.15s;}
+  .tick.filled{background:var(--sky);}
+  .tick.partial{background:linear-gradient(90deg,var(--sky) 50%, var(--navy) 50%);}
+  .navitem.current .tick.filled{background:var(--gold);}
+  .navitem.current .tick.partial{background:linear-gradient(90deg,var(--gold) 50%, var(--navy) 50%);}
 
   /* (job context strip lives in .appbar now — see top of stylesheet) */
 
