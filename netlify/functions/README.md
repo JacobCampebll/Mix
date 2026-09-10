@@ -1,15 +1,31 @@
 # Netlify Functions
 
-Three, and all three are **transit, not storage**. Nothing here keeps a
-design; that is the whole point of the model in CLAUDE.md ("Designs: the
-file is the record, not a table"). A function exists only where the browser
-genuinely cannot do the job:
+Two, and both are **transit, not storage**. Nothing here keeps a design;
+that is the whole point of the model in CLAUDE.md ("Designs: the file is the
+record, not a table"). A function exists only where the browser genuinely
+cannot do the job:
 
 | Function | Why it can't be client-side |
 |---|---|
-| `send-submission` | A browser cannot attach a file to an email, and the KYTC address must not be something the page can change. |
 | `sign-approval` | An approval must be impossible to forge by editing a file. That needs a secret the browser never sees. |
 | `verify-approval` | Checking an approval needs the same secret. Open on purpose — a district office with a PDF should be able to check it without an account. |
+
+There used to be a third, `send-submission`, which emailed the package to
+KYTC. It is gone (Jake, 2026-09-10). A mail provider authenticates by DKIM
+records in a domain you control; this is KYTC's system rather than a
+contractor's, so the sender could not honestly be an Allen address, and a
+Gmail address is structurally impossible because nobody can add DNS records
+to `gmail.com`. Sending as `@ky.gov` would need the Commonwealth Office of
+Technology to authorise a third-party sender. A technician's own mail
+already reaches `@ky.gov`, so Submit now stamps the package, freezes it and
+downloads it, and the technician emails it themselves. That removed three
+environment variables and the only outbound dependency in the stack.
+
+Note what was traded away: the submittal is **unsigned**. Whoever is signed
+in is still stamped on it, but nothing proves the file was not edited after
+the stamp. Only the approval is signed, and that is the artifact KYTC issues
+and `verify.html` checks. Signing the submittal too is a small change on top
+of `sign-approval` if Central Office ever wants it.
 
 The shared code they import lives in **`netlify/lib/`** (`auth.mjs`,
 `canonical.mjs`), deliberately outside this directory. Netlify deploys every
@@ -29,9 +45,12 @@ never sees a secret.
 | `SUPABASE_URL` | all | Same project the pages use. |
 | `SUPABASE_ANON_KEY` | all | The public anon key. Safe here; RLS is the control. |
 | `APPROVAL_SIGNING_SECRET` | sign, verify | **The real secret.** Long random string. Changing it invalidates every approval already issued. |
-| `RESEND_API_KEY` | send | Or swap the provider in `send-submission.mjs`. |
-| `KYTC_SUBMIT_TO` | send | Where submissions go. **Every** design, no routing: `Andrew.Denmark@ky.gov,Tate.Salle@ky.gov`. The env var is authoritative — the page never names the recipient, or this function becomes an open relay. |
-| `SUBMIT_FROM` | send | A verified sender on the mail provider. |
+
+`RESEND_API_KEY`, `KYTC_SUBMIT_TO` and `SUBMIT_FROM` are no longer used —
+nothing here sends mail. Where a submittal goes is now `CONFIG.SUBMIT
+.KYTC_EMAIL` in `designbook.html`: an address the page shows the technician,
+not a secret, and the page naming it can no longer turn anything into an
+open relay because there is no relay.
 
 Until they are set, the functions return a clear "not configured yet"
 message rather than failing obscurely — the flow can be clicked through and
@@ -53,11 +72,10 @@ is looking at it:
   page, so this rule is only as strong as the file — what the server
   guarantees is that whoever it finds is the one signed into the approval.
 
-Both `sign-approval` and `send-submission` also refuse an account that has
-not finished onboarding. The pages redirect those to login, but a function
-cannot lean on a page: a valid token can call it directly, and before
-onboarding the account's email is the fabricated `@technicians.mix.local`
-address, which would have become the reply-to on a submission.
+`sign-approval` also refuses an account that has not finished onboarding.
+The pages redirect those to login, but a function cannot lean on a page: a
+valid token can call it directly, and before onboarding the account's email
+is the fabricated `@technicians.mix.local` address.
 
 The approval number is derived from the signature, so it is a fingerprint of
 that exact design and cannot be moved onto another one.

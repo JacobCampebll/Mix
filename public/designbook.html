@@ -644,9 +644,18 @@ const CONFIG = {
   // signed - a status carried in a file is a claim, not a fact.
   SUBMIT: {
     // Netlify Functions. They are transit, not storage: nothing is kept.
-    SEND_FN: "/.netlify/functions/send-submission",
+    // There is deliberately no send function - see submitToKYTC().
     SIGN_FN: "/.netlify/functions/sign-approval",
     VERIFY_FN: "/.netlify/functions/verify-approval",
+    // Where the technician emails the submittal. Not a secret and no longer
+    // a server setting: the browser never sends the mail, the person does,
+    // from their own account. These two are what
+    // netlify/functions/README.md already recorded as the destination for
+    // every design, no routing, back when a Function sent it. Swap for a
+    // shared Central Office inbox if KYTC has one - one line here, and it
+    // reaches every technician on their next page load. Never invent an
+    // address: null makes the page say "KYTC Central Office Materials".
+    KYTC_EMAIL: "Andrew.Denmark@ky.gov, Tate.Salle@ky.gov",
     // History actions. These strings are the record - changing one orphans
     // the chain of custody in every file already issued. `submitted` must
     // equal SUBMITTED_ACTION in netlify/lib/canonical.mjs: this page writes
@@ -2525,7 +2534,7 @@ function renderStage() {
     // Anyone holding the file who can use DesignBook may submit it. Whoever
     // is signed in gets stamped on the package, and that stamp is the whole
     // evidence of who reviewed it internally.
-    why = "Submitting emails the package to KYTC and stamps your SM ID on it.";
+    why = "Submitting stamps your SM ID on the package and downloads it, for you to email to KYTC.";
   } else if (s.key === "Submitted") {
     // A reviewer who did not submit it approves. Everyone else - the
     // contractor, or a reviewer who did submit it - can only send it again.
@@ -4300,6 +4309,18 @@ function applyHandoff(payload) {
 
 // The document a district office files. Separate from the review sheet so
 // the two can never be mistaken for each other.
+// Hand a file to the browser. Four callers now (the three download buttons
+// and Submit), so it lives in one place rather than being pasted a fourth
+// time. revokeObjectURL is deferred, not immediate: Safari cancels a
+// download whose blob URL is revoked while the click is still in flight.
+function saveBytes(bytes, name, type) {
+  const url = URL.createObjectURL(new Blob([bytes], { type }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
 async function downloadApprovalPDF() {
   const btn = $("approvalPdfBtn");
   if (!btn || btn.disabled) return;
@@ -4313,11 +4334,7 @@ async function downloadApprovalPDF() {
     const a2 = payload.approval || {};
     const name = `KYTC_Approval_${(a2.approval_no || "").replace(/[^A-Za-z0-9]/g, "")}_${(payload.job || {}).cid || ""}.pdf`
       .replace(/[^A-Za-z0-9_.-]/g, "");
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-    const a = document.createElement("a");
-    a.href = url; a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    saveBytes(bytes, name, "application/pdf");
     state.history = payload.history;
     msg($("saveMsg"), `${name} downloaded. Send it to the contractor - the site keeps nothing.`, "ok");
   } catch (err) {
@@ -4343,11 +4360,7 @@ async function downloadSubmittalPDF() {
     const payload = state.submitted;
     const bytes = await buildReviewPDF(payload);
     const name = handoffFileName(payload);
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-    const a = document.createElement("a");
-    a.href = url; a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    saveBytes(bytes, name, "application/pdf");
     msg($("saveMsg"), `${name} downloaded - the design exactly as KYTC received it.`, "ok");
     audit(`Submittal PDF generated - ${state.tech ? state.tech.sm_id : ""}`);
   } catch (err) {
@@ -4368,11 +4381,7 @@ async function downloadReviewPDF() {
                                    : handoffPayload("Downloaded review PDF");
     const bytes = await buildReviewPDF(payload);
     const name = handoffFileName(payload);
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-    const a = document.createElement("a");
-    a.href = url; a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    saveBytes(bytes, name, "application/pdf");
     state.history = payload.history;      // the copy on disk is now the record
     state.dirty = false;
     state.downloadedAt = new Date();
@@ -4397,121 +4406,55 @@ async function downloadReviewPDF() {
 // This is deliberately NOT a SiteManager import file. That mapping is KYTC's
 // to specify; this is the complete design in a shape anything can read, and
 // a translation layer goes on top of it when Andrew has the spec.
-function csvCell(v) {
-  const t = String(v == null ? "" : v);
-  return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
-}
-function buildSubmissionCSV(payload) {
-  const values = payload.values || {}, rows = payload.rows || {};
-  const fp = values.fourpoint || {}, dv = values.design_values || {};
-  const out = [["Section", "Key", "Label", "Value"]];
-  const push = (sec, key, label, val) => {
-    if (val == null || String(val).trim() === "") return;
-    out.push([sec, key, label, val]);
-  };
-  const j = payload.job || {}, gb = payload.generated_by || {};
-  push("meta", "format", "Format", payload.format);
-  push("meta", "version", "Payload version", payload.version);
-  push("meta", "stage", "Stage", payload.stage);
-  push("meta", "generated_at", "Generated at", payload.generated_at);
-  push("meta", "submitted_by", "Submitted by (SM ID)", gb.sm_id);
-  push("meta", "company", "Company", gb.company);
-  push("meta", "contract_id", "Contract", j.cid);
-  push("meta", "letting_date", "Letting date", j.letting);
-  push("meta", "amp_number", "Plant (AMP)", j.plant);
-  push("meta", "plant_name", "Plant name", payload.plant_name);
-  if (payload.mix) {
-    push("meta", "mix_signature", "Mix", payload.mix.signature);
-    push("meta", "mix_class", "Mix class", payload.mix.mix_class);
-    push("meta", "layer", "Layer", payload.mix.layer);
-    push("meta", "nominal_size", "Nominal max size", payload.mix.nominal_size);
-  }
-  if (payload.approval) {
-    push("approval", "mix_id", "Mix ID num.", payload.approval.mix_id);
-    push("approval", "approval_no", "KYTC approval number", payload.approval.approval_no);
-    push("approval", "code", "Verification code", payload.approval.code);
-    push("approval", "approved_by", "Approved by (SM ID)", payload.approval.approved_by);
-    push("approval", "issued_at", "Approved at", payload.approval.issued_at);
-  }
-  CONFIG.SECTIONS.forEach((sec) => {
-    if (sec.type === "status") return;
-    (sec.fields || []).forEach((f) => push(sec.id, f.key, f.label, values[f.key]));
-    if (sec.type === "sieves") sec.sieves.forEach((sv) => push(sec.id, sv.key, sv.label + " passing", values[sv.key]));
-    if (sec.type === "fourpoint") {
-      sec.constants.forEach((c) => push(sec.id, "const:" + c.key, c.label, fp["const:" + c.key]));
-      sec.points.forEach((_, i) => ["pb", "gmb", "gmm"].forEach((k) =>
-        push(sec.id, `pt:${i}:${k}`, `Point ${i + 1} ${k}`, fp[`pt:${i}:${k}`])));
-    }
-    if (sec.type === "computed") (sec.outputs || []).forEach((o) => push(sec.id, o.key, o.label, dv[o.key]));
-    if (sec.rows) (Array.isArray(sec.rows) ? sec.rows : [sec.rows]).forEach((spec) => {
-      (rows[spec.key] || []).forEach((r, i) => (spec.columns || []).forEach((c) =>
-        push(sec.id, `${spec.key}[${i + 1}].${c.key}`, `${spec.heading || spec.key} ${i + 1} ${c.label}`, r[c.key])));
-    });
-  });
-  // History last: the chain of custody travels with the data.
-  (payload.history || []).forEach((h, i) => {
-    push("history", `history[${i + 1}].at`, "When", h.at);
-    push("history", `history[${i + 1}].sm_id`, "Who (SM ID)", h.sm_id);
-    push("history", `history[${i + 1}].action`, "Action", h.action);
-  });
-  return out.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
-}
-
-function packageBaseName(payload) {
-  const j = payload.job || {};
-  const d = new Date().toISOString().slice(0, 10);
-  return `DesignBook_${j.cid || "design"}_${j.plant || "plant"}_${d}`.replace(/[^A-Za-z0-9_.-]/g, "");
-}
-
-function bytesToB64(bytes) { return b64encode(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)); }
-
-// Submit. The package is the same PDF plus the CSV, and it is SENT by a
-// Netlify Function - the browser cannot attach a file to a mailto:, and the
-// function owns the KYTC address so the page cannot be used to mail a design
-// anywhere else.
+// Submit. The package is stamped, frozen and handed to the technician, who
+// emails it to KYTC themselves (Jake, 2026-09-10). A Netlify Function used
+// to send it; the server left the mail path on purpose. A provider like
+// Resend authenticates by DKIM records in a domain you control, this is
+// KYTC's system rather than a contractor's, and nobody can add DNS records
+// to gmail.com - so a server-sent submission could never leave a legitimate
+// address without the Commonwealth Office of Technology authorising a
+// third-party sender for ky.gov. A technician's own mail already reaches
+// @ky.gov, so the shortest correct path is to give them the file.
+//
+// Nothing is stored either way, and the guarantee is unchanged from the
+// model in CLAUDE.md: whoever is signed in is stamped on the package, and
+// that stamp is the whole evidence of the internal review. What this does
+// NOT do is prove the file was not edited after it was stamped - the
+// submittal is unsigned. Only the approval is signed (sign-approval), and
+// that is what KYTC issues and verify.html checks.
 async function submitToKYTC() {
   if (!state.job || !state.tech) { msg($("saveMsg"), "Sign in and start from the Portal before submitting.", "error"); return; }
   const who = state.tech.sm_id;
-  if (!confirm(`Submit this design to KYTC as ${who}?\n\nYour SM ID is stamped on the package - if you are the supervisor who reviewed it, that stamp is the record of the internal review.`)) return;
+  const to = CONFIG.SUBMIT.KYTC_EMAIL;
+  if (!confirm(`Submit this design to KYTC as ${who}?\n\nYour SM ID is stamped on the package - if you are the supervisor who reviewed it, that stamp is the record of the internal review.\n\nThe submittal PDF downloads now. Email it to ${to || "KYTC Central Office Materials"} yourself - the site does not send it, and keeps no copy.`)) return;
 
   const btn = $("advanceStage"); const was = btn.textContent;
-  state.saving = true; renderStage(); btn.textContent = "Submitting...";
+  state.saving = true; renderStage(); btn.textContent = "Building...";
   const prevIdx = state.stageIdx;
   try {
     // Stage first, so the package itself says Submitted and the history
     // entry the payload appends IS the submission record.
     state.stageIdx = CONFIG.STAGES.findIndex((x) => x.key === "Submitted");
     const payload = handoffPayload(CONFIG.SUBMIT.ACTION.submitted);
-    const pdf = await buildReviewPDF(payload);
-    const csv = buildSubmissionCSV(payload);
-    const base = packageBaseName(payload);
-
-    const res = await fetch(CONFIG.SUBMIT.SEND_FN, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${await accessToken()}` },
-      body: JSON.stringify({
-        base, payload,
-        pdf_b64: bytesToB64(pdf),
-        csv,                       // text, not base64 - it is already ASCII
-      }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || `The submission was not sent (${res.status}).`);
+    // Freeze what was stamped. Everything after this - further edits, a
+    // second submission - leaves this untouched, so the submittal PDF can
+    // never drift from the document KYTC was given.
+    const frozen = freezeSubmittal(payload);
+    const bytes = await buildReviewPDF(frozen);
+    const name = handoffFileName(frozen);
+    saveBytes(bytes, name, "application/pdf");
 
     state.history = payload.history;
-    // Freeze what was actually sent. Everything after this - further edits, a
-    // resubmission attempt that fails - leaves this untouched, so the
-    // submittal PDF can never drift from the document KYTC received.
-    state.submitted = freezeSubmittal(payload);
+    state.submitted = frozen;
     state.dirty = false;
     renderStage();
     audit(`${CONFIG.SUBMIT.ACTION.submitted} - ${who}`);
     msg($("saveMsg"),
-      `Submitted to KYTC as ${who}${body.to ? ` (${body.to})` : ""}. Download the submittal PDF for your records - it is the document they received, and the site keeps nothing.`, "ok");
+      `${name} downloaded and stamped as submitted by ${who}. Email it to ${to || "KYTC Central Office Materials"} - that file is the submission, and the site keeps nothing. You can download it again at any time.`, "ok");
   } catch (err) {
-    state.stageIdx = prevIdx;               // nothing was sent, so nothing moved
+    state.stageIdx = prevIdx;               // nothing left the machine, so nothing moved
     renderStage();
-    msg($("saveMsg"), err.message || "Couldn't submit.", "error");
+    msg($("saveMsg"), err.message || "Couldn't build the submittal.", "error");
   } finally {
     state.saving = false; btn.textContent = was; renderStage();
   }
