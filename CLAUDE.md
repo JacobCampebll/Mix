@@ -367,6 +367,37 @@ TBD — cite the governing spec section when encoding a limit in code.
   since a dead override looks identical to a live one in the source.
 
 
+- **A native `<datalist>` is not a typeahead, and it looks exactly like
+  one.** It substring-matches an option's **`value` only** — never the
+  option's label text, never anything you put in an alias — it ranks
+  nothing, and on iOS it barely opens. So on DesignBook's Producer field an
+  AGP number matched nothing, and neither did "haydon airport" for
+  `HAYDON MATERIALS, LLC - AIRPORT ROAD @ BARDSTOWN`, because neither is a
+  substring of the producer name alone. Replaced 2026-09-10 with one shared
+  popup (`comboOpen` in `designbook.html`) that scores value + label +
+  aliases, ANDs the typed words, ranks closest first and highlights the
+  match. The `<input>` keeps its classes and its `data-field` /
+  `data-row`+`data-col`, so `collectForm()`, the rail and the auto-fill
+  needed no changes; choosing an entry dispatches real `input`+`change`
+  events so it lands exactly as typing does. If you add another long
+  reference list, it gets this for free — anything over
+  `CONFIG.REFERENCE.SELECT_MAX` uses it.
+
+- **AGP and AMP are different registries, and a RAP row needs the second
+  one.** An AGP number is an aggregate producer; an AMP number is an
+  asphalt plant. Every aggregate component has an AGP producer except RAP,
+  which is millings — so its "producer" is the plant they came off, and
+  checking it against `aggregates` warned on every correctly filled RAP row
+  (Jake, 2026-09-10). The Producer column now declares an `alt` list and
+  resolves per row: RAP rows draw from `plants` and relabel to "Plant (RAP
+  source)". **Detect a RAP row by Type & size, not by Producer** —
+  `aggregate_types` carries `Coarse RAP`, `Fine RAP` and
+  `Intermediate RAP`, and that is where a real MixPack puts it.
+  `rapPercent()` had been looking for a Producer of literally `RAP`, so on
+  every real design it returned null and the RAP note silently never
+  computed. `isRapRow()` is now the single definition and accepts either
+  spelling.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
@@ -523,9 +554,24 @@ The flow, which is deliberately *not* a linear stage ladder:
   provisional-value rules apply: tint what came from a file, keep an off-list
   value with a warning, never blank it.
 
-Still open: what actually happens at Submit (the hand-off to SiteManager /
-AASHTOWare Project), and how email leaves the browser - `mailto:` cannot carry
-an attachment, so that wants a Netlify Function, which is transit, not storage.
+**Settled 2026-09-10: the server is out of the mail path entirely.** Submit
+stamps the package, freezes it and **downloads** the submittal PDF; the
+technician emails it themselves. `send-submission.mjs` is deleted and with it
+`RESEND_API_KEY`, `KYTC_SUBMIT_TO` and `SUBMIT_FROM`. The reason is not
+convenience: a provider like Resend authenticates by DKIM records in a domain
+you control, this is KYTC's system rather than a contractor's, and nobody can
+add DNS records to `gmail.com` — so sending as `@ky.gov` would need the
+Commonwealth Office of Technology to authorise a third-party sender. A
+technician's own mail already reaches `@ky.gov`. The destination is
+`CONFIG.SUBMIT.KYTC_EMAIL`, which is not a secret and cannot make an open
+relay because there is no relay. **Note the tradeoff: the submittal is
+unsigned.** Whoever is signed in is stamped on it, but nothing proves the
+file was not edited afterwards. Only the approval is signed
+(`sign-approval`), and that is what KYTC issues and `verify.html` checks.
+
+Still open: what actually happens at Submit as far as the hand-off to
+SiteManager / AASHTOWare Project goes — the workbook generator exists but is
+not wired into the browser yet.
 
 **Decided is not built: production still stores designs.** Checked
 2026-09-07. Everything above is the decision and it is implemented only on
