@@ -1,0 +1,186 @@
+#!/usr/bin/env node
+// Regenerate a MixPack from an existing one's inputs, using KYTC's blank
+// template as the base, and report how the staging sheets compare.
+//
+//   node scripts/mixpack/regenerate.mjs <completed.xlsm> [out.xlsm]
+//
+// This is the end-to-end proof of the generator: it reads only the 330 input
+// cells the nine staging sheets depend on, writes them into a fresh copy of
+// KYTC's template, evaluates every staging formula, repacks, and then diffs the
+// staging sheets it produced against the ones in the source workbook.
+//
+// Expect three differences on a real file (cells where the source itself holds
+// #VALUE! - see docs/sitemanager-handoff.md) plus the remarks id, which embeds
+// TEXT(NOW(),...) and is supposed to be stamped fresh.
+//
+// Real MixPacks are gitignored, so this takes a path rather than a fixture.
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { cellsOf, sheetXml, sharedStrings, STAGING, SOURCE, DIRECT_READ, rowNum, FIRST_DATA_ROW } from './xlsx.mjs';
+import { fillWorkbook, packWorkbook } from './write.mjs';
+import { evaluate } from './formula.mjs';
+
+// fileURLToPath, not URL.pathname: the latter is percent-encoded, so a
+// checkout under a path with a space could not find the template.
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const TEMPLATE = path.join(HERE, '../../public/MIXPACK2026_VER12_01.xlsm');
+const USAGE = 'usage: regenerate.mjs <completed.xlsm> [out.xlsm] [--set "Design Data!H10=00269999" ...]';
+const argv = process.argv.slice(2);
+const overrides = {}, positional = [];
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i] !== '--set') { positional.push(argv[i]); continue; }
+  const kv = argv[++i];
+  const eq = kv == null ? -1 : kv.indexOf('=');
+  if (eq < 1) {
+    console.error(`--set needs "Sheet!Cell=value", got ${JSON.stringify(kv ?? '')}\n${USAGE}`);
+    process.exit(2);
+  }
+  overrides[kv.slice(0, eq)] = kv.slice(eq + 1);
+}
+const [SRC, OUT] = positional;
+if (!SRC) { console.error(USAGE); process.exit(2); }
+
+const NUMRE = /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/;
+const SST = sharedStrings(SRC);
+const cache = {};
+const cellsFor = name => (cache[name] ||= cellsOf(sheetXml(SRC, SOURCE[name] ?? STAGING[name]), SST));
+
+// A visible cell can be a formula Excel never recalculated before the file was
+// saved, so it has an <f> and no <v>. Design Data!Q14 (the plant's producer /
+// supplier code, which MEDL validates) is exactly this: it reads Chart Data!AO2,
+// which *is* cached. Take the cached value when there is one, otherwise evaluate.
+const resolving = new Set();
+const memo = new Map();
+const valueOf = (sheet, ref) => {
+  const k = `${sheet}!${ref}`;
+  if (memo.has(k)) return memo.get(k);
+  const c = cellsFor(sheet).get(ref);
+  let out = '';
+  if (c) {
+    if (c.v != null) {
+      out = (c.t === 's' || c.t === 'str' || c.t === 'inlineStr') ? c.v : (NUMRE.test(c.v) ? +c.v : c.v);
+    } else if (c.f && !resolving.has(k)) {
+      resolving.add(k);
+      try { out = evaluate(c.f, (sh, cell) => valueOf(sh || sheet, cell)); }
+      catch { out = ''; }                       // outside our grammar: treat as blank
+      finally { resolving.delete(k); }
+    }
+  }
+  if (typeof out === 'string') out = out.trim(); // AO2 is "AMP070301      "
+  memo.set(k, out);
+  return out;
+};
+
+// The input surface: every cell outside the staging sheets that a staging
+// formula reads. Derived from the template, not hand-listed.
+const inputs = new Set();
+for (const [stage, n] of Object.entries(STAGING))
+  for (const [ref, c] of cellsOf(sheetXml(TEMPLATE, n), null)) {
+    if (rowNum(ref) < FIRST_DATA_ROW(stage) || !c.f) continue;
+    for (const m of c.f.matchAll(/(?:'([^']+)'|\b([A-Za-z_][A-Za-z0-9_]*))!\$?([A-Z]{1,3})\$?(\d+)/g)) {
+      const sheet = m[1] || m[2];
+      if (!(sheet in STAGING)) inputs.add(`${sheet}!${m[3]}${m[4]}`);
+    }
+  }
+
+// Tabs the Applet reads directly. No staging formula points at them, so the
+// scan above cannot find them - carry them explicitly or they come out empty
+// and MEDL loads the design with no project items (found 2026-09-10).
+for (const [sheet, spec] of Object.entries(DIRECT_READ))
+  for (let r = spec.firstRow; r <= spec.lastRow; r++)
+    for (const col of spec.cols) inputs.add(`${sheet}!${col}${r}`);
+
+// ...and everything else a person actually put in the workbook.
+//
+// A staging-formula scan finds only what SiteManager CONSUMES. But the
+// Spreadsheet Applet also ARCHIVES the file, so the workbook is a record as
+// well as a payload, and a copy that drops the JMF gradation column, the
+// contact phone and the Fed/State number is a poor record even when the load
+// is correct. Measured on #467PA before this: 210 such cells outside KYCT
+// Data, plus the ~9,570-cell raw IDEAL-CT curve block.
+//
+// The rule is the one that separates them: carry a source cell holding a
+// value wherever the TEMPLATE has no formula there. A template formula
+// recalculates itself when Excel opens the file (417 such cells on #467PA) and
+// must keep its <f>, so those are deliberately left alone - writing them as
+// literals would destroy the sheet's own arithmetic.
+const tplCells = {};
+let carried = 0;
+for (const [sheet, n] of Object.entries(SOURCE)) {
+  const tpl = (tplCells[sheet] ||= cellsOf(sheetXml(TEMPLATE, n), null));
+  for (const [ref, c] of cellsFor(sheet)) {
+    if (c.v == null || String(c.v).trim() === '') continue;   // nothing to carry
+    const t = tpl.get(ref);
+    if (t && t.f) continue;                                   // recalculates on open
+    // The template's own labels and headings are already in the base file we
+    // write into; rewriting them identically is thousands of wasted splices.
+    if (t && t.v != null && String(t.v) === String(c.v)) continue;
+    const k = `${sheet}!${ref}`;
+    if (inputs.has(k)) continue;
+    inputs.add(k); carried++;
+  }
+}
+
+const values = {};
+for (const k of inputs) { const [s, r] = k.split('!'); values[k] = valueOf(s, r); }
+// --set replaces an input after it is read, so overriding one cell carries
+// through everything derived from it. Design Data!C10 and !H10 between them
+// drive the sample id, the mix id, the discipline filename and the remarks id.
+for (const [k, v] of Object.entries(overrides)) {
+  values[k] = v;
+  console.log(`override: ${k} = ${JSON.stringify(v)}` + (inputs.has(k) ? '' : '  (not itself a staging input)'));
+}
+
+const { parts, report } = fillWorkbook({ template: TEMPLATE, values });
+const direct = Object.entries(DIRECT_READ)
+  .map(([sh, sp]) => `${sh} ${sp.firstRow}-${sp.lastRow}`).join(', ');
+console.log(`input cells read      : ${inputs.size}  (direct-read: ${direct}; +${carried} other authored cells)`);
+for (const sheet of Object.keys(DIRECT_READ)) {
+  const rows = [];
+  for (let r = DIRECT_READ[sheet].firstRow; r <= DIRECT_READ[sheet].lastRow; r++) {
+    const cells = DIRECT_READ[sheet].cols.map((c) => values[`${sheet}!${c}${r}`]);
+    if (cells.some((v) => v !== '' && v != null)) rows.push(`row ${r}: ${cells.map((v) => JSON.stringify(v)).join(', ')}`);
+  }
+  console.log(`${sheet.padEnd(22)}: ${rows.length ? rows.join(' | ') : 'NO DATA ROWS - the design carries none, or the source is empty'}`);
+}
+console.log(`staging cells written : ${report.written} (${report.passes} passes)`);
+if (report.failed.length) {
+  console.log(`could not evaluate    : ${report.failed.length}`);
+  for (const [w, f, e] of report.failed.slice(0, 10)) console.log(`   ${w}  ${String(f).slice(0,70)}  ${e}`);
+}
+
+let ok = 0; const diffs = [];
+for (const [name, n] of Object.entries(STAGING)) {
+  const gen = cellsOf(parts.get(`xl/worksheets/sheet${n}.xml`), null);
+  for (const [ref, rc] of cellsFor(name)) {
+    if (rowNum(ref) < FIRST_DATA_ROW(name) || !rc.f || rc.v == null) continue;
+    const want = (rc.t === 's' || rc.t === 'str') ? rc.v : (NUMRE.test(rc.v) ? +rc.v : rc.v);
+    const g = gen.get(ref);
+    const got = !g ? '' : g.t === 'inlineStr' ? g.v : g.v == null ? '' : (NUMRE.test(g.v) ? +g.v : g.v);
+    const same = (typeof got === 'number' && typeof want === 'number')
+      ? Math.abs(got - want) < 1e-9 : String(got).trim() === String(want).trim();
+    if (same) ok++; else diffs.push([`${name}!${ref}`, rc.f, got, want]);
+  }
+}
+// A difference is expected when the source cell holds an Excel error, or when
+// the value is stamped at generation time - directly via TEXT(NOW(),...), or
+// transitively, as t_smpl.rmrks_id does by reading t_rmks_dtl's stamped id.
+// An override is meant to change the output, so match on the value produced,
+// not the formula text: identity propagates down whole columns by chained
+// references (t_tst_rslt_dtl!B9 is just "=B8"), which never name the cell set.
+const overrideValues = Object.values(overrides).filter(v => String(v).length >= 4);
+const expected = d => String(d[3]).startsWith('#') || /NOW\(/.test(d[1])
+                   || String(d[2]).includes(report.stamp)
+                   || overrideValues.some(v => String(d[2]).includes(v));
+const unexplained = diffs.filter(d => !expected(d));
+console.log(`\nstaging cells matching source : ${ok}`);
+console.log(`expected differences          : ${diffs.length - unexplained.length}  (#VALUE! in source, or NOW() stamp)`);
+console.log(`unexplained differences       : ${unexplained.length}`);
+for (const [w, f, got, want] of unexplained.slice(0, 20))
+  console.log(`${w}\n   f=${String(f).slice(0,100)}\n   got=${JSON.stringify(got)} want=${JSON.stringify(want)}`);
+
+if (OUT) {
+  packWorkbook({ template: TEMPLATE, parts, out: OUT, tmp: fs.mkdtempSync('/tmp/mixpack-') });
+}
+process.exit(report.failed.length || unexplained.length ? 1 : 0);

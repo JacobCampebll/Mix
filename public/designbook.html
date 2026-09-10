@@ -49,10 +49,10 @@
   shown as "(not in KYTC list)" and raised as a warning in the rail -
   it is never dropped or blocked.
 
-  Nothing writes to Supabase yet — there is no DesignBook table in
-  supabase/schema.sql (only the technician tables). Save builds the
-  payload and shows it, so the table and its RLS policy get written
-  against a real shape. See saveDesign().
+  Nothing about a design is written to Supabase, and there is no save.
+  The review PDF is the only copy of a design: download it to keep your
+  work, upload it here to pick up exactly where you left off. Supabase is
+  read for identity, capabilities and the reference lists - never written.
 
   FOR THE OTHER COLLABORATOR: new file, touches nothing in login.html.
   Duplicated shared ground: SUPABASE_URL / ANON_KEY, and the theme
@@ -103,6 +103,7 @@
   .pill.released,.pill.approved{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
   .spacer{flex:1;}
   .savedstate{font-size:12px; color:var(--muted);}
+  .savedstate.warn{color:var(--flag);}
   .whoami{font-size:12px; color:var(--muted); text-align:right; line-height:1.4;}
   .whoami a{cursor:pointer; text-decoration:underline; text-underline-offset:2px;}
 
@@ -135,9 +136,22 @@
            padding:22px 24px; margin-bottom:20px; scroll-margin-top:150px; transition:box-shadow .3s;}
   .section.flash{box-shadow:0 0 0 2px var(--accent);}
   .section-head{display:flex; align-items:baseline; justify-content:space-between;
-                margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line); gap:12px;}
+                margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line);
+                gap:12px; flex-wrap:wrap;}
   .section-tag{font-size:10px; color:var(--muted); border:1px solid var(--line);
                border-radius:3px; padding:2px 7px; letter-spacing:.03em; white-space:nowrap;}
+  /* A tag like "KYTC 403.03.03 A) · does this blend qualify as Type A or B" is
+     383px of nowrap text - wider than a phone on its own, and it was the whole
+     of this page's 165px of sideways scroll at 390px (the polish table looks
+     guilty and is not; .prscroll already clips it). The head wraps it to its
+     own line above; below 700px the text itself has to wrap too.
+     This block sits directly BELOW the two rules it overrides on purpose: a
+     @media block is not a tiebreaker, and at equal specificity the later rule
+     wins - see the same trap in CLAUDE.md's gotchas. */
+  @media (max-width:700px){
+    .section-head{align-items:flex-start; gap:8px;}
+    .section-tag{white-space:normal; max-width:100%;}
+  }
 
   .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
   @media (max-width:700px){ .grid{grid-template-columns:1fr 1fr;} }
@@ -156,6 +170,26 @@
   .box.autofilled{background:var(--accent-soft);}
   .box[readonly]{background:#EFEDE6; color:var(--muted); cursor:default;}
   .srcnote{font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--muted); margin-top:3px;}
+
+  /* Searchable reference dropdown. One shared popup for the whole page,
+     positioned against the focused input in JS (see comboPosition), so it
+     is position:fixed and must sit above the sticky appbar (z-index 20). */
+  .combo{position:fixed; z-index:60; background:var(--panel); border:1px solid var(--line);
+         border-radius:var(--radius); box-shadow:0 10px 28px rgba(8,56,96,.18);
+         overflow:hidden; display:flex; flex-direction:column;}
+  .combo-list{overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;}
+  .combo-opt{padding:9px 12px; cursor:pointer; border-bottom:1px solid var(--line);}
+  .combo-opt:last-child{border-bottom:0;}
+  .combo-opt.active, .combo-opt:hover{background:var(--accent-soft);}
+  .combo-val{font-size:13px; line-height:1.35; color:var(--ink);}
+  .combo.mono .combo-val{font-family:'IBM Plex Mono',monospace; color:var(--accent);}
+  .combo-sub{font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--muted); margin-top:2px;}
+  .combo-val mark, .combo-sub mark{background:var(--gold); color:var(--ink); padding:0 1px; border-radius:2px;}
+  .combo-foot{padding:6px 12px; font-size:10.5px; color:var(--muted); background:#FCFCFA;
+              border-top:1px solid var(--line);}
+  .combo-foot.warn{color:var(--flag); background:var(--flag-soft);}
+  /* Touch: the whole row is the tap target, so give it a finger's worth. */
+  @media (pointer:coarse){ .combo-opt{padding:12px; min-height:44px;} }
 
   .rowlist{display:flex; flex-direction:column; gap:8px;}
   .rowitem{display:grid; gap:10px; align-items:end; padding:8px 10px;
@@ -188,7 +222,8 @@
   /* four points — mix constants + 4-row design table + curve + results */
   .fp-consts{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px;}
   @media (max-width:700px){ .fp-consts{grid-template-columns:1fr 1fr;} }
-  table.fptable{width:100%; border-collapse:collapse; font-size:13px;}
+  .fpscroll{overflow-x:auto;}                    /* wide table scrolls itself, never the page */
+  table.fptable{width:100%; min-width:284px; border-collapse:collapse; font-size:13px;}
   table.fptable th{font-size:10px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);
                    text-align:left; padding:6px 8px; border-bottom:1px solid var(--line);}
   table.fptable td{padding:5px 8px; border-bottom:1px solid var(--line);}
@@ -202,6 +237,33 @@
   .fp-results{display:grid; grid-template-columns:repeat(6,1fr); gap:10px;}
   @media (max-width:700px){ .fp-results{grid-template-columns:repeat(2,1fr);} }
   .fp-defaultnote{font-size:11px; color:var(--flag); display:none;}
+
+  /* polish-resistant: a component-per-column matrix, like the MixPack tab */
+  .prnote{font-size:12px; color:var(--muted); line-height:1.5; max-width:78ch; margin-bottom:12px;}
+  .prnote.small{font-size:11px; margin:10px 0 0;}
+  .prempty{font-size:12px; color:var(--muted); padding:10px 0;}
+  .prscroll{overflow-x:auto;}                    /* wide table scrolls itself, never the page */
+  .prtable{border-collapse:collapse; font-size:12px;}
+  .prtable th,.prtable td{border:1px solid var(--line); padding:4px 6px; vertical-align:middle;}
+  .prtable thead th{background:var(--wash); text-align:left; min-width:132px;}
+  .prrowhead{background:var(--wash); text-align:left; white-space:nowrap; font-weight:500; position:sticky; left:0;}
+  .prname{font-weight:500;}
+  .prsub{font-size:11px; color:var(--muted); line-height:1.45;}
+  .prtable .box{width:100%; padding:4px 6px; font-size:12px;}
+  .prtable .prkey{background:var(--flag-soft);}  /* the #4 is the one the arithmetic keys on */
+  /* A cell KYTC's approved-materials list settled: stated, not asked. Reads as
+     data rather than as an empty control somebody forgot to fill in. */
+  .prderived{background:var(--wash);}
+  .prfact{font-size:12px;}
+  .prspacer th{border-top:2px solid var(--line);}
+  .prresults{margin-top:16px;}
+  .prtotals{font-size:11.5px; color:var(--muted); margin-bottom:10px; line-height:1.6;}
+  .pritem{display:flex; gap:9px; padding:8px 0; border-top:1px solid var(--line); font-size:12.5px; line-height:1.5;}
+  .prmark{flex-shrink:0; width:14px; font-weight:600;}
+  .pritem.ok .prmark{color:var(--ok);}
+  .pritem.bad .prmark{color:var(--bad);}
+  .pritem.unproven .prmark{color:var(--flag);}
+  @media (max-width:700px){ .prtable thead th{min-width:112px;} }
   .fp-defaultnote.show{display:block;}
   .fp-card{background:var(--accent-soft); border-radius:var(--radius); padding:9px 12px;}
   .fp-card .l{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--accent); margin-bottom:2px;}
@@ -238,6 +300,12 @@
   .stagebtn.ghost{background:none; color:var(--accent); border-color:var(--accent); margin-left:8px;}
   .stagebtn.ghost:disabled{color:var(--muted); border-color:var(--line); background:none;}
   .stagenote{font-size:12px; color:var(--muted); margin-top:8px;}
+  .stagewarn{font-size:12px; color:var(--bad); margin-top:6px; max-width:62ch; line-height:1.5;}
+  .approvalbox{margin-top:14px; padding:12px 14px; border:1px solid var(--line); border-radius:var(--radius); background:var(--wash);}
+  .approvalbox label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:6px;}
+  .approvalbox input{width:120px; padding:7px 9px; border:1px solid var(--line); border-radius:var(--radius);
+    font-family:'IBM Plex Mono',monospace; font-size:15px;}
+  .approvalhint{font-size:11.5px; color:var(--muted); margin-top:8px; max-width:60ch; line-height:1.5;}
   /* Review PDF: the portable copy, offered next to the stage buttons. */
   .handoff{margin-top:18px; padding-top:16px; border-top:1px solid var(--line);}
   .handoff .stagebtn{margin-top:0;}
@@ -350,9 +418,6 @@
 
   <main>
     <div id="sections"></div>
-    <!-- <datalist>s for the long reference lists; filled by renderRefLists() -->
-    <div id="refLists"></div>
-
     <details id="inspectorWrap" class="hidden">
       <summary>Import log — version, sheets, every field with its source cell and what was found</summary>
       <pre id="inspector"></pre>
@@ -367,7 +432,6 @@
     <h3>Outstanding items</h3>
     <div class="sub" id="valsub">Live — updates as you fill the form</div>
     <div id="vallist"></div>
-    <button class="savebtn" id="saveBtn">Save design</button>
     <div class="msg" id="saveMsg" style="font-size:11.5px;"></div>
   </aside>
 
@@ -404,6 +468,10 @@ const CONFIG = {
     binder_grade: (m) => m.binder_grade,
     total_tons:   (m) => m.total_quantity,
     county:       (m) => m.county,
+    // The signature's size token, split into the two Contract Information
+    // fields: "0.38B" -> nominal_size "0.38", mix_type "B".
+    nominal_size: (m) => splitMixDesignation(m.nominal_size).size,
+    mix_type:     (m) => splitMixDesignation(m.nominal_size).letter,
   },
 
   // Mix Design Tech cert (unexpired), from technician_capabilities.
@@ -421,6 +489,11 @@ const CONFIG = {
     // a longer list renders as an <input> with a <datalist>, so free text is
     // still possible and the list is a suggestion.
     SELECT_MAX: 30,
+    // The searchable dropdown a long list gets instead of a <datalist>.
+    // MAX_SHOWN caps rendered rows - nobody scrolls 178 producers, and the
+    // footer says how many are hidden. MIN_WIDTH keeps the popup readable
+    // when the field it hangs off is a narrow row cell.
+    COMBO: { MAX_SHOWN: 60, MIN_WIDTH: 260, MAX_HEIGHT_VH: 45, FUZZY_MIN_CHARS: 3 },
     // How long boot waits for the lists before rendering anyway. Late or
     // failed lists upgrade the rendered fields in place; nothing is lost.
     BOOT_WAIT_MS: 2000,
@@ -461,6 +534,18 @@ const CONFIG = {
         label: (r) => `${r.lap_number} — ${r.terminal_name}`,
         aliases: (r) => [r.terminal_name],
       },
+      // AMP asphalt plants. Needed because a RAP component's "producer" is
+      // the plant its millings came from, not an aggregate producer - see the
+      // `alt` on the Producer column below. Same read-all reference data as
+      // the rest (supabase/plants.sql: RLS on, one `to authenticated using
+      // (true)` select policy, seeding is an admin action).
+      plants: {
+        table: "plants", select: "amp_number, name", orderBy: "name",
+        noun: "plants",
+        value: (r) => r.name,
+        label: (r) => `${r.name} — ${r.amp_number}`,
+        aliases: (r) => [r.amp_number],
+      },
       binder_grades: {
         table: "binder_grades", select: "grade, sitemanager_code", orderBy: "grade",
         noun: "grades",
@@ -482,6 +567,12 @@ const CONFIG = {
   HANDOFF: {
     FORMAT: "kytc-designbook",
     VERSION: 1,
+    // Which document a file is. Carried in the payload as `doc_kind` so a
+    // reopened file still knows, and so the sheet can say plainly which one
+    // the reader is holding. Deliberately NOT part of what the approval
+    // signature covers (designParts / canonicalDesign list their fields
+    // explicitly), so adding it cannot invalidate an issued approval.
+    DOC: { review: "review", submittal: "submittal", approval: "approval" },
     ATTACHMENT: "designbook-data.json",
     // Prefix on the base64 fallback copy in the PDF's Keywords.
     MARKER: "KYTC-DESIGNBOOK-V1:",
@@ -508,16 +599,12 @@ const CONFIG = {
     // Keyed "<section id>.<field or column key>".
     OMIT: {
       "aggregate.mat_code": "SiteManager code - auto-filled, not read by a reviewer",
-      "gradation.s6_3": "1/4in sieve is not used in practice",
       "tsr.tsr_dry_strength": "TSR % is the reported result",
       "tsr.tsr_wet_strength": "TSR % is the reported result",
     },
 
-    // Decimal places by field/column key when printing. Anything unlisted
-    // falls back to DEFAULT_DP. The payload always keeps full precision -
-    // a workbook import arrives with 14 decimals and 14 decimals on a
-    // submittal reads as an error.
-    DP: { gsb: 2, air_voids: 1, tsr_pct: 0, index: 1 },
+    // Printing reads CONFIG.DP (below) - the same table the importer rounds
+    // to, so the form, the sheet and the CSV never disagree about precision.
     DEFAULT_DP: 3,
 
     // Gradation chart. The coarse end of a gradation is a flat run of 100s
@@ -538,14 +625,43 @@ const CONFIG = {
     },
   },
 
-  // Workflow stages, in order. Button label is what advances INTO the
-  // next stage; the last stage has none.
+  // Workflow stages, in order. Only three, because these are the only three
+  // the site can actually observe: internal review happens off-site (a tech
+  // emails a PDF to their supervisor) and a tech may legitimately skip it,
+  // so it is not a stage - a permanently grey step would be a lie.
+  // The button label is what advances INTO the next stage.
   STAGES: [
-    { key: "Draft",           css: "draft",    next: "Move to internal review →" },
-    { key: "Internal Review", css: "review",   next: "Release to Department →" },
-    { key: "Released",        css: "released", next: "Mark approved →" },
-    { key: "Approved",        css: "approved", next: null },
+    { key: "Draft",     css: "draft",    next: "Submit to KYTC →" },
+    { key: "Submitted", css: "review",   next: "Approve →" },
+    { key: "Approved",  css: "approved", next: null },
   ],
+
+  // ---- Submit and approve ----
+  // With nothing stored, the file's own history IS the chain of custody:
+  // who submitted, who approved, when. The rules the Postgres trigger used
+  // to enforce are re-expressed against that history, and the ones that
+  // actually matter are enforced again server-side when an approval is
+  // signed - a status carried in a file is a claim, not a fact.
+  SUBMIT: {
+    // Netlify Functions. They are transit, not storage: nothing is kept.
+    // There is deliberately no send function - see submitToKYTC().
+    SIGN_FN: "/.netlify/functions/sign-approval",
+    VERIFY_FN: "/.netlify/functions/verify-approval",
+    // Where the technician emails the submittal. Not a secret and no longer
+    // a server setting: the browser never sends the mail, the person does,
+    // from their own account. These two are what
+    // netlify/functions/README.md already recorded as the destination for
+    // every design, no routing, back when a Function sent it. Swap for a
+    // shared Central Office inbox if KYTC has one - one line here, and it
+    // reaches every technician on their next page load. Never invent an
+    // address: null makes the page say "KYTC Central Office Materials".
+    KYTC_EMAIL: "Andrew.Denmark@ky.gov, Tate.Salle@ky.gov",
+    // History actions. These strings are the record - changing one orphans
+    // the chain of custody in every file already issued. `submitted` must
+    // equal SUBMITTED_ACTION in netlify/lib/canonical.mjs: this page writes
+    // the entry, sign-approval finds the submitter by it.
+    ACTION: { submitted: "Submitted to KYTC", approved: "Approved by KYTC" },
+  },
 
   // How far right of a label to look for its value during extraction.
   // ---- Legacy MixPack import: fixed cells, versioned ----
@@ -648,21 +764,28 @@ const CONFIG = {
     // derives from the FOURPOINT trial data above (both are useful: this
     // panel is what the technician originally submitted, the computed path
     // is what today's curve fit says from the same four trial points).
+    // [sheet, cell, decimal places]. The third entry is the number format
+    // KYTC applies to that very cell in its own template (checked
+    // 2026-09-07) - these are formula results, so the cached value is a raw
+    // float and printing it whole gave "Gse 2.6945571050787693".
     DESIGN_VALUES: {
-      "AC (%)":              ["designData", "O63"],
-      "VMA (%)":             ["designData", "O57"],
-      "VFA (%)":             ["designData", "O56"],
-      "Air voids (%)":       ["designData", "O61"],
-      "Gmm":                 ["designData", "O65"],
-      "Gse":                 ["designData", "O68"],
-      "Gsb":                 ["designData", "O67"],
-      "%Gmm @ Nini":         ["designData", "O59"],
-      "%Gmm @ Nmax":         ["designData", "O60"],
-      "Unit weight (pcf)":   ["designData", "O62"],
-      "Effective AC (%)":    ["designData", "O64"],
-      "Absorbed AC (%)":     ["designData", "O66"],
-      "Dust / binder ratio": ["designData", "O58"],
-      "Film thickness (µm)": ["designData", "O69"],
+      "AC (%)":              ["designData", "O63", 1],
+      "VMA (%)":             ["designData", "O57", 1],
+      "VFA (%)":             ["designData", "O56", 1],
+      "Air voids (%)":       ["designData", "O61", 1],
+      "Gmm":                 ["designData", "O65", 3],
+      "Gse":                 ["designData", "O68", 3],
+      "Gsb":                 ["designData", "O67", 2],
+      "%Gmm @ Nini":         ["designData", "O59", 1],
+      "%Gmm @ Nmax":         ["designData", "O60", 1],
+      "Unit weight (pcf)":   ["designData", "O62", 1],
+      "Effective AC (%)":    ["designData", "O64", 1],
+      "Absorbed AC (%)":     ["designData", "O66", 2],
+      "Dust / binder ratio": ["designData", "O58", 1],
+      // Micrometres. Written out rather than "\u00b5m" because the panel's
+      // labels are CSS-uppercased and "\u00b5" becomes a capital Mu, which
+      // reads as "(MM)" - a 1000x wrong unit on a KYTC document.
+      "Film thickness (micron)": ["designData", "O69", 1],
     },
     // The 4 gyratory trial points (Pb/Gmb/Gmm), found 2026-09-04 in a real
     // Ver 11.3 sample (CL3 0.38A 64-22 Haydon NEW.xlsm) - it was wrong to
@@ -702,7 +825,7 @@ const CONFIG = {
     SIEVES: {
       s50:    ["designData", "T15"], s37_5:  ["designData", "T16"], s25:    ["designData", "T17"],
       s19:    ["designData", "T18"], s12_5:  ["designData", "T19"], s9_5:   ["designData", "T20"],
-      s6_3:   ["designData", "T21"], s4_75:  ["designData", "T22"], s2_36:  ["designData", "T23"],
+      s4_75:  ["designData", "T22"], s2_36:  ["designData", "T23"],
       s1_18:  ["designData", "T24"], s0_6:   ["designData", "T25"], s0_3:   ["designData", "T26"],
       s0_15:  ["designData", "T27"], s0_075: ["designData", "T28"],
     },
@@ -741,6 +864,9 @@ const CONFIG = {
       ["Binder prod. #", "designData", "H18"], ["Mix/comp temp", "designData", "K18"],
       ["Corr. factor", "designData", "H19"], ["Binder code", "designData", "C20"],
       ["Mix mat. code", "designData", "Q16"],
+      // The 1/4" sieve, dropped from the gradation schema (see there) but still
+      // read, so a workbook that carries a real number for it says so.
+      ["1/4in sieve (JMF)", "designData", "T21"],
       ["Coarse agg. angularity", "designData", "O52"], ["Fine agg. angularity", "designData", "O53"],
       ["Flat & elongated", "designData", "O54"], ["Clay content (SE)", "designData", "O55"],
       ["Specimen weight", "designData", "O70"], ["TSR weight", "designData", "O71"],
@@ -822,6 +948,93 @@ const CONFIG = {
     "0.38": { s12_5: [100, null], s9_5: [90, 100], s4_75: [32, 67], s0_075: [2, 10] },
     "4":    { s9_5: [null, 100], s1_18: [30, 55], s0_075: [6, 13] },
   },
+  /* ---- Polish-resistant aggregate: KYTC 403.03.03 A) ----
+   *
+   * 2026 Standard Specifications, Section 400 Asphalt Pavements, pp. 403-3/4.
+   * Same footing as GRADATION_CONTROL_POINTS: spec data, changes only when
+   * the spec is revised, so it ships here rather than in Supabase.
+   *
+   * The MixPack's "Polish-Resistant Data" tab implements PART of this - the
+   * +4 side only, for Type B only the 50%-from-Class-A route, and with a
+   * single YES/NO where the spec distinguishes a Class A source from a Class
+   * B source. Jake's call 2026-09-07: follow the spec, not the workbook.
+   *
+   * One interpretive call, worth knowing: the spec's own heading is "POLISH
+   * RESISTANT AGGREGATE REQUIREMENTS" and its rows are "Class A Source" and
+   * "Class B Source", so a component is treated as polish-resistant when it
+   * has EITHER class, and non-polish-resistant only when it has none. Routes
+   * that name Class A specifically are checked against Class A alone.
+   */
+  POLISH: {
+    CITE: "KYTC 403.03.03 A)",
+    // "The Department will permit a maximum of 15% natural sand by weight of
+    // total combined aggregate unless prior approval is obtained from the
+    // Division of Materials for greater amounts."
+    NATURAL_SAND_MAX: 15,
+    // Footnote 1, Type A only: "When dolomite is used as the polish resistant
+    // lithology, a minimum of 70% total combined Class A polish resistant
+    // coarse and fine aggregate is required."
+    DOLOMITE_CLASS_A_MIN: 70,
+    // "...limit the portion of non-polish-resistant fine aggregate retained
+    // on the No. 4 sieve to 5 percent of the total combined aggregates."
+    // Rounded to a whole percent, as the MixPack does.
+    NON_PR_FINE_RETAINED_MAX: 5,
+    STANDARD: {
+      A: { COARSE_CLASS_A: 100, FINE_CLASS_A: 20 },
+      B: { COARSE_CLASS_B: 100, RETAINED4_CLASS_A: 50, FINE_CLASS_B: 30, FINE_CLASS_A: 20 },
+    },
+    // Separate table in the same subsection for No. 4 (4.75mm) mixtures,
+    // stated against TOTAL combined aggregate rather than the +4 fraction.
+    NO4: { A_TOTAL_CLASS_A: 100, B_TOTAL: 85 },
+    // Footnote 2, and a standing instruction rather than a pass/fail.
+    CLASS_B_REVIEW_NOTE: "Submit all Class B blends to the Department for review " +
+      "(403.03.03 A) footnote 2). Aggregates identified as \"Not permitted as the " +
+      "polish-resistant portion of Class B blends\" cannot be used for that portion.",
+    // A RAP polish credit is not self-declaring - it is applied for.
+    RAP_CREDIT_NOTE: "A polish-resistant credit for RAP requires Division of Materials approval. " +
+      "Leave blank unless it has been granted.",
+    // Prefill only: more than this passing the #4 makes a component a fine
+    // source. The contractor can change it; it is a starting point, not a rule.
+    FINE_SOURCE_PASSING_4: 50,
+    // Which sieve the +4 arithmetic keys on - the gradation section's own key
+    // for the #4 (4.75 mm), so the two can never drift apart.
+    RETAINED_SIEVE: "s4_75",
+  },
+
+  /* ---- Decimal places, by field / row-column key ----
+   *
+   * NOT a house style: these are read off the number formats KYTC applies to
+   * the corresponding cells in its own MIXPACK2026_VER12_01.xlsm (checked
+   * 2026-09-07), so a value shows the way the technician is used to seeing
+   * it. The importer rounds to this on the way in and the sheet prints to it,
+   * which is why a TSR arrived reading 79.85687134347693 - Excel's float
+   * behind a cell KYTC formats as "0", i.e. 80.
+   *
+   * A key that is not here keeps whatever precision it was given; that is
+   * deliberate for anything KYTC formats as General (percent blend, depth,
+   * the Hamburg pass counts), where the workbook itself imposes nothing.
+   */
+  DP: {
+    // Aggregate structure and gradation. Every sieve is a whole percent
+    // except the #200, which KYTC carries to a tenth.
+    gsb: 2,
+    s50: 0, s37_5: 0, s25: 0, s19: 0, s12_5: 0, s9_5: 0, s4_75: 0,
+    s2_36: 0, s1_18: 0, s0_6: 0, s0_3: 0, s0_15: 0, s0_075: 1,
+    // Contract
+    total_tons: 0,
+    // TSR tab. The ratio itself is a whole percent; the strengths a tenth.
+    tsr_pct: 0, tsr_pct_additive: 0, tsr_wet_strength: 1, tsr_dry_strength: 1,
+    // Hamburg: the deformations are millimetres to three places; the pass
+    // counts and stripping-inflection points are General in the workbook.
+    hamburg_left_maxdef: 3, hamburg_right_maxdef: 3,
+    // Four-point trial sweep, and the values computed from it.
+    pb: 1, gmb: 3, gmm: 3,
+    design_pb: 1, gmm_design: 3, gmb_design: 3, va_design: 1, vma_design: 1,
+    vfa_design: 1, gse: 3, pbe: 1, dust_pbe: 1, density: 1,
+    // Legacy keys still referenced by the sheet.
+    air_voids: 1, index: 1,
+  },
+
   // RAP -> required virgin binder, per the MixPack v12.1 Recycle Data tab
   // (screenshot supplied 2026-09-04; cite the exact R35 recycle-spec section
   // here once confirmed). Keyed by course (SURF/BASE, from state.mix.layer),
@@ -852,6 +1065,28 @@ const CONFIG = {
         { key: "total_tons",      label: "Tonnage",         type: "number", req: true, mono: true },
         { key: "submittal_type",  label: "Submittal type",  type: "select", req: true,
           options: ["New Mix Design", "Reference Mix Design"] },
+        // The mix designation, split in two. The Portal's contract/mix lookup
+        // prefills both (MIX_PREFILL splits "0.38B" for it) and a legacy
+        // MixPack fills them from Design Data!O8, but these fields are the
+        // authority either way - a custom build starts with neither, and
+        // without them there is no NMAS for the gradation control-point band
+        // and no type letter for 403.03.03 A). Value is KYTC's own token so
+        // it recombines to the signature's size ("0.38" + "B" = "0.38B").
+        { key: "nominal_size",    label: "Nominal size",    type: "select", req: true, mono: true,
+          options: [
+            { value: "1.50", label: "1.50 (1-1/2\")" }, { value: "1.00", label: "1.00 (1\")" },
+            { value: "0.75", label: "0.75 (3/4\")" },   { value: "0.50", label: "0.50 (1/2\")" },
+            { value: "0.38", label: "0.38 (3/8\")" },   { value: "NO.4", label: "NO.4 (4.75 mm)" },
+          ] },
+        // A, B or D - there is no C mix (Jake, 2026-09-07). A and B carry the
+        // polish-resistant requirements; D does not, which is why the
+        // Polish-Resistant section only appears for the first two.
+        { key: "mix_type",        label: "Mix type",        type: "select", req: true,
+          options: [
+            { value: "A", label: "A \u2014 polish-resistant" },
+            { value: "B", label: "B \u2014 polish-resistant" },
+            { value: "D", label: "D \u2014 no polish requirement" },
+          ] },
         { key: "binder_grade",    label: "Binder grade",    type: "text",   req: true, mono: true, source: "binder_grades" },
         { key: "binder_terminal", label: "Binder supplier", type: "text",   req: true, source: "binder_terminals" },
         { key: "funding",         label: "Funding",         type: "text",   req: true },
@@ -871,7 +1106,14 @@ const CONFIG = {
         key: "aggregate", max: 6, addLabel: "+ add aggregate component (up to 6)",
         grid: "1.4fr 1.2fr 1fr .8fr .8fr auto",
         columns: [
-          { key: "producer",  label: "Producer",     type: "text",   req: true, source: "aggregates" },
+          // AGP and AMP are different registries: an AGP number is an
+          // aggregate producer, an AMP number is an asphalt plant. For every
+          // component but RAP the producer is an AGP. RAP is millings, so its
+          // "producer" is the AMP plant they came off - which is why checking
+          // a RAP row against the aggregates list always warned (Jake,
+          // 2026-09-10). `alt` swaps the list, and the label, per row.
+          { key: "producer",  label: "Producer",     type: "text",   req: true, source: "aggregates",
+            alt: { when: (row) => isRapRow(row), source: "plants", label: "Plant (RAP source)" } },
           { key: "type_size", label: "Type & size",  type: "text",   req: true, source: "aggregate_types",
             fills: { mat_code: (r) => r.mat_code } },
           { key: "mat_code",  label: "Mat. code",    type: "text",   req: true, mono: true },
@@ -892,7 +1134,12 @@ const CONFIG = {
         { key: "s19",    label: '3/4"',   mm: 19.0  },
         { key: "s12_5",  label: '1/2"',   mm: 12.5  },
         { key: "s9_5",   label: '3/8"',   mm: 9.5   },
-        { key: "s6_3",   label: '1/4"',   mm: 6.3   },
+        // No 1/4" (6.3 mm). It is a row on the MixPack's JMF column but is not
+        // used in practice (Jake, 2026-09-07) - a real workbook reads "N / A"
+        // there - and an always-blank sieve is a column of dashes in the
+        // gradation, on the 0.45 chart and in every polish-resistant matrix.
+        // Design Data!T21 is still READ on import, as an unmapped value, so a
+        // workbook that does carry a number is reported rather than dropped.
         { key: "s4_75",  label: "#4",     mm: 4.75  },
         { key: "s2_36",  label: "#8",     mm: 2.36  },
         { key: "s1_18",  label: "#16",    mm: 1.18  },
@@ -901,6 +1148,10 @@ const CONFIG = {
         { key: "s0_15",  label: "#100",   mm: 0.150 },
         { key: "s0_075", label: "#200",   mm: 0.075 },
       ],
+    },
+    {
+      id: "polish", label: "Polish-Resistant Aggregate",
+      tag: "KYTC 403.03.03 A) \u00b7 does this blend qualify as Type A or B", type: "polish",
     },
     {
       id: "fourpoint", label: "Four Points",
@@ -1019,12 +1270,16 @@ const state = {
   // and their fields fall back to free text.
   ref: Object.assign({ loaded: false, error: null },
          ...Object.keys(CONFIG.REFERENCE.TABLES).map((k) => ({ [k]: [] }))),
-  dirty: false,      // edits since the last save (a stage move saves them first)
+  dirty: false,      // edits since the last review PDF was downloaded
   history: [],      // append-only trail carried in the review PDF (no design_events any more)
   plantName: null,   // resolved from the plants table; travels in the review PDF
-  savedExtractedFrom: null, // extracted_from as loaded from a saved design
-  designId: null,    // designs.id once saved / when opened via ?design=
-  authorUserId: null,
+  approval: null,    // { approval_no, code, issued_at, approved_by, submitted_by } once KYTC signs it
+  signedDesign: null,// the design exactly as the approval signature covers it
+  submitted: null,   // the payload EXACTLY as sent to KYTC - the submittal PDF
+                     // renders from this, never from the live form, so editing
+                     // afterwards can never change what the submittal says
+  savedExtractedFrom: null, // extracted_from as carried in a reopened review PDF
+  downloadedAt: null, // when the last review PDF was taken - the only "saved" there is
   canReview: false,  // technicians.can_review - may move past Internal Review, send back to Draft
   saving: false,
 };
@@ -1061,13 +1316,41 @@ function fpSection() { return CONFIG.SECTIONS.find((s) => s.type === "fourpoint"
 function controlPointsForNominalSize(nominalSize) {
   if (!nominalSize) return null;
   const raw = String(nominalSize).trim();
-  if (/^#?4$/i.test(raw)) return CONFIG.GRADATION_CONTROL_POINTS["4"];
+  // "#4", "4", and KYTC's own "NO.4A" all mean the No. 4 (4.75 mm) family.
+  if (/^(#?4|no\.?\s?4[a-z]?)$/i.test(raw)) return CONFIG.GRADATION_CONTROL_POINTS["4"];
   const num = parseFloat(raw);   // parseFloat stops at the first non-numeric char, so "0.38A" -> 0.38
   if (!Number.isFinite(num)) return null;
   const key = Object.keys(CONFIG.GRADATION_CONTROL_POINTS)
     .find((k) => k !== "4" && Math.abs(parseFloat(k) - num) < 0.01);
   return key ? CONFIG.GRADATION_CONTROL_POINTS[key] : null;
 }
+// The two halves of a mix designation: "0.38B" -> { size: "0.38", letter: "B" },
+// "NO.4A" -> { size: "NO.4", letter: "A" }, "0.38" -> letter "". Used to seed
+// Contract Information's two fields from whatever supplied a whole token.
+function splitMixDesignation(raw) {
+  const t = String(raw == null ? "" : raw).trim();
+  if (!t) return { size: "", letter: "" };
+  const m = /^(.*[^A-Za-z])([A-Za-z])$/.exec(t);
+  return m ? { size: m[1], letter: m[2].toUpperCase() } : { size: t, letter: "" };
+}
+
+// What this design is actually being built to. Contract Information's own
+// two fields win: the Portal's mix lookup and a legacy MixPack only PREFILL
+// them, so a technician can correct a wrong guess, and a custom build (no
+// contract lookup at all, state.mix null) still has a designation. Falls back
+// to state.mix so a design saved before those fields existed still resolves.
+function effectiveMix() {
+  const size = fieldValue("nominal_size"), letter = fieldValue("mix_type");
+  if (size || letter) return { nominal_size: size + letter };
+  return state.mix;
+}
+
+// Current on-screen value of a scalar field, by CONFIG.SECTIONS key.
+function fieldValue(key) {
+  const el = document.querySelector(`[data-field="${key}"]`);
+  return el ? String(el.value || "").trim() : "";
+}
+
 function num(v) { const n = parseFloat(v); return Number.isFinite(n) ? n : null; }
 function fmt(v, d) { return v == null || !Number.isFinite(v) ? "—" : v.toFixed(d); }
 // Row spec by key — `s.rows` is one spec or an array of specs.
@@ -1110,8 +1393,12 @@ function refControlHTML(def, cls, attrs, value) {
     if (hit) v = hit.value;
     return selectHTML(cls, `data-source="${def.source}" ${attrs}`, list, v);
   }
-  const dl = list.length ? ` list="${refListId(def.source)}" autocomplete="off"` : "";
-  return `<input type="text" class="${cls}" data-source="${def.source}" ${attrs}${dl} value="${esc(v)}">`;
+  // A long list gets the searchable popup (comboOpen), not a native
+  // <datalist> - see the comment above the combobox block for why. The
+  // element stays a plain <input> carrying the same attributes it always
+  // did, so collectForm() and everything downstream is unaffected.
+  const comboAttrs = list.length ? ` role="combobox" aria-autocomplete="list" aria-expanded="false"` : "";
+  return `<input type="text" class="${cls}" data-source="${def.source}" ${attrs}${comboAttrs} autocomplete="off" value="${esc(v)}">`;
 }
 
 function inputFor(f, value) {
@@ -1119,7 +1406,10 @@ function inputFor(f, value) {
   const attrs = `data-field="${f.key}"`;
   if (f.source) return refControlHTML(f, cls, attrs, value);
   if (f.type === "select") {
-    return selectHTML(cls, attrs, (f.options || []).map((o) => ({ value: o, label: o })), value);
+    // An option is either a bare string (value and label are the same) or an
+    // explicit { value, label } - the mix-designation fields need the second.
+    return selectHTML(cls, attrs, (f.options || []).map((o) =>
+      (typeof o === "string" ? { value: o, label: o } : o)), value);
   }
   const type = f.type === "date" ? "date" : "text";
   const im = f.type === "number" ? ' inputmode="decimal"' : "";
@@ -1139,7 +1429,8 @@ function gridHTML(fields) {
 }
 
 function rowHTML(spec, values, idx) {
-  const cells = spec.columns.map((c) => {
+  const cells = spec.columns.map((c0) => {
+    const c = effectiveColDef(c0, values || {});
     const v = values ? values[c.key] : "";
     const cls = "box" + (c.mono ? " mono" : "") + (c.req ? " req" : "");
     const attrs = `data-row="${spec.key}" data-col="${c.key}"`;
@@ -1203,8 +1494,8 @@ function sievesHTML(section) {
 // Four Points renders from state, not the CONFIG seed - fixed twice,
 // independently, the same day (this branch and upstream 751f8e9), so
 // reconciled here rather than picking one side over the other:
-// - A design that has been through collectForm at all (loadDesign(), or a
-//   review PDF re-uploaded) has its saved values win outright, per field -
+// - A design that has been through collectForm at all (a review PDF
+//   re-uploaded) has its stored values win outright, per field -
 //   a cell a person cleared must stay cleared, never resurrect the CONFIG
 //   seed. That's 751f8e9's rule, kept as-is: it's stricter/more correct
 //   than this branch's original per-field fallback-to-default.
@@ -1254,13 +1545,13 @@ function fourpointHTML(section) {
       <td class="calc" data-fpout="dens:${i}">—</td>
     </tr>`).join("");
   return `<div class="fp-consts">${consts}</div>
-    <table class="fptable">
+    <div class="fpscroll"><table class="fptable">
       <thead><tr>
         <th>Pb (%)</th><th>Gmb</th><th>Gmm</th>
         <th>Va (%)</th><th>VMA (%)</th><th>VFA (%)</th><th>Density (pcf)</th>
       </tr></thead>
       <tbody>${rows}</tbody>
-    </table>
+    </table></div>
     <div class="fp-lower">
       <div class="chartwrap"><div class="cap">Va vs Pb — best-fit curve, solved at the air-void target</div><div id="fpchart"></div></div>
       <div class="fp-defaultnote" id="fpDefaultNote"></div>
@@ -1298,15 +1589,24 @@ function statusHTML() {
     `<div class="tstep" data-stage="${s.key}"><div class="tline"></div>
        <div class="dot"></div><div class="tl">${s.key}</div></div>`).join("");
   return `<div class="timeline" id="timeline">${steps}</div>
-    <button class="stagebtn" id="advanceStage"></button><button class="stagebtn ghost hidden" id="sendBackStage">Send back to Draft</button>
+    <button class="stagebtn" id="advanceStage"></button><button class="stagebtn ghost hidden" id="sendBackStage">Send back to the contractor</button>
     <div class="stagenote" id="stageNote"></div>
+    <div class="stagewarn hidden" id="stageWarn"></div>
+    <div class="approvalbox hidden" id="approvalBox">
+      <label for="approvalSeq">KYTC approval number</label>
+      <input id="approvalSeq" type="number" min="1" max="9999" step="1" inputmode="numeric" placeholder="467">
+      <div class="approvalhint">The next number in KYTC's sequence for this design's <strong>letting year</strong>.
+        Type the number only &mdash; the MIX ID NUM. and the PA suffix are derived from it, and it is signed
+        along with the design so it cannot be altered afterwards.</div>
+    </div>
     <div class="handoff">
+      <button class="stagebtn hidden" id="approvalPdfBtn">Download approval</button>
+      <button class="stagebtn hidden" id="submittalPdfBtn">Download submittal PDF</button>
       <button class="stagebtn" id="pdfBtn">Download review PDF</button>
-      <div class="handoffnote">The PDF is your portable copy of the design &mdash;
-        it carries every value inside it, so uploading it back reopens the form exactly as it is now.
-        Send it to your supervisor for internal review, or keep it to come back to later.
-        <strong>Save design</strong> is separate: it keeps this design in your KYTC
-        account so you can reopen it from the Portal on any device.</div>
+      <div class="handoffnote">This is how you save. Nothing about this design is
+        kept on the site &mdash; the PDF is the only copy, and it carries every value
+        inside it. Download it to keep your work or to send it to your supervisor,
+        then upload it on the way back in to return to exactly this point.</div>
     </div>
     <div class="refstatus" id="refStatus"></div>
     <div class="auditlog" id="auditlog"></div>`;
@@ -1318,6 +1618,7 @@ function renderForm() {
     if (s.type === "sieves") body = sievesHTML(s);
     else if (s.type === "status") body = statusHTML();
     else if (s.type === "fourpoint") body = fourpointHTML(s);
+    else if (s.type === "polish") body = polishHTML(s);
     else if (s.type === "computed") body = computedHTML(s);
     else {
       if (s.fields) body += gridHTML(s.fields);
@@ -1328,12 +1629,15 @@ function renderForm() {
       ${body}
     </section>`;
   }).join("");
+  // The polish grid's columns come from the aggregate rows, which only exist
+  // once the markup above is in the document.
+  prGridSignature = null;
+  renderPolishGrid(true);
 
   $("navlist").innerHTML = CONFIG.SECTIONS.map((s) =>
     `<li class="navitem" data-target="${s.id}"><span class="tick" data-tick="${s.id}"></span>${s.label}</li>`
   ).join("");
 
-  renderRefLists();
   wireForm();
   applyAutofills();
   renderRefStatus();
@@ -1379,7 +1683,8 @@ function drawChart() {
   // on top. Sieves with both a min and a max fill as a shaded corridor;
   // sieves with only one bound (the control point just above/below the NMAS
   // itself) draw as a single tick, since there is nothing to shade between.
-  const nominalSize = state.mix ? state.mix.nominal_size : null;
+  const em = effectiveMix();
+  const nominalSize = em ? em.nominal_size : null;
   const cp = controlPointsForNominalSize(nominalSize);
   const band = cp ? gradSection().sieves
     .map((s) => ({ mm: s.mm, min: cp[s.key] ? cp[s.key][0] : null, max: cp[s.key] ? cp[s.key][1] : null }))
@@ -1486,11 +1791,37 @@ function autoFpInputs() {
 // and bid item (state.mix.binder_grade, the proposal's original grade - the
 // spec exists to tell you whether the ACTUAL virgin binder has to differ
 // from that).
+// What makes a row the RAP component, in one place because two things now
+// turn on it: which list the Producer column offers, and the RAP note.
+// KYTC's aggregate_types carries three RAP entries - Coarse, Fine and
+// Intermediate RAP - and that is where a real MixPack puts it, leaving the
+// Producer column for the asphalt plant. The older "Producer is literally
+// RAP" spelling is still accepted, because hand-entered designs use it and
+// dropping it would silently stop computing their RAP note.
+function isRapRow(values) {
+  const t = String((values && values.type_size) || "");
+  const p = String((values && values.producer) || "").trim();
+  return /(^|\s)rap\b/i.test(t) || p.toLowerCase() === "rap";
+}
+// The values of one rendered row, keyed by column - what isRapRow reads.
+function rowValuesOf(row) {
+  const out = {};
+  if (row) row.querySelectorAll("[data-col]").forEach((el) => { out[el.dataset.col] = el.value; });
+  return out;
+}
+// A column whose list depends on its row resolves here. Everything
+// downstream - the renderer, the validation rail, the searchable dropdown -
+// reads data-source off the element, so swapping the def is the whole
+// mechanism; nothing else needed to learn about RAP.
+function effectiveColDef(col, values) {
+  if (!col || !col.alt || !col.alt.when(values || {})) return col;
+  return Object.assign({}, col, { source: col.alt.source, label: col.alt.label || col.label });
+}
+
 function rapPercent() {
   let pct = null;
   document.querySelectorAll('[data-rowlist="aggregate"] .rowitem').forEach((row) => {
-    const producer = String(row.querySelector('[data-col="producer"]')?.value || "").trim();
-    if (producer.toLowerCase() !== "rap") return;
+    if (!isRapRow(rowValuesOf(row))) return;
     const v = num(row.querySelector('[data-col="pct_blend"]')?.value);
     if (v != null) pct = v;
   });
@@ -1633,6 +1964,417 @@ function computeFourPoint() {
   drawFpChart(pbs, vas, vaFit, vaTgt, designPb);
 }
 
+/* ===== POLISH-RESISTANT AGGREGATE (KYTC 403.03.03 A) =====
+ *
+ * Pure: takes the components and the mix, returns the checks. No DOM, so it
+ * can be exercised directly against a real design's numbers.
+ *
+ * comps: [{ name, producer, pct, cls: "A"|"B"|"", role: "coarse"|"fine",
+ *           p4 (% passing the #4), naturalSand, dolomite, rapCredit }]
+ * mix:   { letter: "A"|"B"|"D"|null, no4: bool }
+ */
+function evaluatePolish(comps, mix) {
+  const P = CONFIG.POLISH;
+  const use = (comps || []).filter((c) => Number.isFinite(c.pct) && c.pct > 0);
+  if (!use.length) return { ready: false, reason: "Enter the aggregate structure first.", checks: [] };
+  const missing4 = use.filter((c) => !Number.isFinite(c.p4));
+  if (missing4.length) {
+    return { ready: false, checks: [],
+             reason: `Enter the #4 passing value for ${missing4.map((c) => c.name || "a component").join(", ")}.` };
+  }
+
+  // A RAP polish credit splits one component between its class and no class:
+  // the granted share counts, the rest does not. Blank means no credit.
+  const share = (c) => (Number.isFinite(c.rapCredit) && c.cls ? Math.max(0, Math.min(100, c.rapCredit)) / 100 : (c.cls ? 1 : 0));
+  const conditional = use.some((c) => Number.isFinite(c.rapCredit) && c.cls);
+
+  const contrib = (c) => c.pct * (100 - c.p4) / 100;      // % of TOTAL combined that is +4 from c
+  const sum = (f) => use.reduce((a, c) => a + (f(c) || 0), 0);
+  const inClass = (c, k) => (c.cls === k ? share(c) : 0);
+
+  const totalBlend  = sum((c) => c.pct);
+  const plus4Total  = sum(contrib);
+  const plus4ClassA = sum((c) => contrib(c) * inClass(c, "A"));
+  const blendClassA = sum((c) => c.pct * inClass(c, "A"));
+  const blendClassB = sum((c) => c.pct * inClass(c, "B"));
+  const fineClassA  = sum((c) => (c.role === "fine" ? c.pct * inClass(c, "A") : 0));
+  const fineClassB  = sum((c) => (c.role === "fine" ? c.pct * inClass(c, "B") : 0));
+  const coarseTotal = sum((c) => (c.role === "coarse" ? c.pct : 0));
+  const coarseClassA = sum((c) => (c.role === "coarse" ? c.pct * inClass(c, "A") : 0));
+  const coarseClassB = sum((c) => (c.role === "coarse" ? c.pct * inClass(c, "B") : 0));
+  // Non-polish-resistant = no class at all (see the note on CONFIG.POLISH).
+  const nonPrFine4  = sum((c) => (c.role === "fine" ? contrib(c) * (1 - share(c)) : 0));
+  const naturalSand = sum((c) => (c.naturalSand ? c.pct : 0));
+  const dolomiteIsPR = use.some((c) => c.dolomite && c.cls);
+
+  // A component with no class set is not the same as one known not to be
+  // polish-resistant. Filling a blank class in can only ever ADD to a class
+  // total (or subtract from the non-PR figure), so a PASS stays a pass, but a
+  // FAIL might not be one - it might just be a gap in the data. Andrew's
+  // aggregate_types.polish_resistant_class is null for 65 of 115 types, so
+  // this is the common case, not the edge: #467PA is a real approved design
+  // whose four fine components are all unclassified. Report those as
+  // unproven and name what to go and find out, rather than failing a design
+  // that may well be fine.
+  // A hedge belongs only where there is real doubt. A component whose type
+  // is on KYTC's list and carries no class is not "unproven" - it is proven
+  // not polish-resistant. Only a type the list has never heard of leaves a
+  // failing check genuinely unsettled.
+  const anyUnclassed = use.some((c) => c.unknown);
+  const unclassed = use.filter((c) => c.unknown).map((c) => c.name || "a component");
+  const checks = [];
+  const add = (label, ok, detail, cite) => checks.push({
+    label, ok, detail, cite: cite || P.CITE,
+    unproven: !ok && anyUnclassed,
+    unclassed: !ok && anyUnclassed ? unclassed : null,
+  });
+  const pctOf = (a, b) => (b > 0 ? (a / b) * 100 : 0);
+
+  const L = mix && mix.letter ? String(mix.letter).toUpperCase() : null;
+  if (L !== "A" && L !== "B") {
+    return { ready: true, restricted: false, conditional, totals: { totalBlend, plus4Total, plus4ClassA, nonPrFine4, naturalSand },
+             checks: [{ label: L === "D" ? "Type D - no polish-resistant restriction" : "No mix type letter - no polish-resistant restriction applies",
+                        ok: true, detail: "403.03.03 A) restricts Type A and Type B only.", cite: P.CITE }] };
+  }
+
+  if (mix.no4) {
+    // No. 4 (4.75mm) mixtures: stated against TOTAL combined, not the +4.
+    if (L === "A") {
+      add("Type A (No. 4) - total combined from a Class A source",
+          blendClassA + 1e-9 >= P.NO4.A_TOTAL_CLASS_A,
+          `${blendClassA.toFixed(1)}% of total combined is Class A; ${P.NO4.A_TOTAL_CLASS_A}% required.`);
+    } else {
+      const ab = blendClassA + blendClassB;
+      add("Type B (No. 4) - total combined from Class B, or Class A and B combined",
+          blendClassB + 1e-9 >= P.NO4.B_TOTAL || ab + 1e-9 >= P.NO4.B_TOTAL,
+          `Class B ${blendClassB.toFixed(1)}%, Class A+B ${ab.toFixed(1)}%; ${P.NO4.B_TOTAL}% required by either route.`);
+    }
+  } else if (L === "A") {
+    add("Type A - coarse aggregate 100% from a Class A source",
+        coarseTotal > 0 && pctOf(coarseClassA, coarseTotal) + 1e-9 >= P.STANDARD.A.COARSE_CLASS_A,
+        coarseTotal > 0 ? `${pctOf(coarseClassA, coarseTotal).toFixed(1)}% of the coarse aggregate is Class A; 100% required.`
+                        : "No component is marked a coarse source.");
+    add("Type A - fine aggregate from a Class A fine source",
+        fineClassA + 1e-9 >= P.STANDARD.A.FINE_CLASS_A,
+        `${fineClassA.toFixed(1)}% of total combined; ${P.STANDARD.A.FINE_CLASS_A}% required.`);
+    add("Type A - non-polish-resistant fine retained on the #4",
+        Math.round(nonPrFine4) <= P.NON_PR_FINE_RETAINED_MAX,
+        `${nonPrFine4.toFixed(2)}% of total combined (rounds to ${Math.round(nonPrFine4)}%); ` +
+        `${P.NON_PR_FINE_RETAINED_MAX}% is the maximum.`);
+    if (dolomiteIsPR) {
+      add("Type A - dolomite as the polish-resistant lithology",
+          blendClassA + 1e-9 >= P.DOLOMITE_CLASS_A_MIN,
+          `${blendClassA.toFixed(1)}% total combined Class A; ${P.DOLOMITE_CLASS_A_MIN}% required when dolomite is the ` +
+          `polish-resistant lithology.`, `${P.CITE} footnote 1`);
+    }
+  } else {
+    const coarseB = coarseTotal > 0 && pctOf(coarseClassB, coarseTotal) + 1e-9 >= P.STANDARD.B.COARSE_CLASS_B;
+    const ret50 = plus4Total > 0 && pctOf(plus4ClassA, plus4Total) + 1e-9 >= P.STANDARD.B.RETAINED4_CLASS_A;
+    add("Type B - coarse aggregate: 100% Class B, or +4 at least 50% Class A",
+        coarseB || ret50,
+        `Coarse that is Class B ${coarseTotal > 0 ? pctOf(coarseClassB, coarseTotal).toFixed(1) : "0.0"}% ` +
+        `(100% required); retained on #4 that is Class A ${plus4Total > 0 ? pctOf(plus4ClassA, plus4Total).toFixed(1) : "0.0"}% ` +
+        `(${P.STANDARD.B.RETAINED4_CLASS_A}% required). Either route qualifies.`,
+        `${P.CITE} footnote 2`);
+    add("Type B - fine aggregate: 30% Class B, or 20% Class A",
+        fineClassB + 1e-9 >= P.STANDARD.B.FINE_CLASS_B || fineClassA + 1e-9 >= P.STANDARD.B.FINE_CLASS_A,
+        `Class B fine ${fineClassB.toFixed(1)}% (${P.STANDARD.B.FINE_CLASS_B}% required); ` +
+        `Class A fine ${fineClassA.toFixed(1)}% (${P.STANDARD.B.FINE_CLASS_A}% required). Either route qualifies.`);
+  }
+
+  // Applies whatever the type is, and does not depend on any class, so a
+  // blank class never makes this one unproven.
+  checks.push({ label: "Natural sand at most 15% of total combined",
+    ok: naturalSand <= P.NATURAL_SAND_MAX + 1e-9, cite: P.CITE, unproven: false, unclassed: null,
+    detail: `${naturalSand.toFixed(1)}% natural sand; over ${P.NATURAL_SAND_MAX}% needs prior ` +
+            `Division of Materials approval.` });
+
+  return { ready: true, restricted: true, conditional,
+           totals: { totalBlend, plus4Total, plus4ClassA, nonPrFine4, naturalSand,
+                     plus4NonPr: plus4Total - sum((c) => contrib(c) * share(c)) },
+           checks };
+}
+
+/* ---------- the polish-resistant section ----------
+ *
+ * Mirrors the MixPack's second tab: the component name, producer and cold
+ * feed % are PULLED from Aggregate Structure, and this section adds what the
+ * spec needs on top - each component's polish class, whether it is a coarse
+ * or a fine source, and its own gradation.
+ *
+ * The grid is rebuilt only when the SET of components changes (their names
+ * and count). Rebuilding on every keystroke would take the caret with it.
+ */
+function polishSavedValues() {
+  const sc = state.extracted && state.extracted.scalars ? state.extracted.scalars.polish : null;
+  return sc && typeof sc === "object" ? sc : {};
+}
+
+// Read the aggregate rows straight off the form, so the columns follow what
+// the person has actually entered rather than a stale copy.
+function polishAggregateRows() {
+  const list = document.querySelector('[data-rowlist="aggregate"]');
+  if (!list) return [];
+  return Array.from(list.children).map((row) => {
+    const g = (col) => {
+      const el = row.querySelector(`[data-col="${col}"]`);
+      return el ? String(el.value || "").trim() : "";
+    };
+    return { producer: g("producer"), type_size: g("type_size"), pct_blend: g("pct_blend") };
+  }).filter((r) => r.type_size || r.producer || r.pct_blend);
+}
+
+/* Everything KYTC's own approved-materials list already knows about a
+ * component, so nobody re-declares it by hand. Read against `aggregate_types`
+ * through refMatch(), the same loose matcher the rest of the page uses, so a
+ * legacy MixPack's wording resolves to the canonical KYTC entry.
+ *
+ * `known` is the point. A null polish_resistant_class is NOT a gap in the
+ * data: KYTC names the polish-resistant variants explicitly ("LS #8's Class
+ * A", "Dolomite NSG Class B") and leaves the plain ones plain ("Limestone
+ * #8's", "Natural Sand"). Checked against the live table 2026-09-07 - all 115
+ * rows agree with their own name, 30 A / 20 B / 65 with no class, and not one
+ * contradiction either way. So a type that IS on the list and carries no
+ * class is definitively not polish-resistant, and only a type that is not on
+ * the list at all is genuinely unknown.
+ *
+ * Lithology and natural sand come off the canonical name for the same reason
+ * - "Dol." and "Dolomite" are the only prefixes in the list for the dolomite
+ * lithology, and "Natural Sand" is the one uncrushed sand in it (the other
+ * sands - Granite Sand, Gravel Sand-Crushed, Siltsone Sand, the Class A
+ * sands - are manufactured, and 403.03.03 A)'s 15% cap is about natural
+ * sand).
+ */
+function polishFactsFor(typeName) {
+  const hit = refMatch("aggregate_types", typeName);
+  if (!hit) return { known: false, cls: "", dolomite: false, naturalSand: false, canonical: "" };
+  const name = String(hit.value || "");
+  const cls = hit.row && hit.row.polish_resistant_class
+    ? String(hit.row.polish_resistant_class).trim().toUpperCase() : "";
+  return {
+    known: true,
+    cls,
+    dolomite: /^dol\b|^dol\.|^dolomite/i.test(name),
+    naturalSand: /^natural\s+sand$/i.test(name.trim()),
+    canonical: name,
+  };
+}
+
+function polishHTML(section) {
+  const P = CONFIG.POLISH;
+  return `<div class="prnote">Pulled from Aggregate Structure. Polish class, natural sand and dolomite are read from
+      KYTC's approved aggregate types &mdash; change the component in Aggregate Structure, not here. Set whether each is a
+      coarse or a fine source, then enter its own gradation. ${esc(P.CITE)} restricts Type A and Type B;
+      Type D is unrestricted.</div>
+    <div class="prscroll"><div id="prGrid"></div></div>
+    <div id="prResults" class="prresults"></div>
+    <div class="prnote small">${esc(P.CLASS_B_REVIEW_NOTE)}</div>
+    <div class="prnote small">${esc(P.RAP_CREDIT_NOTE)}</div>`;
+}
+
+let prGridSignature = null;
+function renderPolishGrid(force) {
+  const host = $("prGrid");
+  if (!host) return;
+  const P = CONFIG.POLISH, saved = polishSavedValues();
+  const comps = polishAggregateRows();
+  const sig = JSON.stringify(comps.map((c) => c.type_size + "|" + c.producer));
+  if (!force && sig === prGridSignature) return;      // same components: leave the inputs alone
+  prGridSignature = sig;
+  if (!comps.length) { host.innerHTML = `<div class="prempty">Add aggregate components first.</div>`; return; }
+
+  const sieves = gradSection().sieves;
+  const val = (k, fallback) => (saved[k] == null ? (fallback == null ? "" : fallback) : saved[k]);
+  const head = comps.map((c, i) =>
+    `<th><div class="prname">${esc(c.type_size || "component " + (i + 1))}</div>
+      <div class="prsub">${esc(c.producer || "")}</div>
+      <div class="prsub mono" data-prpct="${i}">${esc(c.pct_blend || "0")}% blend</div></th>`).join("");
+
+  const selRow = (label, key, opts, pick, guess) => `<tr><th class="prrowhead">${label}</th>` + comps.map((c, i) =>
+    `<td><select class="box" data-pr="${key}:${i}"${guess && guess(i) ? ' data-guess="1"' : ""}>` +
+      opts.map((o) => `<option value="${esc(o.v)}"${pick(c, i) === o.v ? " selected" : ""}>${esc(o.l)}</option>`).join("") +
+    `</select></td>`).join("") + `</tr>`;
+
+  // Facts read off KYTC's approved-materials list, once, for every column.
+  const facts = comps.map((c) => polishFactsFor(c.type_size));
+
+  // A derived cell: what the list says, stated rather than asked, with a
+  // hidden input so everything downstream still reads it through data-pr.
+  // Only a type the list does not know falls back to a control - that is the
+  // one case where a person genuinely has to answer.
+  const derived = (key, i, value, text, title) =>
+    `<td class="prderived" title="${esc(title)}">
+       <input type="hidden" data-pr="${key}:${i}" value="${esc(value)}">
+       <span class="prfact">${esc(text)}</span></td>`;
+
+  const classRow = `<tr><th class="prrowhead">Polish class</th>` + comps.map((c, i) => {
+    const f = facts[i];
+    if (f.known) {
+      return derived("cls", i, f.cls, f.cls ? `Class ${f.cls}` : "Not polish-resistant",
+        `${f.canonical} \u2014 from KYTC's approved aggregate types`);
+    }
+    const cur = val(`cls:${i}`, "");
+    return `<td><select class="box" data-pr="cls:${i}">` +
+      [{ v: "", l: "— not classified —" }, { v: "A", l: "Class A" }, { v: "B", l: "Class B" }]
+        .map((o) => `<option value="${esc(o.v)}"${cur === o.v ? " selected" : ""}>${esc(o.l)}</option>`).join("") +
+      `</select></td>`;
+  }).join("") + `</tr>`;
+
+  // Prefilled from the component's own #4: mostly passing it makes it a fine
+  // source. A starting point the contractor can change, not a rule.
+  const roleRow = selRow("Source", "role",
+    [{ v: "coarse", l: "Coarse" }, { v: "fine", l: "Fine" }],
+    (c, i) => {
+      const p4 = parseFloat(val(`g:${i}:${P.RETAINED_SIEVE}`, ""));
+      const guess = Number.isFinite(p4) && p4 > P.FINE_SOURCE_PASSING_4 ? "fine" : "coarse";
+      return val(`role:${i}`, guess);
+    },
+    (i) => saved[`role:${i}`] == null);
+
+  // Natural sand and dolomite are the other two the list settles. Same rule:
+  // stated when the type is known, asked only when it is not.
+  const flagRow = (label, key, pick) => `<tr><th class="prrowhead">${label}</th>` + comps.map((c, i) => {
+    const f = facts[i];
+    if (f.known) {
+      const on = pick(f);
+      return derived(key, i, on ? "1" : "", on ? "Yes" : "No",
+        `${f.canonical} \u2014 from KYTC's approved aggregate types`);
+    }
+    return `<td><input type="checkbox" data-pr="${key}:${i}" value="1"${val(`${key}:${i}`, "") ? " checked" : ""}></td>`;
+  }).join("") + `</tr>`;
+
+  const sieveRows = sieves.map((sv) => `<tr><th class="prrowhead mono">${esc(sv.label)}</th>` + comps.map((c, i) =>
+    `<td><input type="text" inputmode="decimal" class="box mono${sv.key === P.RETAINED_SIEVE ? " prkey" : ""}"
+        data-pr="g:${i}:${sv.key}" value="${esc(val(`g:${i}:${sv.key}`, ""))}" placeholder="—"></td>`).join("") + `</tr>`).join("");
+
+  const rapRow = `<tr><th class="prrowhead">RAP credit %</th>` + comps.map((c, i) =>
+    `<td><input type="text" inputmode="decimal" class="box mono" data-pr="rap:${i}"
+        value="${esc(val(`rap:${i}`, ""))}" placeholder="—" title="${esc(P.RAP_CREDIT_NOTE)}"></td>`).join("") + `</tr>`;
+
+  host.innerHTML = `<table class="prtable"><thead><tr><th class="prrowhead"></th>${head}</tr></thead>
+    <tbody>${classRow}${roleRow}
+      ${flagRow("Natural sand", "sand", (f) => f.naturalSand)}${flagRow("Dolomite", "dol", (f) => f.dolomite)}${rapRow}
+      <tr class="prspacer"><th class="prrowhead">% passing</th>${comps.map(() => "<td></td>").join("")}</tr>
+      ${sieveRows}</tbody></table>`;
+}
+
+// Re-run the coarse/fine prefill as #4 values arrive. The grid is built before
+// any of them are typed, so the guess made at build time was always "coarse".
+// Only touches a select still marked data-guess - one the person has chosen
+// themselves is theirs and is left exactly as they set it.
+function reguessPolishRoles() {
+  const P = CONFIG.POLISH;
+  document.querySelectorAll('[data-pr^="role:"][data-guess]').forEach((sel) => {
+    const i = sel.dataset.pr.split(":")[1];
+    const el = document.querySelector(`[data-pr="g:${i}:${P.RETAINED_SIEVE}"]`);
+    const p4 = parseFloat((el && el.value) || "");
+    if (!Number.isFinite(p4)) return;
+    sel.value = p4 > P.FINE_SOURCE_PASSING_4 ? "fine" : "coarse";
+  });
+}
+
+// Gather what evaluatePolish needs: the pulled blend % plus this section's
+// own answers. Reads the DOM so it always reflects what is on screen.
+function polishComponents() {
+  const P = CONFIG.POLISH;
+  const rows = polishAggregateRows();
+  const get = (k) => { const el = document.querySelector(`[data-pr="${k}"]`); return el ? el : null; };
+  const txt = (k) => { const el = get(k); return el ? String(el.value || "").trim() : ""; };
+  // A derived cell is a hidden input carrying "1" or "", not a checkbox, so
+  // read whichever this column turned out to be.
+  const chk = (k) => {
+    const el = get(k);
+    if (!el) return false;
+    return el.type === "checkbox" ? el.checked : !!String(el.value || "").trim();
+  };
+  return rows.map((r, i) => ({
+    name: r.type_size || `component ${i + 1}`,
+    producer: r.producer,
+    pct: num(r.pct_blend),
+    cls: txt(`cls:${i}`),
+    // Only a type KYTC's list does not carry is genuinely unknown; one it
+    // carries with no class is definitively not polish-resistant.
+    unknown: !polishFactsFor(r.type_size).known,
+    role: txt(`role:${i}`) || "coarse",
+    p4: num(txt(`g:${i}:${P.RETAINED_SIEVE}`)),
+    naturalSand: chk(`sand:${i}`),
+    dolomite: chk(`dol:${i}`),
+    rapCredit: num(txt(`rap:${i}`)),
+  }));
+}
+
+function renderPolish() {
+  renderPolishGrid(false);
+  const host = $("prResults");
+  if (!host) return null;
+  const comps = polishComponents();
+  // The column captions are built with the grid, which is only rebuilt when
+  // the SET of components changes - so a % blend edited afterwards left the
+  // caption reading the old figure (0% while the verdicts below used 20%).
+  // Retype the caption instead of rebuilding, which would take the caret.
+  comps.forEach((c, i) => {
+    const el = document.querySelector(`[data-prpct="${i}"]`);
+    if (el) el.textContent = `${c.pct == null ? "0" : c.pct}% blend`;
+  });
+  // The grid itself already says "add aggregate components first" when there
+  // are none. Saying it again in different words directly underneath read as
+  // two separate complaints about the same empty section.
+  if (!comps.length) { host.innerHTML = ""; return null; }
+  const r = evaluatePolish(comps, polishMixType(effectiveMix()));
+  if (!r.ready) { host.innerHTML = `<div class="prempty">${esc(r.reason)}</div>`; return r; }
+  const t = r.totals || {};
+  const totals = r.restricted
+    ? `<div class="prtotals mono">Retained on #4: total ${fmt(t.plus4Total, 2)}% \u00b7
+        Class A ${fmt(t.plus4ClassA, 2)}% \u00b7 not polish-resistant ${fmt(t.plus4NonPr, 2)}%</div>` : "";
+  const items = r.checks.map((c) => {
+    const cls = c.ok ? "ok" : (c.unproven ? "unproven" : "bad");
+    const mark = c.ok ? "\u2713" : (c.unproven ? "?" : "\u2717");
+    return `<div class="pritem ${cls}"><span class="prmark">${mark}</span>
+      <span><strong>${esc(c.label)}</strong>
+        <div class="prsub">${esc(c.detail)}</div>
+        ${c.unclassed ? `<div class="prsub">Not proven - not on KYTC's approved aggregate list, so its polish class is unknown: ${esc(c.unclassed.join(", "))}.</div>` : ""}
+        <div class="prsub mono">${esc(c.cite)}</div></span></div>`;
+  }).join("");
+  const cond = r.conditional
+    ? `<div class="prnote small">A RAP polish credit is applied above - this result stands only if the Division of
+        Materials has granted it.</div>` : "";
+  host.innerHTML = totals + items + cond;
+  return r;
+}
+
+// The mix type letter and whether this is a No. 4 (4.75mm) mixture, both off
+// the nominal-size token ("0.38B" -> B; "NO.4A" -> A, no4). Blank letter is
+// Type D territory: 403.03.03 A) restricts A and B only.
+function polishMixType(mix) {
+  const raw = String((mix && mix.nominal_size) || "").trim();
+  if (!raw) return { letter: null, no4: false };
+  const no4 = /^no\.?\s?4/i.test(raw);
+  const m = /([A-Z])\s*$/i.exec(raw);
+  return { letter: m ? m[1].toUpperCase() : null, no4 };
+}
+
+// 403.03.03 A) restricts Type A and Type B only, so the whole section is put
+// away for anything else - including a mix type not chosen yet, since an
+// empty checklist with no verdict is just noise. Hidden, never removed: the
+// classes and gradations already typed in stay in the DOM and in the save
+// payload, so correcting D -> B brings the answers back rather than starting
+// the matrix over.
+function polishApplies() {
+  const t = polishMixType(effectiveMix());
+  return t.letter === "A" || t.letter === "B";
+}
+function applyPolishVisibility() {
+  const on = polishApplies();
+  const sec = document.querySelector('[data-section="polish"]');
+  const nav = document.querySelector('[data-target="polish"]');
+  // .hidden, not the hidden attribute: .navitem sets display:flex, which beats
+  // the user-agent [hidden] rule, and .hidden carries !important.
+  if (sec) sec.classList.toggle("hidden", !on);
+  if (nav) nav.classList.toggle("hidden", !on);
+  return on;
+}
+
+
 function drawFpChart(pbs, vas, vaFit, vaTgt, designPb) {
   const el = $("fpchart");
   if (!el) return;
@@ -1698,6 +2440,20 @@ function recompute() {
     }
   });
 
+  // Polish-resistant: a real spec failure is a warning on the rail, not a
+  // missing field - the design is complete, it just would not qualify. An
+  // unproven check says so in its own words rather than crying wolf.
+  const pr = applyPolishVisibility() ? renderPolish() : null;
+  if (pr && pr.ready && pr.restricted) {
+    const sec = document.querySelector('[data-section="polish"]');
+    const label = sec ? sec.dataset.label : "Polish-Resistant Aggregate";
+    pr.checks.filter((c) => !c.ok).forEach((c) => {
+      outstanding.push({ id: "polish", label, kind: "warn",
+        text: c.unproven ? `${c.label} - not proven, a component is not on the KYTC aggregate list`
+                         : `${c.label} - ${CONFIG.POLISH.CITE}` });
+    });
+  }
+
   const list = $("vallist"), sub = $("valsub");
   const missing = outstanding.filter((o) => o.kind !== "warn"), warns = outstanding.filter((o) => o.kind === "warn");
   const items = missing.concat(warns);
@@ -1739,6 +2495,27 @@ function jumpTo(id, focusFirstEmpty) {
 }
 
 /* ---------- workflow stage ---------- */
+// The file's history IS the chain of custody - who submitted, who approved,
+// when. With no database there is nothing else to ask, so every rule the
+// Postgres trigger used to enforce is re-expressed against these entries.
+// The ones that actually matter are enforced again server-side when an
+// approval is signed: a status carried in a file is a claim, not a fact.
+function custody() {
+  const h = Array.isArray(state.history) ? state.history : [];
+  const last = (action) => h.filter((e) => e.action === action).slice(-1)[0] || null;
+  return { submitted: last(CONFIG.SUBMIT.ACTION.submitted), approved: last(CONFIG.SUBMIT.ACTION.approved) };
+}
+
+// Who may approve right now: a reviewer who is not the person who submitted
+// it. One function, used by renderStage() and by the stage button's click
+// handler, so what the button says and what it does can never disagree.
+function canApproveNow() {
+  const me = state.tech ? state.tech.sm_id : null;
+  const c = custody();
+  const iSubmitted = !!(c.submitted && c.submitted.sm_id && c.submitted.sm_id === me);
+  return { ok: !!state.canReview && !iSubmitted, iSubmitted, custody: c };
+}
+
 function renderStage() {
   const s = CONFIG.STAGES[state.stageIdx];
   $("statuspill").textContent = s.key;
@@ -1749,55 +2526,73 @@ function renderStage() {
     if (i === state.stageIdx) el.classList.add("current");
   });
 
-  // Who may do what is decided by the database trigger (supabase/designs.sql);
-  // this only mirrors those rules so the button is honest before you click.
-  const isAuthor = !state.designId || state.authorUserId === (state.tech && state.tech.user_id);
-  // The SELECT policy lets anyone with access to the plant read a design; the
-  // UPDATE policy lets only its author or a reviewer change it. Everyone else
-  // gets a read-only form, not a Save that silently updates zero rows.
-  const canEdit = isAuthor || state.canReview;
+  const { ok: canApprove, iSubmitted, custody: c } = canApproveNow();
   const btn = $("advanceStage"), back = $("sendBackStage"), note = $("stageNote");
-  let allowed = true, why = "";
-  if (!s.next) { allowed = false; }
-  else if (!canEdit) { allowed = false; why = "Read-only: only the author or a KYTC reviewer can change this design."; }
-  else if (state.stageIdx >= 1 && !state.canReview) { allowed = false; why = "Moving a design past Internal Review is a KYTC Central Office reviewer's action."; }
-  else if (state.stageIdx >= 1 && state.canReview && isAuthor) { allowed = false; why = "You authored this design; another reviewer must release or approve it."; }
+  let allowed = true, why = "", label = s.next || "Approved";
+
+  if (s.key === "Draft") {
+    // Anyone holding the file who can use DesignBook may submit it. Whoever
+    // is signed in gets stamped on the package, and that stamp is the whole
+    // evidence of who reviewed it internally.
+    why = "Submitting stamps your SM ID on the package and downloads it, for you to email to KYTC.";
+  } else if (s.key === "Submitted") {
+    // A reviewer who did not submit it approves. Everyone else - the
+    // contractor, or a reviewer who did submit it - can only send it again.
+    // The warning below tells an editor to "submit again to replace it", so
+    // the button that does that has to exist; it used to be disabled here,
+    // which left a tech who had edited a submitted design with no way out.
+    if (canApprove) {
+      why = "Approving signs the design and issues an approval number.";
+    } else {
+      label = "Resubmit to KYTC";
+      why = iSubmitted
+        ? "You submitted this design; another reviewer must approve it. If you have changed it since, resubmit to replace the version KYTC holds."
+        : "This design is with KYTC. If you have changed it since, resubmit to replace the version they hold.";
+    }
+  } else {
+    allowed = false;
+    why = c.approved
+      ? `Approved by ${c.approved.sm_id || "KYTC"}. Editing would invalidate the approval signature.`
+      : "Approved.";
+  }
+
   btn.disabled = !allowed || state.saving;
-  btn.textContent = s.next || "Fully approved";
-  back.classList.toggle("hidden", !(state.canReview && state.stageIdx > 0 && state.designId));
+  btn.textContent = label;
+  // Sending back to the contractor is a real KYTC action (a rejection), so
+  // it stays - but only a reviewer, and only on something submitted.
+  back.classList.toggle("hidden", !(s.key === "Submitted" && canApprove));
+  const box = $("approvalBox");
+  if (box) box.classList.toggle("hidden", !(s.key === "Submitted" && canApprove));
+  // The approval document only exists once there is an approval to put on it.
+  const apdf = $("approvalPdfBtn");
+  if (apdf) apdf.classList.toggle("hidden", !state.approval);
+  // Only a design that has actually been sent has a submittal to print.
+  const spdf = $("submittalPdfBtn");
+  if (spdf) spdf.classList.toggle("hidden", !state.submitted);
+  const rpdf = $("pdfBtn");
+  if (rpdf) rpdf.textContent = state.approval ? "Download full design sheet" : "Download review PDF";
   back.disabled = state.saving;
-  note.textContent = why || (s.key === "Approved" ? "Approved designs are read-only until a reviewer sends them back to Draft." : "");
-  const frozen = s.key === "Approved" || !canEdit;
-  $("saveBtn").disabled = frozen || state.saving;
+  note.textContent = why;
+
+  // Only an approved design is locked, and it is locked because an edit
+  // changes the payload the signature covers. A submitted design stays
+  // editable on purpose: the holder of a file can always edit it, so a lock
+  // here would be theatre. The warning is honest instead.
+  const frozen = s.key === "Approved";
   document.querySelectorAll("#sections input, #sections select").forEach((el) => { el.disabled = frozen; });
+  // Save follows the same lock as the inputs. The stage restructure dropped
+  // this line, which left Save live on an approved design while every field
+  // beside it was disabled.
+  const warn = $("stageWarn");
+  if (warn) {
+    const stale = s.key === "Submitted" && state.dirty;
+    warn.textContent = stale
+      ? "You have edited this design since it was submitted. KYTC still holds the version you sent - submit again to replace it."
+      : "";
+    warn.classList.toggle("hidden", !stale);
+  }
 }
 
-// Persisted trail: design_events, written by the database trigger on every
-// insert, save and stage move - nothing a page says, only what it did.
-async function loadEvents() {
-  if (!state.designId) return;
-  const { data, error } = await sb.from("design_events")
-    .select("at, sm_id, kind, from_stage, to_stage, note")
-    .eq("design_id", state.designId)
-    .order("at", { ascending: false })
-    .limit(200);
-  if (error) return;
-  const log = $("auditlog");
-  log.innerHTML = "";
-  (data || []).forEach((e) => {
-    const t = new Date(e.at);
-    const ts = `${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ` +
-               `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
-    const text = e.kind === "stage" ? `${e.from_stage} → ${e.to_stage}`
-               : e.kind === "created" ? (e.note || "Created")
-               : e.kind === "saved" ? "Saved"
-               : (e.note || "");
-    const row = document.createElement("div");
-    row.className = "auditrow";
-    row.innerHTML = `<span class="ts">${ts}</span> ${esc(text)} — ${esc(e.sm_id)}`;
-    log.appendChild(row);
-  });
-}
 function esc(v) {
   return String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -1825,6 +2620,26 @@ function sheetGrids(wb) {
       header: 1, blankrows: false, defval: null, raw: true,
     }),
   }));
+}
+
+// Trim an Excel float to the decimal places KYTC's own workbook shows for
+// that value. Returns a fixed-decimal STRING, so a whole number keeps its
+// trailing zero - "98.0", not "98".
+function roundTo(v, dp) {
+  if (dp == null) return v;
+  const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ""));
+  return Number.isFinite(n) ? n.toFixed(dp) : v;
+}
+
+// coerce(), then drop the false precision. A workbook's column O and its TSR
+// tab are formula cells, so the cached value behind a cell KYTC formats as
+// "0" is something like 79.85687134347693 - which is not a more accurate TSR,
+// it is the same TSR written wrong. A key absent from CONFIG.DP is left as
+// coerced, which is right for everything the workbook itself formats General.
+function coerceField(key, v, type) {
+  const out = coerce(v, type);
+  if (type !== "number" || out === "") return out;
+  return roundTo(out, CONFIG.DP[key]);
 }
 
 function coerce(v, type) {
@@ -1939,7 +2754,7 @@ function extractLegacy(wb, ctx) {
   plain.forEach((key) => {
     const r = chase(cells[key] || []);
     if (r.value === null) return miss(key, r);
-    const def = legacyFieldDef(key), v = coerce(r.value, def ? def.type : "text");
+    const def = legacyFieldDef(key), v = coerceField(key, r.value, def ? def.type : "text");
     if (v === "") return miss(key, r, "value present but not usable as a " + (def ? def.type : "text"));
     const fb = r.tried.length > 1 && r.tried[0].source !== r.source ? `fallback (primary ${r.tried[0].source} was ${r.tried[0].status})` : "";
     put(key, v, r.source, fb);
@@ -1996,7 +2811,7 @@ function extractLegacy(wb, ctx) {
 
   Object.entries(L.SIEVES).forEach(([key, [sk, addr]]) => {   // gradation, keyed by the new sieve keys
     const r = legacyCell(S[sk], addr), source = src(sk, addr);
-    const v = r.status === "found" ? coerce(r.value, "number") : "";
+    const v = r.status === "found" ? coerceField(key, r.value, "number") : "";
     if (v !== "") put(key, v, source, "sieve JMF");
     else log.push({ field: key, source, value: r.value, status: r.status === "not-cached" ? "not-cached" : "missing",
                     note: "sieve JMF" + (r.status === "found" ? " — non-numeric (e.g. N / A)" : "") });
@@ -2010,7 +2825,7 @@ function extractLegacy(wb, ctx) {
       const row = {};
       spec.columns.forEach((col) => {
         const c = legacyCell(ws, `${A.columns[col.key]}${r}`);
-        row[col.key] = c.status === "found" ? coerce(c.value, col.type) : "";
+        row[col.key] = c.status === "found" ? coerceField(col.key, c.value, col.type) : "";
         if (col.key === "mat_code" && c.status === "not-cached") uncachedMat++;
       });
       tables.aggregate.push(row);
@@ -2081,12 +2896,12 @@ function extractLegacy(wb, ctx) {
     // coerce()'s plain parseFloat would otherwise carry straight into the
     // input box.
     const fp = L.FOURPOINT ? L.FOURPOINT[ver.version] : null;
-    const round = (v, d) => { const n = parseFloat(coerce(v, "number")); return Number.isFinite(n) ? n.toFixed(d) : ""; };
+    const round = (v, key) => { const out = coerceField(key, v, "number"); return out === "" ? "" : out; };
     let gotPoints = 0;
     (fp || []).forEach((pt, i) => {
       const rpb = chase(pt.pb), rgmb = chase(pt.gmb), rgmm = chase(pt.gmm);
       if (rpb.value !== null && rgmb.value !== null && rgmm.value !== null) {
-        tables.fourpoint.push({ pb: round(rpb.value, 1), gmb: round(rgmb.value, 3), gmm: round(rgmm.value, 3) });
+        tables.fourpoint.push({ pb: round(rpb.value, "pb"), gmb: round(rgmb.value, "gmb"), gmm: round(rgmm.value, "gmm") });
         gotPoints++;
       } else {
         log.push({ field: `four points trial ${i + 1}`, source: `${rpb.source} / ${rgmb.source} / ${rgmm.source}`,
@@ -2100,10 +2915,9 @@ function extractLegacy(wb, ctx) {
   { // Design Values — read-only "from the uploaded workbook" panel, shown
     // alongside the computed path above. Design Data column O in a
     // natively-saved file.
-    Object.entries(L.DESIGN_VALUES).forEach(([label, [sk, addr]]) => {
+    Object.entries(L.DESIGN_VALUES).forEach(([label, [sk, addr, dp]]) => {
       const r = legacyCell(S[sk], addr);
-      const v = r.status === "found" ? coerce(r.value, "number") : (r.status === "found" ? String(r.value) : "");
-      designValues.push({ label, source: src(sk, addr), value: r.status === "found" ? r.value : null,
+      designValues.push({ label, source: src(sk, addr), value: r.status === "found" ? roundTo(r.value, dp) : null,
                           status: r.status === "found" ? "found" : (r.status === "not-cached" ? "not-cached" : "missing") });
     });
     const got = designValues.filter((d) => d.status === "found").length;
@@ -2122,6 +2936,24 @@ function extractLegacy(wb, ctx) {
     const jobMix = ctx && ctx.mix && ctx.mix.signature ? ctx.mix.signature : null;
     context.push({ what: "mix type", workbook: wbMix, job: jobMix, source: mix.source,
                    status: !wbMix ? "unknown" : !jobMix ? "no mix chosen" : norm(wbMix).includes(norm(jobMix)) ? "match" : "MISMATCH" });
+
+    // The same cell states the mix designation, and Contract Information now
+    // has fields for it, so fill them instead of only reporting a mismatch -
+    // otherwise a MixPack uploaded on a custom build leaves the mix type
+    // blank while the workbook says it plainly. Pulled loosely (the cell is
+    // the whole bid-item wording, e.g. "CL3 ASPH SURF 0.38A PG64-22", and
+    // KYTC writes the No. 4 family as "NO.4A"), and prefilled like any other
+    // extracted value: tinted, sourced, and the technician's to correct.
+    const tok = wbMix ? /(?:^|[^A-Za-z0-9.])((?:NO\.?\s?4|\d+\.\d+)\s?[A-D])(?![A-Za-z0-9])/i.exec(wbMix) : null;
+    const desig = tok ? splitMixDesignation(tok[1].replace(/\s+/g, "").toUpperCase()) : null;
+    if (desig && desig.size && desig.letter) {
+      put("nominal_size", desig.size, mix.source);
+      put("mix_type", desig.letter, mix.source);
+    } else if (wbMix) {
+      log.push({ field: "nominal_size", source: mix.source, value: wbMix, status: "unmapped-value",
+                 note: "no mix designation found in the workbook's type-of-mix wording; choose it in Contract Information" });
+      unmapped.push({ label: "Type of mix (legacy wording)", source: mix.source, value: wbMix });
+    }
   }
 
   [...L.UNMAPPED, ...(L.UNMAPPED_BY_VERSION[ver.version] || [])].forEach(([label, sk, addr]) => {
@@ -2206,7 +3038,16 @@ function collectForm() {
   document.querySelectorAll("[data-dv]").forEach((el) => {
     design_values[el.dataset.dv] = el.textContent === "—" ? null : el.textContent;
   });
+  const polish = {};
+  document.querySelectorAll("[data-pr]").forEach((el) => {
+    // A checkbox's .value is its "1" attribute whether or not it is ticked,
+    // so reading .value blindly saved every flag as set - and a reopened
+    // design came back with natural sand and dolomite ticked on every column.
+    const v = el.type === "checkbox" ? (el.checked ? el.value || "1" : "") : el.value;
+    polish[el.dataset.pr] = String(v || "").trim() || null;
+  });
   values.fourpoint = fourpoint;
+  values.polish = polish;
   values.design_values = design_values;
   const rows = {};
   document.querySelectorAll("[data-rowlist]").forEach((list) => {
@@ -2219,110 +3060,51 @@ function collectForm() {
   return { values, rows };
 }
 
-function designRow() {
-  const { values, rows } = collectForm();
-  return {
-    contract_id: state.job.cid,
-    letting_date: state.job.letting,
-    amp_number: state.job.plant,
-    author_name: `${state.tech.first_name} ${state.tech.last_name}`,
-    mix_signature: state.mix ? state.mix.signature : null,
-    mix: state.mix ? {
-      mix_class: state.mix.mix_class, layer: state.mix.layer, nominal_size: state.mix.nominal_size,
-      binder_grade: state.mix.binder_grade, bid_lines: state.mix.lines,
-    } : null,
-    origin: state.mode,
-    values,
-    rows,
-    // A fresh import/prefill records its sources; a reopened design keeps the
-    // provenance it was saved with instead of overwriting it with {}.
-    extracted_from: Object.keys(state.sources).length ? state.sources : (state.savedExtractedFrom || {}),
-    legacy_import: state.legacy ? { version: state.legacy.version.label, context: state.legacy.context, unmapped: state.legacy.unmapped, design_values: state.legacy.designValues || [] } : null,
-  };
-}
-
-// Insert on first save, update after. The database assigns the id, author,
-// stage and timestamps and refuses edits to an Approved design; the page
-// just reports what the database said.
-async function saveDesign() {
-  if (state.saving) return null;
-  state.saving = true; renderStage();
-  msg($("saveMsg"), "Saving…", "");
-  try {
-    const row = designRow();
-    let q;
-    if (state.designId) {
-      // sm_id/author/stage are not sent: the trigger owns them.
-      const { author_name, ...editable } = row;
-      q = sb.from("designs").update(editable).eq("id", state.designId).select("id, stage, updated_at").single();
-    } else {
-      q = sb.from("designs").insert(row).select("id, stage, updated_at, author_user_id").single();
-    }
-    const { data, error } = await q;
-    if (error) throw new Error(error.message);
-    if (!state.designId) {
-      state.designId = data.id;
-      state.authorUserId = data.author_user_id;
-      const u = new URL(location.href); u.searchParams.set("design", data.id); history.replaceState(null, "", u);
-    }
-    $("payload").textContent = JSON.stringify(row, null, 2);
-    show("payloadWrap", true);
-    const t = new Date(data.updated_at);
-    $("savedstate").textContent = `Saved ${t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-    state.dirty = false;
-    $("mixid").textContent = designLabel();
-    msg($("saveMsg"), `Saved. Design ${data.id.slice(0, 8)} · ${data.stage}.`, "ok");
-    await loadEvents();
-    return data;
-  } catch (err) {
-    msg($("saveMsg"), `Not saved — ${err.message}`, "error");
-    return null;
-  } finally {
-    state.saving = false; renderStage();
+// A stage move is now a local fact recorded in the file's history, not a
+// database write. It takes effect the moment the next package is generated -
+// which is the only thing anyone downstream will ever see.
+function setStage(nextKey, entry) {
+  const at = CONFIG.STAGES.findIndex((x) => x.key === nextKey);
+  if (at < 0) return;
+  state.stageIdx = at;
+  if (entry) {
+    state.history = (Array.isArray(state.history) ? state.history : []).concat([entry]);
+    const when = entry.at ? new Date(entry.at) : new Date();
+    const ts = `${String(when.getMonth() + 1).padStart(2, "0")}/${String(when.getDate()).padStart(2, "0")} ` +
+               `${String(when.getHours()).padStart(2, "0")}:${String(when.getMinutes()).padStart(2, "0")}`;
+    audit(`${ts} ${entry.action} - ${entry.name || entry.sm_id || "unknown"}`);
   }
+  renderStage();
 }
 
-// Stage moves are a single-column update; the trigger enforces who may do
-// what and one step at a time. Its error text is shown verbatim.
-async function setStage(nextKey) {
-  // Unsaved edits go with the stage move; otherwise a reviewer opens stale content.
-  if (!state.designId || state.dirty) { const saved = await saveDesign(); if (!saved) return; }
-  state.saving = true; renderStage();
-  const { data, error } = await sb.from("designs").update({ stage: nextKey }).eq("id", state.designId).select("stage").single();
-  state.saving = false;
-  if (error) { msg($("saveMsg"), `Stage not changed — ${error.message}`, "error"); renderStage(); return; }
-  state.stageIdx = Math.max(0, CONFIG.STAGES.findIndex((x) => x.key === data.stage));
-  renderStage();
-  msg($("saveMsg"), `Now ${data.stage}.`, "ok");
-  await loadEvents();
+// One history entry, in the shape the review PDF already appends.
+function custodyEntry(action, extra) {
+  const t = state.tech;
+  return Object.assign({
+    at: new Date().toISOString(),
+    sm_id: t ? t.sm_id : null,
+    name: t ? `${t.first_name} ${t.last_name}` : null,
+    action,
+  }, extra || {});
+}
+
+// The top-bar indicator. With no save, the only thing worth telling someone
+// is whether the work in front of them exists in a file yet - so it tracks
+// the last review PDF they took, and warns once they edit past it.
+function renderSavedState() {
+  const el = $("savedstate");
+  if (!el) return;
+  if (!state.downloadedAt) { el.textContent = "Not downloaded yet"; el.className = "savedstate warn"; return; }
+  const t = state.downloadedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  el.textContent = state.dirty ? `Edited since ${t} download` : `Downloaded ${t}`;
+  el.className = state.dirty ? "savedstate warn" : "savedstate";
 }
 
 function designLabel() {
   // The frozen job strip already carries contract / letting / plant, so the
   // top-bar chip is just the design identity: mix signature, or the saved id.
   if (state.mix) return `MIX · ${state.mix.signature}`;
-  if (state.designId) return `DESIGN ${state.designId.slice(0, 8)}`;
   return "MIX ID · —";
-}
-
-// Opening an existing design: everything comes from the row, nothing from
-// the URL except the id. The values land on the same path a workbook import
-// uses, minus the provisional tint - they were saved by a person.
-async function loadDesign(id) {
-  const { data: d, error } = await sb.from("designs").select("*").eq("id", id).maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!d) throw new Error("That design does not exist, or you do not have access to its plant.");
-  state.designId = d.id;
-  state.authorUserId = d.author_user_id;
-  state.job = { cid: d.contract_id, letting: d.letting_date, plant: d.amp_number };
-  state.mode = d.origin;
-  state.mix = d.mix_signature ? { signature: d.mix_signature, ...(d.mix || {}), lines: (d.mix && d.mix.bid_lines) || [], source: "saved design" } : null;
-  state.extracted = { scalars: d.values || {}, tables: d.rows || {} };
-  state.sources = {};                       // saved values are not provisional
-  state.savedExtractedFrom = d.extracted_from || {};   // but where they came from is kept on re-save
-  state.legacy = d.legacy_import ? { version: { label: d.legacy_import.version }, context: d.legacy_import.context || [], unmapped: d.legacy_import.unmapped || [], designValues: d.legacy_import.design_values || [], log: [], sheets: [], scalars: {}, sources: {}, tables: {} } : null;
-  state.stageIdx = Math.max(0, CONFIG.STAGES.findIndex((x) => x.key === d.stage));
-  return d;
 }
 
 /* ---------- wiring ---------- */
@@ -2350,33 +3132,67 @@ function wireForm() {
     item.addEventListener("click", () => jumpTo(item.dataset.target, false));
   });
 
-  // Stage advance.
+  // Stage advance. Each stage has a real action behind it, not just a
+  // relabelled counter: Draft submits; Submitted approves for a reviewer who
+  // did not submit it, and resubmits for everyone else. renderStage() labels
+  // the button from the same canApproveNow() answer.
   $("advanceStage").addEventListener("click", () => {
     const s = CONFIG.STAGES[state.stageIdx];
-    if (!s.next) return;
-    setStage(CONFIG.STAGES[state.stageIdx + 1].key);
+    if (s.key === "Draft") return submitToKYTC();
+    if (s.key === "Submitted") return canApproveNow().ok ? approveDesign() : submitToKYTC();
   });
   $("sendBackStage").addEventListener("click", () => {
-    if (confirm("Send this design back to Draft? The author will be able to edit it again.")) setStage("Draft");
+    if (!confirm("Send this design back to the contractor? They will need to fix it and submit again.")) return;
+    setStage("Draft", custodyEntry("Sent back by KYTC"));
+    msg($("saveMsg"), "Sent back to Draft. Tell the contractor what needs changing - the site does not notify them.", "ok");
   });
 
   // Any edit: recompute completeness, drop the "prefilled" marker. A cell a
   // person types into stops being auto-filled - it is theirs from then on.
   $("sections").addEventListener("input", (e) => {
+    // data-pr is the Polish-Resistant matrix. It was missing here, so typing
+    // a class, a #4 or a natural-sand tick into that section left its own
+    // verdicts showing the answer from before the keystroke - the section
+    // looked broken because nothing it asked for ever changed anything.
+    if (e.target.dataset.pr) { reguessPolishRoles(); recompute(); state.dirty = true; renderSavedState(); return; }
     if (e.target.dataset.field || e.target.dataset.col || e.target.dataset.fp) {
       if (e.target.dataset.autofilled) { delete e.target.dataset.autofilled; e.target.removeAttribute("title"); }
       e.target.classList.remove("prefilled", "autofilled");
       autofillFrom(e.target);
       recompute();
       state.dirty = true;
-      $("savedstate").textContent = "Edited — not saved";
+      renderSavedState();
     }
   });
   // On commit, a typed value that matches a reference entry loosely (case,
   // spacing, an AGP/LAP number) takes the KYTC spelling; no match stays as typed.
   $("sections").addEventListener("change", (e) => {
+    // A role the person picked themselves is theirs - stop guessing at it.
+    if (e.target.dataset.pr && /^role:/.test(e.target.dataset.pr)) delete e.target.dataset.guess;
+    if (e.target.dataset.pr) { recompute(); state.dirty = true; renderSavedState(); return; }
     if (e.target.dataset.source) snapToReference(e.target);
+    // Type & size deciding RAP is what re-points Producer at the plants list.
+    if (e.target.dataset.col) retargetRowControls(e.target.closest(".rowitem"));
     if (e.target.tagName === "SELECT" || e.target.dataset.source) { autofillFrom(e.target); recompute(); }
+  });
+
+  // Searchable reference dropdown. Delegated like everything else, so a
+  // control that is re-rendered (a new aggregate row, or the upgrade in
+  // refreshReferenceControls) arrives already wired. Kept separate from the
+  // input handler above so the two concerns stay readable.
+  $("sections").addEventListener("focusin", (e) => {
+    if (e.target.dataset && e.target.dataset.source) comboOpen(e.target, true);
+    else comboClose();
+  });
+  $("sections").addEventListener("focusout", (e) => {
+    if (e.target !== combo.input) return;
+    // Let the popup's own click land first; it prevents the blur, so by the
+    // next tick focus is either back on the input or genuinely gone.
+    setTimeout(() => { if (document.activeElement !== combo.input) comboClose(); }, 0);
+  });
+  $("sections").addEventListener("keydown", comboKeydown);
+  $("sections").addEventListener("input", (e) => {
+    if (e.target.dataset && e.target.dataset.source) comboOpen(e.target, false);
   });
 
   // Highlight what came from the workbook so it reads as "check me".
@@ -2478,7 +3294,7 @@ function b64decode(s) {
 // only decide how many digits reach the paper: a MixPack import arrives
 // with 14 decimals, and 14 decimals on a submittal reads as an error.
 function hdDP(key) {
-  const dp = CONFIG.HANDOFF.DP[key];
+  const dp = CONFIG.DP[key];
   return dp == null ? null : dp;
 }
 function hdNum(v, dp) {
@@ -2521,6 +3337,7 @@ function handoffPayload(action) {
   return {
     format: CONFIG.HANDOFF.FORMAT,
     version: CONFIG.HANDOFF.VERSION,
+    doc_kind: CONFIG.HANDOFF.DOC.review,
     generated_at: new Date().toISOString(),
     generated_by: who,
     stage: CONFIG.STAGES[state.stageIdx] ? CONFIG.STAGES[state.stageIdx].key : "Draft",
@@ -2538,6 +3355,9 @@ function handoffPayload(action) {
       version: state.legacy.version.label, context: state.legacy.context,
       unmapped: state.legacy.unmapped, design_values: state.legacy.designValues || [],
     } : null,
+    // Signed by sign-approval, never by this page. Present only once KYTC
+    // has approved; everything else in the payload is a claim, this is not.
+    approval: state.approval || null,
     // Append only. Never rewrite an earlier entry - this is the audit trail.
     history: prior.concat([{ at: new Date().toISOString(), sm_id: who.sm_id, name: who.name, action }]),
   };
@@ -2545,8 +3365,14 @@ function handoffPayload(action) {
 
 function handoffFileName(payload) {
   const j = payload.job || {};
-  const d = new Date().toISOString().slice(0, 10);
-  return `DesignBook_${j.cid || "design"}_${j.plant || "plant"}_${d}.pdf`
+  // A submittal is dated by the submission it records, not by the day someone
+  // happened to re-download it, and says so in the name - the two documents
+  // end up in the same folder and must not look interchangeable.
+  const submittal = payload.doc_kind === CONFIG.HANDOFF.DOC.submittal;
+  const sub_ = (payload.history || []).filter((h) => h.action === CONFIG.SUBMIT.ACTION.submitted).slice(-1)[0];
+  const d = (submittal && sub_ && sub_.at ? new Date(sub_.at) : new Date()).toISOString().slice(0, 10);
+  const kind = submittal ? "submittal_" : "";
+  return `DesignBook_${kind}${j.cid || "design"}_${j.plant || "plant"}_${d}.pdf`
     .replace(/[^A-Za-z0-9_.-]/g, "");
 }
 
@@ -2990,7 +3816,21 @@ async function buildReviewPDF(payload) {
   }
   page.drawText("KYTC Mix Design", { x: P.mx, y, size: T.title, font: bold, color: col(C.navy) });
   y -= T.title + 4;
-  page.drawText("Internal review copy - not an approval", { x: P.mx, y, size: T.sub, font, color: col(C.muted) });
+  // Which document this IS decides the line, not the stage. After a
+  // submission the stage is "Submitted", so keying off stage alone made a
+  // freshly downloaded working copy claim to be the submitted document.
+  const D = CONFIG.HANDOFF.DOC;
+  const sub_ = (payload.history || []).filter((h) => h.action === CONFIG.SUBMIT.ACTION.submitted).slice(-1)[0];
+  const subWhen = sub_ && sub_.at ? new Date(sub_.at).toLocaleDateString() : null;
+  const subtitle =
+      payload.doc_kind === D.submittal
+        ? `Submitted to KYTC${subWhen ? ` on ${subWhen}` : ""}${sub_ && sub_.sm_id ? ` by ${sub_.sm_id}` : ""} - this is the submitted document`
+    : payload.stage === "Approved"
+        ? "Approved by KYTC - this copy carries its own verification code"
+    : payload.stage === "Submitted"
+        ? "Working copy of a submitted design - the submitted document is a separate download"
+    : "Internal review copy - not an approval";
+  page.drawText(subtitle, { x: P.mx, y, size: T.sub, font, color: col(C.muted) });
   y -= T.sub + RW.headerGap;
 
   const facts = [
@@ -3001,6 +3841,10 @@ async function buildReviewPDF(payload) {
     ["Mix type", mixTypeLabel(payload.mix)],
     ["Stage", payload.stage],
     ["Prepared by", payload.generated_by && payload.generated_by.sm_id],
+    ["KYTC approval", payload.approval && payload.approval.approval_no],
+    ["Mix ID num.", payload.approval && payload.approval.mix_id],
+    ["Verification code", payload.approval && payload.approval.code],
+    ["Approved by", payload.approval && payload.approval.approved_by],
   ].filter((f) => f[1] != null && String(f[1]).trim() !== "");
   inHeader = true;
   const savedCols = H.COLS;
@@ -3108,6 +3952,253 @@ function trimFlatCoarseEnd(sieves, cpts) {
   return sieves.filter((s) => s.mm <= keepTo);
 }
 
+
+// The parts of a payload the approval signature actually covers. Must match
+// canonicalDesign() in netlify/lib/canonical.mjs - if the two lists
+// drift, approvals stop verifying with no visible cause.
+// A submittal must not move. A spread would share `values` and `rows` with
+// the payload it came from, so this deep-copies: the payload is JSON by
+// definition (it is embedded in the PDF as JSON), so a round-trip is both
+// sufficient and a guarantee that what we keep is exactly what can be re-read.
+function freezeSubmittal(payload) {
+  return { ...JSON.parse(JSON.stringify(payload)), doc_kind: CONFIG.HANDOFF.DOC.submittal };
+}
+
+function designParts(payload) {
+  return {
+    format: payload.format, version: payload.version,
+    job: payload.job, plant_name: payload.plant_name || null,
+    mix: payload.mix || null, origin: payload.origin || null,
+    values: payload.values || {}, rows: payload.rows || {},
+  };
+}
+
+// Regenerating an approved document must embed the design that was SIGNED,
+// not a fresh reading of the form. The form is frozen once approved, so in
+// practice they match - but if a recompute ever nudged a rounded value, the
+// file would carry a payload that fails its own signature, and that failure
+// would look like nothing at all until someone tried to verify it.
+function approvedPayload(action) {
+  const p = handoffPayload(action);
+  if (state.signedDesign) Object.assign(p, state.signedDesign);
+  return p;
+}
+
+/* ---------- the approval document ----------
+ *
+ * A different artifact from the review sheet, deliberately. The review sheet
+ * is a landscape working document for someone checking a design; this is the
+ * single page a district office files and acts on, so it answers one
+ * question first - is this mix approved, and is this real - and carries the
+ * job mix formula underneath.
+ *
+ * Portrait, so the two can never be confused at a glance even face down on a
+ * desk. It embeds the same payload, so uploading it to DesignBook still
+ * rebuilds the whole design.
+ */
+async function buildApprovalPDF(payload) {
+  const { PDFDocument, StandardFonts, rgb } = PDFLib;
+  const H = CONFIG.HANDOFF, C = H.BRAND, T = H.TYPE;
+  const col = (a) => rgb(a[0], a[1], a[2]);
+  const P = { w: 612, h: 792, mx: 46, top: 58, bottom: 46 };
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const logo = await loadHandoffLogo(doc);
+  const page = doc.addPage([P.w, P.h]);
+  const W = P.w - P.mx * 2;
+  let y = P.h - P.top;
+
+  const fit = (s, max, f, sz) => {
+    let t = wa(s);
+    if (f.widthOfTextAtSize(t, sz) <= max) return t;
+    while (t.length > 1 && f.widthOfTextAtSize(t + "...", sz) > max) t = t.slice(0, -1);
+    return t + "...";
+  };
+  const text = (s, x, yy, sz, f, c) => page.drawText(fit(s, W, f, sz), { x, y: yy, size: sz, font: f, color: col(c) });
+
+  for (let i = 0; i < 72; i++) {
+    const t = i / 71, k = t <= 0.35 ? 0 : t >= 0.80 ? 1 : (t - 0.35) / 0.45;
+    page.drawRectangle({ x: i * P.w / 72, y: P.h - H.BAR, width: P.w / 72 + 0.7, height: H.BAR,
+      color: col([0, 1, 2].map((j) => C.sky[j] + (C.gold[j] - C.sky[j]) * k)) });
+  }
+  if (logo) {
+    const lw = 86, lh = lw / H.LOGO.ratio;
+    page.drawImage(logo, { x: P.w - P.mx - lw, y: P.h - P.top - lh + 20, width: lw, height: lh });
+  }
+
+  const a = payload.approval || {};
+  const j = payload.job || {}, mix = payload.mix || {};
+  const values = payload.values || {}, dv = values.design_values || {}, rows = payload.rows || {};
+
+  text("Mix Design Approval", P.mx, y, 22, bold, C.navy); y -= 24;
+  text("Kentucky Transportation Cabinet - Division of Materials", P.mx, y, 9, font, C.muted); y -= 20;
+
+  /* --- the answer, first. One band, four columns: at a glance a district
+         office needs the number, the system id, when and by whom, and
+         whether a performance review is part of it. --- */
+  const boxH = 40;
+  page.drawRectangle({ x: P.mx, y: y - boxH, width: W, height: boxH, color: col(C.wash) });
+  page.drawRectangle({ x: P.mx, y: y - boxH, width: 4, height: boxH, color: col(C.navy) });
+  const bandX = [P.mx + 16, P.mx + 168, P.mx + 288, P.mx + 396];
+  const band = [
+    ["APPROVAL NUMBER", a.approval_no || "-", 17, C.navy],
+    ["MIX ID NUM.", a.mix_id || "-", 12, C.ink],
+    ["APPROVED", a.issued_at ? `${new Date(a.issued_at).toLocaleDateString()} - ${a.approved_by || "-"}` : "-", 10, C.ink],
+    // Short enough to fit the band's last column - "Performance (CT +
+    // Hamburg)" truncated, and a truncated word on the one line that says
+    // what kind of approval this is would be worse than a terse one.
+    ["REVIEW", a.pa ? "CT + Hamburg" : "Volumetric", 10, C.ink],
+  ];
+  band.forEach(([lab, val, sz, c], i) => {
+    const max = (i + 1 < bandX.length ? bandX[i + 1] : P.mx + W) - bandX[i] - 10;
+    page.drawText(fit(lab, max, bold, 7), { x: bandX[i], y: y - 14, size: 7, font: bold, color: col(C.muted) });
+    page.drawText(fit(val, max, bold, sz), { x: bandX[i], y: y - 30, size: sz, font: bold, color: col(c) });
+  });
+  y -= boxH + 22;
+
+  /* --- what it is --- */
+  function pairs(list, cols, gap) {
+    const cw = (W - gap * (cols - 1)) / cols;
+    for (let i = 0; i < list.length; i += cols) {
+      list.slice(i, i + cols).forEach((p, c) => {
+        const x = P.mx + c * (cw + gap);
+        page.drawText(fit(p[0], cw, font, 7), { x, y, size: 7, font, color: col(C.muted) });
+        page.drawText(fit(p[1] == null ? "-" : String(p[1]), cw, bold, 10), { x, y: y - 12, size: 10, font: bold, color: col(C.ink) });
+      });
+      y -= 28;
+    }
+  }
+  function heading(t) {
+    page.drawRectangle({ x: P.mx, y: y + 13, width: W, height: 0.8, color: col(C.rule) });
+    text(t.toUpperCase(), P.mx, y, 8.5, bold, C.accent); y -= 20;
+  }
+
+  heading("The mix");
+  pairs([
+    ["Mix", mix.signature], ["Mix type", mixTypeLabel(mix)],
+    ["Binder grade", values.binder_grade], ["Binder supplier", values.binder_terminal],
+    ["Plant", payload.plant_name ? `${j.plant} - ${payload.plant_name}` : j.plant], ["County", values.county],
+    ["Contract", j.cid], ["Letting date", j.letting],
+    ["Project number", values.project_number], ["Submitted by", a.submitted_by || (payload.generated_by || {}).sm_id],
+  ], 2, 20);
+  y -= 6;
+
+  /* --- the job mix formula, which is what a district office uses --- */
+  heading("Job mix formula");
+  const grad = CONFIG.SECTIONS.find((s) => s.type === "sieves");
+  const sieves = grad.sieves
+    .filter((sv) => !hdOmit(grad.id, sv.key))
+    .map((sv) => [sv.label, values[sv.key]])
+    .filter((r) => r[1] != null && String(r[1]).trim() !== "");
+  const half = (W - 24) / 2, per = Math.ceil(sieves.length / 2);
+  const top = y;
+  // The two sieve columns can differ in length (13 sieves = 7 and 6), so the
+  // block ends at the LOWER of the two - taking the second one's end would
+  // run the design values back over the first.
+  let lowest = top;
+  [0, 1].forEach((cIdx) => {
+    let ty = top;
+    const x = P.mx + cIdx * (half + 24);
+    page.drawRectangle({ x, y: ty - 3, width: half, height: 12, color: col(C.wash) });
+    page.drawText("Sieve", { x: x + 4, y: ty, size: 7, font: bold, color: col(C.muted) });
+    page.drawText("% passing", { x: x + half * 0.45, y: ty, size: 7, font: bold, color: col(C.muted) });
+    ty -= 13;
+    sieves.slice(cIdx * per, (cIdx + 1) * per).forEach((r) => {
+      // Through fit() like every other value on this page. Sieve inputs are
+      // free text and hdNum() hands anything non-numeric back unchanged, so
+      // one "≤" or a Unicode minus in a cell would otherwise abort the export.
+      page.drawText(fit(r[0], half * 0.45 - 8, font, 8.5), { x: x + 4, y: ty, size: 8.5, font, color: col(C.ink) });
+      page.drawText(fit(hdNum(r[1], hdDP("s")), half * 0.55 - 8, font, 8.5), { x: x + half * 0.45, y: ty, size: 8.5, font, color: col(C.ink) });
+      page.drawRectangle({ x, y: ty - 4, width: half, height: 0.35, color: col(C.rule) });
+      ty -= 12;
+    });
+    lowest = Math.min(lowest, ty);
+  });
+  y = lowest - 18;
+
+  const outs = (CONFIG.SECTIONS.find((s) => s.id === "design-values") || {}).outputs || [];
+  pairs(outs.map((o) => [o.label.replace(/\s*at design\s*/i, ""), hdNum(dv[o.key], hdDP(o.key))])
+    .filter((p) => p[1] !== "" && p[1] != null), 5, 12);
+
+  /* --- the evidence for PA ---
+     #467PA asserts a performance review happened. The specimen tables that
+     justify it are in the embedded data, not on the page, so the numbers a
+     reader would want to see are summarised here rather than left to
+     "upload the file and look". Omitted entirely when there is nothing. --- */
+  const cts = (rows.ct || []).map((r) => parseFloat(r && r.index)).filter(Number.isFinite);
+  const hL = values.hamburg_left_maxdef, hR = values.hamburg_right_maxdef;
+  const perf = [];
+  if (values.tsr_pct != null && String(values.tsr_pct).trim() !== "")
+    perf.push(["TSR", hdNum(values.tsr_pct, hdDP("tsr_pct")) + "%"]);
+  if (cts.length) {
+    perf.push([`CT index (avg of ${cts.length})`, (cts.reduce((x, v) => x + v, 0) / cts.length).toFixed(1)]);
+    perf.push(["CT index range", `${Math.min(...cts).toFixed(1)} - ${Math.max(...cts).toFixed(1)}`]);
+  }
+  if ((hL != null && String(hL).trim() !== "") || (hR != null && String(hR).trim() !== ""))
+    perf.push(["Hamburg max deformation", `${hdNum(hL, 2) || "-"} / ${hdNum(hR, 2) || "-"} mm`]);
+  if (perf.length) {
+    heading(a.pa ? "Performance review" : "Performance testing");
+    pairs(perf, 4, 12);
+    y -= 4;
+  }
+
+  /* --- the blend --- */
+  const aggs = rows.aggregate || [];
+  if (aggs.length) {
+    heading("Aggregate blend");
+    const cols = [["Producer", 2.2], ["Type & size", 1.8], ["% blend", 0.6], ["Gsb", 0.6]];
+    const sum = cols.reduce((s2, c) => s2 + c[1], 0);
+    const cw = cols.map((c) => W * c[1] / sum);
+    page.drawRectangle({ x: P.mx, y: y - 3, width: W, height: 12, color: col(C.wash) });
+    cols.forEach((c, i) => page.drawText(c[0], { x: P.mx + cw.slice(0, i).reduce((s2, v) => s2 + v, 0) + 4, y, size: 7, font: bold, color: col(C.muted) }));
+    y -= 14;
+    aggs.forEach((r) => {
+      [r.producer, r.type_size, hdNum(r.pct_blend, null), hdNum(r.gsb, hdDP("gsb"))].forEach((v, i) =>
+        page.drawText(fit(v == null ? "-" : String(v), cw[i] - 8, font, 8.5),
+          { x: P.mx + cw.slice(0, i).reduce((s2, q) => s2 + q, 0) + 4, y, size: 8.5, font, color: col(C.ink) }));
+      y -= 5; page.drawRectangle({ x: P.mx, y, width: W, height: 0.35, color: col(C.rule) }); y -= 10;
+    });
+    y -= 10;
+  }
+
+  /* --- how to know this is real. Anchored above the footer rather than
+         wherever the content happens to end, so the page reads as composed
+         and the reclaimed height spreads through the sections above. --- */
+  const vH = 60;
+  // Rests just above the footer on a short design, follows the content down
+  // on a long one, and never crosses the footer rule - which it did the
+  // moment the performance row was added.
+  const vy = Math.max(P.bottom + 10 + vH, Math.min(y, P.bottom + 34 + vH));
+  page.drawRectangle({ x: P.mx, y: vy - vH, width: W, height: vH, borderColor: col(C.rule), borderWidth: 0.8 });
+  text("VERIFICATION CODE", P.mx + 14, vy - 17, 7.5, bold, C.muted);
+  page.drawText(wa(a.code || "-"), { x: P.mx + 14, y: vy - 38, size: 16, font: bold, color: col(C.ink) });
+  const vx = P.mx + 210;
+  ["This approval is signed. Anyone can check it - no account needed - by",
+   "dropping this PDF in at kytcmix.netlify.app/verify.html. It confirms the",
+   "design has not been altered since approval, and who approved it."]
+    .forEach((ln, i) => page.drawText(wa(ln), { x: vx, y: vy - 18 - i * 11, size: 7.8, font, color: col(C.muted) }));
+  y = vy - vH;
+
+  page.drawRectangle({ x: P.mx, y: P.bottom - 12, width: W, height: 0.4, color: col(C.rule) });
+  // "DesignBook stores nothing" used to sit at the end of this line and was
+  // false - Save still writes a designs row. What IS true, and is the point
+  // for whoever holds this, is that no copy of the APPROVAL is kept anywhere:
+  // sign-approval is stateless, so the signature in this file is the only one.
+  // Through fit() like the rest of the page, so it can never overrun the page.
+  page.drawText(fit("The full design is embedded in this file - upload it to DesignBook to open it, or to verify.html to check the approval. No copy of this approval is kept; this document is the record.", W, font, 6.6),
+    { x: P.mx, y: P.bottom - 24, size: 6.6, font, color: col(C.muted) });
+
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  await doc.attach(bytes, CONFIG.HANDOFF.ATTACHMENT, {
+    mimeType: "application/json", description: "DesignBook design data",
+  });
+  doc.setTitle(wa(`KYTC Mix Design Approval ${a.approval_no || ""} - ${j.cid || ""}`));
+  doc.setProducer("KYTC DesignBook");
+  doc.setKeywords([CONFIG.HANDOFF.MARKER + b64encode(bytes)]);
+  return doc.save();
+}
+
 /* ---------- reading one back ---------- */
 
 function handoffFromStream(stream) {
@@ -3190,6 +4281,10 @@ async function readHandoffPDF(buf) {
 function applyHandoff(payload) {
   state.job = payload.job;
   state.plantName = payload.plant_name || null;
+  state.approval = payload.approval || null;
+  // An approved file arrives carrying the signed design; keep it, so
+  // regenerating the document does not re-derive it from the form.
+  state.signedDesign = payload.approval ? designParts(payload) : null;
   state.mode = payload.origin === "legacy" ? "legacy" : "new";
   state.mix = payload.mix || null;
   state.extracted = { scalars: payload.values || {}, tables: payload.rows || {} };
@@ -3201,11 +4296,79 @@ function applyHandoff(payload) {
     log: [], sheets: [], scalars: {}, sources: {}, tables: {},
   } : null;
   state.history = payload.history || [];
+  // A file that carries a submission IS the record of that submission, so it
+  // restores the frozen submittal too - otherwise reopening a submitted
+  // design would lose the ability to reprint what was sent.
+  const wasSubmitted = (payload.history || []).some((h) => h.action === CONFIG.SUBMIT.ACTION.submitted);
+  state.submitted = wasSubmitted ? freezeSubmittal(payload) : null;
   const at = CONFIG.STAGES.findIndex((x) => x.key === payload.stage);
   state.stageIdx = at < 0 ? 0 : at;
 }
 
 /* ---------- the button ---------- */
+
+// The document a district office files. Separate from the review sheet so
+// the two can never be mistaken for each other.
+// Hand a file to the browser. Four callers now (the three download buttons
+// and Submit), so it lives in one place rather than being pasted a fourth
+// time. revokeObjectURL is deferred, not immediate: Safari cancels a
+// download whose blob URL is revoked while the click is still in flight.
+function saveBytes(bytes, name, type) {
+  const url = URL.createObjectURL(new Blob([bytes], { type }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+async function downloadApprovalPDF() {
+  const btn = $("approvalPdfBtn");
+  if (!btn || btn.disabled) return;
+  if (!state.approval) { msg($("saveMsg"), "This design has not been approved.", "error"); return; }
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = "Building...";
+  try {
+    const payload = approvedPayload("Downloaded approval");
+    const bytes = await buildApprovalPDF(payload);
+    const a2 = payload.approval || {};
+    const name = `KYTC_Approval_${(a2.approval_no || "").replace(/[^A-Za-z0-9]/g, "")}_${(payload.job || {}).cid || ""}.pdf`
+      .replace(/[^A-Za-z0-9_.-]/g, "");
+    saveBytes(bytes, name, "application/pdf");
+    state.history = payload.history;
+    msg($("saveMsg"), `${name} downloaded. Send it to the contractor - the site keeps nothing.`, "ok");
+  } catch (err) {
+    msg($("saveMsg"), err.message || "Couldn't build the approval.", "error");
+  } finally {
+    btn.disabled = false; btn.textContent = was;
+  }
+}
+
+// Reprint the document KYTC received. Renders the frozen snapshot, so it is
+// byte-for-byte the same design every time and is unaffected by anything
+// typed since - which is the whole point of a submittal. No history entry is
+// appended for the same reason: a record of an event should not change each
+// time someone looks at it.
+async function downloadSubmittalPDF() {
+  const btn = $("submittalPdfBtn");
+  if (!btn || btn.disabled) return;
+  if (!state.submitted) { msg($("saveMsg"), "This design has not been submitted to KYTC yet.", "error"); return; }
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = "Building PDF...";
+  try {
+    const payload = state.submitted;
+    const bytes = await buildReviewPDF(payload);
+    const name = handoffFileName(payload);
+    saveBytes(bytes, name, "application/pdf");
+    msg($("saveMsg"), `${name} downloaded - the design exactly as KYTC received it.`, "ok");
+    audit(`Submittal PDF generated - ${state.tech ? state.tech.sm_id : ""}`);
+  } catch (err) {
+    msg($("saveMsg"), err.message || "Couldn't build the submittal PDF.", "error");
+  } finally {
+    btn.disabled = false; btn.textContent = was;
+  }
+}
 
 async function downloadReviewPDF() {
   const btn = $("pdfBtn");
@@ -3214,23 +4377,148 @@ async function downloadReviewPDF() {
   const was = btn.textContent;
   btn.textContent = "Building PDF...";
   try {
-    const payload = handoffPayload("Downloaded review PDF");
+    const payload = state.approval ? approvedPayload("Downloaded design sheet")
+                                   : handoffPayload("Downloaded review PDF");
     const bytes = await buildReviewPDF(payload);
     const name = handoffFileName(payload);
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-    const a = document.createElement("a");
-    a.href = url; a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    saveBytes(bytes, name, "application/pdf");
     state.history = payload.history;      // the copy on disk is now the record
     state.dirty = false;
-    msg($("saveMsg"), `${name} downloaded. That file is your copy - the site keeps nothing.`, "ok");
+    state.downloadedAt = new Date();
+    renderSavedState();
+    msg($("saveMsg"), `${name} downloaded. That file is your only copy - keep it, and upload it here to come back to this design.`, "ok");
     audit(`Review PDF generated - ${state.tech ? state.tech.sm_id : ""}`);
   } catch (err) {
     msg($("saveMsg"), err.message || "Couldn't build the PDF.", "error");
   } finally {
     btn.disabled = false; btn.textContent = was;
   }
+}
+
+/* ---------- the KYTC submission ---------- */
+
+// The CSV KYTC receives. Generated from CONFIG.SECTIONS like the form, the
+// xlsx extractor and the PDF - never a hand-written column list, or the four
+// drift apart. One row per value, so a design of any shape fits without the
+// header changing: Section, Key, Label, Value. Repeating rows carry an index
+// in the key (aggregate[2].producer) so they rebuild unambiguously.
+//
+// This is deliberately NOT a SiteManager import file. That mapping is KYTC's
+// to specify; this is the complete design in a shape anything can read, and
+// a translation layer goes on top of it when Andrew has the spec.
+// Submit. The package is stamped, frozen and handed to the technician, who
+// emails it to KYTC themselves (Jake, 2026-09-10). A Netlify Function used
+// to send it; the server left the mail path on purpose. A provider like
+// Resend authenticates by DKIM records in a domain you control, this is
+// KYTC's system rather than a contractor's, and nobody can add DNS records
+// to gmail.com - so a server-sent submission could never leave a legitimate
+// address without the Commonwealth Office of Technology authorising a
+// third-party sender for ky.gov. A technician's own mail already reaches
+// @ky.gov, so the shortest correct path is to give them the file.
+//
+// Nothing is stored either way, and the guarantee is unchanged from the
+// model in CLAUDE.md: whoever is signed in is stamped on the package, and
+// that stamp is the whole evidence of the internal review. What this does
+// NOT do is prove the file was not edited after it was stamped - the
+// submittal is unsigned. Only the approval is signed (sign-approval), and
+// that is what KYTC issues and verify.html checks.
+async function submitToKYTC() {
+  if (!state.job || !state.tech) { msg($("saveMsg"), "Sign in and start from the Portal before submitting.", "error"); return; }
+  const who = state.tech.sm_id;
+  const to = CONFIG.SUBMIT.KYTC_EMAIL;
+  if (!confirm(`Submit this design to KYTC as ${who}?\n\nYour SM ID is stamped on the package - if you are the supervisor who reviewed it, that stamp is the record of the internal review.\n\nThe submittal PDF downloads now. Email it to ${to || "KYTC Central Office Materials"} yourself - the site does not send it, and keeps no copy.`)) return;
+
+  const btn = $("advanceStage"); const was = btn.textContent;
+  state.saving = true; renderStage(); btn.textContent = "Building...";
+  const prevIdx = state.stageIdx;
+  try {
+    // Stage first, so the package itself says Submitted and the history
+    // entry the payload appends IS the submission record.
+    state.stageIdx = CONFIG.STAGES.findIndex((x) => x.key === "Submitted");
+    const payload = handoffPayload(CONFIG.SUBMIT.ACTION.submitted);
+    // Freeze what was stamped. Everything after this - further edits, a
+    // second submission - leaves this untouched, so the submittal PDF can
+    // never drift from the document KYTC was given.
+    const frozen = freezeSubmittal(payload);
+    const bytes = await buildReviewPDF(frozen);
+    const name = handoffFileName(frozen);
+    saveBytes(bytes, name, "application/pdf");
+
+    state.history = payload.history;
+    state.submitted = frozen;
+    state.dirty = false;
+    renderStage();
+    audit(`${CONFIG.SUBMIT.ACTION.submitted} - ${who}`);
+    msg($("saveMsg"),
+      `${name} downloaded and stamped as submitted by ${who}. Email it to ${to || "KYTC Central Office Materials"} - that file is the submission, and the site keeps nothing. You can download it again at any time.`, "ok");
+  } catch (err) {
+    state.stageIdx = prevIdx;               // nothing left the machine, so nothing moved
+    renderStage();
+    msg($("saveMsg"), err.message || "Couldn't build the submittal.", "error");
+  } finally {
+    state.saving = false; btn.textContent = was; renderStage();
+  }
+}
+
+// Approve. The page does not decide this - it asks a Function, which checks
+// the reviewer's own token and the file's chain of custody before it will
+// sign anything. If the Function says no, nothing here moves.
+async function approveDesign() {
+  if (!state.tech) { msg($("saveMsg"), "Sign in first.", "error"); return; }
+  const c = custody();
+  if (!c.submitted) { msg($("saveMsg"), "This design has no submission on record, so there is nothing to approve.", "error"); return; }
+  // The page only checks the shape. What the number becomes - the MIX ID
+  // NUM., the PA suffix, whether a performance review is required at all -
+  // is decided by the Function, because that is what signs it.
+  const raw = ($("approvalSeq") && $("approvalSeq").value || "").trim();
+  const seq = Number(raw);
+  if (!raw || !Number.isInteger(seq) || seq < 1 || seq > 9999) {
+    msg($("saveMsg"), "Enter KYTC's approval number for this design - a whole number from 1 to 9999.", "error");
+    if ($("approvalSeq")) $("approvalSeq").focus();
+    return;
+  }
+  if (!confirm(`Approve this design as ${state.tech.sm_id}, number ${seq}?\n\nThis issues a signed approval. It is checkable by anyone holding the file, so it cannot be undone by editing.`)) return;
+
+  const btn = $("advanceStage"), was = btn.textContent;
+  state.saving = true; renderStage(); btn.textContent = "Approving...";
+  try {
+    // Signed over the design as it stands, so the approval covers what is
+    // in front of the reviewer - not a later edit.
+    const payload = handoffPayload("Requested approval");
+    const res = await fetch(CONFIG.SUBMIT.SIGN_FN, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${await accessToken()}` },
+      // The design and the number the reviewer typed, nothing that steers the
+      // server's checks. Which history entry marks the submission is the
+      // server's to decide (SUBMITTED_ACTION in netlify/lib/canonical.mjs).
+      body: JSON.stringify({ payload, sequence: seq }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `The approval was not issued (${res.status}).`);
+
+    // Freeze the design as signed, so every later copy carries these bytes.
+    state.signedDesign = designParts(payload);
+    state.approval = {
+      mix_id: body.mix_id, approval_no: body.approval_no, sequence: body.sequence,
+      year: body.year, pa: body.pa, code: body.code, issued_at: body.issued_at,
+      approved_by: body.approved_by, submitted_by: body.submitted_by,
+    };
+    setStage("Approved", custodyEntry(CONFIG.SUBMIT.ACTION.approved, { approval_no: body.approval_no }));
+    msg($("saveMsg"),
+      `Approved as ${body.approval_no} (MIX ID ${body.mix_id}) - verification code ${body.code}. ` +
+      `Download the PDF and send it to the contractor; the site keeps nothing.`, "ok");
+  } catch (err) {
+    msg($("saveMsg"), err.message || "Couldn't approve.", "error");
+  } finally {
+    state.saving = false; btn.textContent = was; renderStage();
+  }
+}
+
+// The Supabase session token, so a Function can verify who is calling
+// instead of trusting a field in the request body.
+async function accessToken() {
+  const { data } = await sb.auth.getSession();
+  return data && data.session ? data.session.access_token : "";
 }
 
 /* ---------- reopening one ---------- */
@@ -3294,7 +4582,6 @@ function readParams() {
     mode: ["legacy", "resume"].includes(p.get("mode")) ? p.get("mode") : "new",
     job: cid && letting && plant ? { cid, letting, plant } : null,
     mix: p.get("mix") || null,
-    design: p.get("design") || null,
   };
 }
 
@@ -3340,7 +4627,6 @@ async function loadReferenceData() {
   return state.ref;
 }
 
-function refListId(key) { return "reflist_" + key; }
 function refKey(v) { return String(v == null ? "" : v).toLowerCase().replace(/\s+/g, ""); }
 // Exact value first, then case/whitespace-insensitive, then an alias.
 function refMatch(sourceKey, value) {
@@ -3358,7 +4644,9 @@ function rowSpecFor(key) { return rowSpec(key); }   // array-aware; see rowSpec(
 function refDefFor(el) {
   if (el.dataset.field) return legacyFieldDef(el.dataset.field);
   const spec = rowSpecFor(el.dataset.row);
-  return spec ? (spec.columns.find((c) => c.key === el.dataset.col) || null) : null;
+  if (!spec) return null;
+  const col = spec.columns.find((c) => c.key === el.dataset.col) || null;
+  return col && col.alt ? effectiveColDef(col, rowValuesOf(el.closest(".rowitem"))) : col;
 }
 function refFieldLabel(el) {
   const def = refDefFor(el);
@@ -3366,18 +4654,6 @@ function refFieldLabel(el) {
   const item = el.closest(".rowitem");
   const n = item && item.parentElement ? Array.from(item.parentElement.children).indexOf(item) + 1 : 0;
   return `${def ? def.label : el.dataset.col}${n ? ` (${el.dataset.row} row ${n})` : ""}`;
-}
-
-// One <datalist> per long list, shared by every input that names it. Short
-// lists are <select>s and need none.
-function renderRefLists() {
-  const R = CONFIG.REFERENCE;
-  $("refLists").innerHTML = Object.keys(R.TABLES).map((key) => {
-    const list = state.ref[key] || [];
-    if (!list.length || list.length <= R.SELECT_MAX) return "";
-    return `<datalist id="${refListId(key)}">` + list.map((o) =>
-      `<option value="${esc(o.value)}">${o.label !== o.value ? esc(o.label) : ""}</option>`).join("") + `</datalist>`;
-  }).join("");
 }
 
 // "Reference lists: 178 aggregates, 115 types, 26 terminals, 12 grades" -
@@ -3394,6 +4670,44 @@ function renderRefStatus() {
   el.className = "refstatus" + (state.ref.error ? " error" : "");
 }
 
+// Rebuild one sourced control from its schema def, keeping the value, the
+// tint, the auto-fill mark, the tooltip and the disabled state. Listeners are
+// delegated on #sections, so swapping the element loses nothing.
+function replaceRefControl(el, def) {
+  const attrs = el.dataset.field ? `data-field="${el.dataset.field}"` : `data-row="${el.dataset.row}" data-col="${el.dataset.col}"`;
+  const cls = Array.from(el.classList).filter((c) => c !== "prefilled" && c !== "autofilled").join(" ");
+  const tmp = document.createElement("div");
+  tmp.innerHTML = refControlHTML(def, cls, attrs, el.value);
+  const nu = tmp.firstElementChild;
+  ["prefilled", "autofilled"].forEach((c) => { if (el.classList.contains(c)) nu.classList.add(c); });
+  if (el.dataset.autofilled) nu.dataset.autofilled = el.dataset.autofilled;
+  if (el.title) nu.title = el.title;
+  nu.disabled = el.disabled;
+  el.replaceWith(nu);
+  return nu;
+}
+
+// A row whose Type & size just became (or stopped being) RAP needs its
+// Producer pointed at the other list, and relabelled with it. Called on every
+// committed edit inside a row; a no-op unless the source actually changes,
+// and it never rebuilds the control the person is currently typing in.
+function retargetRowControls(row) {
+  const list = row && row.closest("[data-rowlist]");
+  const spec = list ? rowSpecFor(list.dataset.rowlist) : null;
+  if (!spec) return;
+  const values = rowValuesOf(row);
+  spec.columns.forEach((col) => {
+    if (!col.alt) return;
+    const el = row.querySelector(`[data-col="${col.key}"]`);
+    if (!el || el === document.activeElement) return;
+    const def = effectiveColDef(col, values);
+    if (el.dataset.source === def.source) return;
+    const nu = replaceRefControl(el, def);
+    const label = nu.parentElement ? nu.parentElement.querySelector("label") : null;
+    if (label) label.textContent = def.label;
+  });
+}
+
 // Reference data landed after the form was drawn (or failed): rebuild every
 // sourced control from the same schema and lists renderForm uses, keeping
 // its value, tint, disabled state and auto-fill mark; then re-run the
@@ -3401,22 +4715,16 @@ function renderRefStatus() {
 // #sections, so swapping the element loses nothing.
 function refreshReferenceControls() {
   if (!$("sections").children.length) { renderRefStatus(); return; }   // not drawn yet; renderForm reads state.ref itself
-  renderRefLists();
+  comboClose();   // the input the popup is anchored to is about to be replaced
   document.querySelectorAll("#sections [data-source]").forEach((el) => {
     const def = refDefFor(el);
-    if (!def) return;
-    const attrs = el.dataset.field ? `data-field="${el.dataset.field}"` : `data-row="${el.dataset.row}" data-col="${el.dataset.col}"`;
-    const cls = Array.from(el.classList).filter((c) => c !== "prefilled" && c !== "autofilled").join(" ");
-    const tmp = document.createElement("div");
-    tmp.innerHTML = refControlHTML(def, cls, attrs, el.value);
-    const nu = tmp.firstElementChild;
-    ["prefilled", "autofilled"].forEach((c) => { if (el.classList.contains(c)) nu.classList.add(c); });
-    if (el.dataset.autofilled) nu.dataset.autofilled = el.dataset.autofilled;
-    if (el.title) nu.title = el.title;
-    nu.disabled = el.disabled;
-    el.replaceWith(nu);
+    if (def) replaceRefControl(el, def);
   });
   applyAutofills();
+  // Every polish-resistant fact is read off aggregate_types, and the grid is
+  // built before the lists arrive - so without this the whole matrix stays in
+  // its "type not on the list" fallback, asking for answers it already has.
+  renderPolishGrid(true);
   renderRefStatus();
   recompute();
 }
@@ -3454,6 +4762,275 @@ function snapToReference(el) {
   if (hit && hit.value !== String(el.value).trim()) el.value = hit.value;
 }
 
+
+/* ---------- searchable reference dropdown ---------- */
+// A sourced field longer than SELECT_MAX used to be a native <datalist>.
+// That looked like a typeahead and mostly was not one: a datalist only
+// substring-matches an option's *value*, never its label or its aliases,
+// it ranks nothing, and on iOS it barely opens. So an AGP number found
+// nothing, and "haydon airport" found nothing either, even though
+// "HAYDON MATERIALS LLC - AIRPORT ROAD @ BARDSTOWN" is right there.
+//
+// This is one shared popup for the whole page. It scores every entry
+// across value + label + aliases, ranks closest first, opens the moment
+// you type (no need to hit the caret), and takes arrow keys and Enter.
+// The <input> itself is untouched - same classes, same data-field or
+// data-row+data-col, same value - so collectForm(), the validation rail,
+// the MAT-code auto-fill and refreshReferenceControls() are unaffected.
+// Choosing an entry dispatches real input+change events, so it lands the
+// same way typing it by hand would.
+const combo = { el: null, listEl: null, footEl: null, input: null, opts: [], active: -1, committing: false };
+const comboIndex = {};
+
+// value/label/aliases, pre-lowercased once per list. The second line only
+// carries what the value does not already say ("HAYDON… — 12345" -> "12345").
+function comboEntries(source) {
+  const list = state.ref[source] || [], cached = comboIndex[source];
+  if (cached && cached.len === list.length) return cached.entries;
+  const entries = list.map((o) => {
+    const value = String(o.value);
+    const label = String(o.label == null ? value : o.label);
+    const aliases = (o.aliases || []).map(String);
+    let sub = label === value ? ""
+            : label.startsWith(value) ? label.slice(value.length).replace(/^\s*[—\-·]\s*/, "")
+            : label;
+    aliases.forEach((a) => {
+      if (sub.toLowerCase().indexOf(a.toLowerCase()) < 0) sub = sub ? `${sub} · ${a}` : a;
+    });
+    const k = { value: value.toLowerCase(), label: label.toLowerCase(), aliases: aliases.map((a) => a.toLowerCase()) };
+    return { value, sub, k, words: k.value.split(/[^a-z0-9.]+/).filter(Boolean) };
+  });
+  comboIndex[source] = { len: list.length, entries };
+  return entries;
+}
+
+// Every character of `needle`, in order, somewhere in `hay`. The loosest
+// rung on the ladder, so it is gated on FUZZY_MIN_CHARS - a one- or
+// two-letter token would otherwise match half the table.
+function comboSubsequence(needle, hay) {
+  let i = 0;
+  for (let j = 0; j < hay.length && i < needle.length; j++) if (hay[j] === needle[i]) i++;
+  return i === needle.length;
+}
+
+// How close one entry is to one typed word. Lower is closer; null is no
+// match at all, which drops the entry regardless of the other words.
+function comboTokenScore(e, tok) {
+  if (e.k.value === tok) return 0;
+  if (e.k.value.startsWith(tok)) return 1;
+  if (e.k.aliases.some((a) => a === tok)) return 2;
+  if (e.k.aliases.some((a) => a.startsWith(tok))) return 3;
+  if (e.words.some((w) => w.startsWith(tok))) return 4;
+  if (e.k.value.indexOf(tok) >= 0) return 5;
+  if (e.k.label.indexOf(tok) >= 0 || e.k.aliases.some((a) => a.indexOf(tok) >= 0)) return 6;
+  if (tok.length >= CONFIG.REFERENCE.COMBO.FUZZY_MIN_CHARS && comboSubsequence(tok, e.k.value)) return 7;
+  return null;
+}
+
+// Words are ANDed: "haydon airport" keeps only entries matching both, which
+// is what makes a 178-row list usable without knowing how KYTC spells it.
+function comboSearch(source, query) {
+  const entries = comboEntries(source);
+  const toks = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!toks.length) return { toks, matches: entries.map((e, i) => ({ e, score: 0, order: i })) };
+  const matches = [];
+  entries.forEach((e, i) => {
+    let total = 0;
+    for (let t = 0; t < toks.length; t++) {
+      const s = comboTokenScore(e, toks[t]);
+      if (s == null) return;
+      total += s;
+    }
+    matches.push({ e, score: total, order: i });
+  });
+  matches.sort((a, b) => a.score - b.score || a.e.value.length - b.e.value.length || a.order - b.order);
+  return { toks, matches };
+}
+
+// Highlight the typed words inside an option. Ranges are found on the raw
+// string, then every slice is escaped separately - esc() still owns every
+// character that reaches innerHTML (CLAUDE.md: reference rows are data too).
+function comboMark(text, toks) {
+  const low = String(text).toLowerCase(), ranges = [];
+  toks.forEach((t) => { const i = low.indexOf(t); if (i >= 0) ranges.push([i, i + t.length]); });
+  if (!ranges.length) return esc(text);
+  ranges.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  ranges.forEach((r) => {
+    const last = merged[merged.length - 1];
+    if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]);
+    else merged.push([r[0], r[1]]);
+  });
+  let out = "", at = 0;
+  merged.forEach((r) => { out += esc(text.slice(at, r[0])) + "<mark>" + esc(text.slice(r[0], r[1])) + "</mark>"; at = r[1]; });
+  return out + esc(text.slice(at));
+}
+
+function comboRoot() {
+  if (combo.el) return combo.el;
+  const d = document.createElement("div");
+  d.id = "comboPop";
+  d.className = "combo hidden";
+  d.setAttribute("role", "listbox");
+  d.innerHTML = `<div class="combo-list"></div><div class="combo-foot"></div>`;
+  // Without this the input blurs on press and the click lands on nothing.
+  d.addEventListener("mousedown", (e) => e.preventDefault());
+  d.addEventListener("click", (e) => {
+    const opt = e.target.closest(".combo-opt");
+    if (opt) comboCommit(Number(opt.dataset.i));
+  });
+  document.body.appendChild(d);
+  combo.el = d;
+  combo.listEl = d.querySelector(".combo-list");
+  combo.footEl = d.querySelector(".combo-foot");
+  window.addEventListener("scroll", comboReposition, true);
+  window.addEventListener("resize", comboReposition);
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", comboReposition);
+  return d;
+}
+
+function comboIsOpen(el) { return !!combo.el && combo.input === el && !combo.el.classList.contains("hidden"); }
+
+function comboClose() {
+  if (!combo.el) return;
+  combo.el.classList.add("hidden");
+  if (combo.input) {
+    combo.input.setAttribute("aria-expanded", "false");
+    combo.input.removeAttribute("aria-activedescendant");
+  }
+  combo.input = null; combo.opts = []; combo.active = -1;
+}
+
+function comboSetActive(i) {
+  if (!combo.opts.length) return;
+  const n = combo.opts.length;
+  combo.active = i < 0 ? n - 1 : i >= n ? 0 : i;
+  Array.from(combo.listEl.children).forEach((c, j) => {
+    const on = j === combo.active;
+    c.classList.toggle("active", on);
+    c.setAttribute("aria-selected", on ? "true" : "false");
+    if (on) c.scrollIntoView({ block: "nearest" });
+  });
+  if (combo.input) combo.input.setAttribute("aria-activedescendant", "comboOpt" + combo.active);
+}
+
+// `all` shows the whole list (focus, or the caret key) instead of filtering
+// by what is already in the box - on reopening a field that already holds a
+// producer, a filtered list of exactly one is no use.
+function comboOpen(el, all) {
+  if (combo.committing) return;   // the input event a commit dispatches must not reopen it
+  if (!el || el.tagName !== "INPUT" || el.disabled || el.readOnly || !el.dataset.source) return;
+  const list = state.ref[el.dataset.source] || [];
+  if (!list.length || list.length <= CONFIG.REFERENCE.SELECT_MAX) return;   // short lists are <select>s
+  const pop = comboRoot();
+  const typed = String(el.value || "");
+  const hit = refMatch(el.dataset.source, typed);
+  const q = all ? "" : typed;
+  const found = comboSearch(el.dataset.source, q);
+  const C = CONFIG.REFERENCE.COMBO;
+  const shown = found.matches.slice(0, C.MAX_SHOWN);
+
+  combo.input = el;
+  combo.opts = shown;
+  combo.active = -1;
+  combo.listEl.scrollTop = 0;
+  combo.listEl.innerHTML = shown.map((m, i) =>
+    `<div class="combo-opt" role="option" id="comboOpt${i}" data-i="${i}" aria-selected="false">
+       <div class="combo-val">${comboMark(m.e.value, found.toks)}</div>
+       ${m.e.sub ? `<div class="combo-sub">${comboMark(m.e.sub, found.toks)}</div>` : ""}
+     </div>`).join("");
+
+  const noun = CONFIG.REFERENCE.TABLES[el.dataset.source].noun;
+  let foot, warn = false;
+  if (!found.matches.length) {
+    // The off-list rule, said out loud: a value with no match is kept and
+    // flagged, never blanked (CLAUDE.md, "Reference data").
+    foot = `No KYTC ${noun.replace(/s$/, "")} matches “${typed.trim()}” — it will be kept as typed and flagged.`;
+    warn = true;
+  } else if (found.matches.length > shown.length) {
+    foot = `Showing ${shown.length} of ${found.matches.length} — keep typing to narrow it.`;
+  } else {
+    foot = `${found.matches.length} ${noun}${q ? " match" : ""} · ↑↓ to move, Enter to choose`;
+  }
+  combo.footEl.textContent = foot;
+  combo.footEl.classList.toggle("warn", warn);
+
+  pop.classList.toggle("mono", el.classList.contains("mono"));
+  pop.classList.remove("hidden");
+  el.setAttribute("aria-expanded", "true");
+  comboPosition();
+  // Reopening a field that already holds an entry lands you on it.
+  if (!q && hit) {
+    const at = shown.findIndex((m) => m.e.value === hit.value);
+    if (at >= 0) comboSetActive(at);
+  }
+}
+
+// Hangs below the field, or above it when the keyboard has eaten the room.
+// visualViewport is what shrinks when a phone keyboard opens; innerHeight
+// does not, so on a phone the popup would otherwise render behind it.
+function comboPosition() {
+  const el = combo.input, pop = combo.el;
+  if (!el || !pop) return;
+  const C = CONFIG.REFERENCE.COMBO, gut = 8;
+  const vv = window.visualViewport;
+  const vw = vv ? vv.width : window.innerWidth, vh = vv ? vv.height : window.innerHeight;
+  const r = el.getBoundingClientRect();
+  const w = Math.min(Math.max(r.width, C.MIN_WIDTH), vw - gut * 2);
+  const cap = Math.round(vh * C.MAX_HEIGHT_VH / 100);
+  const below = vh - r.bottom - gut, above = r.top - gut;
+  const drop = below >= Math.min(cap, 180) || below >= above;
+  const h = Math.max(96, Math.min(cap, drop ? below : above));
+  let left = r.left;
+  if (left + w > vw - gut) left = vw - gut - w;
+  pop.style.left = Math.max(gut, left) + "px";
+  pop.style.top = (drop ? r.bottom + 4 : Math.max(gut, r.top - h - 4)) + "px";
+  pop.style.width = w + "px";
+  pop.style.maxHeight = h + "px";
+}
+
+// Scrolling the page with the popup open: follow the field, but let go once
+// the field itself has left the viewport.
+function comboReposition() {
+  if (!combo.input || !combo.el || combo.el.classList.contains("hidden")) return;
+  const r = combo.input.getBoundingClientRect();
+  const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  if (r.bottom < 0 || r.top > vh) { comboClose(); return; }
+  comboPosition();
+}
+
+// Real input+change events, so the existing delegated handlers do the rest:
+// drop the prefilled tint, run the MAT-code auto-fill, recompute the rail,
+// mark the form dirty, snap to the KYTC spelling.
+function comboCommit(i) {
+  const m = combo.opts[i], el = combo.input;
+  if (!m || !el) return;
+  el.value = m.e.value;
+  comboClose();
+  combo.committing = true;
+  try {
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  } finally { combo.committing = false; }
+  el.focus();
+}
+
+function comboKeydown(e) {
+  const el = e.target;
+  if (!el.dataset || !el.dataset.source || el.tagName !== "INPUT") return;
+  const open = comboIsOpen(el);
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    if (!open) comboOpen(el, true); else comboSetActive(combo.active + 1);
+    return;
+  }
+  if (!open) return;
+  if (e.key === "ArrowUp")   { e.preventDefault(); comboSetActive(combo.active - 1); return; }
+  if (e.key === "Enter")     { if (combo.active >= 0) e.preventDefault(); comboCommit(combo.active); return; }
+  if (e.key === "Escape")    { e.preventDefault(); e.stopPropagation(); comboClose(); return; }
+  if (e.key === "Tab")       { comboClose(); }
+}
+
 /* ---------- mix selection -> pre-fill ---------- */
 function titleCase(v) {
   return String(v || "").toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase());
@@ -3463,7 +5040,11 @@ function titleCase(v) {
 // -> class 3, SURF layer, 0.38A, PG64-22. Used when the localStorage
 // handoff is missing or belongs to a different job.
 function parseSignature(sig) {
-  const m = /^CL(\d)\s+ASPH\s+([A-Z]+)\s+([\d.]+[A-Z]?)\s+(PG\d{2}-\d{2})$/i.exec(sig || "");
+  // The size token is either a decimal ("0.38A") or the No. 4 family
+  // ("NO.4A") - KYTC writes both, e.g. "CL3 ASPH SURF NO.4B PG64-22". The
+  // old pattern required a leading digit, so every No. 4 mix failed the whole
+  // match and came back with a null class, layer AND nominal size.
+  const m = /^CL(\d)\s+ASPH\s+([A-Z]+)\s+((?:NO\.?\s?4|[\d.]+)[A-Z]?)\s+(PG\d{2}-\d{2})$/i.exec(sig || "");
   const pg = /PG\d{2}-\d{2}/i.exec(sig || "");
   return {
     mix_class: m ? Number(m[1]) : null,
@@ -3524,9 +5105,8 @@ function enterForm() {
   // identity once that exists. Until then, show the chosen mix if there is
   // one, else the job it belongs to.
   $("mixid").textContent = designLabel();
-  $("savedstate").textContent = state.designId ? "Saved" : "Not saved yet";
+  renderSavedState();
   renderForm();
-  if (state.designId) loadEvents();
 }
 
 // Plant name from the plants table (supabase/plants.sql) — same lookup the
@@ -3584,14 +5164,7 @@ async function boot(session) {
     // Give the lists their head start, but never hang the form on them.
     await Promise.race([refReady, new Promise((r) => setTimeout(r, CONFIG.REFERENCE.BOOT_WAIT_MS))]);
 
-    const { mode, job, mix, design } = readParams();
-
-    // Opening a saved design: the row is the job. Reviewers arrive this way.
-    if (design) {
-      await loadDesign(design);
-      enterForm();
-      return;
-    }
+    const { mode, job, mix } = readParams();
 
     // Reopening a review PDF. It carries its own contract, plant and mix,
     // so it needs no job from the query string. The Portal parks the
@@ -3631,8 +5204,12 @@ async function boot(session) {
 wireDrop();
 $("portalLink").addEventListener("click", toPortal);
 $("signOutLink").addEventListener("click", async () => { await sb.auth.signOut(); toLogin(); });
-$("saveBtn").addEventListener("click", saveDesign);
-document.addEventListener("click", (e) => { if (e.target && e.target.id === "pdfBtn") downloadReviewPDF(); });
+document.addEventListener("click", (e) => {
+  if (!e.target) return;
+  if (e.target.id === "pdfBtn") downloadReviewPDF();
+  if (e.target.id === "submittalPdfBtn") downloadSubmittalPDF();
+  if (e.target.id === "approvalPdfBtn") downloadApprovalPDF();
+});
 $("skipUpload").addEventListener("click", () => {
   state.mode = "new";
   enterForm();

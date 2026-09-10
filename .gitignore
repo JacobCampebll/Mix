@@ -54,6 +54,10 @@ docs/*.xlsx
 docs/*.xlsm
 MIXPACK*.xls*
 \#*.xls*
+# ...except KYTC's own blank template, which is a public download off their
+# SiteManager page and holds no data. The MixPack generator needs it as the
+# base it writes into, so it has to be served, not just referenced.
+!public/MIXPACK2026_VER12_01.xlsm
 
 # ---- OS ----
 .DS_Store
