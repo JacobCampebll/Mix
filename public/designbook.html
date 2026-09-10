@@ -136,9 +136,22 @@
            padding:22px 24px; margin-bottom:20px; scroll-margin-top:150px; transition:box-shadow .3s;}
   .section.flash{box-shadow:0 0 0 2px var(--accent);}
   .section-head{display:flex; align-items:baseline; justify-content:space-between;
-                margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line); gap:12px;}
+                margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line);
+                gap:12px; flex-wrap:wrap;}
   .section-tag{font-size:10px; color:var(--muted); border:1px solid var(--line);
                border-radius:3px; padding:2px 7px; letter-spacing:.03em; white-space:nowrap;}
+  /* A tag like "KYTC 403.03.03 A) · does this blend qualify as Type A or B" is
+     383px of nowrap text - wider than a phone on its own, and it was the whole
+     of this page's 165px of sideways scroll at 390px (the polish table looks
+     guilty and is not; .prscroll already clips it). The head wraps it to its
+     own line above; below 700px the text itself has to wrap too.
+     This block sits directly BELOW the two rules it overrides on purpose: a
+     @media block is not a tiebreaker, and at equal specificity the later rule
+     wins - see the same trap in CLAUDE.md's gotchas. */
+  @media (max-width:700px){
+    .section-head{align-items:flex-start; gap:8px;}
+    .section-tag{white-space:normal; max-width:100%;}
+  }
 
   .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
   @media (max-width:700px){ .grid{grid-template-columns:1fr 1fr;} }
@@ -209,7 +222,8 @@
   /* four points — mix constants + 4-row design table + curve + results */
   .fp-consts{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px;}
   @media (max-width:700px){ .fp-consts{grid-template-columns:1fr 1fr;} }
-  table.fptable{width:100%; border-collapse:collapse; font-size:13px;}
+  .fpscroll{overflow-x:auto;}                    /* wide table scrolls itself, never the page */
+  table.fptable{width:100%; min-width:284px; border-collapse:collapse; font-size:13px;}
   table.fptable th{font-size:10px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);
                    text-align:left; padding:6px 8px; border-bottom:1px solid var(--line);}
   table.fptable td{padding:5px 8px; border-bottom:1px solid var(--line);}
@@ -1502,13 +1516,13 @@ function fourpointHTML(section) {
       <td class="calc" data-fpout="dens:${i}">—</td>
     </tr>`).join("");
   return `<div class="fp-consts">${consts}</div>
-    <table class="fptable">
+    <div class="fpscroll"><table class="fptable">
       <thead><tr>
         <th>Pb (%)</th><th>Gmb</th><th>Gmm</th>
         <th>Va (%)</th><th>VMA (%)</th><th>VFA (%)</th><th>Density (pcf)</th>
       </tr></thead>
       <tbody>${rows}</tbody>
-    </table>
+    </table></div>
     <div class="fp-lower">
       <div class="chartwrap"><div class="cap">Va vs Pb — best-fit curve, solved at the air-void target</div><div id="fpchart"></div></div>
       <div class="fp-defaultnote" id="fpDefaultNote"></div>
