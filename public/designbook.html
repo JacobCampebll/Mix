@@ -1429,7 +1429,13 @@ const CONFIG = {
       tag: "dropdowns from Supabase reference / legacy MixPack", type: "rows",
       rows: {
         key: "aggregate", max: 6, addLabel: "+ add aggregate component (up to 6)",
-        grid: "1.4fr 1.2fr 1fr .8fr .8fr auto",
+        // The three numbers are 5, 2 and 4 characters; the producer name is
+        // up to 48 ("HAYDON MATERIALS, LLC - AIRPORT ROAD @ BARDSTOWN") and
+        // was the one being clipped, so the weights follow the content
+        // rather than being roughly equal. Still all fr units: gridWeights()
+        // reads this same string for the review PDF and falls back to equal
+        // columns if it finds a track it cannot parse.
+        grid: "2fr 1.3fr .5fr .38fr .42fr auto",
         columns: [
           // AGP and AMP are different registries: an AGP number is an
           // aggregate producer, an AMP number is an asphalt plant. For every
