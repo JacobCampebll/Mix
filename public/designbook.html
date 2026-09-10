@@ -392,18 +392,25 @@
      as bordered cards three across they took a full screen and put the
      workbook's own results a scroll away from the ones fit from the curve,
      which is the one comparison this section exists to make. */
-  .dvcols{display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
-          gap:18px 28px; align-items:start;}
-  .dvcols.one{grid-template-columns:minmax(0,520px);}
-  @media (max-width:1000px){ .dvcols{grid-template-columns:1fr;} }
-  .dvcol{min-width:0;}
-  .dvlist{border-top:1px solid var(--line);}
-  .dvrow{display:flex; justify-content:space-between; align-items:baseline; gap:14px;
-         padding:5px 4px; border-bottom:1px solid var(--line);}
+  .dvtable{max-width:620px; border-top:1px solid var(--line);}
+  .dvrow{display:grid; grid-template-columns:minmax(0,1fr) 108px;
+         align-items:baseline; gap:14px; padding:5px 4px;
+         border-bottom:1px solid var(--line);}
+  .dvtable.two .dvrow{grid-template-columns:minmax(0,1fr) 108px 108px;}
   .dvrow:hover{background:var(--well);}
   .dvrow .l{font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);}
   .dvrow .v{font-family:'Roboto Mono',monospace; font-size:13px; color:var(--accent);
-            white-space:nowrap;}
+            white-space:nowrap; text-align:right;}
+  .dvrow .v.none{color:var(--line);}
+  /* The column names, in the same small caps as every other header here. */
+  .dvhead{border-bottom:1px solid var(--line);}
+  .dvhead .v{font-family:inherit; font-size:10px; text-transform:uppercase;
+             letter-spacing:.03em; color:var(--muted);}
+  .dvhead:hover{background:transparent;}
+  @media (max-width:700px){
+    .dvrow, .dvtable.two .dvrow{grid-template-columns:minmax(0,1fr) 76px 76px;}
+    .dvrow .l{font-size:10px;}
+  }
   .computed-note{font-size:11px; color:var(--muted); margin-top:10px;}
 
   .rowgroup-head{font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);
@@ -1503,17 +1510,25 @@ const CONFIG = {
       id: "design-values", label: "Design Values",
       tag: "computed from Four Points", type: "computed",
       cites: ["volumetric", "optimumac"],
+      // `wb` names the CONFIG.LEGACY.DESIGN_VALUES entry this output is the
+      // same quantity as, so the workbook's figure and the one fit from the
+      // four points print on one line. `row` is the line's own name, for the
+      // five where the two documents use different words for one thing -
+      // a reviewer looking for "Unit weight" must not have to know we call
+      // it density. Anything the workbook states and the calculator does not
+      // (Gsb, the %Gmm pair, absorbed AC, film thickness) follows underneath;
+      // Gmb is the one that goes the other way.
       outputs: [
-        { key: "design_pb",  label: "Design Pb (%)" },
-        { key: "gmm_design", label: "Gmm at design" },
-        { key: "gmb_design", label: "Gmb at design" },
-        { key: "va_design",  label: "Va (%)" },
-        { key: "vma_design", label: "VMA (%)" },
-        { key: "vfa_design", label: "VFA (%)" },
-        { key: "gse",        label: "Gse" },
-        { key: "pbe",        label: "Pbe (%)" },
-        { key: "dust_pbe",   label: "Dust / Pbe" },
-        { key: "density",    label: "Density (pcf)" },
+        { key: "design_pb",  label: "Design Pb (%)", wb: "AC (%)",              row: "AC / design Pb (%)" },
+        { key: "va_design",  label: "Va (%)",        wb: "Air voids (%)",       row: "Air voids / Va (%)" },
+        { key: "vma_design", label: "VMA (%)",       wb: "VMA (%)" },
+        { key: "vfa_design", label: "VFA (%)",       wb: "VFA (%)" },
+        { key: "gmm_design", label: "Gmm at design", wb: "Gmm",           row: "Gmm" },
+        { key: "gmb_design", label: "Gmb at design", row: "Gmb" },
+        { key: "gse",        label: "Gse",           wb: "Gse" },
+        { key: "pbe",        label: "Pbe (%)",       wb: "Effective AC (%)",    row: "Effective AC / Pbe (%)" },
+        { key: "dust_pbe",   label: "Dust / Pbe",    wb: "Dust / binder ratio", row: "Dust ratio" },
+        { key: "density",    label: "Density (pcf)", wb: "Unit weight (pcf)",   row: "Unit weight / density (pcf)" },
       ],
     },
     {
@@ -1940,24 +1955,41 @@ function computedHTML(section) {
   // design).
   const wb = state.legacy && Array.isArray(state.legacy.designValues)
     ? state.legacy.designValues.filter((d) => d.status === "found") : [];
-  // Two lists, side by side, because the whole point of this section is
-  // reading one against the other - stacked three-wide cards put "what the
-  // technician submitted" a screen away from "what the curve fit says".
-  const line = (label, value, attr) =>
-    `<div class="dvrow"><span class="l">${label}</span><span class="v"${attr || ""}>${value}</span></div>`;
-  const wbPanel = wb.length ? `
-    <div class="dvcol">
-      <div class="rowgroup-head">From the uploaded MixPack — read-only</div>
-      <div class="dvlist">${wb.map((d) => line(esc(d.label), esc(String(d.value)))).join("")}</div>
-      <div class="computed-note">${wb.length} value(s) from ${esc(wb[0].source.split("!")[0])}. Compare against the calculator beside it, which is fit from the four trial points (also pulled from the workbook, where the version's cell map has them).</div>
-    </div>` : "";
-  return `<div class="dvcols${wb.length ? "" : " one"}">${wbPanel}
-    <div class="dvcol">
-      <div class="rowgroup-head">Computed from Four Points</div>
-      <div class="dvlist">${section.outputs.map((o) =>
-        line(o.label, "—", ` data-dv="${o.key}"`)).join("")}</div>
-      <div class="computed-note">Read-only — derived from the Four Points inputs above.</div>
-    </div></div>`;
+  // One line per quantity, the workbook's figure beside the one fit from the
+  // four points. Reading one against the other is the only reason this
+  // section exists, and two independent lists left VMA on line 2 of the left
+  // and line 3 of the right. The pairing is declared on each output (`wb`),
+  // not matched on label text here.
+  const has = wb.length > 0;
+  const byLabel = new Map(wb.map((d) => [d.label, String(d.value)]));
+  const used = new Set();
+  const row = (label, wbVal, dvKey) =>
+    `<div class="dvrow">
+       <span class="l">${esc(label)}</span>
+       ${has ? `<span class="v wb">${wbVal == null ? "—" : esc(wbVal)}</span>` : ""}
+       <span class="v"${dvKey ? ` data-dv="${dvKey}"` : ""}>${dvKey ? "—" : "—"}</span>
+     </div>`;
+  const paired = section.outputs.map((o) => {
+    if (o.wb) used.add(o.wb);
+    return row(o.row || o.label, o.wb ? (byLabel.has(o.wb) ? byLabel.get(o.wb) : null) : null, o.key);
+  }).join("");
+  // Whatever the workbook states that the calculator has no counterpart for.
+  const extra = wb.filter((d) => !used.has(d.label))
+    .map((d) => `<div class="dvrow">
+       <span class="l">${esc(d.label)}</span>
+       <span class="v wb">${esc(String(d.value))}</span>
+       <span class="v none">—</span>
+     </div>`).join("");
+  const head = `<div class="dvrow dvhead">
+      <span class="l"></span>
+      ${has ? `<span class="v wb">Uploaded MixPack</span>` : ""}
+      <span class="v">From Four Points</span>
+    </div>`;
+  const note = has
+    ? `${wb.length} value(s) from ${esc(wb[0].source.split("!")[0])}, read-only, beside the calculator fit from the four trial points. A row with a dash is stated by only one of the two.`
+    : "Read-only — derived from the Four Points inputs above.";
+  return `<div class="dvtable${has ? " two" : ""}">${head}${paired}${extra}</div>
+    <div class="computed-note">${note}</div>`;
 }
 
 function statusHTML() {
