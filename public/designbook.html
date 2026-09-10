@@ -170,6 +170,13 @@
   .box.autofilled{background:var(--accent-soft);}
   .box[readonly]{background:#EFEDE6; color:var(--muted); cursor:default;}
   .srcnote{font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--muted); margin-top:3px;}
+  /* Consensus Properties: the resolved spec limit + pass/fail marker under
+     each value, written by computeConsensus(). */
+  .crit{font-size:10.5px; margin-top:3px; line-height:1.35;}
+  .crit.muted{color:var(--muted);}
+  .crit.ok{color:var(--ok);}
+  .crit.fail{color:var(--bad); font-weight:600;}
+  .box.critfail{border-color:var(--bad); background:#FBEEEE;}
 
   /* Searchable reference dropdown. One shared popup for the whole page,
      positioned against the focused input in JS (see comboPosition), so it
@@ -957,6 +964,42 @@ const CONFIG = {
     "0.38": { s12_5: [100, null], s9_5: [90, 100], s4_75: [32, 67], s0_075: [2, 10] },
     "4":    { s9_5: [null, 100], s1_18: [30, 55], s0_075: [6, 13] },
   },
+
+  /* ---- Aggregate consensus properties: KYTC 2026 Std Spec p.194 ----
+   *
+   * AASHTO M323 Table 5, as adopted by KYTC. Same footing as
+   * GRADATION_CONTROL_POINTS and POLISH - static spec data, changes only
+   * when the spec table is revised, so it ships here, not in Supabase.
+   *
+   * Keyed by the spec's "Class" column, which is DesignBook's `aadtt_class`
+   * field (the CL2/CL3/CL4 in the mix designation). NO depth or ESAL term -
+   * the old MixPack "Criteria" formulas branched on those; the current
+   * KYTC table does not.
+   *
+   *   caaMin: [one crushed face, two-or-more crushed faces]. DesignBook
+   *   holds a single `caa` value and checks it against the SECOND figure
+   *   (AASHTO T335's primary reported number). TODO (Andrew, confirm with
+   *   Tate): whether KYTC wants the one-face value captured separately -
+   *   the KM p.472 verification tolerance tracks both.
+   *   feMax: flat & elongated particles, maximum.
+   *
+   * No. 4 mixtures (nominal_size "NO.4"), per the p.194 notes: FAA minimum
+   * is 45 regardless of class; CAA and F&E do not apply; SE still does.
+   *
+   * Department verification tolerances (KM p.472, applied when KYTC re-tests
+   * a contractor design, NOT here): CAA +/-10, FAA +/-2, SE +/-15, F&E +/-5
+   * (SMA only).
+   */
+  CONSENSUS_CRITERIA: {
+    CITE: "KYTC 2026 Std Spec p.194 (AASHTO M323 Table 5)",
+    NO4_FAA_MIN: 45,
+    BY_CLASS: {
+      "2": { faaMin: 40, seMin: 40, caaMin: [85, 80],   feMax: 10 },
+      "3": { faaMin: 43, seMin: 45, caaMin: [95, 90],   feMax: 10 },
+      "4": { faaMin: 45, seMin: 50, caaMin: [100, 100], feMax: 10 },
+    },
+  },
+
   /* ---- Polish-resistant aggregate: KYTC 403.03.03 A) ----
    *
    * 2026 Standard Specifications, Section 400 Asphalt Pavements, pp. 403-3/4.
@@ -1162,17 +1205,17 @@ const CONFIG = {
       id: "consensus", label: "Consensus Properties",
       tag: "Superpave · measured on the combined aggregate blend", type: "grid",
       // AASHTO M323 Table 5 consensus properties. Legacy source is MixPack
-      // Design Data!O52-O55 (see CONFIG.LEGACY.CELLS). Values only for this
-      // pass: the MixPack also resolves a per-mix spec limit for each of
-      // these (its "Criteria" column P, keyed on traffic level / depth /
-      // NMAS) - reproducing that limit and an in/out-of-spec marker is a
-      // later pass. Flat & elongated is legitimately N/A on a #4-nominal
-      // mix, so none of these are required yet.
+      // Design Data!O52-O55 (see CONFIG.LEGACY.CELLS). The per-mix spec
+      // limit for each is resolved from CONFIG.CONSENSUS_CRITERIA and shown
+      // next to the value by computeConsensus(), with an out-of-spec value
+      // raising a non-blocking rail warning (same footing as Polish). CAA
+      // and F&E do not apply to a No. 4 mix, so computeConsensus() drops
+      // their `req` in that case; FAA and SE always apply.
       fields: [
-        { key: "caa",             label: "Coarse aggregate angularity (%)",     type: "number", req: false, mono: true },
-        { key: "faa",             label: "Fine aggregate angularity (%)",       type: "number", req: false, mono: true },
-        { key: "flat_elongated",  label: "Flat & elongated particles (%)",      type: "number", req: false, mono: true },
-        { key: "sand_equivalent", label: "Clay content (SE) (%)",                type: "number", req: false, mono: true },
+        { key: "caa",             label: "Coarse aggregate angularity (%)",     type: "number", req: true, mono: true },
+        { key: "faa",             label: "Fine aggregate angularity (%)",       type: "number", req: true, mono: true },
+        { key: "flat_elongated",  label: "Flat & elongated particles (%)",      type: "number", req: true, mono: true },
+        { key: "sand_equivalent", label: "Clay content (SE) (%)",                type: "number", req: true, mono: true },
       ],
     },
     {
@@ -2434,9 +2477,79 @@ function drawFpChart(pbs, vas, vaFit, vaTgt, designPb) {
   </svg>`;
 }
 
+/* ---------- consensus properties: per-mix spec limits ---------- */
+// "#4", "4" and KYTC's "NO.4"/"NO.4A" all mean the No. 4 (4.75 mm) family -
+// same test controlPointsForNominalSize() uses, read off Contract Info's
+// own field so it tracks a hand correction, not just the Portal prefill.
+function isNo4Mix() {
+  return /^(#?4|no\.?\s?4[a-z]?)$/i.test(String(fieldValue("nominal_size") || "").trim());
+}
+
+// Resolve the consensus-property limits for the current AADTT Class and
+// mix. Returns null when Class isn't set yet (nothing to check against).
+// Each item: { key, text (what prints by the value, like the MixPack's
+// "Criteria" column), state: "ok"|"fail"|"pending"|"na", ok }.
+function consensusChecks() {
+  const C = CONFIG.CONSENSUS_CRITERIA;
+  const row = C.BY_CLASS[String(fieldValue("aadtt_class") || "").trim()];
+  if (!row) return null;
+  const no4 = isNo4Mix();
+  const faaMin = no4 ? Math.max(row.faaMin, C.NO4_FAA_MIN) : row.faaMin;
+  const specs = {
+    caa:             no4 ? { na: true, text: "n/a — No. 4 mix" }
+                         : { min: row.caaMin[1], text: `${row.caaMin[0]} / ${row.caaMin[1]} min (one / two+ faces)` },
+    faa:             { min: faaMin, text: `${faaMin} min${no4 ? " (No. 4)" : ""}` },
+    sand_equivalent: { min: row.seMin, text: `${row.seMin} min` },
+    flat_elongated:  no4 ? { na: true, text: "n/a — No. 4 mix" }
+                         : { max: row.feMax, text: `${row.feMax} max` },
+  };
+  return Object.entries(specs).map(([key, s]) => {
+    const v = num(fieldValue(key));
+    let stt = "na", ok = null;
+    if (!s.na) {
+      if (v == null) stt = "pending";
+      else if (s.min != null) { ok = v >= s.min; stt = ok ? "ok" : "fail"; }
+      else { ok = v <= s.max; stt = ok ? "ok" : "fail"; }
+    }
+    return { key, text: s.text, state: stt, ok };
+  });
+}
+
+// Print the resolved limit + marker under each consensus value, and flip
+// `req` off for CAA / F&E on a No. 4 mix (they don't apply, so the rail
+// must not count them missing). Called from recompute() BEFORE its
+// required-field sweep so the class change lands the same tick.
+function computeConsensus() {
+  const host = document.querySelector('[data-section="consensus"]');
+  if (!host) return;
+  const checks = consensusChecks();
+  const no4 = isNo4Mix();
+  ["caa", "flat_elongated"].forEach((k) => {
+    const el = host.querySelector(`[data-field="${k}"]`);
+    if (el) el.classList.toggle("req", !no4);
+  });
+  host.querySelectorAll(".field").forEach((f) => {
+    const inp = f.querySelector("[data-field]");
+    if (!inp) return;
+    let note = f.querySelector(".crit");
+    if (!note) { note = document.createElement("div"); f.appendChild(note); }
+    const item = checks && checks.find((c) => c.key === inp.dataset.field);
+    inp.classList.remove("critfail");
+    if (!checks) { note.className = "crit muted"; note.textContent = "Set AADTT Class for the spec limit"; return; }
+    if (!item) { note.className = "crit muted"; note.textContent = ""; return; }
+    const mark = item.state === "ok" ? "✓ " : item.state === "fail" ? "✗ " : "";
+    note.className = "crit " + (item.state === "fail" ? "fail" : item.state === "ok" ? "ok" : "muted");
+    note.textContent = mark + item.text;
+    if (item.state === "fail") inp.classList.add("critfail");
+  });
+}
+
 /* ---------- validation rail + nav ticks ---------- */
 function recompute() {
   const outstanding = [];
+  // Consensus limits first: this may drop `req` on CAA / F&E (No. 4 mix)
+  // and must do so before the required-field sweep below counts them.
+  computeConsensus();
   document.querySelectorAll(".section").forEach((sec) => {
     const id = sec.dataset.section;
     if (id === "status") return;
@@ -2477,6 +2590,20 @@ function recompute() {
       outstanding.push({ id: "polish", label, kind: "warn",
         text: c.unproven ? `${c.label} - not proven, a component is not on the KYTC aggregate list`
                          : `${c.label} - ${CONFIG.POLISH.CITE}` });
+    });
+  }
+
+  // Consensus properties: an out-of-spec value is a warning, same as Polish
+  // - the design is complete, it just would not meet the spec limit.
+  const cc = consensusChecks();
+  if (cc) {
+    const sec = document.querySelector('[data-section="consensus"]');
+    const label = sec ? sec.dataset.label : "Consensus Properties";
+    const fdef = (CONFIG.SECTIONS.find((s) => s.id === "consensus") || {}).fields || [];
+    cc.filter((c) => c.state === "fail").forEach((c) => {
+      const fl = (fdef.find((f) => f.key === c.key) || {}).label || c.key;
+      outstanding.push({ id: "consensus", label, kind: "warn",
+        text: `${fl} ${fieldValue(c.key)} is outside the limit (${c.text}) - ${CONFIG.CONSENSUS_CRITERIA.CITE}` });
     });
   }
 
