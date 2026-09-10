@@ -158,6 +158,26 @@
   .box[readonly]{background:#EFEDE6; color:var(--muted); cursor:default;}
   .srcnote{font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--muted); margin-top:3px;}
 
+  /* Searchable reference dropdown. One shared popup for the whole page,
+     positioned against the focused input in JS (see comboPosition), so it
+     is position:fixed and must sit above the sticky appbar (z-index 20). */
+  .combo{position:fixed; z-index:60; background:var(--panel); border:1px solid var(--line);
+         border-radius:var(--radius); box-shadow:0 10px 28px rgba(8,56,96,.18);
+         overflow:hidden; display:flex; flex-direction:column;}
+  .combo-list{overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;}
+  .combo-opt{padding:9px 12px; cursor:pointer; border-bottom:1px solid var(--line);}
+  .combo-opt:last-child{border-bottom:0;}
+  .combo-opt.active, .combo-opt:hover{background:var(--accent-soft);}
+  .combo-val{font-size:13px; line-height:1.35; color:var(--ink);}
+  .combo.mono .combo-val{font-family:'IBM Plex Mono',monospace; color:var(--accent);}
+  .combo-sub{font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--muted); margin-top:2px;}
+  .combo-val mark, .combo-sub mark{background:var(--gold); color:var(--ink); padding:0 1px; border-radius:2px;}
+  .combo-foot{padding:6px 12px; font-size:10.5px; color:var(--muted); background:#FCFCFA;
+              border-top:1px solid var(--line);}
+  .combo-foot.warn{color:var(--flag); background:var(--flag-soft);}
+  /* Touch: the whole row is the tap target, so give it a finger's worth. */
+  @media (pointer:coarse){ .combo-opt{padding:12px; min-height:44px;} }
+
   .rowlist{display:flex; flex-direction:column; gap:8px;}
   .rowitem{display:grid; gap:10px; align-items:end; padding:8px 10px;
            border:1px solid var(--line); border-radius:var(--radius); background:#FCFCFA;}
@@ -384,9 +404,6 @@
 
   <main>
     <div id="sections"></div>
-    <!-- <datalist>s for the long reference lists; filled by renderRefLists() -->
-    <div id="refLists"></div>
-
     <details id="inspectorWrap" class="hidden">
       <summary>Import log — version, sheets, every field with its source cell and what was found</summary>
       <pre id="inspector"></pre>
@@ -458,6 +475,11 @@ const CONFIG = {
     // a longer list renders as an <input> with a <datalist>, so free text is
     // still possible and the list is a suggestion.
     SELECT_MAX: 30,
+    // The searchable dropdown a long list gets instead of a <datalist>.
+    // MAX_SHOWN caps rendered rows - nobody scrolls 178 producers, and the
+    // footer says how many are hidden. MIN_WIDTH keeps the popup readable
+    // when the field it hangs off is a narrow row cell.
+    COMBO: { MAX_SHOWN: 60, MIN_WIDTH: 260, MAX_HEIGHT_VH: 45, FUZZY_MIN_CHARS: 3 },
     // How long boot waits for the lists before rendering anyway. Late or
     // failed lists upgrade the rendered fields in place; nothing is lost.
     BOOT_WAIT_MS: 2000,
@@ -1329,8 +1351,12 @@ function refControlHTML(def, cls, attrs, value) {
     if (hit) v = hit.value;
     return selectHTML(cls, `data-source="${def.source}" ${attrs}`, list, v);
   }
-  const dl = list.length ? ` list="${refListId(def.source)}" autocomplete="off"` : "";
-  return `<input type="text" class="${cls}" data-source="${def.source}" ${attrs}${dl} value="${esc(v)}">`;
+  // A long list gets the searchable popup (comboOpen), not a native
+  // <datalist> - see the comment above the combobox block for why. The
+  // element stays a plain <input> carrying the same attributes it always
+  // did, so collectForm() and everything downstream is unaffected.
+  const comboAttrs = list.length ? ` role="combobox" aria-autocomplete="list" aria-expanded="false"` : "";
+  return `<input type="text" class="${cls}" data-source="${def.source}" ${attrs}${comboAttrs} autocomplete="off" value="${esc(v)}">`;
 }
 
 function inputFor(f, value) {
@@ -1569,7 +1595,6 @@ function renderForm() {
     `<li class="navitem" data-target="${s.id}"><span class="tick" data-tick="${s.id}"></span>${s.label}</li>`
   ).join("");
 
-  renderRefLists();
   wireForm();
   applyAutofills();
   renderRefStatus();
@@ -3080,6 +3105,25 @@ function wireForm() {
     if (e.target.tagName === "SELECT" || e.target.dataset.source) { autofillFrom(e.target); recompute(); }
   });
 
+  // Searchable reference dropdown. Delegated like everything else, so a
+  // control that is re-rendered (a new aggregate row, or the upgrade in
+  // refreshReferenceControls) arrives already wired. Kept separate from the
+  // input handler above so the two concerns stay readable.
+  $("sections").addEventListener("focusin", (e) => {
+    if (e.target.dataset && e.target.dataset.source) comboOpen(e.target, true);
+    else comboClose();
+  });
+  $("sections").addEventListener("focusout", (e) => {
+    if (e.target !== combo.input) return;
+    // Let the popup's own click land first; it prevents the blur, so by the
+    // next tick focus is either back on the input or genuinely gone.
+    setTimeout(() => { if (document.activeElement !== combo.input) comboClose(); }, 0);
+  });
+  $("sections").addEventListener("keydown", comboKeydown);
+  $("sections").addEventListener("input", (e) => {
+    if (e.target.dataset && e.target.dataset.source) comboOpen(e.target, false);
+  });
+
   // Highlight what came from the workbook so it reads as "check me".
   Object.keys(state.sources).forEach((k) => {
     const el = document.querySelector(`[data-field="${k}"]`);
@@ -4578,7 +4622,6 @@ async function loadReferenceData() {
   return state.ref;
 }
 
-function refListId(key) { return "reflist_" + key; }
 function refKey(v) { return String(v == null ? "" : v).toLowerCase().replace(/\s+/g, ""); }
 // Exact value first, then case/whitespace-insensitive, then an alias.
 function refMatch(sourceKey, value) {
@@ -4606,18 +4649,6 @@ function refFieldLabel(el) {
   return `${def ? def.label : el.dataset.col}${n ? ` (${el.dataset.row} row ${n})` : ""}`;
 }
 
-// One <datalist> per long list, shared by every input that names it. Short
-// lists are <select>s and need none.
-function renderRefLists() {
-  const R = CONFIG.REFERENCE;
-  $("refLists").innerHTML = Object.keys(R.TABLES).map((key) => {
-    const list = state.ref[key] || [];
-    if (!list.length || list.length <= R.SELECT_MAX) return "";
-    return `<datalist id="${refListId(key)}">` + list.map((o) =>
-      `<option value="${esc(o.value)}">${o.label !== o.value ? esc(o.label) : ""}</option>`).join("") + `</datalist>`;
-  }).join("");
-}
-
 // "Reference lists: 178 aggregates, 115 types, 26 terminals, 12 grades" -
 // or what failed. Lives in the Status section (rendered by statusHTML).
 function renderRefStatus() {
@@ -4639,7 +4670,7 @@ function renderRefStatus() {
 // #sections, so swapping the element loses nothing.
 function refreshReferenceControls() {
   if (!$("sections").children.length) { renderRefStatus(); return; }   // not drawn yet; renderForm reads state.ref itself
-  renderRefLists();
+  comboClose();   // the input the popup is anchored to is about to be replaced
   document.querySelectorAll("#sections [data-source]").forEach((el) => {
     const def = refDefFor(el);
     if (!def) return;
@@ -4694,6 +4725,275 @@ function snapToReference(el) {
   if (el.tagName !== "INPUT") return;
   const hit = refMatch(el.dataset.source, el.value);
   if (hit && hit.value !== String(el.value).trim()) el.value = hit.value;
+}
+
+
+/* ---------- searchable reference dropdown ---------- */
+// A sourced field longer than SELECT_MAX used to be a native <datalist>.
+// That looked like a typeahead and mostly was not one: a datalist only
+// substring-matches an option's *value*, never its label or its aliases,
+// it ranks nothing, and on iOS it barely opens. So an AGP number found
+// nothing, and "haydon airport" found nothing either, even though
+// "HAYDON MATERIALS LLC - AIRPORT ROAD @ BARDSTOWN" is right there.
+//
+// This is one shared popup for the whole page. It scores every entry
+// across value + label + aliases, ranks closest first, opens the moment
+// you type (no need to hit the caret), and takes arrow keys and Enter.
+// The <input> itself is untouched - same classes, same data-field or
+// data-row+data-col, same value - so collectForm(), the validation rail,
+// the MAT-code auto-fill and refreshReferenceControls() are unaffected.
+// Choosing an entry dispatches real input+change events, so it lands the
+// same way typing it by hand would.
+const combo = { el: null, listEl: null, footEl: null, input: null, opts: [], active: -1, committing: false };
+const comboIndex = {};
+
+// value/label/aliases, pre-lowercased once per list. The second line only
+// carries what the value does not already say ("HAYDON… — 12345" -> "12345").
+function comboEntries(source) {
+  const list = state.ref[source] || [], cached = comboIndex[source];
+  if (cached && cached.len === list.length) return cached.entries;
+  const entries = list.map((o) => {
+    const value = String(o.value);
+    const label = String(o.label == null ? value : o.label);
+    const aliases = (o.aliases || []).map(String);
+    let sub = label === value ? ""
+            : label.startsWith(value) ? label.slice(value.length).replace(/^\s*[—\-·]\s*/, "")
+            : label;
+    aliases.forEach((a) => {
+      if (sub.toLowerCase().indexOf(a.toLowerCase()) < 0) sub = sub ? `${sub} · ${a}` : a;
+    });
+    const k = { value: value.toLowerCase(), label: label.toLowerCase(), aliases: aliases.map((a) => a.toLowerCase()) };
+    return { value, sub, k, words: k.value.split(/[^a-z0-9.]+/).filter(Boolean) };
+  });
+  comboIndex[source] = { len: list.length, entries };
+  return entries;
+}
+
+// Every character of `needle`, in order, somewhere in `hay`. The loosest
+// rung on the ladder, so it is gated on FUZZY_MIN_CHARS - a one- or
+// two-letter token would otherwise match half the table.
+function comboSubsequence(needle, hay) {
+  let i = 0;
+  for (let j = 0; j < hay.length && i < needle.length; j++) if (hay[j] === needle[i]) i++;
+  return i === needle.length;
+}
+
+// How close one entry is to one typed word. Lower is closer; null is no
+// match at all, which drops the entry regardless of the other words.
+function comboTokenScore(e, tok) {
+  if (e.k.value === tok) return 0;
+  if (e.k.value.startsWith(tok)) return 1;
+  if (e.k.aliases.some((a) => a === tok)) return 2;
+  if (e.k.aliases.some((a) => a.startsWith(tok))) return 3;
+  if (e.words.some((w) => w.startsWith(tok))) return 4;
+  if (e.k.value.indexOf(tok) >= 0) return 5;
+  if (e.k.label.indexOf(tok) >= 0 || e.k.aliases.some((a) => a.indexOf(tok) >= 0)) return 6;
+  if (tok.length >= CONFIG.REFERENCE.COMBO.FUZZY_MIN_CHARS && comboSubsequence(tok, e.k.value)) return 7;
+  return null;
+}
+
+// Words are ANDed: "haydon airport" keeps only entries matching both, which
+// is what makes a 178-row list usable without knowing how KYTC spells it.
+function comboSearch(source, query) {
+  const entries = comboEntries(source);
+  const toks = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!toks.length) return { toks, matches: entries.map((e, i) => ({ e, score: 0, order: i })) };
+  const matches = [];
+  entries.forEach((e, i) => {
+    let total = 0;
+    for (let t = 0; t < toks.length; t++) {
+      const s = comboTokenScore(e, toks[t]);
+      if (s == null) return;
+      total += s;
+    }
+    matches.push({ e, score: total, order: i });
+  });
+  matches.sort((a, b) => a.score - b.score || a.e.value.length - b.e.value.length || a.order - b.order);
+  return { toks, matches };
+}
+
+// Highlight the typed words inside an option. Ranges are found on the raw
+// string, then every slice is escaped separately - esc() still owns every
+// character that reaches innerHTML (CLAUDE.md: reference rows are data too).
+function comboMark(text, toks) {
+  const low = String(text).toLowerCase(), ranges = [];
+  toks.forEach((t) => { const i = low.indexOf(t); if (i >= 0) ranges.push([i, i + t.length]); });
+  if (!ranges.length) return esc(text);
+  ranges.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  ranges.forEach((r) => {
+    const last = merged[merged.length - 1];
+    if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]);
+    else merged.push([r[0], r[1]]);
+  });
+  let out = "", at = 0;
+  merged.forEach((r) => { out += esc(text.slice(at, r[0])) + "<mark>" + esc(text.slice(r[0], r[1])) + "</mark>"; at = r[1]; });
+  return out + esc(text.slice(at));
+}
+
+function comboRoot() {
+  if (combo.el) return combo.el;
+  const d = document.createElement("div");
+  d.id = "comboPop";
+  d.className = "combo hidden";
+  d.setAttribute("role", "listbox");
+  d.innerHTML = `<div class="combo-list"></div><div class="combo-foot"></div>`;
+  // Without this the input blurs on press and the click lands on nothing.
+  d.addEventListener("mousedown", (e) => e.preventDefault());
+  d.addEventListener("click", (e) => {
+    const opt = e.target.closest(".combo-opt");
+    if (opt) comboCommit(Number(opt.dataset.i));
+  });
+  document.body.appendChild(d);
+  combo.el = d;
+  combo.listEl = d.querySelector(".combo-list");
+  combo.footEl = d.querySelector(".combo-foot");
+  window.addEventListener("scroll", comboReposition, true);
+  window.addEventListener("resize", comboReposition);
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", comboReposition);
+  return d;
+}
+
+function comboIsOpen(el) { return !!combo.el && combo.input === el && !combo.el.classList.contains("hidden"); }
+
+function comboClose() {
+  if (!combo.el) return;
+  combo.el.classList.add("hidden");
+  if (combo.input) {
+    combo.input.setAttribute("aria-expanded", "false");
+    combo.input.removeAttribute("aria-activedescendant");
+  }
+  combo.input = null; combo.opts = []; combo.active = -1;
+}
+
+function comboSetActive(i) {
+  if (!combo.opts.length) return;
+  const n = combo.opts.length;
+  combo.active = i < 0 ? n - 1 : i >= n ? 0 : i;
+  Array.from(combo.listEl.children).forEach((c, j) => {
+    const on = j === combo.active;
+    c.classList.toggle("active", on);
+    c.setAttribute("aria-selected", on ? "true" : "false");
+    if (on) c.scrollIntoView({ block: "nearest" });
+  });
+  if (combo.input) combo.input.setAttribute("aria-activedescendant", "comboOpt" + combo.active);
+}
+
+// `all` shows the whole list (focus, or the caret key) instead of filtering
+// by what is already in the box - on reopening a field that already holds a
+// producer, a filtered list of exactly one is no use.
+function comboOpen(el, all) {
+  if (combo.committing) return;   // the input event a commit dispatches must not reopen it
+  if (!el || el.tagName !== "INPUT" || el.disabled || el.readOnly || !el.dataset.source) return;
+  const list = state.ref[el.dataset.source] || [];
+  if (!list.length || list.length <= CONFIG.REFERENCE.SELECT_MAX) return;   // short lists are <select>s
+  const pop = comboRoot();
+  const typed = String(el.value || "");
+  const hit = refMatch(el.dataset.source, typed);
+  const q = all ? "" : typed;
+  const found = comboSearch(el.dataset.source, q);
+  const C = CONFIG.REFERENCE.COMBO;
+  const shown = found.matches.slice(0, C.MAX_SHOWN);
+
+  combo.input = el;
+  combo.opts = shown;
+  combo.active = -1;
+  combo.listEl.scrollTop = 0;
+  combo.listEl.innerHTML = shown.map((m, i) =>
+    `<div class="combo-opt" role="option" id="comboOpt${i}" data-i="${i}" aria-selected="false">
+       <div class="combo-val">${comboMark(m.e.value, found.toks)}</div>
+       ${m.e.sub ? `<div class="combo-sub">${comboMark(m.e.sub, found.toks)}</div>` : ""}
+     </div>`).join("");
+
+  const noun = CONFIG.REFERENCE.TABLES[el.dataset.source].noun;
+  let foot, warn = false;
+  if (!found.matches.length) {
+    // The off-list rule, said out loud: a value with no match is kept and
+    // flagged, never blanked (CLAUDE.md, "Reference data").
+    foot = `No KYTC ${noun.replace(/s$/, "")} matches “${typed.trim()}” — it will be kept as typed and flagged.`;
+    warn = true;
+  } else if (found.matches.length > shown.length) {
+    foot = `Showing ${shown.length} of ${found.matches.length} — keep typing to narrow it.`;
+  } else {
+    foot = `${found.matches.length} ${noun}${q ? " match" : ""} · ↑↓ to move, Enter to choose`;
+  }
+  combo.footEl.textContent = foot;
+  combo.footEl.classList.toggle("warn", warn);
+
+  pop.classList.toggle("mono", el.classList.contains("mono"));
+  pop.classList.remove("hidden");
+  el.setAttribute("aria-expanded", "true");
+  comboPosition();
+  // Reopening a field that already holds an entry lands you on it.
+  if (!q && hit) {
+    const at = shown.findIndex((m) => m.e.value === hit.value);
+    if (at >= 0) comboSetActive(at);
+  }
+}
+
+// Hangs below the field, or above it when the keyboard has eaten the room.
+// visualViewport is what shrinks when a phone keyboard opens; innerHeight
+// does not, so on a phone the popup would otherwise render behind it.
+function comboPosition() {
+  const el = combo.input, pop = combo.el;
+  if (!el || !pop) return;
+  const C = CONFIG.REFERENCE.COMBO, gut = 8;
+  const vv = window.visualViewport;
+  const vw = vv ? vv.width : window.innerWidth, vh = vv ? vv.height : window.innerHeight;
+  const r = el.getBoundingClientRect();
+  const w = Math.min(Math.max(r.width, C.MIN_WIDTH), vw - gut * 2);
+  const cap = Math.round(vh * C.MAX_HEIGHT_VH / 100);
+  const below = vh - r.bottom - gut, above = r.top - gut;
+  const drop = below >= Math.min(cap, 180) || below >= above;
+  const h = Math.max(96, Math.min(cap, drop ? below : above));
+  let left = r.left;
+  if (left + w > vw - gut) left = vw - gut - w;
+  pop.style.left = Math.max(gut, left) + "px";
+  pop.style.top = (drop ? r.bottom + 4 : Math.max(gut, r.top - h - 4)) + "px";
+  pop.style.width = w + "px";
+  pop.style.maxHeight = h + "px";
+}
+
+// Scrolling the page with the popup open: follow the field, but let go once
+// the field itself has left the viewport.
+function comboReposition() {
+  if (!combo.input || !combo.el || combo.el.classList.contains("hidden")) return;
+  const r = combo.input.getBoundingClientRect();
+  const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  if (r.bottom < 0 || r.top > vh) { comboClose(); return; }
+  comboPosition();
+}
+
+// Real input+change events, so the existing delegated handlers do the rest:
+// drop the prefilled tint, run the MAT-code auto-fill, recompute the rail,
+// mark the form dirty, snap to the KYTC spelling.
+function comboCommit(i) {
+  const m = combo.opts[i], el = combo.input;
+  if (!m || !el) return;
+  el.value = m.e.value;
+  comboClose();
+  combo.committing = true;
+  try {
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  } finally { combo.committing = false; }
+  el.focus();
+}
+
+function comboKeydown(e) {
+  const el = e.target;
+  if (!el.dataset || !el.dataset.source || el.tagName !== "INPUT") return;
+  const open = comboIsOpen(el);
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    if (!open) comboOpen(el, true); else comboSetActive(combo.active + 1);
+    return;
+  }
+  if (!open) return;
+  if (e.key === "ArrowUp")   { e.preventDefault(); comboSetActive(combo.active - 1); return; }
+  if (e.key === "Enter")     { if (combo.active >= 0) e.preventDefault(); comboCommit(combo.active); return; }
+  if (e.key === "Escape")    { e.preventDefault(); e.stopPropagation(); comboClose(); return; }
+  if (e.key === "Tab")       { comboClose(); }
 }
 
 /* ---------- mix selection -> pre-fill ---------- */
