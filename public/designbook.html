@@ -378,12 +378,21 @@
   .auditrow .ts{font-family:'IBM Plex Mono',monospace; color:var(--ink); white-space:nowrap;}
 
   /* right validation rail */
-  .valpanel{position:sticky; top:132px; align-self:start; background:var(--panel);
-            border:1px solid var(--line); border-radius:10px; padding:18px;}
+  /* The sky wash from the logo, so the rail that says what is LEFT TO DO
+     reads as a different kind of thing from the white cards holding the
+     work itself. Same reasoning as the navy nav card on the other side:
+     the two rails are about the page, the middle column is the page.
+     Kept as the pale wash rather than the logo's full #5FB2E4 - a 12px
+     warning list on saturated blue is not readable, and the strong sky is
+     spent on the edge and the heading instead. */
+  .valpanel{position:sticky; top:132px; align-self:start; background:var(--accent-soft);
+            border:1px solid var(--sky); border-radius:10px; padding:18px;}
   @media (max-width:1080px){ .valpanel{position:static;} }
-  .valpanel h3{font-size:13px; margin-bottom:4px;}
+  .valpanel h3{font-size:13px; margin-bottom:4px; color:var(--navy);}
   .valpanel .sub{font-size:11px; color:var(--muted); margin-bottom:14px;}
-  .vitem{display:flex; gap:8px; padding:8px 0; border-top:1px solid var(--line);
+  /* Rules inside the wash need to be the wash's own darker relative; --line
+     is a paper colour and turns muddy on blue. */
+  .vitem{display:flex; gap:8px; padding:8px 0; border-top:1px solid rgba(28,124,192,.22);
          font-size:12px; cursor:pointer;}
   .vitem:first-of-type{border-top:none;}
   .vitem .flag{width:6px; height:6px; border-radius:50%; background:var(--flag);
