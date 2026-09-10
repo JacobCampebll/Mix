@@ -467,6 +467,31 @@ TBD — cite the governing spec section when encoding a limit in code.
   (Shipped inside commit `1103126`, whose message describes the other three
   polish changes and not this one.)
 
+- **Spec citations are links, and the two KYTC documents anchor
+  differently.** `CONFIG.SPECS` in `designbook.html` holds both, and every
+  page in it was opened and read in the real file 2026-09-10 rather than
+  inferred. The **2026 Standard Specifications** (703 pages, 101 MB) has
+  **no named destinations and no bookmarks**, so `#page=N` - a physical
+  page - is the only anchor a browser honours, and the book has no running
+  page numbers either (footers are section-relative, `403-4`), so each entry
+  records that footer too: that is how you re-find the page in one search
+  when the next edition moves it. **Kentucky Methods** (13 MB) *does* carry
+  123 named destinations, one per method (`km443p1` = KM 64-443 page 1),
+  which survive a re-issue - so prefer `#nameddest=`; five are present by
+  name but point at nothing (`km001`, `km265`, `km323`, `km421`, `km444`)
+  and KM 64-450 has none at all, so those fall back to `#page=N`. The pages
+  worth knowing: 403.03.03 A) polish-resistant + the 15% natural-sand cap is
+  PDF **193** (`403-4`); C) 1) volumetric/gyrations, C) 3) TSR and C) 4)
+  consensus properties are all PDF **194** (`403-5`); C) 5) Hamburg/KYCT
+  limits is **195** (`403-6`); 805.05 aggregates for asphalt mixtures is
+  **562** (`805-4`); 402.03.01 A) JMF is **176** (`402-1`). The `CITE`
+  constants stay **plain text** on purpose - the review PDF prints them and
+  a PDF string cannot carry an anchor - and `specLinkify()` links the
+  citation's own name where it reaches the screen. One caveat to pass on
+  before sending a contractor to the spec book on a phone: 101 MB is the
+  whole download, since a phone browser generally will not range-request a
+  PDF the way desktop Chrome does.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
