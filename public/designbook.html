@@ -180,6 +180,20 @@
                 gap:12px; flex-wrap:wrap;}
   .section-tag{font-size:10px; color:var(--muted); border:1px solid var(--line);
                border-radius:3px; padding:2px 7px; letter-spacing:.03em; white-space:nowrap;}
+  /* The head's right-hand side: the spec citations, then the tag. */
+  .headmeta{display:flex; align-items:baseline; justify-content:flex-end; gap:6px; flex-wrap:wrap;}
+  /* A citation is the spec's own name and nothing else, and it opens that
+     document at the page. Same chip shape as the tag so the head stays one
+     line of small type, but in the accent so it reads as a link. */
+  a.cite{font-size:10px; font-family:'Roboto Mono',monospace; color:var(--accent); text-decoration:none;
+         border:1px solid var(--accent); border-radius:3px; padding:2px 7px;
+         letter-spacing:.03em; white-space:nowrap;}
+  a.cite:hover{background:var(--accent); color:#FFFFFF;}
+  a.cite:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+  /* Inline in a note or a check result there is no chip - just a link. */
+  .prnote a.cite, .prsub a.cite{border:0; padding:0; font-size:inherit; font-family:inherit;
+                                white-space:normal; text-decoration:underline;}
+  .prnote a.cite:hover, .prsub a.cite:hover{background:transparent; color:var(--accent);}
   /* A tag like "KYTC 403.03.03 A) · does this blend qualify as Type A or B" is
      383px of nowrap text - wider than a phone on its own, and it was the whole
      of this page's 165px of sideways scroll at 390px (the polish table looks
@@ -191,6 +205,8 @@
   @media (max-width:700px){
     .section-head{align-items:flex-start; gap:8px;}
     .section-tag{white-space:normal; max-width:100%;}
+    .headmeta{justify-content:flex-start; max-width:100%;}
+    a.cite{white-space:normal; max-width:100%;}
   }
 
   .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
@@ -1075,6 +1091,72 @@ const CONFIG = {
     "4":    { s9_5: [null, 100], s1_18: [30, 55], s0_075: [6, 13] },
   },
 
+  /* ---- Spec citations, and how a link lands on the exact page ----
+   *
+   * Every section that is governed by a published KYTC document names it in
+   * its head, and the name is a link that opens that document AT the page.
+   * Two documents, and they behave differently:
+   *
+   *   STD - the 2026 Standard Specifications. 703 pages, 101 MB, and it
+   *     carries NO named destinations and NO bookmarks, so the only anchor a
+   *     browser will honour is `#page=N` - a PHYSICAL page number, which the
+   *     next edition will move. The spec has no running page numbers either;
+   *     its footers are section-relative ("403-4"). So each entry records
+   *     BOTH: `page` is what the link uses, `footer` is what is printed on
+   *     that page, which is how you re-find it in one search after a
+   *     re-issue. Every page below was verified against the real file
+   *     2026-09-10 - do not adjust one by arithmetic, open it and look.
+   *     Worth knowing before you send a contractor here on a phone: 101 MB
+   *     is the whole download, since a phone browser generally will not
+   *     range-request a PDF the way desktop Chrome does.
+   *
+   *   KM - Kentucky Methods. 12.8 MB, and it DOES carry named destinations,
+   *     one per method ("km443p1" = KM 64-443, page 1). Those survive a
+   *     re-issue in a way `#page=N` does not, so prefer `dest`. Five of the
+   *     123 are present by name but point at nothing (km001, km265, km323,
+   *     km421, km444) - for those, and for a method with no destination at
+   *     all (KM 64-450), fall back to `page`.
+   *
+   * `label` is the link text - the citation's own name, nothing else - and
+   * it is also what specLinkify() looks for inside the plain-text CITE
+   * constants below, so those stay plain (the review PDF prints them and
+   * cannot take an anchor) and still come out linked on screen.
+   */
+  SPECS: {
+    DOCS: {
+      STD: { short: "2026 Standard Specifications", size: "101 MB",
+             url: "https://transportation.ky.gov/Construction/Standard%20amd%20Supplemental%20Specifications/Complete%20KYTC%20Standard%20Specifications%20-%202026.pdf" },
+      KM:  { short: "Kentucky Methods", size: "13 MB",
+             url: "https://transportation.ky.gov/Organizational-Resources/Policy%20Manuals%20Library/Kentucky%20Methods.pdf" },
+    },
+    CITES: {
+      km421:      { doc: "KM",  page: 368, label: "KM 64-421",
+                    what: "Establishing the job-mix formula of asphalt mixtures by the Contractor" },
+      jmf:        { doc: "STD", page: 176, footer: "402-1", label: "KYTC 402.03.01 A)",
+                    what: "what a JMF is, and submitting it for approval" },
+      agg805:     { doc: "STD", page: 562, footer: "805-4", label: "KYTC 805.05",
+                    what: "coarse aggregates for asphalt mixtures and seals" },
+      ctrlpts:    { doc: "STD", page: 193, footer: "403-4", label: "KYTC 403.03.03 C)",
+                    what: "gradation requirements - the AASHTO M 323 control points" },
+      consensus:  { doc: "STD", page: 194, footer: "403-5", label: "KYTC 403.03.03 C) 4)",
+                    what: "aggregate consensus properties by AADTT class" },
+      polish:     { doc: "STD", page: 193, footer: "403-4", label: "KYTC 403.03.03 A)",
+                    what: "polish-resistant aggregate requirements, and the 15% natural sand cap" },
+      volumetric: { doc: "STD", page: 194, footer: "403-5", label: "KYTC 403.03.03 C) 1)",
+                    what: "volumetric mix design per AASHTO R 35, and the gyration table" },
+      optimumac:  { doc: "STD", page: 194, footer: "403-5", label: "KYTC 403.03.03 C) 2)",
+                    what: "selection of the optimum AC at 3.5% air voids" },
+      tsrspec:    { doc: "STD", page: 194, footer: "403-5", label: "KYTC 403.03.03 C) 3)",
+                    what: "TSR by ASTM D 4867, one freeze/thaw cycle" },
+      km443:      { doc: "KM",  dest: "km443p1", page: 469, label: "KM 64-443",
+                    what: "verifying a contractor's laboratory mix design" },
+      perf:       { doc: "STD", page: 195, footer: "403-6", label: "KYTC 403.03.03 C) 5)",
+                    what: "mix design performance limits - Hamburg passes and KYCT index" },
+      km450:      { doc: "KM",  page: 504, label: "KM 64-450",
+                    what: "determination of cracking resistance (KYCT)" },
+    },
+  },
+
   /* ---- Aggregate consensus properties: KYTC 2026 Std Spec p.194 ----
    *
    * AASHTO M323 Table 5, as adopted by KYTC. Same footing as
@@ -1101,7 +1183,10 @@ const CONFIG = {
    * (SMA only).
    */
   CONSENSUS_CRITERIA: {
-    CITE: "KYTC 2026 Std Spec p.194 (AASHTO M323 Table 5)",
+    // Plain text on purpose - the review PDF prints this string and cannot
+    // take an anchor. specLinkify() turns the "KYTC ..." part into a link
+    // wherever it reaches the page instead (CONFIG.SPECS.CITES.consensus).
+    CITE: "KYTC 403.03.03 C) 4) (AASHTO M 323 Table 5)",
     NO4_FAA_MIN: 45,
     BY_CLASS: {
       "2": { faaMin: 40, seMin: 40, caaMin: [85, 80],   feMax: 10 },
@@ -1128,6 +1213,7 @@ const CONFIG = {
    * that name Class A specifically are checked against Class A alone.
    */
   POLISH: {
+    // Plain text, linked on screen by specLinkify() - see CONSENSUS_CRITERIA.
     CITE: "KYTC 403.03.03 A)",
     // "The Department will permit a maximum of 15% natural sand by weight of
     // total combined aggregate unless prior approval is obtained from the
@@ -1150,7 +1236,7 @@ const CONFIG = {
     NO4: { A_TOTAL_CLASS_A: 100, B_TOTAL: 85 },
     // Footnote 2, and a standing instruction rather than a pass/fail.
     CLASS_B_REVIEW_NOTE: "Submit all Class B blends to the Department for review " +
-      "(403.03.03 A) footnote 2). Aggregates identified as \"Not permitted as the " +
+      "(KYTC 403.03.03 A) footnote 2). Aggregates identified as \"Not permitted as the " +
       "polish-resistant portion of Class B blends\" cannot be used for that portion.",
     // A RAP polish credit is not self-declaring - it is applied for.
     RAP_CREDIT_NOTE: "A polish-resistant credit for RAP requires Division of Materials approval. " +
@@ -1229,6 +1315,7 @@ const CONFIG = {
     {
       id: "contract", label: "Contract Information",
       tag: "will pull from a KYTC contract lookup", type: "grid",
+      cites: ["km421", "jmf"],
       fields: [
         { key: "county",          label: "County",          type: "text",   req: true },
         { key: "total_tons",      label: "Tonnage",         type: "number", req: true, mono: true },
@@ -1270,6 +1357,7 @@ const CONFIG = {
     },
     {
       id: "aggregate", label: "Aggregate Structure",
+      cites: ["agg805"],
       tag: "dropdowns from Supabase reference / legacy MixPack", type: "rows",
       rows: {
         key: "aggregate", max: 6, addLabel: "+ add aggregate component (up to 6)",
@@ -1293,6 +1381,7 @@ const CONFIG = {
     },
     {
       id: "gradation", label: "Gradation", tag: "% passing by sieve · 0.45 power chart", type: "sieves",
+      cites: ["ctrlpts"],
       // `key` is explicit (fraction labels don't survive a slug), `mm` drives
       // the 0.45 power chart x-position. Full KYTC set, 2" → #200; the target
       // band will trim to the mix's nominal max size in a later pass.
@@ -1321,6 +1410,7 @@ const CONFIG = {
     {
       id: "consensus", label: "Consensus Properties",
       tag: "Superpave · measured on the combined aggregate blend", type: "grid",
+      cites: ["consensus"],
       // AASHTO M323 Table 5 consensus properties. Legacy source is MixPack
       // Design Data!O52-O55 (see CONFIG.LEGACY.CELLS). The per-mix spec
       // limit for each is resolved from CONFIG.CONSENSUS_CRITERIA and shown
@@ -1337,11 +1427,13 @@ const CONFIG = {
     },
     {
       id: "polish", label: "Polish-Resistant Aggregate",
-      tag: "KYTC 403.03.03 A) \u00b7 does this blend qualify as Type A or B", type: "polish",
+      tag: "does this blend qualify as Type A or B", type: "polish",
+      cites: ["polish"],
     },
     {
       id: "fourpoint", label: "Four Points",
       tag: "R35 §10.1 · Pb(design), ±0.5%, +1.0%", type: "fourpoint",
+      cites: ["volumetric"],
       constants: [
         { key: "fp_gsb",   label: "Combined Gsb",        auto: "aggregate", value: "" },
         { key: "fp_gb",    label: "Binder sp. gravity (Gb)", value: "1.030" },
@@ -1358,6 +1450,7 @@ const CONFIG = {
     {
       id: "design-values", label: "Design Values",
       tag: "computed from Four Points", type: "computed",
+      cites: ["volumetric", "optimumac"],
       outputs: [
         { key: "design_pb",  label: "Design Pb (%)" },
         { key: "gmm_design", label: "Gmm at design" },
@@ -1374,6 +1467,7 @@ const CONFIG = {
     {
       id: "tsr", label: "Tensile Strength Ratio (TSR)",
       tag: "MixPack · TSR tab", type: "grid",
+      cites: ["tsrspec", "km443"],
       fields: [
         { key: "tsr_pct",          label: "TSR (%) — without additive", type: "number", req: true,  mono: true },
         { key: "tsr_pct_additive", label: "TSR (%) — with additive",    type: "number", req: false, mono: true },
@@ -1385,6 +1479,7 @@ const CONFIG = {
     {
       id: "performance", label: "Performance Testing",
       tag: "MixPack · Performance Specimens / KYCT / Hamburg", type: "grid",
+      cites: ["perf", "km450"],
       fields: [
         { key: "perf_binder",         label: "Specimens made with (binder)", type: "text",   req: true },
         { key: "hamburg_left_maxdef",  label: "Hamburg — left max deformation (mm)",  type: "number", req: true,  mono: true },
@@ -1798,6 +1893,58 @@ function statusHTML() {
     <div class="auditlog" id="auditlog"></div>`;
 }
 
+/* ---------- spec citations ----------
+ *
+ * One place that turns a CONFIG.SPECS.CITES key into a link, so a page
+ * number lives in exactly one place. specLink() is the anchor; specLinkify()
+ * is for the plain-text CITE constants, which have to stay plain because the
+ * review PDF prints them - it finds the citation's own name inside the
+ * string, links that, and leaves the rest ("... footnote 1") as text.
+ * Everything here comes back escaped and is safe for innerHTML.
+ */
+function specHref(key) {
+  const c = CONFIG.SPECS.CITES[key];
+  const d = c && CONFIG.SPECS.DOCS[c.doc];
+  if (!d) return null;
+  // A named destination survives a re-issue; a page number does not, so it
+  // is the fallback rather than the default. See the CONFIG.SPECS comment.
+  return d.url + (c.dest ? `#nameddest=${c.dest}` : `#page=${c.page}`);
+}
+
+function specTitle(key) {
+  const c = CONFIG.SPECS.CITES[key];
+  const d = c && CONFIG.SPECS.DOCS[c.doc];
+  if (!d) return "";
+  const where = c.footer ? `page ${c.footer} (PDF page ${c.page})` : `PDF page ${c.page}`;
+  return `${c.what} · ${d.short}, ${where} · opens the PDF, ${d.size}`;
+}
+
+function specLink(key, text) {
+  const c = CONFIG.SPECS.CITES[key];
+  const href = specHref(key);
+  const label = text || (c && c.label) || key;
+  if (!href) return esc(label);
+  return `<a class="cite" href="${esc(href)}" target="_blank" rel="noopener noreferrer"
+     title="${esc(specTitle(key))}">${esc(label)}</a>`;
+}
+
+// Link the citation name inside a plain string, leaving the rest as text.
+// Longest label first, so "KYTC 403.03.03 C) 4)" wins over "KYTC 403.03.03 C)".
+function specLinkify(text) {
+  const s = String(text == null ? "" : text);
+  const keys = Object.keys(CONFIG.SPECS.CITES)
+    .filter((k) => s.indexOf(CONFIG.SPECS.CITES[k].label) >= 0)
+    .sort((a, b) => CONFIG.SPECS.CITES[b].label.length - CONFIG.SPECS.CITES[a].label.length);
+  if (!keys.length) return esc(s);
+  const lab = CONFIG.SPECS.CITES[keys[0]].label, i = s.indexOf(lab);
+  return esc(s.slice(0, i)) + specLink(keys[0]) + esc(s.slice(i + lab.length));
+}
+
+// The chips in a section head. A section with no `cites` gets nothing.
+function sectionCitesHTML(section) {
+  return (section.cites || []).map((k) => specLink(k)).join("");
+}
+
 function renderForm() {
   $("sections").innerHTML = CONFIG.SECTIONS.map((s) => {
     let body = "";
@@ -1811,7 +1958,8 @@ function renderForm() {
       if (s.rows) body += (s.fields ? '<div style="height:14px"></div>' : "") + rowsBlockHTML(s.rows);
     }
     return `<section class="section" id="${s.id}" data-section="${s.id}" data-label="${s.label}">
-      <div class="section-head"><h2>${s.label}</h2><span class="section-tag mono">${s.tag}</span></div>
+      <div class="section-head"><h2>${s.label}</h2>
+        <span class="headmeta">${sectionCitesHTML(s)}<span class="section-tag mono">${s.tag}</span></span></div>
       ${body}
     </section>`;
   }).join("");
@@ -2355,10 +2503,10 @@ function polishHTML(section) {
   return `<div class="prnote">Pulled from Aggregate Structure. Polish class, natural sand and dolomite are seeded from
       KYTC's approved aggregate types; what the list says stays printed under each one, and the class can be changed
       here when the list does not settle it. Set whether each is a coarse or a fine source, then enter its own
-      gradation. ${esc(P.CITE)} restricts Type A and Type B; Type D is unrestricted.</div>
+      gradation. ${specLinkify(P.CITE)} restricts Type A and Type B; Type D is unrestricted.</div>
     <div class="prscroll"><div id="prGrid"></div></div>
     <div id="prResults" class="prresults"></div>
-    <div class="prnote small">${esc(P.CLASS_B_REVIEW_NOTE)}</div>
+    <div class="prnote small">${specLinkify(P.CLASS_B_REVIEW_NOTE)}</div>
 `;
 }
 
@@ -2608,7 +2756,7 @@ function renderPolish() {
       <span><strong>${esc(c.label)}</strong>
         <div class="prsub">${esc(c.detail)}</div>
         ${c.unclassed ? `<div class="prsub">Not proven - not on KYTC's approved aggregate list, so its polish class is unknown: ${esc(c.unclassed.join(", "))}.</div>` : ""}
-        <div class="prsub mono">${esc(c.cite)}</div></span></div>`;
+        <div class="prsub mono">${specLinkify(c.cite)}</div></span></div>`;
   }).join("");
   const cond = r.conditional
     ? `<div class="prnote small">A RAP polish credit is applied above - this result stands only if the Division of
