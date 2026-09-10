@@ -629,6 +629,8 @@ const CONFIG = {
       muted:  [0x6E / 255, 0x75 / 255, 0x80 / 255],
       rule:   [0xDA / 255, 0xD7 / 255, 0xCE / 255],
       wash:   [0xF2 / 255, 0xF1 / 255, 0xEC / 255],
+      ok:     [0x3F / 255, 0x7A / 255, 0x56 / 255],   // same as the page's --ok
+      bad:    [0x9B / 255, 0x2C / 255, 0x2C / 255],   // same as the page's --bad
     },
   },
 
@@ -2485,15 +2487,16 @@ function isNo4Mix() {
   return /^(#?4|no\.?\s?4[a-z]?)$/i.test(String(fieldValue("nominal_size") || "").trim());
 }
 
-// Resolve the consensus-property limits for the current AADTT Class and
-// mix. Returns null when Class isn't set yet (nothing to check against).
-// Each item: { key, text (what prints by the value, like the MixPack's
-// "Criteria" column), state: "ok"|"fail"|"pending"|"na", ok }.
-function consensusChecks() {
+// Resolve the consensus-property limits for a given AADTT Class + No. 4
+// flag, reading raw values through `getVal(key)`. Returns null when Class
+// isn't set (nothing to check against). Pure core, shared by the live
+// check (reads the DOM) and the review PDF (reads the frozen payload) so
+// the spec logic has one home. Each item: { key, text (the on-page
+// caption), min, max, na, state: "ok"|"fail"|"pending"|"na", ok }.
+function consensusCriteriaFor(classStr, no4, getVal) {
   const C = CONFIG.CONSENSUS_CRITERIA;
-  const row = C.BY_CLASS[String(fieldValue("aadtt_class") || "").trim()];
+  const row = C.BY_CLASS[String(classStr || "").trim()];
   if (!row) return null;
-  const no4 = isNo4Mix();
   const faaMin = no4 ? Math.max(row.faaMin, C.NO4_FAA_MIN) : row.faaMin;
   const specs = {
     caa:             no4 ? { na: true, text: "n/a — No. 4 mix" }
@@ -2504,15 +2507,21 @@ function consensusChecks() {
                          : { max: row.feMax, text: `${row.feMax} max` },
   };
   return Object.entries(specs).map(([key, s]) => {
-    const v = num(fieldValue(key));
+    const v = num(getVal(key));
     let stt = "na", ok = null;
     if (!s.na) {
       if (v == null) stt = "pending";
       else if (s.min != null) { ok = v >= s.min; stt = ok ? "ok" : "fail"; }
       else { ok = v <= s.max; stt = ok ? "ok" : "fail"; }
     }
-    return { key, text: s.text, state: stt, ok };
+    // `text` is the on-page caption; min/max/na let a compact consumer
+    // (the review PDF) build its own shorter limit string.
+    return { key, text: s.text, min: s.min == null ? null : s.min,
+             max: s.max == null ? null : s.max, na: !!s.na, state: stt, ok };
   });
+}
+function consensusChecks() {
+  return consensusCriteriaFor(fieldValue("aadtt_class"), isNo4Mix(), fieldValue);
 }
 
 // Print the resolved limit + marker under each consensus value, and flip
@@ -3888,6 +3897,51 @@ async function buildReviewPDF(payload) {
       if (!list.length) return;
       sectionHead(section.label);
       pairs(list, { cols: 5 });
+    },
+    // The consensus properties with their per-mix spec limit and a
+    // pass/fail, mirroring the on-page markers and the MixPack's own
+    // "Criteria" column. Skipped entirely when the design carries none of
+    // the four values (same as the generic grid fallback would do).
+    consensus(section) {
+      const SHORT = { caa: "Coarse agg. angularity", faa: "Fine agg. angularity",
+                      flat_elongated: "Flat & elongated", sand_equivalent: "Clay content (SE)" };
+      const fields = (section.fields || []).filter((f) => !hdOmit(section.id, f.key));
+      if (!fields.some((f) => values[f.key] != null && String(values[f.key]).trim() !== "")) return;
+      const no4 = /^(#?4|no\.?\s?4[a-z]?)$/i.test(String(values.nominal_size || (payload.mix && payload.mix.nominal_size) || "").trim());
+      const crit = consensusCriteriaFor(values.aadtt_class, no4, (k) => values[k]);
+      const RESULT = { ok: ["Pass", C.ok], fail: ["Fail", C.bad], na: ["n/a", C.muted], pending: ["—", C.muted] };
+
+      const rows = fields.map((f) => {
+        const val = hdNum(values[f.key], hdDP(f.key));
+        const item = crit && crit.find((c) => c.key === f.key);
+        let limit = "set AADTT Class";
+        if (crit && item) limit = item.na ? "n/a (No. 4)" : item.min != null ? `${item.min} min` : `${item.max} max`;
+        else if (crit) limit = "—";
+        const res = !crit ? ["—", C.muted] : (RESULT[item ? item.state : "pending"] || RESULT.pending);
+        return { cells: [SHORT[f.key] || f.label, val === "" ? "—" : val, limit, res[0]], resColor: res[1] };
+      });
+
+      sectionHead(section.label, RW.headH + rows.length * RW.rowH + 16);
+      const x0 = colX, W = colW, cw = [W * 0.46, W * 0.13, W * 0.24, W * 0.17];
+      const cx = (i) => x0 + cw.slice(0, i).reduce((a, b) => a + b, 0) + 3;
+      page.drawRectangle({ x: x0, y: y - 2, width: W, height: RW.headH, color: col(C.wash) });
+      ["Property", "Value", "Spec limit", "Result"].forEach((h, i) =>
+        page.drawText(h, { x: cx(i), y, size: T.lab, font: bold, color: col(C.muted) }));
+      y -= RW.headH;
+      rows.forEach((r) => {
+        r.cells.forEach((c, i) => page.drawText(fit(String(c), cw[i] - 6, i === 3 ? bold : font, T.cell),
+          { x: cx(i), y, size: T.cell, font: i === 3 ? bold : font,
+            color: col(i === 3 ? r.resColor : C.ink) }));
+        page.drawRectangle({ x: x0, y: y - 3, width: W, height: 0.35, color: col(C.rule) });
+        y -= RW.rowH;
+      });
+      if (crit) {
+        y -= 2;
+        const note = CONFIG.CONSENSUS_CRITERIA.CITE +
+          (no4 ? "" : "  ·  CAA vs two+ crushed faces");
+        page.drawText(fit(note, W, font, T.lab), { x: x0, y, size: T.lab, font, color: col(C.muted) });
+        y -= T.lab + 4;
+      }
     },
     // One line: the result, the binder it was run with, and the additive.
     // Since PR #8 the importer records an explicit "None" when the workbook
