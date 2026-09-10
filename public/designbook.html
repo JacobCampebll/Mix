@@ -1987,11 +1987,26 @@ function renderForm() {
 function drawChart() {
   const chart = $("chart");
   if (!chart) return;
-  const pts = gradSection().sieves.map((s) => {
+  const all = gradSection().sieves.map((s) => {
     const el = document.querySelector(`[data-field="${s.key}"]`);
     const v = parseFloat((el && el.value) || "");
     return { mm: s.mm, label: s.label, p: Number.isFinite(v) ? v : null };
   });
+
+  // The mix's control points, resolved before the axis because the trim
+  // below is not allowed to cut past one.
+  const em = effectiveMix();
+  const nominalSize = em ? em.nominal_size : null;
+  const cp = controlPointsForNominalSize(nominalSize);
+  const band = cp ? gradSection().sieves
+    .map((s) => ({ mm: s.mm, min: cp[s.key] ? cp[s.key][0] : null, max: cp[s.key] ? cp[s.key][1] : null }))
+    .filter((p) => p.min != null || p.max != null) : null;
+
+  // Same rule the review sheet uses, and the same function, so the two can
+  // never disagree: the flat run of 100s at the coarse end says nothing and
+  // eats most of the plot, so it stops one sieve above the finest 100.
+  // The sieve table beside the chart still lists every sieve.
+  const pts = trimFlatCoarseEnd(all.map((p) => ({ ...p, pct: p.p })), band || []);
 
   const W = 480, H = 300, pad = { l: 34, r: 12, t: 14, b: 44 };
   const maxMM = Math.max(...pts.map((p) => p.mm));
@@ -2021,12 +2036,6 @@ function drawChart() {
   // on top. Sieves with both a min and a max fill as a shaded corridor;
   // sieves with only one bound (the control point just above/below the NMAS
   // itself) draw as a single tick, since there is nothing to shade between.
-  const em = effectiveMix();
-  const nominalSize = em ? em.nominal_size : null;
-  const cp = controlPointsForNominalSize(nominalSize);
-  const band = cp ? gradSection().sieves
-    .map((s) => ({ mm: s.mm, min: cp[s.key] ? cp[s.key][0] : null, max: cp[s.key] ? cp[s.key][1] : null }))
-    .filter((p) => p.min != null || p.max != null) : null;
   let bandSvg = "", bandNote = "";
   if (band && band.length) {
     const both = band.filter((p) => p.min != null && p.max != null);
