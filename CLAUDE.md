@@ -423,6 +423,22 @@ TBD — cite the governing spec section when encoding a limit in code.
   computed. `isRapRow()` is now the single definition and accepts either
   spelling.
 
+- **Superpave consensus properties are captured as bare values only — the
+  per-mix spec limit is a deliberate TODO, not an oversight.** Added
+  2026-09-10 (Andrew): a `CONFIG.SECTIONS` section `id: "consensus"` with
+  four number fields (`caa`, `faa`, `flat_elongated`, `sand_equivalent`),
+  placed between Gradation and Polish-Resistant Aggregate, legacy-wired to
+  `Design Data!O52–O55` (same in 11.x/12.1; moved out of
+  `CONFIG.LEGACY.UNMAPPED`). The MixPack additionally resolves each
+  property's limit in its **Criteria** column (`P52:P55`) via AASHTO M323
+  Table 5 — keyed on traffic level, depth and NMAS. DesignBook does **not**
+  reproduce that: no criteria column, no in/out-of-spec marker, and no
+  traffic input was added ("we don't use ESALs anymore" — Andrew). None of
+  the four are `req` yet (`flat_elongated` is legitimately N/A on a
+  #4-nominal mix). If you add the Criteria display later, that is where the
+  spec-limit logic and a traffic/depth key belong. Full cell map in
+  `docs/legacy-mixpack-map.md`.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
