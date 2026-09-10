@@ -185,6 +185,12 @@
   /* For a reviewer the door is FIRST (see reviewerFirst): it then separates from
      the wizard below it rather than from the step above. */
   .reopen.first{margin:0 0 20px; padding:0 0 16px; border-top:0; border-bottom:1px solid var(--line);}
+  /* The approval door is Central Office's, so it is tinted rather than being a
+     second plain block a reviewer has to read twice to tell apart. */
+  .reopen.approval h3{color:var(--navy);}
+  .reopen.approval{background:var(--accent-soft); border:1px solid var(--line);
+                   border-radius:var(--radius); padding:14px 16px; margin:0 0 20px;}
+  .reopen.approval.first{border-bottom:1px solid var(--line);}
 </style>
 </head>
 <body>
@@ -245,14 +251,31 @@
     </div>
     <div class="status" id="step1Status"></div>
 
-    <!-- Second door. A review PDF already carries its contract, plant and
+    <!-- KYTC Approval. Central Office only: shown and moved to the top of
+         this card by showApprovalDoor(). It is a SEPARATE door from the one
+         below on purpose - a reviewer needs both. This one is "a contractor
+         sent me a submittal to approve"; the one below is "I have a PDF and
+         want my place back", which matters to everyone now that nothing is
+         stored. Both feed the same file input and the same handler; only the
+         wording differs. -->
+    <div class="reopen approval hidden" id="approvalDoor">
+      <h3>KYTC Approval</h3>
+      <p>Open the submittal a contractor emailed you. It carries the whole design,
+         so the form comes back exactly as they submitted it, and you review and
+         approve it from there.</p>
+      <button id="approveOpenBtn">Open a submittal to approve</button>
+      <div class="status" id="approvalStatus"></div>
+    </div>
+
+    <!-- Second door. A DesignBook PDF already carries its contract, plant and
          mix, so it skips the wizard entirely. -->
     <div class="reopen">
-      <h3>Already have a review PDF?</h3>
-      <p>If someone sent you a DesignBook PDF for internal review, open it here.
-         It carries the whole design inside it, so the form comes back exactly as
-         they sent it and you can edit and submit from there.</p>
-      <button id="reopenBtn">Open a review PDF</button>
+      <h3>Picking up where you left off?</h3>
+      <p>Open any DesignBook PDF here - your own working copy, or one someone sent
+         you to review. The whole design travels inside the file, so the form comes
+         back exactly as it was and you carry on from there. Nothing is stored on
+         this site, so the PDF is how you keep your place.</p>
+      <button id="reopenBtn">Open a DesignBook PDF</button>
       <input type="file" id="reopenInput" accept=".pdf,application/pdf">
       <div class="status" id="reopenStatus"></div>
     </div>
@@ -861,11 +884,17 @@
 
   async function openReviewPDF(file) {
     if (!file) return;
+    // Report where they clicked, not always into the lower door - a reviewer
+    // who used KYTC Approval would otherwise watch a silent button while the
+    // status appeared further down the card.
+    const statusEl = state.viaApproval ? $("approvalStatus") : $("reopenStatus");
+    const setS = (t, k) => setStatus(statusEl, t, k);
+    state.viaApproval = false;
     const cap = capabilityFor("buildNew");
-    if (!cap.allowed) { setStatus($("reopenStatus"), cap.label, "error"); return; }
-    const btn = $("reopenBtn");
-    btn.disabled = true;
-    setStatus($("reopenStatus"), `Reading ${file.name}…`);
+    if (!cap.allowed) { setS(cap.label, "error"); return; }
+    const btn = $("reopenBtn"), abtn = $("approveOpenBtn");
+    btn.disabled = true; if (abtn) abtn.disabled = true;
+    setS(`Reading ${file.name}…`);
     try {
       const payload = await readHandoffPDF(await file.arrayBuffer());
       try {
@@ -873,15 +902,15 @@
       } catch (_) {
         // Storage unavailable: DesignBook asks for the file again on its
         // own upload card rather than losing the person's place.
-        setStatus($("reopenStatus"), "Opening DesignBook — you'll be asked for the PDF once more.", "");
+        setS("Opening DesignBook — you'll be asked for the PDF once more.", "");
       }
       const by = payload.generated_by && payload.generated_by.name ? payload.generated_by.name : "someone";
-      setStatus($("reopenStatus"), `Opening ${payload.job.cid} · ${payload.job.plant} — prepared by ${by}.`, "ok");
+      setS(`Opening ${payload.job.cid} · ${payload.job.plant} — prepared by ${by}.`, "ok");
       location.href = CONFIG.ROUTES.resume;
     } catch (err) {
-      setStatus($("reopenStatus"), err.message || "Couldn't read that PDF.", "error");
+      setS(err.message || "Couldn't read that PDF.", "error");
     } finally {
-      btn.disabled = false;
+      btn.disabled = false; if (abtn) abtn.disabled = false;
       $("reopenInput").value = "";     // same file can be picked again after a failure
     }
   }
@@ -890,22 +919,20 @@
     showOnly("submitView");
     renderSteps();
     // A reviewer landed on the door, not the wizard - focus follows.
-    if (state.step === 1) (state.tech && state.tech.can_review ? $("reopenBtn") : $("contractId")).focus();
+    if (state.step === 1) (state.tech && state.tech.can_review ? $("approveOpenBtn") : $("contractId")).focus();
   }
 
   // A Central Office reviewer's job here is to open the file they were sent,
-  // not to start a design. The same door, moved to the top of the card and
-  // worded for them - the wizard is still right below it. Everyone else sees
-  // the page exactly as before.
-  function reviewerFirst() {
-    const door = document.querySelector("#step1 .reopen"), card = $("step1");
+  // not to start a design, so KYTC Approval goes to the top of the card. It
+  // used to be the *same* door reworded and moved, which meant a reviewer lost
+  // the "pick your own work back up" door entirely - and with nothing stored,
+  // that door is how anyone returns to a design. So a reviewer now gets both.
+  // Everyone else sees the page exactly as before.
+  function showApprovalDoor() {
+    const door = $("approvalDoor"), card = $("step1");
     if (!door || !card) return;
+    door.classList.remove("hidden");
     door.classList.add("first");
-    door.querySelector("h3").textContent = "Reviewing a submission?";
-    door.querySelector("p").textContent =
-      "Open the DesignBook PDF the contractor sent you. It carries the whole design, so the " +
-      "form comes back exactly as they submitted it, and you review and approve it from there. " +
-      "Starting a new design yourself is below.";
     card.prepend(door);
   }
 
@@ -941,8 +968,8 @@
       }
       // Everyone lands on the wizard now. There is no queue to land on: a
       // reviewer receives a submission as a file, and opens it through the
-      // "Already have a review PDF?" door - which, for a reviewer, comes first.
-      if (tech.can_review) reviewerFirst();
+      // KYTC Approval door, which for a reviewer is the first thing on the card.
+      if (tech.can_review) showApprovalDoor();
       openSubmit();
     } catch (err) {
       setStatus($("bootStatus"), err.message || "Couldn't load your account.", "error");
@@ -958,6 +985,9 @@
 
   $("step1Next").addEventListener("click", step1Continue);
   $("reopenBtn").addEventListener("click", () => $("reopenInput").click());
+  // Same input, same handler - the approval door only differs in its wording,
+  // and openReviewPDF reports into whichever door was used.
+  $("approveOpenBtn").addEventListener("click", () => { state.viaApproval = true; $("reopenInput").click(); });
   $("reopenInput").addEventListener("change", (e) => openReviewPDF(e.target.files[0]));
   $("contractId").addEventListener("keydown", (e) => { if (e.key === "Enter") $("lettingDate").focus(); });
   $("plant").addEventListener("keydown", (e) => { if (e.key === "Enter") step1Continue(); });
