@@ -262,21 +262,21 @@
   /* Touch: the whole row is the tap target, so give it a finger's worth. */
   @media (pointer:coarse){ .combo-opt{padding:12px; min-height:44px;} }
 
-  /* Two narrow tables share a line; a wide one spans both columns. */
-  .rowblocks{display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
-             gap:18px 24px; align-items:start;}
-  .rowblock{grid-column:span 2; min-width:0;}
-  .rowblock.half{grid-column:span 1;}
-  /* 1240, not 900: the nav and the outstanding-items rail take 450px of the
-     window, so at 1100 a half is only ~250px - narrower than the three
-     columns in it. Above 1240 each half is ~450px, which fits. */
-  @media (max-width:1240px){ .rowblock.half{grid-column:span 2;} }
+  /* Row tables share a line when they fit: twelve columns, and each block
+     spans what its spec asks for (--w wide, --w2 medium). The steps are set
+     by what the window leaves the form, not by the section: the nav and the
+     outstanding-items rail take 450px, so at 1100 a third would be ~160px. */
+  .rowblocks{display:grid; grid-template-columns:repeat(12,minmax(0,1fr));
+             gap:18px; align-items:start;}
+  .rowblock{grid-column:span var(--w,12); min-width:0;}
+  @media (max-width:1600px){ .rowblock{grid-column:span var(--w2,12);} }
+  @media (max-width:1240px){ .rowblock{grid-column:span 12;} }
 
   /* Repeating rows read as a table: the column names once, then thin rows.
      Ten specimens carrying ten copies of their own labels was most of the
      height of Performance Testing for five numbers a row. */
   .rowlist{display:flex; flex-direction:column;}
-  .rowhead{display:grid; gap:10px; padding:0 10px 5px; align-items:end;
+  .rowhead{display:grid; gap:7px; padding:0 10px 5px; align-items:end;
            border-bottom:1px solid var(--line);}
   .rowhead > div{font-size:10px; color:var(--muted); text-transform:uppercase;
                  letter-spacing:.03em; line-height:1.25;}
@@ -285,6 +285,8 @@
   .rowitem:hover{background:var(--well);}
   /* Each row still carries its labels for the phone layout below. */
   .rowitem label{display:none;}
+  .rowitem .box{padding:5px 7px; font-size:12.5px; min-height:28px;}
+  .rowitem{gap:7px;}
   .rmbtn{border:1px solid transparent; background:transparent; color:var(--muted);
          border-radius:var(--radius); width:26px; height:26px; cursor:pointer; font-size:14px;
          line-height:1; padding:0;}
@@ -1529,9 +1531,12 @@ const CONFIG = {
       ],
       rows: [
         {
+          // span: [wide, medium] twelfths of the section. All three of these
+          // tables fit on one line above 1460px; below that Performance
+          // Specimens takes the full width and the two narrow ones pair up.
           key: "perf_specimens", heading: "Performance specimens", max: 12,
-          addLabel: "+ add performance specimen",
-          grid: "1fr .9fr .9fr .9fr .9fr auto",
+          addLabel: "+ add performance specimen", span: [5, 12],
+          grid: "1.45fr .85fr .85fr .95fr .75fr auto",
           columns: [
             { key: "specimen",  label: "Specimen #",    type: "text",   req: true,  mono: true },
             { key: "dry_wt",    label: "Dry wt (g)",    type: "number", req: true,  mono: true },
@@ -1541,19 +1546,19 @@ const CONFIG = {
           ],
         },
         {
-          key: "ct", heading: "KYCT (Kentucky Crack Test)", max: 8, half: true,
+          key: "ct", heading: "KYCT (Kentucky Crack Test)", max: 8, span: [4, 6],
           addLabel: "+ add KYCT specimen (up to 8)",
           // The specimen name is the long one and the only thing that tells
           // two rows apart (..._SPEC_1 vs ..._SPEC_2), so it gets the room.
-          grid: "2fr 1fr auto",
+          grid: "3fr 1fr auto",
           columns: [
             { key: "specimen", label: "Specimen #", type: "text",   req: true, mono: true },
             { key: "index",    label: "CT index",   type: "number", req: true, mono: true },
           ],
         },
         {
-          key: "hamburg_curve", heading: "Hamburg — rut depth by pass count", fixed: true, half: true,
-          grid: "0.7fr 1fr 1fr",
+          key: "hamburg_curve", heading: "Hamburg — rut depth by pass count", fixed: true, span: [3, 6],
+          grid: "0.9fr 1fr 1fr",
           seed: [
             { passes: "100" }, { passes: "5000" }, { passes: "10000" },
             { passes: "15000" }, { passes: "20000" }, { passes: "25000" },
@@ -1763,8 +1768,11 @@ function rowHTML(spec, values, idx) {
     const cls = "box" + (c.mono ? " mono" : "") + (c.req ? " req" : "");
     const attrs = `data-row="${spec.key}" data-col="${c.key}"`;
     const ro = c.readonly ? " readonly tabindex=\"-1\"" : "";
+    // title, because a narrow column clips from the right and the KYCT ids
+    // differ only at the tail (..._SPEC_CT1 vs ..._SPEC_CT2).
+    const t = v == null || v === "" ? "" : ` title="${esc(v)}"`;
     const ctrl = c.source ? refControlHTML(c, cls, attrs, v)
-      : `<input type="text"${ro} class="${cls}" ${attrs} value="${esc(v == null ? "" : v)}">`;
+      : `<input type="text"${ro} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
     return `<div><label>${c.label}</label>${ctrl}</div>`;
   }).join("");
   // Fixed tables (e.g. the Hamburg pass-count grid) have no remove button.
@@ -1807,14 +1815,16 @@ function rowsHTML(spec) {
 }
 
 // `rows` may be one spec or an array of specs (Performance Testing uses three).
-// A spec marked `half` takes half the width, so two narrow tables sit side by
-// side instead of stacking - KYCT is two columns and the Hamburg curve three,
-// and stacked they made the section a long ribbon of mostly empty space.
-// Anything not marked spans the full width, which is every other section.
+// A spec declares `span: [wide, medium]` in twelfths, so narrow tables sit
+// beside each other instead of stacking - Performance Testing's three were a
+// long ribbon of mostly empty space. A spec with no span takes the full
+// width, which is every other section.
 function rowsBlockHTML(rows) {
   const list = Array.isArray(rows) ? rows : [rows];
-  return `<div class="rowblocks">` + list.map((spec) =>
-    `<div class="rowblock${spec.half ? " half" : ""}">${rowsHTML(spec)}</div>`).join("") + `</div>`;
+  return `<div class="rowblocks">` + list.map((spec) => {
+    const sp = spec.span || [12, 12];
+    return `<div class="rowblock" style="--w:${sp[0]};--w2:${sp[1]}">${rowsHTML(spec)}</div>`;
+  }).join("") + `</div>`;
 }
 
 function sievesHTML(section) {
