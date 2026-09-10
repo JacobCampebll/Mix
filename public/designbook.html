@@ -3916,6 +3916,31 @@ async function buildApprovalPDF(payload) {
   const j = payload.job || {}, mix = payload.mix || {};
   const values = payload.values || {}, dv = values.design_values || {}, rows = payload.rows || {};
 
+  /* Polish-resistant aggregate, decided up front because page 1's footer
+     says whether there is a page 2. 403.03.03 A) restricts Type A and B, so
+     for those the matrix the reviewer approved against is part of the
+     approval. Everything here is read from the SIGNED values - class, source,
+     natural sand, dolomite and each component's own gradation as recorded at
+     approval - never re-derived from the reference list, which can change
+     after the fact while this document must not. A role that was never saved
+     falls back to the same #4 rule the page uses to guess it. */
+  const pol = values.polish || {};
+  const PR = CONFIG.POLISH;
+  const aggRows = (rows.aggregate || []).filter((r) => r && (r.type_size || r.producer || r.pct_blend));
+  const desig = String(values.nominal_size || "") + String(values.mix_type || "");
+  const prMix = desig ? polishMixType({ nominal_size: desig }) : polishMixType(mix);
+  const polishComps = aggRows.map((r, i) => {
+    const p4 = num(pol[`g:${i}:${PR.RETAINED_SIEVE}`]);
+    const savedRole = pol[`role:${i}`];
+    return {
+      name: r.type_size || `component ${i + 1}`, producer: r.producer || "", pct: num(r.pct_blend),
+      cls: String(pol[`cls:${i}`] || "").trim().toUpperCase(),
+      role: savedRole || (Number.isFinite(p4) && p4 > PR.FINE_SOURCE_PASSING_4 ? "fine" : "coarse"),
+      p4, naturalSand: !!pol[`sand:${i}`], dolomite: !!pol[`dol:${i}`], rapCredit: num(pol[`rap:${i}`]), unknown: false,
+    };
+  });
+  const polishPage = (prMix.letter === "A" || prMix.letter === "B") && polishComps.length > 0;
+
   text("Mix Design Approval", P.mx, y, 22, bold, C.navy); y -= 24;
   text("Kentucky Transportation Cabinet - Division of Materials", P.mx, y, 9, font, C.muted); y -= 20;
 
@@ -4071,8 +4096,107 @@ async function buildApprovalPDF(payload) {
   // for whoever holds this, is that no copy of the APPROVAL is kept anywhere:
   // sign-approval is stateless, so the signature in this file is the only one.
   // Through fit() like the rest of the page, so it can never overrun the page.
-  page.drawText(fit("The full design is embedded in this file - upload it to DesignBook to open it, or to verify.html to check the approval. No copy of this approval is kept; this document is the record.", W, font, 6.6),
+  // Through fit(), so it can never overrun - but it must not truncate either:
+  // the last clause is the one that matters, so the sentence is kept short.
+  page.drawText(fit("The full design is embedded in this file - open it in DesignBook, or check it at verify.html. No copy of this approval is kept; this document is the record." +
+    (polishPage ? " Page 1 of 2." : ""), W, font, 6.6),
     { x: P.mx, y: P.bottom - 24, size: 6.6, font, color: col(C.muted) });
+
+  /* --- page 2: the polish-resistant matrix, Type A and B only.
+         Page 1 is full (its body ends 28pt above the verification band), so a
+         second page - stamped with the approval number and code so a loose
+         sheet cannot be mistaken for anything but part of this approval. --- */
+  if (polishPage) {
+    const pg = doc.addPage([P.w, P.h]);
+    const t2 = (s, x, yy, sz, f, c, max) =>
+      pg.drawText(fit(s, max || W, f, sz), { x, y: yy, size: sz, font: f, color: col(c) });
+    // Greedy word wrap to at most `lines` lines; the last line is fit()-ed.
+    const wrap = (s, max, f, sz, lines) => {
+      const out = []; let cur = "";
+      for (const w of String(s).split(/\s+/)) {
+        const next = cur ? cur + " " + w : w;
+        if (f.widthOfTextAtSize(wa(next), sz) <= max || !cur) cur = next;
+        else { out.push(cur); cur = w; if (out.length === lines - 1) break; }
+      }
+      const rest = String(s).split(/\s+/).slice(out.join(" ").split(/\s+/).filter(Boolean).length).join(" ");
+      out.push(out.length === lines - 1 ? rest : cur);
+      return out.slice(0, lines);
+    };
+    for (let i = 0; i < 72; i++) {
+      const t = i / 71, k = t <= 0.35 ? 0 : t >= 0.80 ? 1 : (t - 0.35) / 0.45;
+      pg.drawRectangle({ x: i * P.w / 72, y: P.h - H.BAR, width: P.w / 72 + 0.7, height: H.BAR,
+        color: col([0, 1, 2].map((j) => C.sky[j] + (C.gold[j] - C.sky[j]) * k)) });
+    }
+    if (logo) {
+      const lw = 86, lh = lw / H.LOGO.ratio;
+      pg.drawImage(logo, { x: P.w - P.mx - lw, y: P.h - P.top - lh + 20, width: lw, height: lh });
+    }
+    let y2 = P.h - P.top;
+    t2("Mix Design Approval", P.mx, y2, 22, bold, C.navy); y2 -= 24;
+    t2(`Polish-resistant aggregate - ${PR.CITE} - Type ${prMix.letter}${prMix.no4 ? " (No. 4 mixture)" : ""}`, P.mx, y2, 9, font, C.muted); y2 -= 22;
+
+    // Identity strip: this page belongs to that approval, and says so.
+    pg.drawRectangle({ x: P.mx, y: y2 - 28, width: W, height: 28, color: col(C.wash) });
+    [["APPROVAL", a.approval_no || "-", 0], ["MIX ID NUM.", a.mix_id || "-", 120], ["VERIFICATION CODE", a.code || "-", 240], ["PAGE", "2 of 2", 400]]
+      .forEach(([l, v, dx]) => { t2(l, P.mx + 12 + dx, y2 - 11, 6.5, bold, C.muted, 110); t2(String(v), P.mx + 12 + dx, y2 - 22, 9, bold, C.ink, 110); });
+    y2 -= 40;
+
+    // The matrix: one column per component, as on the page and on the
+    // MixPack's own Polish-Resistant tab.
+    const sieves = gradSection().sieves;
+    const n = polishComps.length, labW = 86, cw = (W - labW) / n, rh = 12.4, x0 = P.mx;
+    const cell = (s, ci, yy, f, c) => t2(s, x0 + labW + ci * cw + 4, yy, 7.4, f || font, c || C.ink, cw - 8);
+    const lab = (s, yy, f, c) => t2(s, x0 + 4, yy, 7.4, f || bold, c || C.muted, labW - 8);
+    const rule = (yy) => pg.drawRectangle({ x: x0, y: yy, width: W, height: 0.35, color: col(C.rule) });
+    const hh = 46;
+    pg.drawRectangle({ x: x0, y: y2 - hh, width: W, height: hh, color: col(C.wash) });
+    lab("Component", y2 - 12);
+    polishComps.forEach((c, i) => {
+      // The name is the point - "Dolomite #8's Class A" must not lose "Class A".
+      wrap(c.name, cw - 8, bold, 7.4, 2).forEach((ln, k) => cell(ln, i, y2 - 12 - k * 9, bold, C.ink));
+      cell(c.producer, i, y2 - 32, font, C.muted);
+      cell(`${c.pct == null ? "-" : c.pct}% blend`, i, y2 - 42, font, C.muted);
+    });
+    y2 -= hh + 1; rule(y2);
+    const row = (label, vals) => { lab(label, y2 - 9); vals.forEach((v, i) => cell(v, i, y2 - 9)); y2 -= rh; rule(y2); };
+    row("Polish class",  polishComps.map((c) => c.cls ? `Class ${c.cls}` : "Not polish-resistant"));
+    row("Source",        polishComps.map((c) => c.role === "fine" ? "Fine" : "Coarse"));
+    row("Natural sand",  polishComps.map((c) => c.naturalSand ? "Yes" : "No"));
+    row("Dolomite",      polishComps.map((c) => c.dolomite ? "Yes" : "No"));
+    row("RAP polish credit", polishComps.map((c) => c.rapCredit == null ? "-" : `${c.rapCredit}%`));
+    y2 -= 6; lab("% PASSING", y2 - 9, bold, C.accent); y2 -= rh;
+    sieves.forEach((sv) => row(sv.label, polishComps.map((c, i) => {
+      const v = pol[`g:${i}:${sv.key}`]; return v == null || String(v).trim() === "" ? "-" : String(v);
+    })));
+
+    // The result the reviewer approved against, from the same pure function
+    // the page uses. Stated as meets / does not meet - this is the record,
+    // not a warning rail.
+    y2 -= 18;
+    t2("RESULT AGAINST " + PR.CITE.toUpperCase(), P.mx, y2, 8.5, bold, C.accent); y2 -= 16;
+    const r = evaluatePolish(polishComps, prMix);
+    if (!r.ready) {
+      t2(r.reason || "Not evaluated.", P.mx, y2, 8, font, C.muted); y2 -= 14;
+    } else if (!r.restricted) {
+      t2("No polish-resistant restriction applies to this mix type.", P.mx, y2, 8, font, C.ink); y2 -= 14;
+    } else {
+      const tt = r.totals || {};
+      t2(`Retained on the #4, as % of total combined aggregate: total ${fmt(tt.plus4Total, 2)}%  -  Class A ${fmt(tt.plus4ClassA, 2)}%  -  not polish-resistant ${fmt(tt.plus4NonPr, 2)}%`,
+         P.mx, y2, 7.8, font, C.ink); y2 -= 16;
+      r.checks.forEach((c) => {
+        t2(`${c.ok ? "MEETS" : "DOES NOT MEET"}  -  ${c.label}`, P.mx, y2, 8.2, bold, C.ink); y2 -= 11;
+        t2(`${c.detail}  (${c.cite})`, P.mx + 10, y2, 7.2, font, C.muted); y2 -= 14;
+      });
+      if (r.conditional) { t2("A RAP polish credit is applied above; this result stands only if the Division of Materials has granted it.", P.mx, y2, 7.2, font, C.muted); y2 -= 12; }
+      if (prMix.letter === "B") wrap(PR.CLASS_B_REVIEW_NOTE, W, font, 7.2, 3).forEach((ln) => { t2(ln, P.mx, y2, 7.2, font, C.muted); y2 -= 10; });
+    }
+    t2("Classes, sources, natural sand, dolomite and the gradations above are as recorded when this design was approved, and are covered by the approval's signature.",
+       P.mx, y2 - 4, 7, font, C.muted);
+
+    pg.drawRectangle({ x: P.mx, y: P.bottom - 12, width: W, height: 0.4, color: col(C.rule) });
+    pg.drawText(fit(`Page 2 of 2 - Mix Design Approval ${a.approval_no || ""}, verification code ${a.code || ""}. This page is part of the signed approval; the design it belongs to is embedded in this file.`, W, font, 6.6),
+      { x: P.mx, y: P.bottom - 24, size: 6.6, font, color: col(C.muted) });
+  }
 
   const bytes = new TextEncoder().encode(JSON.stringify(payload));
   await doc.attach(bytes, CONFIG.HANDOFF.ATTACHMENT, {
