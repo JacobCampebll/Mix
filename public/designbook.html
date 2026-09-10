@@ -2316,9 +2316,22 @@ let prHeld = new Map();
 
 // A component's identity. Duplicates are disambiguated by occurrence so two
 // identical rows do not share one bag of values.
+// Keyed on TYPE ONLY, deliberately - the producer is not part of it. The
+// gradation belongs to the material, and the producer field changes for
+// reasons that are not a material change: fixing a typo, or the searchable
+// dropdown snapping what was typed to KYTC's canonical spelling, which
+// rewrites the text on every pick. Including the producer meant those
+// rewrote the identity and wiped a whole column of typed gradation (Jake,
+// 2026-09-10). Two rows of the same type stay separate by their order among
+// same-type rows, so a blend using one type from two producers still keeps
+// two sets of numbers. The trade: genuinely switching a component to a
+// different producer of the SAME type keeps the previous gradation, which
+// then needs editing - visible in the column, since its header now names
+// the new producer over the old numbers, unlike a type change where nothing
+// about the values would look wrong.
 function polishIdentity(c, i, seen) {
-  const base = `${refKey(c.type_size)}|${refKey(c.producer)}`;
-  const id = base === "|" ? `@${i}` : base;          // a wholly blank row keeps its slot
+  const t = refKey(c.type_size);
+  const id = t || `@${i}`;                          // a row with no type yet keeps its slot
   const n = (seen[id] = (seen[id] || 0) + 1);
   return n > 1 ? `${id}#${n}` : id;
 }
