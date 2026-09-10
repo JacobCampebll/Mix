@@ -695,11 +695,13 @@ const CONFIG = {
       kyct:       [["A21", /^CTIndex$/i]],
       perfSpec:   [["A7", /Performance Specimen Fabrication/i]],
       chartData:  [["AO2", /^AMP/i]],
+      polish:     [["A14", /^Component$/i], ["A17", /Polish-Res/i]],
     },
     SHEET_NAMES: {
       designData: "Design Data", recycle: "Recycle Data", tsr: "TSR",
       hamburg: "Hamburg Data", kyct: "KYCT Data",
       perfSpec: "Performance Specimens", chartData: "Chart Data",
+      polish: "Polish-Resistant Data",
     },
     // AADTT Class (KYTC's workbook cell still calls it ESAL class) - the
     // form only offers 2/3/4, matching the proposal's CL2/CL3/CL4. A
@@ -846,6 +848,29 @@ const CONFIG = {
       s4_75:  ["designData", "T22"], s2_36:  ["designData", "T23"],
       s1_18:  ["designData", "T24"], s0_6:   ["designData", "T25"], s0_3:   ["designData", "T26"],
       s0_15:  ["designData", "T27"], s0_075: ["designData", "T28"],
+    },
+    // Polish-Resistant Data: the MixPack's own second tab, and the source of
+    // every per-component gradation the Polish-Resistant section asks for.
+    // One component per column B..G in the same order as the aggregate rows,
+    // so column index i lines up with the section's `g:${i}:` keys.
+    // Verified identical in a real Ver 11.3 (Feb 2020) and a real Ver 12.1
+    // file: same sheet position, same rows, same columns. It sits BEFORE the
+    // two chartsheets, so the SheetJS misfiling gotcha does not reach it -
+    // it is still resolved by fingerprint like every other sheet.
+    // Row 17 (KYTC's own YES/NO) is deliberately NOT imported: the page
+    // derives polish class from `aggregate_types`. It is read only to log a
+    // disagreement, which is the empirical answer to the open 403.03.03 A)
+    // question in CLAUDE.md.
+    POLISH: {
+      sheet: "polish",
+      cols: ["B", "C", "D", "E", "F", "G"],
+      name: 14, producer: 15, pct: 16, kytcSaysPR: 17, rapCredit: 18,
+      // Sieve key -> row. 13 rows, 2" to #200, matching the form's sieve
+      // list exactly; the tab has no 1/4" row, so nothing was dropped here.
+      sieveRows: {
+        s50: 21, s37_5: 22, s25: 23, s19: 24, s12_5: 25, s9_5: 26,
+        s4_75: 27, s2_36: 28, s1_18: 29, s0_6: 30, s0_3: 31, s0_15: 32, s0_075: 33,
+      },
     },
     // Aggregate blend: Design Data rows 23-28, stop at the first blank producer.
     AGGREGATE: { sheet: "designData", firstRow: 23, lastRow: 28, stopOn: "C",
@@ -1074,6 +1099,13 @@ const CONFIG = {
     gsb: 2,
     s50: 0, s37_5: 0, s25: 0, s19: 0, s12_5: 0, s9_5: 0, s4_75: 0,
     s2_36: 0, s1_18: 0, s0_6: 0, s0_3: 0, s0_15: 0, s0_075: 1,
+    // The Polish-Resistant tab's per-component gradations are NOT the JMF
+    // column and do not share its precision. KYTC formats the JMF cells as
+    // whole percents, but the polish tab carries tenths and its own
+    // arithmetic depends on them: #467PA's composite retained-on-#4 is
+    // 24.69% from 17.7 on the #4, and 24.60% from 18. Rounding these to the
+    // JMF's 0 dp moved every total in the section.
+    polish_sieve: 1,
     // Contract
     total_tons: 0,
     // TSR tab. The ratio itself is a whole percent; the strengths a tenth.
@@ -2979,6 +3011,45 @@ function extractLegacy(wb, ctx) {
     else log.push({ field: key, source, value: r.value, status: r.status === "not-cached" ? "not-cached" : "missing",
                     note: "sieve JMF" + (r.status === "found" ? " — non-numeric (e.g. N / A)" : "") });
   });
+
+  { // Polish-Resistant Data: per-component gradations and the RAP credit.
+    // Written into scalars.polish under the section's own data-pr keys, which
+    // is the same shape collectForm() saves and polishSavedValues() reads - so
+    // a legacy import and a reopened design restore through one path.
+    const PR = L.POLISH, ws = PR ? S[PR.sheet] : null;
+    if (!ws) {
+      log.push({ field: "polish-resistant gradations", source: "(Polish-Resistant Data)",
+                 value: null, status: "sheet-missing", note: "this workbook has no Polish-Resistant Data tab" });
+    } else {
+      const polish = {};
+      let cells = 0, comps = 0, disagree = [];
+      PR.cols.forEach((col, i) => {
+        const nm = legacyCell(ws, `${col}${PR.name}`);
+        if (nm.status !== "found" || String(nm.value).trim() === "") return;   // no component in this column
+        comps++;
+        Object.entries(PR.sieveRows).forEach(([key, row]) => {
+          const r = legacyCell(ws, `${col}${row}`);
+          if (r.status !== "found") return;
+          // Deliberately not coerceField(key, ...): that would apply the JMF
+          // column's decimal places (see CONFIG.DP.polish_sieve).
+          const n = Number(r.value);
+          if (!Number.isFinite(n)) return;
+          polish[`g:${i}:${key}`] = String(roundTo(n, CONFIG.DP.polish_sieve)); cells++;
+        });
+        const rap = legacyCell(ws, `${col}${PR.rapCredit}`);
+        if (rap.status === "found" && String(rap.value).trim() !== "") polish[`rap:${i}`] = String(rap.value).trim();
+        // Cross-check only, never imported - see the note on CONFIG.LEGACY.POLISH.
+        const says = legacyCell(ws, `${col}${PR.kytcSaysPR}`);
+        if (says.status === "found") disagree.push(`${String(nm.value).trim()}=${String(says.value).trim()}`);
+      });
+      if (cells) scalars.polish = polish;
+      log.push({ field: "polish-resistant gradations",
+                 source: `${L.SHEET_NAMES[PR.sheet]}!${PR.cols[0]}${PR.sieveRows.s50}:${PR.cols[PR.cols.length - 1]}${PR.sieveRows.s0_075}`,
+                 value: cells, status: cells ? "found" : "missing",
+                 note: `${comps} component column(s), ${cells} sieve value(s)` +
+                       (disagree.length ? ` · KYTC's own row 17: ${disagree.join(", ")}` : "") });
+    }
+  }
 
   { // aggregate blend rows
     const A = L.AGGREGATE, ws = S[A.sheet], spec = rowSpec("aggregate");
