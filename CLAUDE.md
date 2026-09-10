@@ -433,12 +433,15 @@ TBD — cite the governing spec section when encoding a limit in code.
   `GRADATION_CONTROL_POINTS` and `POLISH`), keyed on **AADTT Class** (the
   spec's "Class" 2/3/4 — *not* ESAL or depth; the MixPack's `P52:P55`
   Criteria formulas still branch on the old ESAL-era table, so don't copy
-  them). `computeConsensus()` prints the resolved limit + ✓/✗ under each
-  value and an out-of-spec value raises a **non-blocking** rail warning
-  (same pattern as Polish — "design is complete, it just wouldn't
-  qualify"). FAA and SE are always `req`; CAA and F&E lose `req` on a
-  No. 4 mix (`isNo4Mix()`), where they don't apply and FAA's min rises to
-  45. **Open (Andrew → Tate):** `caa` is one field checked against the
+  them). `consensusCriteriaFor()` is the pure core; on the page
+  `computeConsensus()` prints the resolved limit + ✓/✗ under each value and
+  an out-of-spec value raises a **non-blocking** rail warning (same pattern
+  as Polish — "design is complete, it just wouldn't qualify"), and the
+  review PDF has a bespoke `RENDER.consensus` (Property / Value / Spec
+  limit / Result, coloured Pass/Fail — added `ok`/`bad` to
+  `CONFIG.HANDOFF.BRAND`). FAA and SE are always `req`; CAA and F&E lose
+  `req` on a No. 4 mix (`isNo4Mix()`), where they don't apply and FAA's
+  min rises to 45. **Open (Andrew → Tate):** `caa` is one field checked against the
   two-or-more-crushed-faces figure; confirm whether KYTC wants the
   one-face value tracked separately. KM p.472 verification tolerances
   (CAA ±10, FAA ±2, SE ±15, F&E ±5 SMA-only) are noted in the CONFIG

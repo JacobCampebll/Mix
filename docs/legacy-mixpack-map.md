@@ -399,11 +399,18 @@ CAA and F&E do not apply; SE still does.
 
 This lives in `CONFIG.CONSENSUS_CRITERIA` in `designbook.html` (spec
 constant, same footing as `GRADATION_CONTROL_POINTS` / `POLISH`).
-`computeConsensus()` resolves the limit for the current `aadtt_class` +
-`nominal_size`, prints it under each value with a ✓/✗ marker (the MixPack's
-Criteria column), and an out-of-spec value raises a **non-blocking** rail
-warning — same pattern as the Polish-Resistant checks. FAA and SE are
-always `req`; CAA and F&E lose `req` on a No. 4 mix.
+`consensusCriteriaFor(class, no4, getVal)` is the pure core; the on-page
+`computeConsensus()` feeds it the DOM and the review PDF feeds it the
+frozen payload, so the table has one home. On the page it prints the limit
+under each value with a ✓/✗ marker (the MixPack's Criteria column), and an
+out-of-spec value raises a **non-blocking** rail warning — same pattern as
+the Polish-Resistant checks. FAA and SE are always `req`; CAA and F&E lose
+`req` on a No. 4 mix.
+
+The **review PDF** has a bespoke `RENDER.consensus` — a
+Property / Value / Spec limit / Result table with a coloured
+Pass / Fail / n/a, skipped when the design holds none of the four values.
+`ok` / `bad` were added to `CONFIG.HANDOFF.BRAND` for the Result colour.
 
 - **`caa` stays a single field** and is checked against the **two-or-more
   crushed faces** figure (80 / 90 / 100), AASHTO T335's primary reported
