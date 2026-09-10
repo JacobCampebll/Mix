@@ -448,6 +448,25 @@ TBD — cite the governing spec section when encoding a limit in code.
   comment but not enforced — that's the Department's re-test side, not the
   contractor's. Full table in `docs/legacy-mixpack-map.md`.
 
+- **A `<select>` fires `input` BEFORE `change`, so clearing an "auto-filled"
+  marker only on `change` lets the `input` handler undo the person's first
+  pick.** The Polish-Resistant Source column (coarse/fine) is prefilled from
+  the component's own % passing the #4 and tagged `data-guess` so it keeps
+  re-guessing as gradations arrive; the tag was removed in the `change`
+  handler, but `reguessPolishRoles()` runs from the `input` handler, which
+  fires first — so it re-guessed while the control still looked auto-filled
+  and put its own answer back. On screen the dropdown appeared to reject the
+  choice; picking a second time worked, because by then the tag was gone.
+  Fixed 2026-09-10 by clearing the tag in the `input` handler too. Two things
+  worth carrying: **if a marker decides whether an event handler may overwrite
+  a control, clear it in the FIRST event that fires, not the tidiest one**;
+  and this had been invisible until the per-component gradations started
+  importing the same day, because with no #4 value the guess had nothing to
+  overwrite with. A dormant bug that a *data* fix wakes up is easy to blame on
+  the data fix.
+  (Shipped inside commit `1103126`, whose message describes the other three
+  polish changes and not this one.)
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
