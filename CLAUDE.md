@@ -515,7 +515,11 @@ TBD — cite the governing spec section when encoding a limit in code.
   render as one header strip plus thin rows (wide) or two-column cards
   (narrow). Note the header lives *outside* `.rowlist`: `collectForm()` reads
   that element's children as the rows, so anything else in there is collected
-  as an extra row.
+  as an extra row. A row spec also declares `span: [wide, medium]` in
+  twelfths, which is how Performance Testing gets its three tables on one
+  line; pick the breakpoints from what the window leaves the *form* (the nav
+  and the rail take 450px of it), and check for clipping by comparing each
+  input's `scrollWidth` to its `clientWidth` rather than by eye.
 
 ### Technician login & plant access
 
