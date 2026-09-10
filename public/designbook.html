@@ -107,7 +107,14 @@
   .whoami{font-size:12px; color:var(--muted); text-align:right; line-height:1.4;}
   .whoami a{cursor:pointer; text-decoration:underline; text-underline-offset:2px;}
 
-  .layout{max-width:1220px; margin:0 auto; display:grid;
+  /* Both rails are a fixed width and the form is the only 1fr, so the cap is
+     what decides how much room the form gets: at 1220 it was 650px on any
+     monitor, with the rest of a wide screen left empty either side. Raised to
+     1660, which puts ~1090px under the form - enough for the polish matrix
+     (785px at six components) to stop scrolling inside itself on a desktop.
+     Still capped rather than full-bleed: past this the three-up field rows
+     stretch into something you have to track across. */
+  .layout{max-width:1660px; margin:0 auto; display:grid;
           grid-template-columns:200px minmax(0,1fr) 250px; gap:28px; padding:28px 32px 80px;}
   @media (max-width:1080px){ .layout{grid-template-columns:minmax(0,1fr);} }
 
