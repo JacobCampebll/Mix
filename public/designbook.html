@@ -534,6 +534,18 @@ const CONFIG = {
         label: (r) => `${r.lap_number} — ${r.terminal_name}`,
         aliases: (r) => [r.terminal_name],
       },
+      // AMP asphalt plants. Needed because a RAP component's "producer" is
+      // the plant its millings came from, not an aggregate producer - see the
+      // `alt` on the Producer column below. Same read-all reference data as
+      // the rest (supabase/plants.sql: RLS on, one `to authenticated using
+      // (true)` select policy, seeding is an admin action).
+      plants: {
+        table: "plants", select: "amp_number, name", orderBy: "name",
+        noun: "plants",
+        value: (r) => r.name,
+        label: (r) => `${r.name} — ${r.amp_number}`,
+        aliases: (r) => [r.amp_number],
+      },
       binder_grades: {
         table: "binder_grades", select: "grade, sitemanager_code", orderBy: "grade",
         noun: "grades",
@@ -1085,7 +1097,14 @@ const CONFIG = {
         key: "aggregate", max: 6, addLabel: "+ add aggregate component (up to 6)",
         grid: "1.4fr 1.2fr 1fr .8fr .8fr auto",
         columns: [
-          { key: "producer",  label: "Producer",     type: "text",   req: true, source: "aggregates" },
+          // AGP and AMP are different registries: an AGP number is an
+          // aggregate producer, an AMP number is an asphalt plant. For every
+          // component but RAP the producer is an AGP. RAP is millings, so its
+          // "producer" is the AMP plant they came off - which is why checking
+          // a RAP row against the aggregates list always warned (Jake,
+          // 2026-09-10). `alt` swaps the list, and the label, per row.
+          { key: "producer",  label: "Producer",     type: "text",   req: true, source: "aggregates",
+            alt: { when: (row) => isRapRow(row), source: "plants", label: "Plant (RAP source)" } },
           { key: "type_size", label: "Type & size",  type: "text",   req: true, source: "aggregate_types",
             fills: { mat_code: (r) => r.mat_code } },
           { key: "mat_code",  label: "Mat. code",    type: "text",   req: true, mono: true },
@@ -1401,7 +1420,8 @@ function gridHTML(fields) {
 }
 
 function rowHTML(spec, values, idx) {
-  const cells = spec.columns.map((c) => {
+  const cells = spec.columns.map((c0) => {
+    const c = effectiveColDef(c0, values || {});
     const v = values ? values[c.key] : "";
     const cls = "box" + (c.mono ? " mono" : "") + (c.req ? " req" : "");
     const attrs = `data-row="${spec.key}" data-col="${c.key}"`;
@@ -1762,11 +1782,37 @@ function autoFpInputs() {
 // and bid item (state.mix.binder_grade, the proposal's original grade - the
 // spec exists to tell you whether the ACTUAL virgin binder has to differ
 // from that).
+// What makes a row the RAP component, in one place because two things now
+// turn on it: which list the Producer column offers, and the RAP note.
+// KYTC's aggregate_types carries three RAP entries - Coarse, Fine and
+// Intermediate RAP - and that is where a real MixPack puts it, leaving the
+// Producer column for the asphalt plant. The older "Producer is literally
+// RAP" spelling is still accepted, because hand-entered designs use it and
+// dropping it would silently stop computing their RAP note.
+function isRapRow(values) {
+  const t = String((values && values.type_size) || "");
+  const p = String((values && values.producer) || "").trim();
+  return /(^|\s)rap\b/i.test(t) || p.toLowerCase() === "rap";
+}
+// The values of one rendered row, keyed by column - what isRapRow reads.
+function rowValuesOf(row) {
+  const out = {};
+  if (row) row.querySelectorAll("[data-col]").forEach((el) => { out[el.dataset.col] = el.value; });
+  return out;
+}
+// A column whose list depends on its row resolves here. Everything
+// downstream - the renderer, the validation rail, the searchable dropdown -
+// reads data-source off the element, so swapping the def is the whole
+// mechanism; nothing else needed to learn about RAP.
+function effectiveColDef(col, values) {
+  if (!col || !col.alt || !col.alt.when(values || {})) return col;
+  return Object.assign({}, col, { source: col.alt.source, label: col.alt.label || col.label });
+}
+
 function rapPercent() {
   let pct = null;
   document.querySelectorAll('[data-rowlist="aggregate"] .rowitem').forEach((row) => {
-    const producer = String(row.querySelector('[data-col="producer"]')?.value || "").trim();
-    if (producer.toLowerCase() !== "rap") return;
+    if (!isRapRow(rowValuesOf(row))) return;
     const v = num(row.querySelector('[data-col="pct_blend"]')?.value);
     if (v != null) pct = v;
   });
@@ -3116,6 +3162,8 @@ function wireForm() {
     if (e.target.dataset.pr && /^role:/.test(e.target.dataset.pr)) delete e.target.dataset.guess;
     if (e.target.dataset.pr) { recompute(); state.dirty = true; renderSavedState(); return; }
     if (e.target.dataset.source) snapToReference(e.target);
+    // Type & size deciding RAP is what re-points Producer at the plants list.
+    if (e.target.dataset.col) retargetRowControls(e.target.closest(".rowitem"));
     if (e.target.tagName === "SELECT" || e.target.dataset.source) { autofillFrom(e.target); recompute(); }
   });
 
@@ -4653,7 +4701,9 @@ function rowSpecFor(key) { return rowSpec(key); }   // array-aware; see rowSpec(
 function refDefFor(el) {
   if (el.dataset.field) return legacyFieldDef(el.dataset.field);
   const spec = rowSpecFor(el.dataset.row);
-  return spec ? (spec.columns.find((c) => c.key === el.dataset.col) || null) : null;
+  if (!spec) return null;
+  const col = spec.columns.find((c) => c.key === el.dataset.col) || null;
+  return col && col.alt ? effectiveColDef(col, rowValuesOf(el.closest(".rowitem"))) : col;
 }
 function refFieldLabel(el) {
   const def = refDefFor(el);
@@ -4677,6 +4727,44 @@ function renderRefStatus() {
   el.className = "refstatus" + (state.ref.error ? " error" : "");
 }
 
+// Rebuild one sourced control from its schema def, keeping the value, the
+// tint, the auto-fill mark, the tooltip and the disabled state. Listeners are
+// delegated on #sections, so swapping the element loses nothing.
+function replaceRefControl(el, def) {
+  const attrs = el.dataset.field ? `data-field="${el.dataset.field}"` : `data-row="${el.dataset.row}" data-col="${el.dataset.col}"`;
+  const cls = Array.from(el.classList).filter((c) => c !== "prefilled" && c !== "autofilled").join(" ");
+  const tmp = document.createElement("div");
+  tmp.innerHTML = refControlHTML(def, cls, attrs, el.value);
+  const nu = tmp.firstElementChild;
+  ["prefilled", "autofilled"].forEach((c) => { if (el.classList.contains(c)) nu.classList.add(c); });
+  if (el.dataset.autofilled) nu.dataset.autofilled = el.dataset.autofilled;
+  if (el.title) nu.title = el.title;
+  nu.disabled = el.disabled;
+  el.replaceWith(nu);
+  return nu;
+}
+
+// A row whose Type & size just became (or stopped being) RAP needs its
+// Producer pointed at the other list, and relabelled with it. Called on every
+// committed edit inside a row; a no-op unless the source actually changes,
+// and it never rebuilds the control the person is currently typing in.
+function retargetRowControls(row) {
+  const list = row && row.closest("[data-rowlist]");
+  const spec = list ? rowSpecFor(list.dataset.rowlist) : null;
+  if (!spec) return;
+  const values = rowValuesOf(row);
+  spec.columns.forEach((col) => {
+    if (!col.alt) return;
+    const el = row.querySelector(`[data-col="${col.key}"]`);
+    if (!el || el === document.activeElement) return;
+    const def = effectiveColDef(col, values);
+    if (el.dataset.source === def.source) return;
+    const nu = replaceRefControl(el, def);
+    const label = nu.parentElement ? nu.parentElement.querySelector("label") : null;
+    if (label) label.textContent = def.label;
+  });
+}
+
 // Reference data landed after the form was drawn (or failed): rebuild every
 // sourced control from the same schema and lists renderForm uses, keeping
 // its value, tint, disabled state and auto-fill mark; then re-run the
@@ -4687,17 +4775,7 @@ function refreshReferenceControls() {
   comboClose();   // the input the popup is anchored to is about to be replaced
   document.querySelectorAll("#sections [data-source]").forEach((el) => {
     const def = refDefFor(el);
-    if (!def) return;
-    const attrs = el.dataset.field ? `data-field="${el.dataset.field}"` : `data-row="${el.dataset.row}" data-col="${el.dataset.col}"`;
-    const cls = Array.from(el.classList).filter((c) => c !== "prefilled" && c !== "autofilled").join(" ");
-    const tmp = document.createElement("div");
-    tmp.innerHTML = refControlHTML(def, cls, attrs, el.value);
-    const nu = tmp.firstElementChild;
-    ["prefilled", "autofilled"].forEach((c) => { if (el.classList.contains(c)) nu.classList.add(c); });
-    if (el.dataset.autofilled) nu.dataset.autofilled = el.dataset.autofilled;
-    if (el.title) nu.title = el.title;
-    nu.disabled = el.disabled;
-    el.replaceWith(nu);
+    if (def) replaceRefControl(el, def);
   });
   applyAutofills();
   // Every polish-resistant fact is read off aggregate_types, and the grid is
