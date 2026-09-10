@@ -262,6 +262,16 @@
   /* Touch: the whole row is the tap target, so give it a finger's worth. */
   @media (pointer:coarse){ .combo-opt{padding:12px; min-height:44px;} }
 
+  /* Two narrow tables share a line; a wide one spans both columns. */
+  .rowblocks{display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+             gap:18px 24px; align-items:start;}
+  .rowblock{grid-column:span 2; min-width:0;}
+  .rowblock.half{grid-column:span 1;}
+  /* 1240, not 900: the nav and the outstanding-items rail take 450px of the
+     window, so at 1100 a half is only ~250px - narrower than the three
+     columns in it. Above 1240 each half is ~450px, which fits. */
+  @media (max-width:1240px){ .rowblock.half{grid-column:span 2;} }
+
   /* Repeating rows read as a table: the column names once, then thin rows.
      Ten specimens carrying ten copies of their own labels was most of the
      height of Performance Testing for five numbers a row. */
@@ -1531,16 +1541,18 @@ const CONFIG = {
           ],
         },
         {
-          key: "ct", heading: "KYCT (Kentucky Crack Test)", max: 8,
+          key: "ct", heading: "KYCT (Kentucky Crack Test)", max: 8, half: true,
           addLabel: "+ add KYCT specimen (up to 8)",
-          grid: "1.2fr 1fr auto",
+          // The specimen name is the long one and the only thing that tells
+          // two rows apart (..._SPEC_1 vs ..._SPEC_2), so it gets the room.
+          grid: "2fr 1fr auto",
           columns: [
             { key: "specimen", label: "Specimen #", type: "text",   req: true, mono: true },
             { key: "index",    label: "CT index",   type: "number", req: true, mono: true },
           ],
         },
         {
-          key: "hamburg_curve", heading: "Hamburg — rut depth by pass count", fixed: true,
+          key: "hamburg_curve", heading: "Hamburg — rut depth by pass count", fixed: true, half: true,
           grid: "0.7fr 1fr 1fr",
           seed: [
             { passes: "100" }, { passes: "5000" }, { passes: "10000" },
@@ -1740,7 +1752,14 @@ function gridHTML(fields) {
 function rowHTML(spec, values, idx) {
   const cells = spec.columns.map((c0) => {
     const c = effectiveColDef(c0, values || {});
-    const v = values ? values[c.key] : "";
+    // Round here as well as at import, so a column's precision is a property
+    // of the schema rather than of which path filled it - a design imported
+    // before CONFIG.DP reached its importer, or rehydrated from a review PDF
+    // that carries the raw float, still prints to the right place.
+    // roundTo() passes anything with no DP entry straight through.
+    const v = c.type === "number"
+      ? roundTo(values && values[c.key] != null ? values[c.key] : "", CONFIG.DP[c.key])
+      : (values ? values[c.key] : "");
     const cls = "box" + (c.mono ? " mono" : "") + (c.req ? " req" : "");
     const attrs = `data-row="${spec.key}" data-col="${c.key}"`;
     const ro = c.readonly ? " readonly tabindex=\"-1\"" : "";
@@ -1788,8 +1807,14 @@ function rowsHTML(spec) {
 }
 
 // `rows` may be one spec or an array of specs (Performance Testing uses three).
+// A spec marked `half` takes half the width, so two narrow tables sit side by
+// side instead of stacking - KYCT is two columns and the Hamburg curve three,
+// and stacked they made the section a long ribbon of mostly empty space.
+// Anything not marked spans the full width, which is every other section.
 function rowsBlockHTML(rows) {
-  return (Array.isArray(rows) ? rows : [rows]).map(rowsHTML).join('<div style="height:16px"></div>');
+  const list = Array.isArray(rows) ? rows : [rows];
+  return `<div class="rowblocks">` + list.map((spec) =>
+    `<div class="rowblock${spec.half ? " half" : ""}">${rowsHTML(spec)}</div>`).join("") + `</div>`;
 }
 
 function sievesHTML(section) {
