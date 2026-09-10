@@ -401,7 +401,12 @@
      as bordered cards three across they took a full screen and put the
      workbook's own results a scroll away from the ones fit from the curve,
      which is the one comparison this section exists to make. */
-  .dvtable{max-width:620px; border-top:1px solid var(--line);}
+  /* The comparison, and beside it what only the workbook states. */
+  .dvsplit{display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr);
+           gap:18px 34px; align-items:start;}
+  .dvsplit.one{grid-template-columns:minmax(0,620px); justify-content:center;}
+  @media (max-width:1000px){ .dvsplit{grid-template-columns:1fr;} }
+  .dvtable{border-top:1px solid var(--line); min-width:0;}
   .dvrow{display:grid; grid-template-columns:minmax(0,1fr) 108px;
          align-items:baseline; gap:14px; padding:5px 4px;
          border-bottom:1px solid var(--line);}
@@ -413,7 +418,7 @@
   .dvrow .v.none{color:var(--line);}
   /* The column names, in the same small caps as every other header here. */
   .dvhead{border-bottom:1px solid var(--line);}
-  .dvhead .v{font-family:inherit; font-size:10px; text-transform:uppercase;
+  .dvhead .v, .dvhead .l{font-family:inherit; font-size:10px; text-transform:uppercase;
              letter-spacing:.03em; color:var(--muted);}
   .dvhead:hover{background:transparent;}
   @media (max-width:700px){
@@ -1993,17 +1998,29 @@ function computedHTML(section) {
     .map((d) => `<div class="dvrow">
        <span class="l">${esc(d.label)}</span>
        <span class="v wb">${esc(String(d.value))}</span>
-       <span class="v none">—</span>
      </div>`).join("");
   const head = `<div class="dvrow dvhead">
       <span class="l"></span>
       ${has ? `<span class="v wb">Uploaded MixPack</span>` : ""}
       <span class="v">From Four Points</span>
     </div>`;
+  // What only the workbook states goes in its own table beside the
+  // comparison rather than underneath it: it has nothing to compare against,
+  // so a column of dashes was carrying no information, and the section was a
+  // narrow table with half a page of white beside it.
+  const extraPanel = extra
+    ? `<div class="dvtable">
+         <div class="dvrow dvhead"><span class="l">Stated only in the MixPack</span><span class="v"></span></div>
+         ${extra}
+       </div>`
+    : "";
   const note = has
-    ? `${wb.length} value(s) from ${esc(wb[0].source.split("!")[0])}, read-only, beside the calculator fit from the four trial points. A row with a dash is stated by only one of the two.`
+    ? `${wb.length} value(s) from ${esc(wb[0].source.split("!")[0])}, read-only, beside the calculator fit from the four trial points.`
     : "Read-only — derived from the Four Points inputs above.";
-  return `<div class="dvtable${has ? " two" : ""}">${head}${paired}${extra}</div>
+  return `<div class="dvsplit${extraPanel ? "" : " one"}">
+      <div class="dvtable${has ? " two" : ""}">${head}${paired}</div>
+      ${extraPanel}
+    </div>
     <div class="computed-note">${note}</div>`;
 }
 
