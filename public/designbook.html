@@ -715,6 +715,11 @@ const CONFIG = {
         rap_note:        [["designData", "A19"], ["recycle", "C27"]],
         aadtt_class:     [["designData", "H20"]],    // KYTC calls this ESAL class in the workbook; same cell
         designer:        [["designData", "K16"]],   // SUBMITTED BY (an SM ID)
+        // --- Consensus Properties (Design Data input block, same in 11.x/12.1) ---
+        caa:             [["designData", "O52"]],   // Coarse aggregate angularity
+        faa:             [["designData", "O53"]],   // Fine aggregate angularity
+        flat_elongated:  [["designData", "O54"]],   // Flat & elongated particles
+        sand_equivalent: [["designData", "O55"]],   // Clay content (SE)
         // --- TSR box ---
         tsr_pct:          [["tsr", "G57"], ["designData", "O72"]],   // % TSR without additive
         tsr_pct_additive: [["tsr", "N57"], ["designData", "O73"]],   // % TSR with additive
@@ -741,6 +746,10 @@ const CONFIG = {
         rap_note:        [["recycle", "F18"]],
         aadtt_class:     [["designData", "H20"]],
         designer:        [["designData", "K16"]],
+        caa:             [["designData", "O52"]],
+        faa:             [["designData", "O53"]],
+        flat_elongated:  [["designData", "O54"]],
+        sand_equivalent: [["designData", "O55"]],
         tsr_pct:          [["tsr", "G57"], ["designData", "O72"]],
         tsr_pct_additive: [["tsr", "N57"], ["designData", "O73"]],
         tsr_wet_strength: [["tsr", "H54"]],
@@ -867,8 +876,8 @@ const CONFIG = {
       // The 1/4" sieve, dropped from the gradation schema (see there) but still
       // read, so a workbook that carries a real number for it says so.
       ["1/4in sieve (JMF)", "designData", "T21"],
-      ["Coarse agg. angularity", "designData", "O52"], ["Fine agg. angularity", "designData", "O53"],
-      ["Flat & elongated", "designData", "O54"], ["Clay content (SE)", "designData", "O55"],
+      // Consensus properties O52-O55 moved out 2026-09-10 to the Consensus
+      // Properties section (CONFIG.LEGACY.CELLS carries them now).
       ["Specimen weight", "designData", "O70"], ["TSR weight", "designData", "O71"],
       ["Ref: County", "designData", "T52"], ["Ref: Mix ID #", "designData", "T53"],
       ["Ref: Binder", "designData", "T54"], ["Ref: Date released", "designData", "U55"],
@@ -1147,6 +1156,23 @@ const CONFIG = {
         { key: "s0_3",   label: "#50",    mm: 0.300 },
         { key: "s0_15",  label: "#100",   mm: 0.150 },
         { key: "s0_075", label: "#200",   mm: 0.075 },
+      ],
+    },
+    {
+      id: "consensus", label: "Consensus Properties",
+      tag: "Superpave · measured on the combined aggregate blend", type: "grid",
+      // AASHTO M323 Table 5 consensus properties. Legacy source is MixPack
+      // Design Data!O52-O55 (see CONFIG.LEGACY.CELLS). Values only for this
+      // pass: the MixPack also resolves a per-mix spec limit for each of
+      // these (its "Criteria" column P, keyed on traffic level / depth /
+      // NMAS) - reproducing that limit and an in/out-of-spec marker is a
+      // later pass. Flat & elongated is legitimately N/A on a #4-nominal
+      // mix, so none of these are required yet.
+      fields: [
+        { key: "caa",             label: "Coarse aggregate angularity (%)",     type: "number", req: false, mono: true },
+        { key: "faa",             label: "Fine aggregate angularity (%)",       type: "number", req: false, mono: true },
+        { key: "flat_elongated",  label: "Flat & elongated particles (%)",      type: "number", req: false, mono: true },
+        { key: "sand_equivalent", label: "Clay content (SE) (%)",                type: "number", req: false, mono: true },
       ],
     },
     {
@@ -2747,6 +2773,7 @@ function extractLegacy(wb, ctx) {
   const plain = [
     "county", "total_tons", "binder_grade", "binder_terminal", "funding",
     "depth_mm", "rap_note", "designer",
+    "caa", "faa", "flat_elongated", "sand_equivalent",
     "tsr_pct", "tsr_pct_additive", "tsr_wet_strength", "tsr_dry_strength",
     "perf_binder", "hamburg_left_maxdef", "hamburg_right_maxdef",
     "hamburg_left_passmax", "hamburg_right_passmax", "hamburg_left_sip", "hamburg_right_sip",
