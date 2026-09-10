@@ -182,6 +182,9 @@
     background:none; color:var(--accent); font:inherit; font-size:13px; cursor:pointer;}
   .reopen button:disabled{opacity:.55; cursor:not-allowed;}
   .reopen input[type=file]{display:none;}
+  /* For a reviewer the door is FIRST (see reviewerFirst): it then separates from
+     the wizard below it rather than from the step above. */
+  .reopen.first{margin:0 0 20px; padding:0 0 16px; border-top:0; border-bottom:1px solid var(--line);}
 </style>
 </head>
 <body>
@@ -886,7 +889,24 @@
   function openSubmit() {
     showOnly("submitView");
     renderSteps();
-    if (state.step === 1) $("contractId").focus();
+    // A reviewer landed on the door, not the wizard - focus follows.
+    if (state.step === 1) (state.tech && state.tech.can_review ? $("reopenBtn") : $("contractId")).focus();
+  }
+
+  // A Central Office reviewer's job here is to open the file they were sent,
+  // not to start a design. The same door, moved to the top of the card and
+  // worded for them - the wizard is still right below it. Everyone else sees
+  // the page exactly as before.
+  function reviewerFirst() {
+    const door = document.querySelector("#step1 .reopen"), card = $("step1");
+    if (!door || !card) return;
+    door.classList.add("first");
+    door.querySelector("h3").textContent = "Reviewing a submission?";
+    door.querySelector("p").textContent =
+      "Open the DesignBook PDF the contractor sent you. It carries the whole design, so the " +
+      "form comes back exactly as they submitted it, and you review and approve it from there. " +
+      "Starting a new design yourself is below.";
+    card.prepend(door);
   }
 
   /* ---- boot ---- */
@@ -921,7 +941,8 @@
       }
       // Everyone lands on the wizard now. There is no queue to land on: a
       // reviewer receives a submission as a file, and opens it through the
-      // "Already have a review PDF?" door.
+      // "Already have a review PDF?" door - which, for a reviewer, comes first.
+      if (tech.can_review) reviewerFirst();
       openSubmit();
     } catch (err) {
       setStatus($("bootStatus"), err.message || "Couldn't load your account.", "error");
