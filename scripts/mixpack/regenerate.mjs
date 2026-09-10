@@ -91,6 +91,37 @@ for (const [sheet, spec] of Object.entries(DIRECT_READ))
   for (let r = spec.firstRow; r <= spec.lastRow; r++)
     for (const col of spec.cols) inputs.add(`${sheet}!${col}${r}`);
 
+// ...and everything else a person actually put in the workbook.
+//
+// A staging-formula scan finds only what SiteManager CONSUMES. But the
+// Spreadsheet Applet also ARCHIVES the file, so the workbook is a record as
+// well as a payload, and a copy that drops the JMF gradation column, the
+// contact phone and the Fed/State number is a poor record even when the load
+// is correct. Measured on #467PA before this: 210 such cells outside KYCT
+// Data, plus the ~9,570-cell raw IDEAL-CT curve block.
+//
+// The rule is the one that separates them: carry a source cell holding a
+// value wherever the TEMPLATE has no formula there. A template formula
+// recalculates itself when Excel opens the file (417 such cells on #467PA) and
+// must keep its <f>, so those are deliberately left alone - writing them as
+// literals would destroy the sheet's own arithmetic.
+const tplCells = {};
+let carried = 0;
+for (const [sheet, n] of Object.entries(SOURCE)) {
+  const tpl = (tplCells[sheet] ||= cellsOf(sheetXml(TEMPLATE, n), null));
+  for (const [ref, c] of cellsFor(sheet)) {
+    if (c.v == null || String(c.v).trim() === '') continue;   // nothing to carry
+    const t = tpl.get(ref);
+    if (t && t.f) continue;                                   // recalculates on open
+    // The template's own labels and headings are already in the base file we
+    // write into; rewriting them identically is thousands of wasted splices.
+    if (t && t.v != null && String(t.v) === String(c.v)) continue;
+    const k = `${sheet}!${ref}`;
+    if (inputs.has(k)) continue;
+    inputs.add(k); carried++;
+  }
+}
+
 const values = {};
 for (const k of inputs) { const [s, r] = k.split('!'); values[k] = valueOf(s, r); }
 // --set replaces an input after it is read, so overriding one cell carries
@@ -102,9 +133,9 @@ for (const [k, v] of Object.entries(overrides)) {
 }
 
 const { parts, report } = fillWorkbook({ template: TEMPLATE, values });
-const carried = Object.entries(DIRECT_READ)
+const direct = Object.entries(DIRECT_READ)
   .map(([sh, sp]) => `${sh} ${sp.firstRow}-${sp.lastRow}`).join(', ');
-console.log(`input cells read      : ${inputs.size}  (incl. direct-read: ${carried})`);
+console.log(`input cells read      : ${inputs.size}  (direct-read: ${direct}; +${carried} other authored cells)`);
 for (const sheet of Object.keys(DIRECT_READ)) {
   const rows = [];
   for (let r = DIRECT_READ[sheet].firstRow; r <= DIRECT_READ[sheet].lastRow; r++) {

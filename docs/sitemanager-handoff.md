@@ -275,6 +275,43 @@ One row each, and mostly constant or derivable:
   DesignBook already collects all three: Contract Information's
   `project_number` and `line_items` (split from `Design Data!C14`,
   `"MP07606272601 (0165)"`) and `total_tons`.
+
+### Payload correct is not the same as workbook complete
+
+The Applet loads the file **and archives a copy**, so a generated MixPack is a
+record as well as a payload, and the two have different completeness bars.
+
+Measured on #467PA, generating from the real file:
+
+| | before | after |
+|---|---|---|
+| staging cells matching | 1,702 (5 expected diffs, 0 unexplained) | unchanged |
+| recalculate on open | 417 | 417 |
+| **genuinely missing** | **9,780** | **0** |
+
+The 417 are cells the template holds as **formulas**: they carry no cached
+value in a generated file but Excel recomputes them the moment it opens, so
+they must keep their `<f>` and must never be written as literals.
+
+The 9,780 were real authored values nothing recalculates — 210 outside
+`KYCT Data` (the whole JMF gradation column `Design Data!T15:T28`, the contact
+phone, the Fed/State number, the plant name, the binder source) plus ~9,570
+cells of raw IDEAL-CT load/displacement curve in `KYCT Data` rows 25–1051.
+The staging tables were correct throughout — the gradation reaches SiteManager
+through `Chart Data`, not through column `T` — so this was invisible to the
+parity check and would have produced an archived design with a blank
+gradation column.
+
+`regenerate.mjs` now carries **every source cell holding a value where the
+template has no formula there**. That is the rule that separates the two
+groups, and it needs no per-field knowledge. Input cells go 330 → ~12,700 on a
+real file; the run takes ~14s.
+
+**This closes it only for regenerating from an existing workbook.** Building
+one from a DesignBook payload (task #6) cannot reproduce `KYCT Data`'s raw
+curves — DesignBook stores only the CT summary (specimen number and CT index,
+`CONFIG.LEGACY.CT`). Whether the archived MixPack needs the raw curve, or the
+index is enough, is an open question for Central Office.
 - `t_smpl_tst`: `tst_meth` = `AMMIXPACK`, `smpl_tst_nbr` = `1`, `lab_id` =
   `LU00642` (the district lab), `chrg_amt` = the total unit test cost from
   `Design Data!M32`, `strt_dt` = submission date, `actl_cmpl_dt` = approval
