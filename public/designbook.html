@@ -262,14 +262,42 @@
   /* Touch: the whole row is the tap target, so give it a finger's worth. */
   @media (pointer:coarse){ .combo-opt{padding:12px; min-height:44px;} }
 
-  .rowlist{display:flex; flex-direction:column; gap:8px;}
-  .rowitem{display:grid; gap:10px; align-items:end; padding:8px 10px;
-           border:1px solid var(--line); border-radius:var(--radius); background:#FCFCFA;}
-  .rowitem label{font-size:10px; color:var(--muted); text-transform:uppercase;
-                 display:block; margin-bottom:2px;}
-  .rmbtn{border:1px solid var(--line); background:var(--panel); color:var(--muted);
-         border-radius:var(--radius); width:30px; height:32px; cursor:pointer; font-size:15px;}
+  /* Repeating rows read as a table: the column names once, then thin rows.
+     Ten specimens carrying ten copies of their own labels was most of the
+     height of Performance Testing for five numbers a row. */
+  .rowlist{display:flex; flex-direction:column;}
+  .rowhead{display:grid; gap:10px; padding:0 10px 5px; align-items:end;
+           border-bottom:1px solid var(--line);}
+  .rowhead > div{font-size:10px; color:var(--muted); text-transform:uppercase;
+                 letter-spacing:.03em; line-height:1.25;}
+  .rowitem{display:grid; gap:10px; align-items:center; padding:5px 10px;
+           border-bottom:1px solid var(--line); background:transparent;}
+  .rowitem:hover{background:var(--well);}
+  /* Each row still carries its labels for the phone layout below. */
+  .rowitem label{display:none;}
+  .rmbtn{border:1px solid transparent; background:transparent; color:var(--muted);
+         border-radius:var(--radius); width:26px; height:26px; cursor:pointer; font-size:14px;
+         line-height:1; padding:0;}
   .rmbtn:hover{color:var(--bad); border-color:var(--bad);}
+  /* Below 700px the columns cannot survive, so the header goes and every row
+     becomes its own labelled card again - the layout this section had before.
+     Directly below the rules it overrides, per the convention in CLAUDE.md. */
+  @media (max-width:700px){
+    .rowlist{gap:8px;}
+    .rowhead{display:none;}
+    /* !important is doing real work here: rowHTML() writes the column
+       template as an inline style, which no stylesheet rule can outrank.
+       Five columns at 390px squeezed "Specimen 1" down to "Spec" and the
+       weights to one digit, so the card wraps to two columns instead. */
+    .rowitem{grid-template-columns:repeat(2,minmax(0,1fr))!important;
+             align-items:end; padding:8px 10px; border:1px solid var(--line);
+             border-radius:var(--radius); background:#FCFCFA;}
+    .rowitem .rmbtn{justify-self:end; align-self:center;}
+    .rowitem:hover{background:#FCFCFA;}
+    .rowitem label{display:block; font-size:10px; color:var(--muted);
+                   text-transform:uppercase; margin-bottom:2px;}
+    .rmbtn{width:30px; height:32px; border-color:var(--line); background:var(--panel);}
+  }
   .addrow{display:block; width:100%; margin-top:8px; padding:10px;
           border:1px dashed var(--accent); border-radius:var(--radius); background:transparent;
           color:var(--accent); font-size:13px; font-family:inherit; cursor:pointer;}
@@ -1725,6 +1753,19 @@ function rowHTML(spec, values, idx) {
     ${cells}${spec.fixed ? "" : '<button class="rmbtn" title="Remove">×</button>'}</div>`;
 }
 
+// The column names, once, above the list - ten specimens do not need ten
+// copies of "DRY WT (G)". It sits OUTSIDE .rowlist deliberately: collectForm()
+// reads that element's children as the rows, so a header inside it would be
+// collected as an eleventh specimen. Same grid template as .rowitem, plus an
+// empty cell under the remove button so the columns line up. Below 700px the
+// header is dropped and each row goes back to carrying its own labels, which
+// is the only layout that works at that width.
+function rowHeadHTML(spec) {
+  const cells = spec.columns.map((c0) => `<div>${effectiveColDef(c0, {}).label}</div>`).join("");
+  return `<div class="rowhead" style="grid-template-columns:${spec.grid}">
+    ${cells}${spec.fixed ? "" : "<div></div>"}</div>`;
+}
+
 function rowsHTML(spec) {
   if (spec.fixed) {
     // Seeded rows still carry entered values - merge what is in hand over
@@ -1734,11 +1775,12 @@ function rowsHTML(spec) {
     const rows = (spec.seed || []).map((v, i) =>
       rowHTML(spec, held[i] ? Object.assign({}, v, held[i]) : v, i)).join("");
     return (spec.heading ? `<div class="rowgroup-head">${spec.heading}</div>` : "") +
-      `<div class="rowlist" data-rowlist="${spec.key}">${rows}</div>`;
+      rowHeadHTML(spec) + `<div class="rowlist" data-rowlist="${spec.key}">${rows}</div>`;
   }
   const found = state.extracted ? (state.extracted.tables[spec.key] || []) : [];
   const seed = found.length ? found.slice(0, spec.max) : [null];
   return (spec.heading ? `<div class="rowgroup-head">${spec.heading}</div>` : "") +
+    rowHeadHTML(spec) +
     `<div class="rowlist" data-rowlist="${spec.key}">
       ${seed.map((v, i) => rowHTML(spec, v, i)).join("")}
     </div>
