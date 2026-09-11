@@ -2247,6 +2247,7 @@ function statusHTML() {
     </div>
     <div class="handoff">
       <button class="stagebtn hidden" id="approvalPdfBtn">Download approval</button>
+      <button class="stagebtn hidden" id="mixpackBtn">Download MixPack for SiteManager</button>
       <button class="stagebtn hidden" id="submittalPdfBtn">Download submittal PDF</button>
       <button class="stagebtn" id="pdfBtn">Download review PDF</button>
       <div class="handoffnote">This is how you save. Nothing about this design is
@@ -3599,6 +3600,9 @@ function renderStage() {
   // The approval document only exists once there is an approval to put on it.
   const apdf = $("approvalPdfBtn");
   if (apdf) apdf.classList.toggle("hidden", !state.approval);
+  // The SiteManager workbook is KYTC's to load, so it appears for a reviewer once there is an approval.
+  const mpb = $("mixpackBtn");
+  if (mpb) mpb.classList.toggle("hidden", !(state.approval && state.canReview));
   // Only a design that has actually been sent has a submittal to print.
   const spdf = $("submittalPdfBtn");
   if (spdf) spdf.classList.toggle("hidden", !state.submitted);
@@ -5613,17 +5617,772 @@ async function downloadReviewPDF() {
   }
 }
 
+/* ===== MIXPACK ENGINE =====
+ *
+ * Fills KYTC's blank MixPack template (public/MIXPACK2026_VER12_01.xlsm) from
+ * a DesignBook payload and hands back a workbook MEDL can load. A port of
+ * scripts/mixpack/{xlsx,formula,write}.mjs to the browser: same cell parser,
+ * same 7-function formula grammar, same "evaluate every staging formula and
+ * bank the result as a literal" approach, with fflate in place of unzip/zip.
+ *
+ * Why it edits XML at the zip level instead of using SheetJS: the workbook
+ * must survive intact. vbaProject.bin, xmlMaps.xml and the XML-typed
+ * ListObjects are what make it loadable by the Spreadsheet Applet, and no
+ * xlsx library round-trips them. Only the worksheet parts we touch are
+ * rewritten; every other part is copied through byte-identical.
+ *
+ * The Node scripts remain the ground truth (check_staging.mjs proves the
+ * grammar against a real file). scripts/check_mixpack_engine.mjs runs THIS
+ * code in Node and diffs it against regenerate.mjs, so the two cannot drift
+ * without a test saying so.
+ */
+const MP = (() => {
+  const dec = (s) => String(s).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+  const enc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const NUMRE = /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/;
+
+  const colNum = (ref) => { const c = /^([A-Z]+)/.exec(ref)[1]; let n = 0; for (const ch of c) n = n * 26 + (ch.charCodeAt(0) - 64); return n; };
+  const rowNum = (ref) => +/(\d+)$/.exec(ref)[1];
+  const colName = (n) => { let s = ""; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = (n - r - 1) / 26; } return s; };
+
+  // Shift every relative reference in a formula by (dc, dr). $ pins stay put.
+  function translate(formula, dc, dr) {
+    return formula.replace(/(\$?)([A-Z]{1,3})(\$?)(\d{1,7})\b/g, (m, dollarC, col, dollarR, row, off, str) => {
+      const prev = str[off - 1];
+      if (prev && /[A-Za-z0-9_]/.test(prev) && prev !== "!") return m;
+      const c = dollarC ? col : colName(colNum(col + "1") + dc);
+      const r = dollarR ? row : String(+row + dr);
+      return `${dollarC}${c}${dollarR}${r}`;
+    });
+  }
+
+  function sharedStrings(xml) {
+    if (!xml) return [];
+    const out = [];
+    for (const m of xml.matchAll(/<si>([\s\S]*?)<\/si>/g))
+      out.push([...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((x) => dec(x[1])).join(""));
+    return out;
+  }
+
+  // ref -> { f, v, t, s }. Shared formulas are expanded (1281 staging cells use them).
+  function cellsOf(xml, sst) {
+    const out = new Map(), shared = new Map();
+    const re = /<c\s+([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
+    let m;
+    while ((m = re.exec(xml))) {
+      const attrs = m[1], body = m[2] || "";
+      const r = /r="([A-Z]+\d+)"/.exec(attrs); if (!r) continue;
+      const ref = r[1];
+      const t = (/t="([^"]+)"/.exec(attrs) || [])[1];
+      const s = (/\ss="(\d+)"/.exec(attrs) || [])[1];
+      const v = /<v>([\s\S]*?)<\/v>/.exec(body);
+      const fm = /<f\s*([^>]*?)(?:\/>|>([\s\S]*?)<\/f>)/.exec(body);
+      let f = null;
+      if (fm) {
+        const fAttrs = fm[1] || "", text = fm[2];
+        const si = (/si="(\d+)"/.exec(fAttrs) || [])[1];
+        const isShared = /t="shared"/.test(fAttrs);
+        if (text != null && text !== "") { f = dec(text); if (isShared && si != null) shared.set(si, { formula: f, anchor: ref }); }
+        else if (isShared && si != null) f = { __si: si, ref };
+      }
+      let val = v ? dec(v[1]) : null;
+      if (t === "s" && val != null) val = sst ? (sst[+val] ?? null) : null;
+      else if (t === "inlineStr") val = [...body.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((x) => dec(x[1])).join("");
+      out.set(ref, { f, v: val, t, s });
+    }
+    for (const [ref, c] of out) {
+      if (c.f && typeof c.f === "object") {
+        const master = shared.get(c.f.__si);
+        c.f = master ? translate(master.formula, colNum(ref) - colNum(master.anchor), rowNum(ref) - rowNum(master.anchor)) : null;
+      }
+    }
+    return out;
+  }
+
+  /* ---- the formula evaluator: exactly the shapes the staging sheets use ---- */
+  const NUM = /^-?\d+(\.\d+)?$/;
+  const EMPTY = Object.freeze({ __empty: true, toString: () => "", valueOf: () => 0 });
+  const isEmpty = (v) => v === EMPTY || v === "" || v === null || v === undefined;
+
+  function tokenize(src) {
+    const t = []; let i = 0;
+    while (i < src.length) {
+      const c = src[i];
+      if (/\s/.test(c)) { i++; continue; }
+      if (c === '"') { let j = i + 1, s = ""; while (j < src.length) { if (src[j] === '"' && src[j + 1] === '"') { s += '"'; j += 2; } else if (src[j] === '"') break; else s += src[j++]; } t.push({ k: "str", v: s }); i = j + 1; continue; }
+      if ("(),".includes(c)) { t.push({ k: c }); i++; continue; }
+      if (c === "=") { t.push({ k: "=" }); i++; continue; }
+      const m = /^(?:(?:'([^']+)'|([A-Za-z_][A-Za-z0-9_.]*))!)?\$?([A-Z]{1,3})\$?(\d+)(?![A-Za-z0-9_])/.exec(src.slice(i));
+      if (m && src[i + m[0].length] !== "(") { t.push({ k: "ref", sheet: (m[1] || m[2] || null), cell: m[3] + m[4] }); i += m[0].length; continue; }
+      const fn = /^([A-Z]+)\s*\(/.exec(src.slice(i));
+      if (fn) { t.push({ k: "fn", v: fn[1] }); i += fn[1].length; continue; }
+      const n = /^-?\d+(\.\d+)?/.exec(src.slice(i));
+      if (n) { t.push({ k: "num", v: +n[0] }); i += n[0].length; continue; }
+      throw new Error("unexpected token at " + JSON.stringify(src.slice(i, i + 24)) + " in " + src);
+    }
+    return t;
+  }
+
+  function evaluate(formula, lookup) {
+    const t = tokenize(formula.replace(/^=/, ""));
+    let p = 0;
+    const peek = () => t[p], next = () => t[p++];
+    function expr() { const l = atom(); if (peek() && peek().k === "=") { next(); return eqv(l, atom()); } return l; }
+    function atom() {
+      const tok = next();
+      if (!tok) throw new Error("unexpected end: " + formula);
+      if (tok.k === "str" || tok.k === "num") return tok.v;
+      if (tok.k === "ref") { const v = lookup(tok.sheet, tok.cell); return (v === undefined || v === null || v === "") ? EMPTY : v; }
+      if (tok.k === "fn") {
+        if (next().k !== "(") throw new Error("expected ( after " + tok.v);
+        const args = [];
+        if (peek() && peek().k !== ")") { args.push(expr()); while (peek() && peek().k === ",") { next(); args.push(expr()); } }
+        if (!peek() || next().k !== ")") throw new Error("expected ) in " + formula);
+        return call(tok.v, args);
+      }
+      if (tok.k === "(") { const v = expr(); if (next().k !== ")") throw new Error("expected )"); return v; }
+      throw new Error("unexpected " + tok.k + " in " + formula);
+    }
+    function eqv(a, b) {
+      if (isEmpty(a)) return isEmpty(b) || b === 0;
+      if (NUM.test(String(a)) && NUM.test(String(b))) return +a === +b;
+      return String(a) === String(b);
+    }
+    function call(name, a) {
+      switch (name) {
+        case "IF":    return a[0] ? a[1] : (a.length > 2 ? a[2] : false);
+        // A non-numeric argument is #VALUE! in Excel; the discipline's rule is
+        // "if not used, 0", so emit that rather than carry an error.
+        case "ROUND": { if (isEmpty(a[0])) return 0; const n = +a[0]; if (Number.isNaN(n)) return 0; const f = 10 ** a[1];
+                        return Math.sign(n) * Math.round(Math.abs(n) * f + Number.EPSILON * Math.abs(n) * f) / f; }
+        case "LEFT":  return String(a[0]).slice(0, a[1]);
+        case "RIGHT": return String(a[0]).slice(-a[1]);
+        case "CONCATENATE": return a.map((x) => x === "" ? "" : String(x)).join("");
+        case "TEXT":  return "__TEXT__";   // only used for NOW(); caller substitutes
+        case "NOW":   return "__NOW__";
+        default: throw new Error("unsupported function " + name);
+      }
+    }
+    let out = expr();
+    if (p !== t.length) throw new Error("trailing tokens in " + formula);
+    if (out === EMPTY) out = 0;
+    if (out === false) out = "";
+    return out;
+  }
+
+  /* ---- writing cells ---- */
+  const isNum = (v) => typeof v === "number";
+
+  // Replace one cell, keeping its style. `keepFormula` leaves the template's
+  // <f> in place and sets a cached <v> beside it - the shape of a natively
+  // saved Excel file - for a cell whose inputs we also write, so Excel
+  // recomputes the same answer and SheetJS reads the cached one. Without it
+  // the formula is dropped and the value is authoritative, which is right for
+  // a result whose raw inputs DesignBook does not hold (Gmb from specimen
+  // weights): Excel's recalc on open would otherwise blank it.
+  function setCell(xml, ref, value, keepFormula) {
+    const re = new RegExp(`<c r="${ref}"((?:\\s+[a-zA-Z:]+="[^"]*")*)\\s*(?:/>|>([\\s\\S]*?)</c>)`);
+    const m = re.exec(xml);
+    const style = m ? (/\ss="(\d+)"/.exec(m[1]) || [])[1] : undefined;
+    const s = style !== undefined ? ` s="${style}"` : "";
+    const fTag = keepFormula && m ? (/<f\b[\s\S]*?(?:\/>|<\/f>)/.exec(m[2] || "") || [""])[0] : "";
+    let cell;
+    if (value === "" || value === null || value === undefined) cell = fTag ? `<c r="${ref}"${s}>${fTag}</c>` : `<c r="${ref}"${s}/>`;
+    else if (isNum(value)) cell = `<c r="${ref}"${s}>${fTag}<v>${+value}</v></c>`;
+    else if (fTag) cell = `<c r="${ref}"${s} t="str">${fTag}<v>${enc(value)}</v></c>`;
+    else cell = `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${enc(value)}</t></is></c>`;
+    // Replacement passed as a FUNCTION: "$1", "$&" in a remark like "$1,200
+    // change order" would otherwise be expanded as back-references.
+    if (m) return xml.replace(re, () => cell);
+    return insertCell(xml, ref, cell);
+  }
+
+  function insertCell(xml, ref, cell) {
+    const r = rowNum(ref), c = colNum(ref);
+    const rowRe = new RegExp(`<row[^>]*\\sr="${r}"[^>]*(?:/>|>[\\s\\S]*?</row>)`);
+    const rm = rowRe.exec(xml);
+    if (!rm) {
+      const row = `<row r="${r}">${cell}</row>`;
+      const after = [...xml.matchAll(/<row[^>]*\sr="(\d+)"[^>]*(?:\/>|>[\s\S]*?<\/row>)/g)].filter((x) => +x[1] < r).pop();
+      if (after) return xml.slice(0, after.index + after[0].length) + row + xml.slice(after.index + after[0].length);
+      return xml.replace(/<sheetData[^>]*>/, (open) => open + row);
+    }
+    let rowXml = rm[0];
+    if (/\/>$/.test(rowXml)) rowXml = rowXml.replace(/\/>$/, () => `>${cell}</row>`);
+    else {
+      const cells = [...rowXml.matchAll(/<c r="([A-Z]+\d+)"(?:[^>]*)(?:\/>|>[\s\S]*?<\/c>)/g)];
+      const before = cells.filter((x) => colNum(x[1]) < c).pop();
+      rowXml = before
+        ? rowXml.slice(0, before.index + before[0].length) + cell + rowXml.slice(before.index + before[0].length)
+        : rowXml.replace(/<row[^>]*>/, (open) => open + cell);
+    }
+    return xml.replace(rowRe, () => rowXml);
+  }
+
+  /* ---- the workbook ---- */
+
+  // Sheet name -> part path, from the workbook's own manifest rather than a
+  // fixed table, so a re-issued template that reorders sheets still resolves.
+  function sheetParts(files) {
+    const u8 = (p) => files[p] ? fflate.strFromU8(files[p]) : null;
+    const wb = u8("xl/workbook.xml"), rels = u8("xl/_rels/workbook.xml.rels");
+    const rid = {};
+    for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+      const id = (/Id="([^"]+)"/.exec(m[0]) || [])[1], t = (/Target="([^"]+)"/.exec(m[0]) || [])[1];
+      if (id && t) rid[id] = t;
+    }
+    const map = {};
+    for (const m of wb.matchAll(/<sheet\b[^>]*\bname="([^"]+)"[^>]*\br:id="([^"]+)"/g)) {
+      const t = rid[m[2]] || "";
+      map[dec(m[1])] = t.startsWith("/") ? t.slice(1) : "xl/" + t.replace(/^xl\//, "");
+    }
+    return map;
+  }
+
+  /**
+   * @param files     fflate.unzipSync(template) - path -> Uint8Array
+   * @param values    { "Design Data!K10": "Madison", ... } written into the sheets
+   * @param evalOnly  { "Design Data!O56": 77.8, ... } fed to the evaluator but NOT
+   *                  written: cells the template computes itself once Excel
+   *                  opens the file, whose value we know and staging needs now
+   * @param staging   names of the staging sheets to evaluate
+   * @param now       stamp for TEXT(NOW(),...) in the remarks id
+   */
+  function fillWorkbook({ files, values, evalOnly = {}, staging, firstDataRow, now = new Date() }) {
+    const parts = sheetParts(files);
+    const SST = sharedStrings(files["xl/sharedStrings.xml"] ? fflate.strFromU8(files["xl/sharedStrings.xml"]) : "");
+    const xml = new Map(), cells = new Map();
+    const read = (name) => {
+      if (!xml.has(name)) {
+        const p = parts[name]; if (!p || !files[p]) return null;
+        xml.set(name, fflate.strFromU8(files[p]));
+        cells.set(name, cellsOf(xml.get(name), SST));
+      }
+      return name;
+    };
+
+    // 1. the inputs
+    const overrides = new Map();
+    const report = { written: 0, staged: 0, failed: [], passes: 0, unknownSheet: [] };
+    for (const [k, spec] of Object.entries(values)) {
+      const [sheet, ref] = k.split("!");
+      if (!read(sheet)) { report.unknownSheet.push(k); continue; }
+      const v = spec && typeof spec === "object" && "v" in spec ? spec.v : spec;
+      const keep = !!(spec && typeof spec === "object" && spec.keepFormula);
+      xml.set(sheet, setCell(xml.get(sheet), ref, v, keep));
+      overrides.set(k, v);
+      report.written++;
+    }
+    for (const [k, v] of Object.entries(evalOnly)) if (!overrides.has(k)) overrides.set(k, v);
+
+    // 2. resolve a cell: an override wins, then the template's cached value,
+    // then - for a source cell the template holds as a formula with nothing
+    // cached (S58 = IF($N$80="","","(Other information)")) - that formula,
+    // evaluated with the same grammar. Outside the grammar reads as blank,
+    // which is what a real MixPack shows there when nobody has filled it.
+    const memo = new Map(), resolving = new Set();
+    const valueOf = (sheet, ref) => {
+      const k = `${sheet}!${ref}`;
+      if (overrides.has(k)) { const v = overrides.get(k); return v === null || v === undefined ? "" : v; }
+      if (memo.has(k)) return memo.get(k);
+      if (!read(sheet)) return "";
+      const c = cells.get(sheet).get(ref);
+      let out = "";
+      if (c && c.v != null) out = (c.t === "s" || c.t === "str" || c.t === "inlineStr") ? c.v : (NUMRE.test(c.v) ? +c.v : c.v);
+      else if (c && c.f && !resolving.has(k)) {
+        resolving.add(k);
+        try { out = evaluate(c.f, (sh, cell) => valueOf(sh || sheet, cell)); } catch (_) { out = ""; }
+        finally { resolving.delete(k); }
+      }
+      memo.set(k, out);
+      return out;
+    };
+
+    // 3. the staging sheets, evaluated to a fixed point and banked as literals
+    const stamp = now.toISOString().slice(0, 10).replace(/-/g, "") +
+      String(now.getUTCHours()).padStart(2, "0") + String(now.getUTCMinutes()).padStart(2, "0") + String(now.getUTCSeconds()).padStart(2, "0");
+    report.stamp = stamp;
+    const todo = [];
+    for (const name of staging) {
+      if (!read(name)) { report.unknownSheet.push(name); continue; }
+      for (const [ref, c] of cells.get(name))
+        if (rowNum(ref) >= firstDataRow(name) && c.f) todo.push({ name, ref, f: c.f.replace(/TEXT\(NOW\(\)[^)]*\)/g, JSON.stringify(stamp)) });
+    }
+    const results = new Map();
+    for (let pass = 1; pass <= 8; pass++) {
+      let changed = 0; report.passes = pass;
+      for (const t of todo) {
+        let out;
+        try { out = evaluate(t.f, (sh, cell) => valueOf(sh || t.name, cell)); }
+        catch (e) { if (pass === 1) report.failed.push([`${t.name}!${t.ref}`, t.f, e.message]); continue; }
+        const k = `${t.name}!${t.ref}`;
+        if (!results.has(k) || results.get(k) !== out) { changed++; results.set(k, out); overrides.set(k, out); }
+      }
+      if (!changed) break;
+    }
+    for (const [k, out] of results) {
+      const [name, ref] = k.split("!");
+      xml.set(name, setCell(xml.get(name), ref, out, false));
+      report.staged++;
+    }
+
+    const changed = new Map();
+    for (const [name, x] of xml) changed.set(parts[name], x);
+    return { parts: changed, report, valueOf };
+  }
+
+  // Repack: every untouched part byte-identical, [Content_Types].xml first.
+  function pack(files, changedParts) {
+    const out = {};
+    const order = ["[Content_Types].xml", ...Object.keys(files).filter((p) => p !== "[Content_Types].xml")];
+    for (const p of order) out[p] = changedParts.has(p) ? fflate.strToU8(changedParts.get(p)) : files[p];
+    return fflate.zipSync(out, { level: 6 });
+  }
+
+  return { colNum, rowNum, colName, translate, sharedStrings, cellsOf, evaluate, setCell, sheetParts, fillWorkbook, pack, NUMRE };
+})();
+/* ===== END MIXPACK ENGINE ===== */
+
+/* ===== MIXPACK MAPPER =====
+ *
+ * A DesignBook payload -> the cells of KYTC's MixPack template. Pure: payload
+ * and template in, { values, evalOnly, report } out. The report is the
+ * honest part - every cell the design should have and does not is named, so
+ * the reviewer sees "no lab code for district 11" rather than a workbook
+ * that loads and is quietly missing its sample id.
+ *
+ * Addresses come from CONFIG.MIXPACK; nothing here knows a cell number.
+ */
+
+// Excel serial date (days since 1899-12-30) from an ISO date or datetime.
+function mpDateSerial(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+  if (!m) return null;
+  return Math.round((Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(1899, 11, 30)) / 86400000);
+}
+const mpNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+const mpStr = (v) => (v == null ? "" : String(v).trim());
+const mpHas = (v) => mpStr(v) !== "";
+
+// The template's own reference tables, read once from the parsed sheets.
+// These are what the workbook's VLOOKUPs consult, so a value has to match
+// THEM - the plant list carries trailing spaces ("AMP070301      ") and the
+// lookup is exact.
+function mpTemplateTables(cellsOfSheet) {
+  const M = CONFIG.MIXPACK.CHART, cd = cellsOfSheet("Chart Data");
+  const val = (ref) => { const c = cd.get(ref); return c && c.v != null ? String(c.v) : ""; };
+  const list = (spec, keyCol, nameCol) => {
+    const out = [];
+    for (let r = spec.from; r <= spec.to; r++) { const k = val(`${keyCol}${r}`); if (k.trim()) out.push({ key: k, name: val(`${nameCol}${r}`), row: r }); }
+    return out;
+  };
+  const mixes = [];
+  for (let r = M.MIXES.from; r <= M.MIXES.to; r++) {
+    const a = val(`${M.MIXES.col}${r}`); if (!a.trim()) continue;
+    const g = (c) => val(`${M.MIXES.cols[c]}${r}`);
+    mixes.push({ bidItem: a, suffix: a.trim().split(/\s+/).slice(1).join(" "), binderCode: g("binderCode"), grade: g("grade"),
+                 esal: g("esal"), matCode: g("matCode"), maxSize: g("maxSize"), nmas: g("nmas"), cdId: g("cdId") });
+  }
+  return {
+    mixes,
+    plants: list(M.PLANTS, M.PLANTS.key, M.PLANTS.name),
+    terminals: list(M.TERMINALS, M.TERMINALS.key, M.TERMINALS.name),
+    aggTypes: list(M.AGG_TYPES, M.AGG_TYPES.key, M.AGG_TYPES.code),
+    binders: list(M.BINDERS, M.BINDERS.grade, M.BINDERS.code),
+    temps: list(M.TEMPS, M.TEMPS.grade, M.TEMPS.temps),
+  };
+}
+
+/**
+ * @param payload  a DesignBook payload (handoffPayload / a reopened file)
+ * @param tpl      mpTemplateTables(...)
+ * @param ref      { agpFor(producerName), lapFor(terminalName) } - the
+ *                 Supabase reference lists, which the template does not carry
+ */
+function mixpackCells(payload, tpl, ref) {
+  const X = CONFIG.MIXPACK, DD = X.DD, v = payload.values || {}, rows = payload.rows || {};
+  const values = {}, evalOnly = {}, missing = [], notes = [];
+  const put = (sheet, ref_, val, keep) => {
+    if (val === null || val === undefined || val === "") return;
+    values[`${sheet}!${ref_}`] = keep ? { v: val, keepFormula: true } : val;
+  };
+  const supply = (sheet, ref_, val) => { if (val !== null && val !== undefined && val !== "") evalOnly[`${sheet}!${ref_}`] = val; };
+  const dd = (ref_, val, keep) => put("Design Data", ref_, val, keep);
+  const need = (what, why) => missing.push(why ? `${what} - ${why}` : what);
+  const refKeyL = (s) => mpStr(s).toLowerCase().replace(/\s+/g, " ");
+
+  /* ---- who, when, which ---- */
+  const job = payload.job || {}, mix = payload.mix || {}, appr = payload.approval || null;
+  const hist = Array.isArray(payload.history) ? payload.history : [];
+  const last = (a) => hist.filter((h) => h.action === a).slice(-1)[0] || null;
+  const submitted = last(CONFIG.SUBMIT.ACTION.submitted);
+  const amp = mpStr(job.plant);
+  const district = /^AMP(\d{2})/i.exec(amp) ? /^AMP(\d{2})/i.exec(amp)[1] : null;
+  const dist = district && X.DISTRICTS[district];
+  if (!district) need("District", "the plant's AMP number is missing, and the district is its first two digits");
+  else if (!dist) need("Lab unit and sample id", `no lab code recorded for district ${district} (CONFIG.MIXPACK.DISTRICTS)`);
+
+  if (appr && appr.mix_id) {
+    dd(DD.MIX_ID, mpStr(appr.mix_id));
+    const yy = mpStr(appr.year) || mpStr(appr.mix_id).slice(2, 4);
+    const seq = String(appr.sequence ?? mpStr(appr.mix_id).slice(-4)).padStart(4, "0");
+    if (dist) { dd(DD.SAMPLE_ID, `${district}${dist.sampleLab}AMD${yy}${seq}`); dd(DD.LAB, dist.lab); }
+    dd(DD.APPROVER, mpStr(appr.approved_by));
+    dd(DD.DATE_RELEASED, mpDateSerial(appr.issued_at));
+  } else need("Approval", "the MIX ID, sample id, approver and release date all come from a KYTC approval");
+  if (submitted && submitted.at) dd(DD.DATE_RECEIVED, mpDateSerial(submitted.at));
+  else need("Date received", "no submission on record");
+
+  dd(DD.CONTRACT, mpStr(job.cid));
+  dd(DD.LETTING, mpDateSerial(job.letting));
+  dd(DD.COUNTY, mpStr(v.county));
+  dd(DD.FUNDING, mpStr(v.funding));
+  dd(DD.TONS, mpNum(v.total_tons));
+  dd(DD.DEPTH, mpNum(v.depth_mm) ?? 0);
+  dd(DD.DESIGNER, mpStr(v.designer) || mpStr(payload.generated_by && payload.generated_by.sm_id));
+  dd(DD.REMARKS, mpStr(v.rap_note));
+  supply("Design Data", DD.RESULTS.rapNote, /rap|shingle/i.test((rows.aggregate || []).map((r) => r.type_size).join(" ")) ? "See Recycle Data Tab" : "");
+  // Approval flags: the sheet's two checkboxes KYTC ticks. A New Mix Design
+  // is "App.-New Design"; every DesignBook file is a contractor design.
+  if (/^new/i.test(mpStr(v.submittal_type))) dd(DD.FLAG_NEW_DESIGN, "x");
+  dd(DD.FLAG_CONTRACTOR_DESIGN, "x");
+
+  /* ---- the mix, via Chart Data ---- */
+  const sig = mpStr(mix.signature);
+  // A legacy import knows the exact bid item the workbook carried; a design
+  // started from the Portal knows only the signature, which the template's
+  // list resolves - uniquely for all but three suffixes in the 2026 list.
+  const ctxMix = ((payload.legacy_import || {}).context || []).find((c) => c.what === "mix type");
+  let mixRow = ctxMix && tpl.mixes.find((m) => m.bidItem.trim() === mpStr(ctxMix.workbook)) || null;
+  if (!mixRow && sig) {
+    const hits = tpl.mixes.filter((m) => m.suffix === sig);
+    mixRow = hits[0] || null;
+    if (hits.length > 1) notes.push(`"${sig}" matches ${hits.length} bid items in the template; used ${hits[0].bidItem.trim()}`);
+  }
+  if (mixRow) {
+    put("Chart Data", X.CHART.BID_ITEM, mixRow.bidItem);
+    supply("Design Data", DD.RESULTS.mixType, mixRow.bidItem);
+    supply("Design Data", DD.RESULTS.binderGrade, mixRow.grade);
+    supply("Design Data", DD.RESULTS.mixMatCode, mpNum(mixRow.matCode) ?? mixRow.matCode);
+    supply("Chart Data", "H48", mpNum(mixRow.matCode) ?? mixRow.matCode);
+    supply("Chart Data", "M48", mixRow.cdId);
+    supply("Chart Data", "J48", mixRow.nmas);
+    supply("Chart Data", "E48", `${mixRow.grade.slice(2, 4)}${mixRow.grade.slice(-2)}`);
+    const bc = tpl.binders.find((b) => b.key === mixRow.grade);
+    supply("Design Data", DD.RESULTS.binderCode, bc ? mpNum(bc.name) ?? bc.name : "");
+  } else need("Bid item (Chart Data!W14)", sig ? `"${sig}" is not in the template's list` : "no mix signature on the design");
+  // AADTT class: the workbook derives it from the bid item; DesignBook's own
+  // field is the authority, so it is what the staging sees.
+  const aadtt = mpNum(v.aadtt_class) ?? (mixRow ? mpNum(mixRow.esal) : null);
+  supply("Design Data", DD.RESULTS.esal, aadtt);
+  if (aadtt != null) { supply("Design Data", DD.GYRATIONS.nIni, 7); supply("Design Data", DD.GYRATIONS.nDes, 65); supply("Design Data", DD.GYRATIONS.nMax, 105); }
+
+  const subType = X.SUBMITTAL_TYPES[mpStr(v.submittal_type)] || mpStr(v.submittal_type);
+  put("Chart Data", X.CHART.SUBMITTAL_TYPE, subType);
+  supply("Design Data", DD.RESULTS.submittalType, subType);
+
+  // The plant, spelled exactly as the template's own list has it.
+  const plant = tpl.plants.find((p) => p.key.trim() === amp);
+  put("Chart Data", X.CHART.PLANT, plant ? plant.key : amp);
+  supply("Design Data", DD.RESULTS.plant, plant ? plant.key : amp);
+  if (amp && !plant) notes.push(`${amp} is not in the template's plant list; written as typed`);
+
+  // Binder terminal: DesignBook holds the name, the workbook wants the LAP.
+  const termName = mpStr(v.binder_terminal);
+  const lap = ref.lapFor(termName) || (tpl.terminals.find((t) => refKeyL(t.name) === refKeyL(termName)) || {}).key;
+  if (lap) { put("Chart Data", X.CHART.TERMINAL, lap); supply("Design Data", DD.RESULTS.terminal, lap); }
+  else if (termName) need("Binder terminal LAP number", `"${termName}" is not in binder_terminals or the template`);
+  put("Chart Data", X.CHART.PERF_BINDER, mpStr(v.perf_binder) || mpStr(v.binder_grade));
+
+  // Mixing / compaction temperatures follow the binder grade (the template's
+  // own small table); the test cost is the sum of the approval boxes ticked.
+  const grade = mpStr(v.binder_grade) || (mixRow ? mixRow.grade : "");
+  const temps = tpl.temps.find((t) => t.key === grade) || tpl.temps.find((t) => /^other$/i.test(t.key));
+  if (temps) supply("Design Data", DD.MIX_TEMPS, temps.name);
+  supply("Chart Data", "T15", (/^new/i.test(mpStr(v.submittal_type)) ? 85 : 0) + (/^ref/i.test(mpStr(v.submittal_type)) ? 45 : 0));
+  // The Criteria column, as the workbook words it, for the limits DesignBook
+  // already resolves. The template spells "minimun" on the FAA line; kept,
+  // because SiteManager has that exact string on every design before this.
+  const crit = aadtt != null && CONFIG.CONSENSUS_CRITERIA.BY_CLASS[String(aadtt)];
+  if (crit) {
+    const no4 = /^(#?4|no\.?\s?4)/i.test(mpStr(v.nominal_size));
+    if (!no4) { supply("Design Data", DD.CRITERIA.caa, `${crit.caaMin[0]}/${crit.caaMin[1]} (minimum)`); supply("Design Data", DD.CRITERIA.flat_elongated, `${crit.feMax} (maximum)`); }
+    supply("Design Data", DD.CRITERIA.faa, `${no4 ? CONFIG.CONSENSUS_CRITERIA.NO4_FAA_MIN : crit.faaMin} (minimun)`);
+    supply("Design Data", DD.CRITERIA.sand_equivalent, `${crit.seMin} (minimum)`);
+    supply("Design Data", DD.CRITERIA.va, 3.5);
+  }
+  supply("Design Data", DD.CRITERIA.tsr, "80 (minimum)"); supply("Design Data", DD.CRITERIA.tsrAdditive, "80 (minimum)");
+
+  /* ---- gradation ---- */
+  Object.entries(DD.SIEVES.rows).forEach(([key, row]) => {
+    const val = key === "s6_3" ? "N / A" : mpNum(v[key]);
+    if (val === null) return;
+    dd(`${DD.SIEVES.jmf}${row}`, val); dd(`${DD.SIEVES.weighUp}${row}`, val);
+    // The "Revised" column (T62..T74) the staging reads: same values on a
+    // new design - a revision is what a later JMF change would write there.
+    if (row > DD.SIEVES.rows.s50) dd(`${DD.REVISED_SIEVES}${row + DD.REVISED_ROW_OFFSET}`, val);
+  });
+
+  /* ---- aggregates ---- */
+  const aggs = (rows.aggregate || []).slice(0, 6);
+  let rapRow = null;
+  aggs.forEach((r, i) => {
+    const row = DD.AGG.firstRow + i, c = DD.AGG.cols, isRap = /(^|\s)rap\b/i.test(mpStr(r.type_size));
+    const producer = mpStr(r.producer);
+    // RAP's "producer" is the plant it came off, so its number is an AMP.
+    const num = isRap ? ((tpl.plants.find((p) => refKeyL(p.name) === refKeyL(producer)) || {}).key || "").trim() || ref.ampFor(producer) : ref.agpFor(producer);
+    if (num) dd(`${c.agp}${row}`, num); else if (producer) need(`Producer number for aggregate row ${i + 1}`, `"${producer}" has no ${isRap ? "AMP" : "AGP"} number on file`);
+    dd(`${c.producer}${row}`, producer);
+    dd(`${c.type}${row}`, mpStr(r.type_size));
+    dd(`${c.gsb}${row}`, mpNum(r.gsb));
+    dd(`${c.pct}${row}`, mpNum(r.pct_blend));
+    // MAT code: the template looks it up from the type name; supply it and
+    // keep the formula, since the inputs are all present.
+    const code = mpNum(r.mat_code) ?? (tpl.aggTypes.find((t) => refKeyL(t.key) === refKeyL(r.type_size)) || {}).name;
+    if (code != null && code !== "") dd(`${c.matCode}${row}`, mpNum(code) ?? code, true);
+    if (isRap && !rapRow) rapRow = { r, num };
+  });
+  if (rapRow) {
+    const R = X.RECYCLE;
+    put("Recycle Data", `${R.cols.amp}${R.row}`, rapRow.num || "");
+    put("Recycle Data", `${R.cols.plant}${R.row}`, mpStr(rapRow.r.producer));
+    put("Recycle Data", `${R.cols.matCode}${R.row}`, mpNum(rapRow.r.mat_code));
+    put("Recycle Data", `${R.cols.type}${R.row}`, mpStr(rapRow.r.type_size));
+    put("Recycle Data", `${R.cols.pct}${R.row}`, mpNum(rapRow.r.pct_blend));
+    put("Recycle Data", R.NOTE, mpStr(v.rap_note));
+  }
+
+  /* ---- consensus ---- */
+  Object.entries(DD.CONSENSUS).forEach(([key, ref_]) => { const s = mpStr(v[key]); if (s) dd(ref_, mpNum(s) ?? s); });
+
+  /* ---- four points and design values ---- */
+  const fp = v.fourpoint || {}, dv = v.design_values || {};
+  DD.FOURPOINT.rows.forEach((row, i) => {
+    const pb = mpNum(fp[`pt:${i}:pb`]), gmb = mpNum(fp[`pt:${i}:gmb`]), gmm = mpNum(fp[`pt:${i}:gmm`]);
+    dd(`${DD.FOURPOINT.pb}${row}`, pb);
+    dd(`${DD.FOURPOINT.gmb}${row}`, gmb);   // result of weights we never had - plain
+    dd(`${DD.FOURPOINT.gmm}${row}`, gmm);
+    if (gmb != null && gmm != null) {
+      dd(`${DD.FOURPOINT.va}${row}`, +((gmm - gmb) / gmm * 100).toFixed(4));
+      dd(`${DD.FOURPOINT.unitWeight}${row}`, +(gmb * 62.4).toFixed(4));
+    }
+  });
+  // The GRAPH DATA block (Design Data A86:F99) is what the staging's
+  // "4-PT. GYRATORY" rows read: per-trial Pb / Va / VMA / VFA / unit weight
+  // / Gmm / effective AC / dust ratio. The template computes each from
+  // specimen weights DesignBook never had, so they are supplied here with
+  // the same arithmetic computeFourPoint() shows on the page - the workbook
+  // then says what the technician saw. %Gmm @ Nini and film thickness need
+  // gyratory heights and surface area; neither is held, so both stay blank.
+  const gsbC = mpNum(fp["const:fp_gsb"]), gbC = mpNum(fp["const:fp_gb"]), p075 = mpNum(fp["const:fp_p075"]), gseD = mpNum(dv.gse);
+  DD.FOURPOINT.rows.forEach((row, i) => {
+    const pb = mpNum(fp[`pt:${i}:pb`]), gmb = mpNum(fp[`pt:${i}:gmb`]), gmm = mpNum(fp[`pt:${i}:gmm`]);
+    if (pb == null || gmb == null || gmm == null || !gmm || !gsbC) return;
+    const va = 100 * (1 - gmb / gmm), vma = 100 - (gmb * (100 - pb) / gsbC), vfa = 100 * ((vma - va) / vma), uw = gmb * 62.4;
+    const pbe = gseD && gbC != null ? pb - ((100 - pb) * gbC * ((gseD - gsbC) / (gseD * gsbC))) : null;
+    const r1 = 86 + i, r2 = 91 + i, r3 = 96 + i;
+    supply("Design Data", `A${r1}`, pb); supply("Design Data", `D${r1}`, va); supply("Design Data", `F${r1}`, vma);
+    supply("Design Data", `A${r2}`, pb); supply("Design Data", `B${r2}`, vfa); supply("Design Data", `D${r2}`, uw); supply("Design Data", `F${r2}`, gmm);
+    supply("Design Data", `A${r3}`, pb);
+    if (pbe != null) { supply("Design Data", `B${r3}`, pbe); if (p075 != null && pbe) supply("Design Data", `F${r3}`, p075 / pbe); }
+    dd(`${DD.FOURPOINT.vma}${row}`, +vma.toFixed(4)); dd(`${DD.FOURPOINT.vfa}${row}`, +vfa.toFixed(4));
+  });
+  const designPb = mpNum(dv.design_pb), gmmDesign = mpNum(dv.gmm_design);
+  dd(DD.DESIGN_AC, designPb);
+  dd(DD.GMM_AC, designPb);
+  dd(DD.GMM_DETERMINATION, gmmDesign);
+  supply("Design Data", DD.RESULTS.gmmAvg, gmmDesign);
+  supply("Design Data", DD.RESULTS.combinedGsb, mpNum(fp["const:fp_gsb"]));
+  supply("Design Data", DD.RESULTS.gse, mpNum(dv.gse));
+  const G = DD.GRAPHS, S = DD.SUMMARY;
+  const pairs = [["ac", designPb], ["va", mpNum(dv.va_design)], ["vma", mpNum(dv.vma_design)], ["vfa", mpNum(dv.vfa_design)],
+                 ["unitWeight", mpNum(dv.density)], ["gmm", gmmDesign], ["dustRatio", mpNum(dv.dust_pbe)]];
+  pairs.forEach(([k, val]) => { put("Graphs", G[k], val); supply("Design Data", S[k], val); });
+  supply("Design Data", S.effAc, mpNum(dv.pbe));
+  supply("Graphs", "K134", mpNum(dv.pbe));
+  supply("Design Data", S.gse, mpNum(dv.gse));
+  supply("Design Data", S.gsb, mpNum(fp["const:fp_gsb"]));
+  if (designPb != null && mpNum(dv.pbe) != null) supply("Design Data", S.absAc, +(designPb - mpNum(dv.pbe)).toFixed(2));
+  ["gmmNini", "film"].forEach((k) => { if (!mpHas(dv[k])) { /* not computed by DesignBook */ } });
+  if (!mpHas(dv.gmm_nini)) notes.push("%Gmm @ Nini and film thickness are not computed by DesignBook; left blank");
+
+  /* ---- TSR ---- */
+  const T = X.TSR, tsr = (rows.tsr_specimens || []).slice(0, 6);
+  put("TSR", T.AC, designPb);
+  put("TSR", T.GMM, gmmDesign);
+  const addPct = mpNum((mpStr(v.tsr_additive).match(/([\d.]+)\s*%/) || [])[1]);
+  const addType = /^none/i.test(mpStr(v.tsr_additive)) ? "" : mpStr(v.tsr_additive).replace(/[\d.]+\s*%/, "").replace(/[—-]\s*$/, "").trim();
+  put("TSR", T.ADDITIVE_PCT, addPct);
+  put("TSR", T.ADDITIVE_TYPE, addType);
+  supply("Design Data", S.additivePct, addPct ?? "N/A");
+  supply("Design Data", S.additiveType, addType || "None Required");
+  const cond = [], dry = [];
+  tsr.forEach((r, i) => {
+    const col = T.cols[i]; if (!col) return;
+    const isCond = /^cond/i.test(mpStr(r.condition));
+    const t = mpNum(r.thickness), load = mpNum(r.load), str = mpNum(r.strength);
+    put("TSR", `${col}${T.rows.dryThickness}`, isCond ? (t ?? 95) : t);
+    if (isCond) { put("TSR", `${col}${T.rows.condThickness}`, t); put("TSR", `${col}${T.rows.condLoad}`, load); if (str != null) cond.push(str); }
+    else { put("TSR", `${col}${T.rows.dryLoad}`, load); if (str != null) dry.push(str); }
+    // Air voids and saturation are results of weights DesignBook does not
+    // carry - plain; the strengths are results of load and thickness, which
+    // are written, so those keep their formula with the value cached.
+    put("TSR", `${col}${T.rows.airVoids}`, mpNum(r.air_voids));
+    if (isCond) put("TSR", `${col}${T.rows.saturation}`, mpNum(r.saturation));
+    if (str != null) put("TSR", `${col}${isCond ? T.rows.wet : T.rows.dry}`, str, true);
+  });
+  const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+  supply("TSR", T.AVG.wet, mean(cond) ?? mpNum(v.tsr_wet_strength));
+  supply("TSR", T.AVG.dry, mean(dry) ?? mpNum(v.tsr_dry_strength));
+  supply("TSR", T.AVG.airVoids, mean(tsr.map((r) => mpNum(r.air_voids)).filter((n) => n != null)));
+  supply("TSR", T.AVG.saturation, mean(tsr.filter((r) => /^cond/i.test(mpStr(r.condition))).map((r) => mpNum(r.saturation)).filter((n) => n != null)));
+  supply("TSR", T.AVG.ratio, mpNum(v.tsr_pct));
+  supply("Design Data", S.tsr, mpNum(v.tsr_pct));
+  if (mpHas(v.tsr_pct_additive)) { supply("TSR", T.AVG.ratioAdditive, mpNum(v.tsr_pct_additive)); supply("Design Data", S.tsrAdditive, mpNum(v.tsr_pct_additive)); }
+
+  /* ---- performance specimens, KYCT, Hamburg ---- */
+  const P = X.PERF, perf = (rows.perf_specimens || []).slice(0, P.cols.length);
+  put("Performance Specimens", P.AC, designPb);
+  put("Performance Specimens", P.GMM_N, gmmDesign); put("Performance Specimens", P.GMM_B, gmmDesign);
+  const pav = [];
+  perf.forEach((r, i) => {
+    const col = P.cols[i];
+    put("Performance Specimens", `${col}${P.rows.thickness}`, 62);
+    put("Performance Specimens", `${col}${P.rows.dryWt}`, mpNum(r.dry_wt));
+    put("Performance Specimens", `${col}${P.rows.ssdWt}`, mpNum(r.ssd_wt));
+    put("Performance Specimens", `${col}${P.rows.wtWater}`, mpNum(r.wt_water));
+    const av = mpNum(r.air_voids); if (av != null) { put("Performance Specimens", `${col}${P.rows.airVoids}`, av, true); pav.push(av); }
+  });
+  supply("Performance Specimens", P.AVG.airVoids, mean(pav.slice(0, 6)));
+  supply("Performance Specimens", "O41", mean(pav.slice(6)));
+  const K = X.KYCT, ct = (rows.ct || []).slice(0, K.labelCols.length), idx = [];
+  ct.forEach((r, i) => {
+    const valCol = MP.colName(MP.colNum(K.labelCols[i] + "1") + 1);
+    put("KYCT Data", `${valCol}${K.rows.sampleId}`, mpStr(r.specimen));
+    const n = mpNum(r.index); if (n != null) { put("KYCT Data", `${valCol}${K.rows.ctIndex}`, n); idx.push(n); }
+  });
+  if (idx.length) put("Performance Specimens", P.CT_AVG, +mean(idx).toFixed(1));
+  const H = X.HAMBURG;
+  (rows.hamburg_curve || []).forEach((r) => {
+    const row = H.passRow[mpNum(r.passes)]; if (!row) return;
+    put("Hamburg Data", `${H.left}${row}`, mpNum(r.left)); put("Hamburg Data", `${H.right}${row}`, mpNum(r.right));
+  });
+  put("Hamburg Data", H.maxDef.left, mpNum(v.hamburg_left_maxdef)); put("Hamburg Data", H.maxDef.right, mpNum(v.hamburg_right_maxdef));
+  put("Hamburg Data", H.passMax.left, mpNum(v.hamburg_left_passmax)); put("Hamburg Data", H.passMax.right, mpNum(v.hamburg_right_passmax));
+  put("Hamburg Data", H.sip.left, mpNum(v.hamburg_left_sip)); put("Hamburg Data", H.sip.right, mpNum(v.hamburg_right_sip));
+
+  /* ---- polish-resistant tab ---- */
+  const pol = v.polish || {}, PL = X.POLISH;
+  aggs.forEach((r, i) => {
+    const col = PL.cols[i]; if (!col) return;
+    const cls = mpStr(pol[`cls:${i}`]);
+    put("Polish-Resistant Data", `${col}${PL.PR_ROW}`, cls ? "YES" : "NO");
+    Object.entries(PL.sieveRows).forEach(([key, row]) => { const n = mpNum(pol[`g:${i}:${key}`]); if (n != null) put("Polish-Resistant Data", `${col}${row}`, n); });
+  });
+
+  /* ---- project items ---- */
+  const PI = X.PROJECT_ITEMS;
+  if (mpHas(v.project_number)) {
+    put("Project Items", `${PI.cols.project}${PI.firstRow}`, mpStr(v.project_number));
+    put("Project Items", `${PI.cols.line}${PI.firstRow}`, mpStr(v.line_items));
+    put("Project Items", `${PI.cols.qty}${PI.firstRow}`, mpNum(v.total_tons));
+    put("Project Items", `${PI.cols.unit}${PI.firstRow}`, PI.UNIT);
+  } else need("Project Items", "no project number on the design");
+
+  return { values, evalOnly, report: { missing, notes, cells: Object.keys(values).length } };
+}
+/* ===== END MIXPACK MAPPER ===== */
+
+/* ---------- the MixPack for SiteManager ----------
+ *
+ * What KYTC actually loads into SiteManager is a MixPack, through MEDL
+ * (docs/sitemanager-handoff.md). So once a design is approved, the reviewer
+ * downloads it AS one: the payload is written into KYTC's own blank template
+ * and the nine staging sheets are evaluated and banked. Reviewer-only, the
+ * same gate as approving - a contractor never touches SiteManager, and the
+ * sample id, MIX ID and approver on the workbook all come from the approval.
+ *
+ * The template (public/MIXPACK2026_VER12_01.xlsm, 500 KB) is fetched once
+ * and kept; fflate loads from the same CDN as the other three libraries.
+ */
+let mixpackTemplate = null;   // { files, tables } after the first download
+
+async function loadMixPackTemplate() {
+  if (mixpackTemplate) return mixpackTemplate;
+  if (typeof fflate === "undefined") throw new Error("The zip library (fflate) did not load. Check the connection and reload the page.");
+  const res = await fetch(CONFIG.MIXPACK.TEMPLATE);
+  if (!res.ok) throw new Error(`The MixPack template could not be fetched (${res.status}).`);
+  const files = fflate.unzipSync(new Uint8Array(await res.arrayBuffer()));
+  const parts = MP.sheetParts(files);
+  const sst = MP.sharedStrings(files["xl/sharedStrings.xml"] ? fflate.strFromU8(files["xl/sharedStrings.xml"]) : "");
+  const cache = {};
+  const cellsOfSheet = (name) => cache[name] ||
+    (cache[name] = parts[name] && files[parts[name]] ? MP.cellsOf(fflate.strFromU8(files[parts[name]]), sst) : new Map());
+  mixpackTemplate = { files, tables: mpTemplateTables(cellsOfSheet) };
+  return mixpackTemplate;
+}
+
+// The Supabase reference lists, as the mapper wants them: a producer NAME to
+// its AGP number, a plant name to its AMP, a terminal (either spelling - the
+// field holds the LAP number, a legacy import may hold the name) to its LAP.
+function mixpackRef() {
+  const rowOf = (table, name) => { const m = refMatch(table, name); return m && m.row ? m.row : null; };
+  return {
+    agpFor: (n) => (rowOf("aggregates", n) || {}).agp_number || "",
+    ampFor: (n) => (rowOf("plants", n) || {}).amp_number || "",
+    lapFor: (n) => { const m = refMatch("binder_terminals", n); return m ? ((m.row && m.row.lap_number) || m.value) : ""; },
+  };
+}
+
+// payload -> { bytes, name, report }. Pure apart from the template fetch, so
+// scripts/check_mixpack_engine.mjs can drive the same code in Node.
+async function buildMixPack(payload) {
+  const X = CONFIG.MIXPACK;
+  const tpl = await loadMixPackTemplate();
+  const mapped = mixpackCells(payload, tpl.tables, mixpackRef());
+  const { parts, report } = MP.fillWorkbook({
+    files: tpl.files, values: mapped.values, evalOnly: mapped.evalOnly,
+    staging: X.STAGING, firstDataRow: (n) => X.FIRST_DATA_ROW[n] ?? X.FIRST_DATA_ROW.default,
+  });
+  const bytes = MP.pack(tpl.files, parts);
+  const sampleId = mapped.values[`Design Data!${X.DD.SAMPLE_ID}`];
+  const mixId = mapped.values[`Design Data!${X.DD.MIX_ID}`];
+  const name = `${sampleId || (mixId ? `MixPack_${mixId}` : "MixPack")}.xlsm`.replace(/[^A-Za-z0-9_.-]/g, "");
+  return { bytes, name, report: Object.assign({}, mapped.report, { engine: report }) };
+}
+
+async function downloadMixPack() {
+  const btn = $("mixpackBtn");
+  if (!btn || btn.disabled) return;
+  if (!state.approval) { msg($("saveMsg"), "The MixPack is generated from the approval; approve the design first.", "error"); return; }
+  if (!state.canReview) { msg($("saveMsg"), "Only a KYTC reviewer loads designs into SiteManager.", "error"); return; }
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = "Building workbook...";
+  try {
+    const payload = approvedPayload("Downloaded MixPack");
+    const { bytes, name, report } = await buildMixPack(payload);
+    saveBytes(bytes, name, "application/vnd.ms-excel.sheet.macroEnabled.12");
+    state.history = payload.history;
+    const eng = report.engine || {};
+    const gaps = report.missing.concat(eng.failed.length ? [`${eng.failed.length} staging formula(s) could not be evaluated`] : []);
+    const summary = `${name} downloaded - ${report.cells} cells written, ${eng.staged} staging cells banked.`;
+    // Everything the workbook should carry and does not is said here, so a
+    // reviewer knows what MEDL will be missing before they load it.
+    msg($("saveMsg"), gaps.length
+      ? `${summary} Not filled: ${gaps.join("; ")}.${report.notes.length ? " " + report.notes.join(" ") : ""}`
+      : `${summary}${report.notes.length ? " " + report.notes.join(" ") : ""} Load it through MEDL.`, gaps.length ? "warn" : "ok");
+    audit(`MixPack generated - ${state.tech ? state.tech.sm_id : ""}${gaps.length ? ` (${gaps.length} gap${gaps.length === 1 ? "" : "s"})` : ""}`);
+  } catch (err) {
+    msg($("saveMsg"), err.message || "Couldn't build the MixPack.", "error");
+  } finally {
+    btn.disabled = false; btn.textContent = was;
+  }
+}
+
 /* ---------- the KYTC submission ---------- */
 
-// The CSV KYTC receives. Generated from CONFIG.SECTIONS like the form, the
-// xlsx extractor and the PDF - never a hand-written column list, or the four
-// drift apart. One row per value, so a design of any shape fits without the
-// header changing: Section, Key, Label, Value. Repeating rows carry an index
-// in the key (aggregate[2].producer) so they rebuild unambiguously.
-//
-// This is deliberately NOT a SiteManager import file. That mapping is KYTC's
-// to specify; this is the complete design in a shape anything can read, and
-// a translation layer goes on top of it when Andrew has the spec.
 // Submit. The package is stamped, frozen and handed to the technician, who
 // emails it to KYTC themselves (Jake, 2026-09-10). A Netlify Function used
 // to send it; the server left the mail path on purpose. A provider like
@@ -6427,6 +7186,7 @@ document.addEventListener("click", (e) => {
   if (e.target.id === "pdfBtn") downloadReviewPDF();
   if (e.target.id === "submittalPdfBtn") downloadSubmittalPDF();
   if (e.target.id === "approvalPdfBtn") downloadApprovalPDF();
+  if (e.target.id === "mixpackBtn") downloadMixPack();
 });
 $("skipUpload").addEventListener("click", () => {
   state.mode = "new";
