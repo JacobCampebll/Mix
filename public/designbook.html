@@ -7795,7 +7795,7 @@ function enterForm() {
   $("outContract").textContent = state.job.cid;
   $("outLetting").textContent = state.job.letting;
   $("outPlant").textContent = $("outPlant").title = state.job.plant;
-  loadPlantName();          // fills in "AMP… — Name" once the lookup resolves
+  loadPlantName();          // fills in "Name — AMP" once the lookup resolves
   // Mix ID isn't assigned yet — it should come from the DesignBook table's
   // identity once that exists. Until then, show the chosen mix if there is
   // one, else the job it belongs to.
@@ -7811,9 +7811,14 @@ async function loadPlantName() {
   if (!amp) return;
   try {
     const { data } = await sb.from("plants").select("name").eq("amp_number", amp).maybeSingle();
-    // title as well as text: the job line is one ellipsised row on a phone,
-      // so the full plant name has to stay recoverable.
-      if (data && data.name) { state.plantName = data.name; $("outPlant").textContent = $("outPlant").title = `${amp} — ${data.name}`; }
+    // Name first, AMP second - the same order the Portal's plant dropdown
+    // uses, so a plant reads the same way on the step where you pick it and
+    // on the strip where you live with it. It also puts the half worth
+    // reading in front of the ellipsis: this line is one ellipsised row on
+    // a phone, and "AMP070301 - HAYDON MATERIALS, LLC..." truncates to the
+    // number you already know. title as well as text, so the full name
+    // stays recoverable either way.
+    if (data && data.name) { state.plantName = data.name; $("outPlant").textContent = $("outPlant").title = `${data.name} — ${amp}`; }
   } catch (_) { /* leave the bare AMP number */ }
 }
 
