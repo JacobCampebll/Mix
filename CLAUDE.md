@@ -444,12 +444,12 @@ TBD — cite the governing spec section when encoding a limit in code.
   Information's two citations plus the lookup button needed 343 while Design
   Values' two 20-character citations needed 291, so both wrapped to a second
   row. 9px type with 5px side padding, and the button dropping the word
-  "contract" below 700px (a  span, not a second label), brings the
+  "contract" below 700px (a `.wide-only` span, not a second label), brings the
   worst case to 262. Vertical padding went UP to 3px so the tap target did not
-  shrink with the text.  and  stay as the
+  shrink with the text. `flex-wrap` and `white-space:normal` stay as the
   fallback, so a longer citation in a future spec edition wraps rather than
   pushing the page sideways. Count the rows by the container's height over one
-  chip's height - comparing each chip's  reports a phantom second row,
+  chip's height - comparing each chip's `top` reports a phantom second row,
   since a button and an anchor sit on the same line a pixel apart.
 
 
