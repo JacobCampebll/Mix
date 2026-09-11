@@ -168,68 +168,63 @@
     .jobchip span{font-size:12px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   }
 
-  /* Both rails are a fixed width and the form is the only 1fr, so the cap is
-     what decides how much room the form gets: at 1220 it was 650px on any
-     monitor, with the rest of a wide screen left empty either side. Raised to
-     1660, which puts ~1090px under the form - enough for the polish matrix
-     (785px at six components) to stop scrolling inside itself on a desktop.
-     Still capped rather than full-bleed: past this the three-up field rows
-     stretch into something you have to track across. */
-  .layout{max-width:1660px; margin:0 auto; display:grid;
-          grid-template-columns:200px minmax(0,1fr) 250px; gap:28px; padding:28px 32px 80px;}
-  /* One column at 1240px and below - the same step the row tables take. It was
-     1080px, which left three columns standing at 1100-1200px with 510-630px
-     for the form: measured 2026-09-11, the aggregate MAT code, Gsb and type
-     cells and the TSR loads all clipped there. The rails are 450px plus
-     gaps, so the form only has room beside them from about 1240px up. */
-  @media (max-width:1240px){ .layout{grid-template-columns:minmax(0,1fr);} }
+  /* One column, because one step is on screen at a time - the two 450px rails
+     that used to flank the form are gone. 1180px is the cap: past it the
+     three-up field rows stretch into something you have to track across, and
+     the widest thing on the page (the polish matrix at six components, 785px)
+     fits inside it without scrolling in its own box.
+     The bottom padding clears the fixed action bar. */
+  .layout{max-width:1180px; margin:0 auto; padding:24px 32px 132px;}
   /* 32px of side padding is 16% of a 390px screen. 16px is the floor a phone
      needs (CLAUDE.md), and the 32px it gives back goes to the form. */
-  @media (max-width:700px){ .layout{padding:16px 16px 60px; gap:16px;} }
+  @media (max-width:700px){ .layout{padding:14px 16px 128px;} }
 
-  /* left ledger rail */
-  /* The rail is a navy card. Two reasons beyond looking like it belongs to
-     the same product as the wordmark: it is the one element on the page that
-     is pure navigation, so giving it the brand colour separates it from the
-     white cards that hold data; and a sticky element with no background is
-     what let the section list ghost through the form on a phone (see the
-     @media gotcha in CLAUDE.md) - an opaque card cannot do that. */
-  .nav{position:sticky; top:calc(var(--headh) + 0px); align-self:start;
-       background:var(--navy); border-radius:10px; padding:16px 14px;}
-  /* Keep every "un-stick the rail" override BELOW the rule it overrides. Both
-     are one class, so equal specificity and source order decides: this used to
-     sit up with .layout, above .nav and .valpanel, and lost to them - the rail
-     stayed sticky on a phone and the section list scrolled over the form. */
-  @media (max-width:1240px){ .nav{position:static;} }
-  /* On navy every one of these needs its own light value - --muted and
-     --ink are ink-on-paper colours and vanish here. */
-  .navtitle{font-size:11px; text-transform:uppercase; letter-spacing:.08em;
-            color:var(--sky); margin-bottom:14px; font-weight:500;}
-  .navlist{list-style:none; margin:0; padding:0; position:relative;}
-  .navlist::before{content:''; position:absolute; left:5px; top:6px; bottom:6px; width:1px;
-                   background:rgba(255,255,255,.18);}
-  .navitem{display:flex; align-items:center; gap:10px; padding:7px 0; font-size:13px;
-           color:#B9CBDC; position:relative; cursor:pointer; border-radius:5px;
-           transition:color .15s;}
-  .navitem:hover{color:#FFFFFF;}
-  /* The current section is the one thing gold is spent on here, so it reads
-     at a glance down a list of ten. */
-  .navitem.current{color:#FFFFFF; font-weight:600;}
-  .navitem.current .tick{border-color:var(--gold);}
-  .tick{width:11px; height:11px; border-radius:50%; border:1.5px solid var(--sky);
-        background:var(--navy); flex-shrink:0; z-index:1; transition:.15s;}
-  .tick.filled{background:var(--sky);}
-  .tick.partial{background:linear-gradient(90deg,var(--sky) 50%, var(--navy) 50%);}
-  .navitem.current .tick.filled{background:var(--gold);}
-  .navitem.current .tick.partial{background:linear-gradient(90deg,var(--gold) 50%, var(--navy) 50%);}
-  /* In one-column mode the rail sits above the form, so the ten sections run
-     as a wrapping row of chips instead of a 400px column the person scrolls
-     past once. Same breakpoint as .layout; below the rules it overrides. */
-  @media (max-width:1240px){
-    .navlist{display:flex; flex-wrap:wrap; gap:2px 18px;}
-    .navlist::before{display:none;}
-    .navitem{padding:5px 0;}
-    .navtitle{margin-bottom:8px;}
+  /* ---- the step rail ----
+     Ten steps, every one of them on screen. It wraps rather than scrolling
+     sideways, which is the same call the section list got (Jake, 2026-09-11):
+     a row you have to swipe hides most of itself, and these fit. It is NOT
+     sticky - the fixed action bar below carries Back/Next for the middle of a
+     long step, so the rail only has to be somewhere you can get back to.
+     The current step is a navy pill with a gold numeral, which is the same
+     pair the section band uses, so "where I am" reads once in two places. */
+  .railnav{margin-bottom:20px;}
+  .rail{display:flex; flex-wrap:wrap; gap:6px;}
+  .railstep{display:inline-flex; align-items:center; gap:8px; min-height:38px;
+            padding:4px 13px 4px 5px; border:1px solid var(--line); border-radius:20px;
+            background:var(--panel); color:var(--muted); cursor:pointer;
+            font-family:inherit; font-size:12.5px; line-height:1.2; text-align:left;
+            transition:background .15s, border-color .15s, color .15s;}
+  .railstep:hover{border-color:var(--accent); color:var(--ink);}
+  .railstep .dot{width:24px; height:24px; border-radius:50%; flex-shrink:0;
+                 border:2px solid var(--line); background:var(--panel);
+                 display:grid; place-items:center;
+                 font-family:'Roboto Mono',monospace; font-size:11px; font-weight:500;
+                 color:var(--muted); transition:.15s;}
+  .railstep.filled .dot{background:var(--ok); border-color:var(--ok); color:#FFFFFF;}
+  .railstep.partial .dot{border-color:var(--flag); background:var(--flag-soft); color:var(--flag);}
+  .railstep.current{background:var(--navy); border-color:var(--navy); color:#FFFFFF; font-weight:600;}
+  .railstep.current .dot{border-color:var(--gold); background:var(--navy); color:var(--gold);}
+  .railstep.current.filled .dot{background:var(--gold); border-color:var(--gold); color:var(--navy);}
+  .railstep.current.partial .dot{background:var(--navy); border-color:var(--gold); color:var(--gold);}
+  .railstep:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+  /* Below 700px the labels go and the rail is ten numerals on one or two
+     rows - 38px tall each, so still a real tap target. Measured: the labelled
+     version wrapped to four rows at 390px, which is 160px of a phone screen
+     spent on navigation before the form starts. */
+  @media (max-width:700px){
+    .railnav{margin-bottom:14px;}
+    /* A ten-column grid rather than a wrapping flex row: ten equal cells fit
+       one line at 360px (35px each), where wrapping left an orphan tenth
+       circle on a second row. Still every step at once, still no swipe. */
+    .rail{display:grid; grid-template-columns:repeat(10,minmax(0,1fr)); gap:3px;}
+    .railstep{padding:2px; gap:0; border-radius:50%; justify-content:center;
+              min-height:36px; min-width:0;}
+    .railstep .lbl{display:none;}
+    /* 24px, not 26: at 360px the ten cells are (328 - 27) / 10 = 30.1px, and a
+       26px dot inside 2px of padding is 30 - it overflowed by 12px across the
+       row. Measured, not guessed. */
+    .railstep .dot{width:24px; height:24px;}
+    .railstep.current{border-radius:50%;}
   }
 
   /* (job context strip lives in .appbar now — see top of stylesheet) */
@@ -239,6 +234,13 @@
            padding:22px 24px; margin-bottom:20px; scroll-margin-top:calc(var(--headh) + 18px);
            transition:box-shadow .3s;}
   .section.flash{box-shadow:0 0 0 2px var(--accent);}
+  /* One step on screen. .hidden carries !important and so beats .step.active,
+     which is what keeps a Type D mix's Polish section off the page rather
+     than showing it blank - go() skips it for the same reason. */
+  .step{display:none;}
+  .step.active{display:block; animation:stepin .18s ease-out;}
+  @keyframes stepin{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;}}
+  @media (prefers-reduced-motion:reduce){ .step.active{animation:none;} }
   /* The head is a full-bleed navy band with the KYTC gold rule under it -
      chosen from five treatments 2026-09-11. On a sheet this long the band is
      what tells you where you are without looking back at the rail, which is
@@ -336,6 +338,11 @@
   .grid{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px;}
   @media (min-width:1601px){ .grid{grid-template-columns:repeat(4,minmax(0,1fr));} }
   @media (max-width:700px){ .grid{grid-template-columns:1fr 1fr;} }
+  /* One column below 560px. At 165px a field clipped its own value - binder
+     supplier, mix type, the project number, all measured on a 390px screen -
+     and one column buys the room back. Directly below the rule it overrides,
+     which is the convention here: a @media block is not a tiebreaker. */
+  @media (max-width:560px){ .grid{grid-template-columns:1fr;} }
   /* Each field puts its box at the BOTTOM of its cell, and grid stretches
      cells to the tallest in the row, so boxes line up per row without
      reserving space for a second line of label everywhere. That reservation
@@ -350,9 +357,25 @@
      cursor is worse than the outline it replaces. */
   .box{width:100%; border:1px solid transparent; background:var(--well);
        border-radius:var(--radius-field);
-       padding:6px 9px; font-size:12.5px; min-height:30px; color:var(--ink);
+       padding:7px 10px; font-size:13px; min-height:36px; color:var(--ink);
        font-family:inherit;}
   input.box.mono, select.box.mono{font-family:'Roboto Mono',monospace; color:var(--accent);}
+  /* A native select ignores min-height on iOS unless its appearance is
+     replaced, so the caret is drawn instead. Right padding keeps a long
+     value off it. */
+  select.box{appearance:none; -webkit-appearance:none; padding-right:26px;
+             background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
+                              linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+             background-position:calc(100% - 14px) calc(50% + 1px), calc(100% - 9px) calc(50% + 1px);
+             background-size:5px 5px, 5px 5px; background-repeat:no-repeat;}
+  /* 44px and 16px on a phone. The height is the tap target; the SIZE is a bug
+     fix - iOS zooms the whole page in whenever a focused input is under 16px,
+     which on a form of forty fields is a zoom and a pinch-back per field.
+     Below the rules it overrides, per the convention. */
+  @media (max-width:700px){
+    .box{min-height:44px; font-size:16px; padding:9px 11px;}
+    select.box{background-position:calc(100% - 15px) calc(50% + 1px), calc(100% - 10px) calc(50% + 1px);}
+  }
   .box:hover:not([readonly]):not(:disabled){border-color:var(--line);}
   .box:focus{outline:2px solid var(--accent); outline-offset:-1px;}
   .box.prefilled{background:var(--accent-soft);}
@@ -421,6 +444,9 @@
   /* Each row still carries its labels for the phone layout below. */
   .rowitem label{display:none;}
   .rowitem .box{padding:5px 7px; font-size:12.5px; min-height:28px;}
+  /* .rowitem .box outranks .box whatever the source order, so the phone
+     sizes have to be restated here. Same two reasons. */
+  @media (max-width:700px){ .rowitem .box{padding:8px 10px; font-size:16px; min-height:44px;} }
   .rowitem{gap:7px;}
   .rmbtn{border:1px solid transparent; background:transparent; color:var(--muted);
          border-radius:var(--radius); width:26px; height:26px; cursor:pointer; font-size:14px;
@@ -443,7 +469,16 @@
     .rowitem:hover{background:#FCFCFA;}
     .rowitem label{display:block; font-size:10px; color:var(--muted);
                    text-transform:uppercase; margin-bottom:2px;}
-    .rmbtn{width:30px; height:32px; border-color:var(--line); background:var(--panel);}
+    .rmbtn{width:42px; height:42px; border-color:var(--line); background:var(--panel);}
+  }
+  /* One column below 560px. Two columns at 16px type gives each cell ~150px,
+     and an aggregate row's producer, type & size and the KYCT series name all
+     clipped there - measured at 390 and 360. A row is five or six fields, so
+     one column is a short card, and the card border already says where one
+     row ends and the next begins. */
+  @media (max-width:560px){
+    .rowitem{grid-template-columns:minmax(0,1fr)!important;}
+    .rowitem .rmbtn{justify-self:end;}
   }
   .addrow{display:block; width:100%; margin-top:8px; padding:10px;
           border:1px dashed var(--accent); border-radius:var(--radius); background:transparent;
@@ -510,6 +545,10 @@
   .prname{font-weight:500;}
   .prsub{font-size:11px; color:var(--muted); line-height:1.45;}
   .prtable .box{width:100%; padding:4px 6px; font-size:12px;}
+  /* Same again: a two-class rule outranks the phone block above it. The
+     polish matrix stays dense - it is ninety controls in a grid a person
+     scrolls sideways - but 16px stops the zoom-per-cell. */
+  @media (max-width:700px){ .prtable .box{padding:6px 7px; font-size:16px; min-height:40px;} }
   .prtable .prkey{background:var(--flag-soft);}  /* the #4 is the one the arithmetic keys on */
   /* A cell KYTC's approved-materials list settled: stated, not asked. Reads as
      data rather than as an empty control somebody forgot to fill in. */
@@ -602,45 +641,80 @@
   .auditrow{font-size:12px; color:var(--muted); display:flex; gap:10px;}
   .auditrow .ts{font-family:'Roboto Mono',monospace; color:var(--ink); white-space:nowrap;}
 
-  /* right validation rail */
-  /* The sky wash from the logo, so the rail that says what is LEFT TO DO
-     reads as a different kind of thing from the white cards holding the
-     work itself. Same reasoning as the navy nav card on the other side:
-     the two rails are about the page, the middle column is the page.
-     Kept as the pale wash rather than the logo's full #5FB2E4 - a 12px
-     warning list on saturated blue is not readable, and the strong sky is
-     spent on the edge and the heading instead. */
-  /* Inverted: the accent becomes the ground and everything on it goes
-     light. Nothing inside may keep a paper-era colour - --ink, --muted,
-     --line, --ok and --flag are all chosen against near-white and every one
-     of them either disappears or turns muddy here, so each has an explicit
-     on-blue value below. The panel is the loudest thing on the page now,
-     which suits it: it is the list of what is still wrong. */
-  .valpanel{position:sticky; top:calc(var(--headh) + 0px); align-self:start; background:var(--accent);
-            border:1px solid var(--accent); border-radius:10px; padding:18px;
-            color:#FFFFFF;}
-  @media (max-width:1240px){ .valpanel{position:static;} }
-  .valpanel h3{font-size:13px; margin-bottom:4px; color:#FFFFFF;}
-  .valpanel .sub{font-size:11px; color:rgba(255,255,255,.78); margin-bottom:14px;}
-  .vitem{display:flex; gap:8px; padding:8px 0; border-top:1px solid rgba(255,255,255,.28);
-         font-size:12px; cursor:pointer; color:#FFFFFF;}
-  .vitem:first-of-type{border-top:none;}
-  /* Gold is the one hue that still reads as itself on this blue, so the
-     flags keep doing their job without a second colour being invented. */
-  .vitem .flag{width:6px; height:6px; border-radius:50%; background:var(--gold);
-               margin-top:5px; flex-shrink:0;}
-  .vitem .flag.warn{background:transparent; border:1.5px solid var(--gold);}
-  .vitem a{color:#FFFFFF; text-decoration:underline; text-underline-offset:2px;}
-  .allclear{display:flex; gap:8px; align-items:center; font-size:12px; color:#FFFFFF;}
-  .dot2{width:6px; height:6px; border-radius:50%; background:#8FE3B4;}
-  /* The save/import line lives in this panel too, so its three states need
-     on-blue values or an error would arrive as dark red on blue. */
-  .valpanel .msg{color:#FFFFFF;}
-  .valpanel .msg.error{color:#FFD9D9;}
-  .valpanel .msg.warn{color:var(--gold);}
-  .valpanel .msg.ok{color:#B8F0D2;}
-  .savebtn{width:100%; margin-top:16px; padding:10px; border:none; border-radius:var(--radius);
-           background:var(--ink); color:#fff; font-family:inherit; font-size:13px; font-weight:500; cursor:pointer;}
+  /* ---- outstanding items, in the step ----
+     One node, moved into the active step by go(). It used to be a sticky
+     sky-blue rail down the right-hand side, which put "what is still wrong"
+     next to the whole form; with one step on screen it belongs at the top of
+     the step it is about, and on white, since it is now inside the card
+     stack rather than beside it.
+     The left edge carries the state: amber while something is missing on
+     this step, green when the step is clear. */
+  .valblock{background:var(--panel); border:1px solid var(--line);
+            border-left:4px solid var(--flag); border-radius:var(--radius);
+            padding:11px 14px; margin-bottom:16px;}
+  .valblock.ok{border-left-color:var(--ok);}
+  .valsub{font-size:12.5px; font-weight:600; color:var(--ink);}
+  #vallist{margin-top:2px;}
+  #vallist:empty{display:none;}
+  .vitem{display:flex; gap:9px; align-items:flex-start; min-height:34px; padding:6px 4px 6px 0;
+         font-size:12.5px; cursor:pointer; color:var(--ink); border-radius:4px;}
+  .vitem:hover{background:var(--wash);}
+  .vitem .flag{width:7px; height:7px; border-radius:50%; background:var(--flag);
+               margin-top:6px; flex-shrink:0;}
+  .vitem .flag.warn{background:transparent; border:1.5px solid var(--flag);}
+  .vitem a{color:var(--accent); text-decoration:underline; text-underline-offset:2px;}
+  /* Which step an item belongs to, when the roll-up on the last step lists
+     items from everywhere. */
+  .vitem .vstep{margin-left:auto; padding-left:10px; color:var(--muted);
+                font-family:'Roboto Mono',monospace; font-size:11px; white-space:nowrap;}
+  .allclear{display:flex; gap:8px; align-items:center; font-size:12.5px; color:var(--ok);
+            padding:6px 0;}
+  .dot2{width:7px; height:7px; border-radius:50%; background:var(--ok);}
+  /* The save / import / MixPack line lives in this block, not in the action
+     bar. Its content is not a status word: a legacy import writes its whole
+     found / not-cached / mismatch summary here, and so does the MixPack
+     generator's list of what the design lacks. A 44px fixed bar clips all of
+     that silently, which is exactly the message you cannot afford to lose. */
+  .valblock .msg{font-size:12px; margin-top:8px; line-height:1.5;}
+  .valblock .msg:empty{display:none; margin-top:0;}
+
+  /* ---- the action bar ----
+     Fixed, so Back / Next are in reach in the middle of a long step without
+     spending any scroll height on them. It also carries the completeness
+     meter: that is the one number a person wants at all times, and putting
+     it here means the page adds no band above the form to show it - the
+     phone header work of 2026-09-11 was about exactly that. */
+  .actionbar{position:fixed; left:0; right:0; bottom:0; z-index:30;
+             background:var(--panel); border-top:1px solid var(--line);
+             box-shadow:0 -2px 14px rgba(0,32,80,.07);
+             padding:9px 32px calc(9px + env(safe-area-inset-bottom,0px));}
+  .abinner{max-width:1180px; margin:0 auto; display:flex; align-items:center; gap:14px;}
+  .stepbtn{font-family:'Space Grotesk',sans-serif; font-size:13.5px; font-weight:600;
+           min-height:44px; padding:0 18px; border-radius:var(--radius); cursor:pointer;
+           border:1px solid var(--navy); background:var(--navy); color:#FFFFFF;
+           white-space:nowrap; flex-shrink:0;}
+  .stepbtn.ghost{background:transparent; color:var(--navy);}
+  .stepbtn:disabled{opacity:.35; cursor:default;}
+  .stepbtn.ghost:hover:not(:disabled){background:var(--accent-soft);}
+  .stepbtn.primary:hover:not(:disabled){background:var(--accent); border-color:var(--accent);}
+  .stepcount{flex:1; min-width:0; display:flex; flex-direction:column; gap:3px;}
+  .stepcount .sc1{font-size:11px; color:var(--muted); letter-spacing:.04em;
+                  text-transform:uppercase; font-family:'Roboto Mono',monospace;
+                  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .stepcount .sc1 b{color:var(--navy); font-weight:600;}
+  .compwrap{display:flex; align-items:center; gap:9px;}
+  .bar{flex:1; min-width:60px; height:5px; background:var(--line); border-radius:3px; overflow:hidden;}
+  .bar i{display:block; height:100%; width:0; background:var(--ok); transition:width .25s;}
+  .compnote{font-size:11px; color:var(--muted); white-space:nowrap;
+            font-family:'Roboto Mono',monospace;}
+  /* Below 700px the bar is two buttons and one line between them: the step
+     name goes, the numerals and the meter stay. */
+  @media (max-width:700px){
+    .actionbar{padding:7px 14px calc(7px + env(safe-area-inset-bottom,0px));}
+    .abinner{gap:9px;}
+    .stepbtn{font-size:12.5px; padding:0 12px; min-height:42px;}
+    .compnote{font-size:10px;}
+  }
 
   /* gate + upload screens */
   .centercard{max-width:620px; margin:40px auto; background:var(--panel);
@@ -727,11 +801,14 @@
 <!-- ===== END LEGACY UPLOAD ===== -->
 
 <!-- ===== DESIGNBOOK ===== -->
+<!-- One step on screen at a time. The rail is every step at once - a wrapping
+     row, not a scrolling one, for the reason the section list was: a row you
+     have to swipe hides what it does not fit, and all ten fit here. The only
+     fixed chrome is the action bar at the bottom, which costs no scroll. -->
 <div class="layout hidden" id="dbLayout">
 
-  <nav class="nav">
-    <div class="navtitle">Sections</div>
-    <ul class="navlist" id="navlist"></ul>
+  <nav class="railnav" aria-label="Steps">
+    <div class="rail" id="railnav"></div>
   </nav>
 
   <main>
@@ -746,13 +823,28 @@
     </details>
   </main>
 
-  <aside class="valpanel">
-    <h3>Outstanding items</h3>
-    <div class="sub" id="valsub">Live — updates as you fill the form</div>
-    <div id="vallist"></div>
-    <div class="msg" id="saveMsg" style="font-size:11.5px;"></div>
-  </aside>
+  <!-- The outstanding-items block is ONE node that go() moves into the active
+       step's .stepval. It is parked here between renders because renderForm()
+       rewrites #sections wholesale and would otherwise destroy it. -->
+  <div id="valPark" hidden>
+    <div class="valblock" id="valBlock">
+      <div class="valsub" id="valsub">Live — updates as you fill the form</div>
+      <div id="vallist"></div>
+      <div class="msg" id="saveMsg"></div>
+    </div>
+  </div>
 
+</div>
+
+<div class="actionbar hidden" id="actionBar">
+  <div class="abinner">
+    <button type="button" class="stepbtn ghost" id="backBtn">← Back</button>
+    <div class="stepcount" id="stepcount">
+      <div class="sc1"></div>
+      <div class="compwrap"><div class="bar"><i id="compBar"></i></div><span class="compnote" id="compNote"></span></div>
+    </div>
+    <button type="button" class="stepbtn primary" id="nextBtn">Next →</button>
+  </div>
 </div>
 <!-- ===== END DESIGNBOOK ===== -->
 
@@ -1733,7 +1825,7 @@ const CONFIG = {
   },
   SECTIONS: [
     {
-      id: "contract", label: "Contract Information",
+      id: "contract", label: "Contract Information", step: "Contract",
       tag: "from the KYTC proposal, or typed", type: "grid", lookup: true,
       cites: ["km421", "jmf"],
       fields: [
@@ -1776,7 +1868,7 @@ const CONFIG = {
       ],
     },
     {
-      id: "aggregate", label: "Aggregate Structure",
+      id: "aggregate", label: "Aggregate Structure", step: "Aggregates",
       cites: ["agg805"],
       tag: "dropdowns from Supabase reference / legacy MixPack", type: "rows",
       rows: {
@@ -1806,7 +1898,7 @@ const CONFIG = {
       },
     },
     {
-      id: "gradation", label: "Gradation", tag: "% passing by sieve · 0.45 power chart", type: "sieves",
+      id: "gradation", label: "Gradation", step: "Gradation", tag: "% passing by sieve · 0.45 power chart", type: "sieves",
       cites: ["ctrlpts"],
       // `key` is explicit (fraction labels don't survive a slug), `mm` drives
       // the 0.45 power chart x-position. Full KYTC set, 2" → #200; the target
@@ -1834,7 +1926,7 @@ const CONFIG = {
       ],
     },
     {
-      id: "consensus", label: "Consensus Properties",
+      id: "consensus", label: "Consensus Properties", step: "Consensus",
       tag: "Superpave · measured on the combined aggregate blend", type: "grid",
       cites: ["consensus"],
       // AASHTO M323 Table 5 consensus properties. Legacy source is MixPack
@@ -1852,12 +1944,12 @@ const CONFIG = {
       ],
     },
     {
-      id: "polish", label: "Polish-Resistant Aggregate",
+      id: "polish", label: "Polish-Resistant Aggregate", step: "Polish",
       tag: "does this blend qualify as Type A or B", type: "polish",
       cites: ["polish"],
     },
     {
-      id: "fourpoint", label: "Four Points",
+      id: "fourpoint", label: "Four Points", step: "Four Points",
       tag: "R35 §10.1 · Pb(design), ±0.5%, +1.0%", type: "fourpoint",
       cites: ["volumetric"],
       constants: [
@@ -1874,7 +1966,7 @@ const CONFIG = {
       ],
     },
     {
-      id: "design-values", label: "Design Values",
+      id: "design-values", label: "Design Values", step: "Results",
       tag: "computed from Four Points", type: "computed",
       cites: ["volumetric", "optimumac"],
       // `wb` names the CONFIG.LEGACY.DESIGN_VALUES entry this output is the
@@ -1899,7 +1991,7 @@ const CONFIG = {
       ],
     },
     {
-      id: "tsr", label: "Tensile Strength Ratio (TSR)",
+      id: "tsr", label: "Tensile Strength Ratio (TSR)", step: "TSR",
       tag: "MixPack · TSR tab", type: "grid",
       cites: ["tsrspec", "km443"],
       fields: [
@@ -1934,7 +2026,7 @@ const CONFIG = {
       ],
     },
     {
-      id: "performance", label: "Performance Testing",
+      id: "performance", label: "Performance Testing", step: "Performance",
       tag: "MixPack · Performance Specimens / KYCT / Hamburg", type: "grid",
       cites: ["perf", "km450"],
       fields: [
@@ -1988,7 +2080,7 @@ const CONFIG = {
         },
       ],
     },
-    { id: "status", label: "Status & validation", tag: "workflow", type: "status" },
+    { id: "status", label: "Status & validation", step: "Submit", tag: "workflow", type: "status" },
   ],
 };
 
@@ -2027,6 +2119,7 @@ const state = {
   downloadedAt: null, // when the last review PDF was taken - the only "saved" there is
   canReview: false,  // technicians.can_review - may move past Internal Review, send back to Draft
   saving: false,
+  step: 0,           // which of CONFIG.SECTIONS is on screen (index, not the visible position)
 };
 
 // NOTE: this client is named `sb`, not `supabase`, on purpose. The CDN
@@ -2485,6 +2578,10 @@ function sectionCitesHTML(section) {
 }
 
 function renderForm() {
+  // #valBlock is one node that lives inside whichever step is active. Park it
+  // before the wholesale rewrite below, or it is destroyed with the sections
+  // and every later msg($("saveMsg"), …) writes to nothing.
+  $("valPark").appendChild($("valBlock"));
   $("sections").innerHTML = CONFIG.SECTIONS.map((s, i) => {
     let body = "";
     if (s.type === "sieves") body = sievesHTML(s);
@@ -2520,21 +2617,92 @@ function renderForm() {
   prHeld = new Map();
   renderPolishGrid(true);
 
-  // Guarded: this runs immediately before wireForm() / applyAutofills() /
-  // renderStage() / recompute(), so an unguarded lookup on a rail that is not
-  // in the document takes all four of them with it and leaves static markup
-  // that never responds to typing - no console error, exactly the class of
-  // silent failure CLAUDE.md's `sb`/`supabase` note warns about.
-  const nav = $("navlist");
-  if (nav) nav.innerHTML = CONFIG.SECTIONS.map((s) =>
-    `<li class="navitem" data-target="${s.id}"><span class="tick" data-tick="${s.id}"></span>${s.label}</li>`
-  ).join("");
-
+  renderRail();
   wireForm();
   applyAutofills();
   renderRefStatus();
   renderStage();
+  go(state.step || 0);      // puts #valBlock back into the active step, and recomputes
+}
+
+/* ---------- the step rail + the action bar ----------
+   The steps ARE CONFIG.SECTIONS, in order. Nothing writes the count down:
+   "Step 3 of 10" is the schema's length, which is what makes adding a
+   section add a step and nothing else.
+   A step can be hidden (Polish, on a Type D mix), and a hidden step is not a
+   step: it is skipped by Next/Back and left out of both numerals. */
+function stepSections() { return Array.from(document.querySelectorAll("#sections .section")); }
+function stepIndexOf(id) { return CONFIG.SECTIONS.findIndex((s) => s.id === id); }
+function stepHidden(sec) { return !sec || sec.classList.contains("hidden"); }
+function visibleSteps() { return stepSections().filter((sec) => !stepHidden(sec)); }
+
+function renderRail() {
+  const rail = $("railnav");
+  if (!rail) return;
+  rail.innerHTML = CONFIG.SECTIONS.map((s, i) =>
+    `<button type="button" class="railstep" data-step="${i}" data-tick="${s.id}" data-target="${s.id}"
+             title="${esc(s.label)}"><span class="dot">${i + 1}</span><span class="lbl">${esc(s.step || s.label)}</span></button>`
+  ).join("");
+  rail.querySelectorAll(".railstep").forEach((b) => {
+    b.addEventListener("click", () => go(Number(b.dataset.step)));
+  });
+}
+
+// Move to a step. Everything about "where am I" is decided here rather than
+// inferred from scroll position: with one step on screen, current is a fact.
+function go(i, focusEl) {
+  const secs = stepSections();
+  if (!secs.length) return;
+  i = Math.max(0, Math.min(secs.length - 1, i));
+  // Never land on a hidden step - walk on in the direction of travel, then
+  // back the other way if that runs off the end.
+  if (stepHidden(secs[i])) {
+    const dir = i >= (state.step || 0) ? 1 : -1;
+    let j = i;
+    while (j >= 0 && j < secs.length && stepHidden(secs[j])) j += dir;
+    if (j < 0 || j >= secs.length) { j = i; while (j >= 0 && j < secs.length && stepHidden(secs[j])) j -= dir; }
+    if (j < 0 || j >= secs.length) return;
+    i = j;
+  }
+  state.step = i;
+  secs.forEach((sec, k) => sec.classList.toggle("active", k === i));
+  document.querySelectorAll("#railnav .railstep").forEach((b, k) => {
+    b.classList.toggle("current", k === i);
+    b.setAttribute("aria-current", k === i ? "step" : "false");
+  });
+  const host = secs[i].querySelector(".stepval");
+  if (host) host.appendChild($("valBlock"));
+
+  const vis = visibleSteps(), pos = vis.indexOf(secs[i]) + 1;
+  $("backBtn").disabled = pos <= 1;
+  $("nextBtn").disabled = pos >= vis.length;
+  // On the last step Next has nowhere to go; the real action there is the
+  // stage button inside the Status section, which stays where it is rather
+  // than being moved into this bar - two elements with one id is a bug that
+  // hides for a long time.
+  $("nextBtn").textContent = pos >= vis.length ? "Last step" : "Next →";
+  $("stepcount").querySelector(".sc1").innerHTML =
+    `Step ${pos} of ${vis.length} · <b>${esc(secs[i].dataset.label || "")}</b>`;
+  window.scrollTo({ top: 0, behavior: "auto" });
   recompute();
+  if (focusEl) {
+    // requestAnimationFrame, not a 400ms timer: there is no smooth scroll to
+    // wait out any more, and .focus() on an element in a display:none step
+    // does nothing and throws nothing.
+    requestAnimationFrame(() => {
+      if (!document.contains(focusEl)) return;
+      focusEl.focus({ preventScroll: false });
+      const sec = focusEl.closest(".section");
+      if (sec) { sec.classList.add("flash"); setTimeout(() => sec.classList.remove("flash"), 900); }
+    });
+  }
+}
+
+function goBy(d) {
+  const secs = stepSections(), cur = secs[state.step || 0];
+  const vis = visibleSteps(), pos = vis.indexOf(cur);
+  const next = vis[pos + d];
+  if (next) go(secs.indexOf(next));
 }
 
 /* ---------- 0.45 power chart (large, vertical-table companion) ---------- */
@@ -3352,10 +3520,10 @@ function polishApplies() {
 function applyPolishVisibility() {
   const on = polishApplies();
   const sec = document.querySelector('[data-section="polish"]');
-  // .hidden, not the hidden attribute: .navitem and .railstep both set a
-  // display value, which beats the user-agent [hidden] rule, and .hidden
-  // carries !important. All of them, not the first: the old nav and the step
-  // rail each carry a [data-target="polish"] entry.
+  // .hidden, not the hidden attribute: .railstep sets display:inline-flex,
+  // which beats the user-agent [hidden] rule, and .hidden carries !important.
+  // All of them rather than the first, so any future second index stays in
+  // step with this one.
   if (sec) sec.classList.toggle("hidden", !on);
   document.querySelectorAll('[data-target="polish"]').forEach((n) => n.classList.toggle("hidden", !on));
   return on;
@@ -3559,9 +3727,10 @@ function computeTSR() {
   return s;
 }
 
-/* ---------- validation rail + nav ticks ---------- */
+/* ---------- validation: the step block, the rail ticks, the meter ---------- */
 function recompute() {
   const outstanding = [];
+  let totalReq = 0, totalFilled = 0;
   // Consensus limits first: this may drop `req` on CAA / F&E (No. 4 mix)
   // and must do so before the required-field sweep below counts them.
   computeConsensus();
@@ -3571,12 +3740,19 @@ function recompute() {
     const reqs = sec.querySelectorAll(".req");
     let filled = 0;
     reqs.forEach((el) => { if (String(el.value || "").trim()) filled++; });
+    // A hidden section (Polish on a Type D mix) is not part of the design, so
+    // it is not part of the denominator either - otherwise such a mix would
+    // read as permanently incomplete.
+    if (!sec.classList.contains("hidden")) { totalReq += reqs.length; totalFilled += filled; }
     // querySelectorAll, not querySelector: while both the old nav and the new
     // step rail are in the document they each carry a [data-tick] for every
     // section, and the singular form would only ever tick the first one.
     document.querySelectorAll(`[data-tick="${id}"]`).forEach((tick) => {
       tick.classList.remove("filled", "partial");
-      if (reqs.length && filled === reqs.length) tick.classList.add("filled");
+      // A section with nothing required on it (Polish, Design Values) reads as
+      // done rather than as not-started: there is nothing there to fill in,
+      // and an empty numeral beside nine ticked ones says the opposite.
+      if (!reqs.length || filled === reqs.length) tick.classList.add("filled");
       else if (filled) tick.classList.add("partial");
     });
     if (filled < reqs.length) {
@@ -3682,26 +3858,66 @@ function recompute() {
     ts.warn.forEach((w) => outstanding.push({ id: "tsr", label, kind: "warn", text: w }));
   }
 
-  const list = $("vallist"), sub = $("valsub");
+  // ---- the completeness meter, in the action bar ----
+  const pct = totalReq ? Math.round(totalFilled / totalReq * 100) : 0;
+  const bar = $("compBar"), note = $("compNote");
+  if (bar) bar.style.width = pct + "%";
+  if (note) note.textContent = totalReq
+    ? `${pct}% · ${totalReq - totalFilled ? `${totalReq - totalFilled} to go` : "complete"}`
+    : "";
+
+  // ---- the outstanding list, for the step you are on ----
+  // recompute() is still the single producer of `outstanding`; all that is new
+  // is which slice of it gets rendered. The last step shows the whole design,
+  // because that is the one you submit from.
+  const list = $("vallist"), sub = $("valsub"), block = $("valBlock");
+  const secs = stepSections();
+  const here = secs[state.step || 0];
+  const hereId = here ? here.dataset.section : null;
+  const rollUp = hereId === "status" || !hereId;
+
   const missing = outstanding.filter((o) => o.kind !== "warn"), warns = outstanding.filter((o) => o.kind === "warn");
-  const items = missing.concat(warns);
+  const all = missing.concat(warns);
+  const items = rollUp ? all : all.filter((o) => o.id === hereId);
+  const mine = { missing: items.filter((o) => o.kind !== "warn").length,
+                 warns: items.filter((o) => o.kind === "warn").length };
+
+  const stepNo = (id) => {
+    const sec = secs.find((x) => x.dataset.section === id);
+    const vis = visibleSteps();
+    const n = sec ? vis.indexOf(sec) + 1 : 0;
+    return n ? `step ${n}` : "";
+  };
   const item = (o, i) =>
     `<div class="vitem${o.kind === "warn" ? " warn" : ""}" data-idx="${i}"><span class="flag${o.kind === "warn" ? " warn" : ""}"></span>
-       <span><a>${esc(o.label)}</a> — ${esc(o.text)}</span></div>`;
-  if (!missing.length) {
-    // Warnings alone never hold a design back; they stay listed under the all-clear.
-    sub.textContent = "All required fields complete" + (warns.length ? ` · ${warns.length} warning(s)` : "");
-    list.innerHTML = `<div class="allclear"><span class="dot2"></span>Ready to move to internal review</div>` + items.map(item).join("");
+       <span>${rollUp ? `<a>${esc(o.label)}</a> — ` : ""}${esc(o.text)}</span>${rollUp ? `<span class="vstep">${esc(stepNo(o.id))}</span>` : ""}</div>`;
+
+  if (!list || !sub) { /* nothing to render into - fall through to the charts */ }
+  else if (rollUp) {
+    if (!missing.length) {
+      // Warnings alone never hold a design back; they stay listed under the all-clear.
+      sub.textContent = "All required fields complete" + (warns.length ? ` · ${warns.length} warning(s)` : "");
+      list.innerHTML = `<div class="allclear"><span class="dot2"></span>Ready to submit to KYTC</div>` + items.map(item).join("");
+    } else {
+      sub.textContent = `${missing.length} section(s) with incomplete fields` + (warns.length ? `, ${warns.length} warning(s)` : "");
+      list.innerHTML = items.map(item).join("");
+    }
+  } else if (!items.length) {
+    const reqs = here ? here.querySelectorAll(".req").length : 0;
+    sub.textContent = reqs ? `All ${reqs} required field(s) on this step are complete` : "Nothing required on this step";
+    list.innerHTML = "";
   } else {
-    sub.textContent = `${missing.length} section(s) with incomplete fields` + (warns.length ? `, ${warns.length} warning(s)` : "");
+    sub.textContent = (mine.missing ? `${mine.missing} thing(s) to finish on this step` : "Required fields complete")
+      + (mine.warns ? ` · ${mine.warns} warning(s)` : "");
     list.innerHTML = items.map(item).join("");
   }
-  list.querySelectorAll(".vitem").forEach((el) => {
+  if (block) block.classList.toggle("ok", !mine.missing);
+
+  if (list) list.querySelectorAll(".vitem").forEach((el) => {
     el.addEventListener("click", () => {
       const o = items[Number(el.dataset.idx)];
       if (!o) return;
-      if (o.focus) { jumpTo(o.id, false); setTimeout(() => o.focus.focus(), 400); }
-      else jumpTo(o.id, true);
+      jumpTo(o.id, !o.focus, o.focus || null);
     });
   });
   drawChart();
@@ -3709,17 +3925,18 @@ function recompute() {
   computeRapNote();
 }
 
-function jumpTo(id, focusFirstEmpty) {
+// Go to the step a section is on, and put the cursor where the item points.
+// No timers: with one step on screen there is no smooth scroll to wait out,
+// and .focus() inside a display:none step does nothing and reports nothing.
+function jumpTo(id, focusFirstEmpty, focusEl) {
+  const i = stepIndexOf(id);
+  if (i < 0) return;
   const sec = $(id);
-  if (!sec) return;
-  sec.scrollIntoView({ behavior: "smooth", block: "start" });
-  sec.classList.add("flash");
-  setTimeout(() => sec.classList.remove("flash"), 900);
-  if (focusFirstEmpty) {
-    const empty = Array.from(sec.querySelectorAll(".req"))
-      .find((f) => !String(f.value || "").trim());
-    if (empty) setTimeout(() => empty.focus(), 400);
+  let target = focusEl || null;
+  if (!target && focusFirstEmpty && sec) {
+    target = Array.from(sec.querySelectorAll(".req")).find((f) => !String(f.value || "").trim()) || null;
   }
+  go(i, target);
 }
 
 /* ---------- workflow stage ---------- */
@@ -4459,11 +4676,6 @@ function wireForm() {
   });
   document.querySelectorAll(".rowitem").forEach(wireRemove);
 
-  // Nav rail.
-  document.querySelectorAll(".navitem").forEach((item) => {
-    item.addEventListener("click", () => jumpTo(item.dataset.target, false));
-  });
-
   // Stage advance. Each stage has a real action behind it, not just a
   // relabelled counter: Draft submits; Submitted approves for a reviewer who
   // did not submit it, and resubmits for everyone else. renderStage() labels
@@ -4539,16 +4751,6 @@ function wireForm() {
     const el = document.querySelector(`[data-field="${k}"]`);
     if (el) el.classList.add("prefilled");
   });
-
-  // Nav follows scroll.
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach((en) => {
-      if (!en.isIntersecting) return;
-      document.querySelectorAll(".navitem").forEach((n) =>
-        n.classList.toggle("current", n.dataset.target === en.target.id));
-    });
-  }, { rootMargin: "-40% 0px -50% 0px", threshold: 0 });
-  document.querySelectorAll(".section").forEach((s) => io.observe(s));
 }
 
 function wireRemove(row) {
@@ -7149,7 +7351,12 @@ function comboPosition() {
   const r = el.getBoundingClientRect();
   const w = Math.min(Math.max(r.width, C.MIN_WIDTH), vw - gut * 2);
   const cap = Math.round(vh * C.MAX_HEIGHT_VH / 100);
-  const below = vh - r.bottom - gut, above = r.top - gut;
+  // The fixed action bar eats the bottom of the viewport, so "room below" is
+  // room above the bar - otherwise the popup opens under it and the last few
+  // matches are unreachable on a phone.
+  const abar = document.querySelector(".actionbar:not(.hidden)");
+  const floor = abar ? vh - abar.getBoundingClientRect().height : vh;
+  const below = floor - r.bottom - gut, above = r.top - gut;
   const drop = below >= Math.min(cap, 180) || below >= above;
   const h = Math.max(96, Math.min(cap, drop ? below : above));
   let left = r.left;
@@ -7427,6 +7634,7 @@ function enterForm() {
   show("gateCard", false);
   show("uploadCard", false);
   show("dbLayout", true);
+  show("actionBar", true);
   $("jobStrip").hidden = false;
   $("outContract").textContent = state.job.cid;
   $("outLetting").textContent = state.job.letting;
@@ -7548,6 +7756,16 @@ function measureHeader() {
 measureHeader();
 window.addEventListener("resize", measureHeader);
 if (window.ResizeObserver) new ResizeObserver(measureHeader).observe(document.querySelector(".appbar"));
+
+// Back / Next, and Alt+Arrow for anyone filling this in from a keyboard.
+// Alt, not a bare arrow: a bare one belongs to whatever field has focus.
+$("backBtn").addEventListener("click", () => goBy(-1));
+$("nextBtn").addEventListener("click", () => goBy(1));
+document.addEventListener("keydown", (e) => {
+  if (!e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.key === "ArrowRight") { e.preventDefault(); goBy(1); }
+  if (e.key === "ArrowLeft") { e.preventDefault(); goBy(-1); }
+});
 
 wireDrop();
 $("portalLink").addEventListener("click", toPortal);
