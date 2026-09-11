@@ -1,14 +1,44 @@
 # Netlify Functions
 
-Two, and both are **transit, not storage**. Nothing here keeps a design;
-that is the whole point of the model in CLAUDE.md ("Designs: the file is the
-record, not a table"). A function exists only where the browser genuinely
-cannot do the job:
+Three, and all three are **transit, not storage**. Nothing here keeps a
+design; that is the whole point of the model in CLAUDE.md ("Designs: the file
+is the record, not a table"). A function exists only where the browser
+genuinely cannot do the job:
 
 | Function | Why it can't be client-side |
 |---|---|
 | `sign-approval` | An approval must be impossible to forge by editing a file. That needs a secret the browser never sees. |
 | `verify-approval` | Checking an approval needs the same secret. Open on purpose — a district office with a PDF should be able to check it without an account. |
+| `kytc-items` | The contract's current line items, off `transportation.ky.gov`. No secret at all — the reason is CORS: the KYTC site is public and sends no `Access-Control-Allow-Origin`, so a browser cannot read it. Open, like `verify-approval`; it reads public pages and takes nothing but a contract ID. |
+
+`kytc-items` is the one thing on a generated MixPack that a correct design
+could still get wrong. Its Project Items sheet is what MEDL checks the load
+against, and contractors fill it from the proposal they bid — which goes
+stale the moment a change order adds, deletes or re-numbers an item, and MEDL
+then refuses the file (Jake, 2026-09-11). KYTC's own current list is the
+**newest pay estimate** for the contract, so that is what this reads:
+`/Construction/Pay Estimates/<cid>-<vendor>-EST<nnnn>.html`, highest number
+wins (the sequence can have gaps, so take the max rather than counting up),
+falling back to `/Construction/Contract Items/<cid>items<vendor>.html` — the
+items as awarded — for a contract with no estimate yet, which is the normal
+state for a *new* design since paving has not started. The response says
+which of the two answered.
+
+Neither filename can be built from a contract ID alone: both carry the
+contractor's KYTC vendor number. Rather than ask a technician for it, both
+libraries are SharePoint document libraries whose classic view honours
+`Forms/AllItems.aspx?FilterField1=FileLeafRef&FilterOp1=BeginsWith`, so the
+contract ID finds the file and the vendor number comes back with it. (The
+libraries' unfiltered listing only ever serves 300 old files, so paging it is
+a dead end — the filter is the way in.)
+
+The two reports are hand-rolled RTF-to-HTML from the 1990s — unclosed `<td>`,
+stray `<font>`, tables nested inside table *rows* — so nothing parses them as
+a tree. They are read as a flat run of `<tr>` blocks, with the header row that
+most recently went past deciding how to read the cells (the two layouts differ:
+the estimate has 12 columns and a live CURRENT QUANTITY, the item list has 8
+and only the bid/plan quantity). A row under no known header is skipped rather
+than guessed at.
 
 There used to be a third, `send-submission`, which emailed the package to
 KYTC. It is gone (Jake, 2026-09-10). A mail provider authenticates by DKIM
@@ -45,6 +75,10 @@ never sees a secret.
 | `SUPABASE_URL` | all | Same project the pages use. |
 | `SUPABASE_ANON_KEY` | all | The public anon key. Safe here; RLS is the control. |
 | `APPROVAL_SIGNING_SECRET` | sign, verify | **The real secret.** Long random string. Changing it invalidates every approval already issued. |
+
+`kytc-items` needs none of them — it reads public KYTC pages and has no
+Supabase or Netlify dependency at all, which is also why it is the one
+function that works in a deploy preview with nothing configured.
 
 `RESEND_API_KEY`, `KYTC_SUBMIT_TO` and `SUBMIT_FROM` are no longer used —
 nothing here sends mail. Where a submittal goes is now `CONFIG.SUBMIT
