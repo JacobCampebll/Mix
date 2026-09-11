@@ -439,6 +439,18 @@ TBD — cite the governing spec section when encoding a limit in code.
   `.headmeta` stay on a phone: they are the link to the spec itself, not a
   description. Hiding the tag also removed the 383px of nowrap text that was
   this page's only source of sideways scroll at 390px.
+  **The citation chips hold one line on a phone too**, which took measuring
+  rather than guessing: at 360px the head gives them 278px, and Contract
+  Information's two citations plus the lookup button needed 343 while Design
+  Values' two 20-character citations needed 291, so both wrapped to a second
+  row. 9px type with 5px side padding, and the button dropping the word
+  "contract" below 700px (a  span, not a second label), brings the
+  worst case to 262. Vertical padding went UP to 3px so the tap target did not
+  shrink with the text.  and  stay as the
+  fallback, so a longer citation in a future spec edition wraps rather than
+  pushing the page sideways. Count the rows by the container's height over one
+  chip's height - comparing each chip's  reports a phantom second row,
+  since a button and an anchor sit on the same line a pixel apart.
 
 
 - **A native `<datalist>` is not a typeahead, and it looks exactly like

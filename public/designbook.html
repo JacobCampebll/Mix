@@ -268,8 +268,20 @@
   @media (max-width:700px){
     .section-head{align-items:flex-start; gap:8px;}
     .section-tag{display:none;}
-    .headmeta{justify-content:flex-start; max-width:100%;}
+    .headmeta{justify-content:flex-start; max-width:100%; gap:5px;}
+    /* One line, measured rather than guessed (Jake, 2026-09-11). At 360px the
+       head has 278px for these: Contract Information's two citations plus the
+       lookup button needed 343 and Design Values' two 20-character citations
+       needed 291, so both wrapped to a second row. Dropping to 9px with 5px
+       side padding and cutting one word from the button brings the worst case
+       to ~252, which holds one line at 360px and leaves room at 390px. The
+       vertical padding goes UP to 3px so the tap target does not shrink with
+       the text. flex-wrap and white-space:normal stay as the fallback: a
+       longer citation in a future spec edition wraps rather than overflowing
+       the card and pushing the page sideways. */
+    a.cite, .seclookup{font-size:9px; padding:3px 5px;}
     a.cite{white-space:normal; max-width:100%;}
+    .wide-only{display:none;}
   }
 
   /* Three across, four when the window is wide enough to keep each field
@@ -2420,7 +2432,7 @@ function renderForm() {
     return `<section class="section" id="${s.id}" data-section="${s.id}" data-label="${s.label}">
       <div class="section-head"><h2>${s.label}</h2>
         <span class="headmeta">${sectionCitesHTML(s)}${s.lookup && state.job && state.job.cid
-          ? `<button type="button" class="seclookup" id="contractLookupBtn">Look up contract ${esc(state.job.cid)}</button>` : ""}<span class="section-tag mono">${s.tag}</span></span></div>
+          ? `<button type="button" class="seclookup" id="contractLookupBtn">Look up<span class="wide-only"> contract</span> ${esc(state.job.cid)}</button>` : ""}<span class="section-tag mono">${s.tag}</span></span></div>
       ${s.lookup ? `<div class="lookupnote${state.contractNote ? " " + esc(state.contractNote.kind) : ""}" id="contractLookupNote">${state.contractNote ? esc(state.contractNote.text) : ""}</div>` : ""}
       ${body}
     </section>`;
