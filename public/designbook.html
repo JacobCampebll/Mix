@@ -131,7 +131,12 @@
      stretch into something you have to track across. */
   .layout{max-width:1660px; margin:0 auto; display:grid;
           grid-template-columns:200px minmax(0,1fr) 250px; gap:28px; padding:28px 32px 80px;}
-  @media (max-width:1080px){ .layout{grid-template-columns:minmax(0,1fr);} }
+  /* One column at 1240px and below - the same step the row tables take. It was
+     1080px, which left three columns standing at 1100-1200px with 510-630px
+     for the form: measured 2026-09-11, the aggregate MAT code, Gsb and type
+     cells and the TSR loads all clipped there. The rails are 450px plus
+     gaps, so the form only has room beside them from about 1240px up. */
+  @media (max-width:1240px){ .layout{grid-template-columns:minmax(0,1fr);} }
 
   /* left ledger rail */
   /* The rail is a navy card. Two reasons beyond looking like it belongs to
@@ -146,7 +151,7 @@
      are one class, so equal specificity and source order decides: this used to
      sit up with .layout, above .nav and .valpanel, and lost to them - the rail
      stayed sticky on a phone and the section list scrolled over the form. */
-  @media (max-width:1080px){ .nav{position:static;} }
+  @media (max-width:1240px){ .nav{position:static;} }
   /* On navy every one of these needs its own light value - --muted and
      --ink are ink-on-paper colours and vanish here. */
   .navtitle{font-size:11px; text-transform:uppercase; letter-spacing:.08em;
@@ -168,6 +173,15 @@
   .tick.partial{background:linear-gradient(90deg,var(--sky) 50%, var(--navy) 50%);}
   .navitem.current .tick.filled{background:var(--gold);}
   .navitem.current .tick.partial{background:linear-gradient(90deg,var(--gold) 50%, var(--navy) 50%);}
+  /* In one-column mode the rail sits above the form, so the ten sections run
+     as a wrapping row of chips instead of a 400px column the person scrolls
+     past once. Same breakpoint as .layout; below the rules it overrides. */
+  @media (max-width:1240px){
+    .navlist{display:flex; flex-wrap:wrap; gap:2px 18px;}
+    .navlist::before{display:none;}
+    .navitem{padding:5px 0;}
+    .navtitle{margin-bottom:8px;}
+  }
 
   /* (job context strip lives in .appbar now — see top of stylesheet) */
 
@@ -500,7 +514,7 @@
   .valpanel{position:sticky; top:132px; align-self:start; background:var(--accent);
             border:1px solid var(--accent); border-radius:10px; padding:18px;
             color:#FFFFFF;}
-  @media (max-width:1080px){ .valpanel{position:static;} }
+  @media (max-width:1240px){ .valpanel{position:static;} }
   .valpanel h3{font-size:13px; margin-bottom:4px; color:#FFFFFF;}
   .valpanel .sub{font-size:11px; color:rgba(255,255,255,.78); margin-bottom:14px;}
   .vitem{display:flex; gap:8px; padding:8px 0; border-top:1px solid rgba(255,255,255,.28);
