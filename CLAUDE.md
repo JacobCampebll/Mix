@@ -543,6 +543,20 @@ TBD — cite the governing spec section when encoding a limit in code.
   a wrong input that the sheet has already folded into its answer is
   invisible in the answer alone.
 
+- **One fact, two resolvers: the page and the PDF have to agree on where
+  the mix comes from.** The review/submittal sheet drew no gradation control
+  points for any design that did not start from the Portal's mix lookup -
+  a legacy MixPack upload, or a build from scratch - because
+  `gradationBlock()` read `payload.mix.nominal_size` while the page reads
+  `effectiveMix()`, which takes Contract Information's **Nominal size + Mix
+  type** first and falls back to the lookup. The two fields are the
+  authority (a custom build has no `state.mix` at all), so anything deriving
+  from the mix designation must resolve them in that order - the consensus
+  renderer already did, twelve lines below the one that did not. Fixed
+  2026-09-11. Worth checking the same way whenever the page shows something
+  the sheet does not: it is usually not a rendering bug but two different
+  answers to "what mix is this?".
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
