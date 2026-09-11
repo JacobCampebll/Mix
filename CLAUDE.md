@@ -557,6 +557,21 @@ TBD — cite the governing spec section when encoding a limit in code.
   the sheet does not: it is usually not a rendering bug but two different
   answers to "what mix is this?".
 
+- **A formula cell in a generated workbook is either kept-with-cache or
+  dropped, and the choice depends on whether we also wrote its inputs.**
+  Excel recalculates every formula when it opens a file, so a value written
+  beside a kept `<f>` survives only if the formula would produce it again
+  from cells we wrote (MAT code from type name). A result whose inputs we
+  never had (Gmb from specimen weights) must have its formula DROPPED and
+  the value written plain, or Excel blanks it on open and the archived copy
+  shows an empty cell next to a staging sheet that carries the number. A
+  third case - cells whose formulas use functions the evaluator lacks
+  (VLOOKUP, AVERAGE) - are fed to the evaluator as `evalOnly` and not
+  written at all, since Excel recomputes them correctly. Also learned there:
+  the template's plant VLOOKUP key is padded (`"AMP070301      "`) and the
+  match is exact, so a value has to be spelled as the template's own list
+  spells it, not as Supabase does. `mixpackCells()` in `designbook.html`.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
@@ -728,9 +743,22 @@ unsigned.** Whoever is signed in is stamped on it, but nothing proves the
 file was not edited afterwards. Only the approval is signed
 (`sign-approval`), and that is what KYTC issues and `verify.html` checks.
 
-Still open: what actually happens at Submit as far as the hand-off to
-SiteManager / AASHTOWare Project goes — the workbook generator exists but is
-not wired into the browser yet.
+**The SiteManager hand-off is the MixPack itself, generated in the browser
+(2026-09-11).** Once a design is approved, a reviewer downloads it as a
+workbook: the payload is written into KYTC's blank
+`public/MIXPACK2026_VER12_01.xlsm`, the ten hidden staging sheets are
+evaluated and banked, and `<sample id>.xlsm` downloads for MEDL. Reviewer-
+only - the sample id, MIX ID, approver and release date all come from the
+approval, and a contractor never loads SiteManager. Three blocks in
+`designbook.html`: `CONFIG.MIXPACK` (every template address, by meaning),
+the `MIXPACK ENGINE` (a port of `scripts/mixpack/`, zip-level XML edits so
+the VBA and XML map survive) and the `MIXPACK MAPPER` (payload -> cells,
+with a report of what the design lacks that the page prints). Full notes,
+including the two write modes and what a generated file still cannot carry,
+in `docs/sitemanager-handoff.md`. `scripts/mixpack/check_page_engine.mjs`
+runs the page's engine against a real MixPack in Node - run it after touching
+either copy. Still owed: an actual MEDL load of a browser-built file, and the
+lab-unit codes for districts other than 07 (`CONFIG.MIXPACK.DISTRICTS`).
 
 **Built and live as of 2026-09-10.** This section now describes what
 `kytcmix.netlify.app` actually serves. The sandbox branch merged that day

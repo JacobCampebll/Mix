@@ -373,6 +373,79 @@ rather than a cell address. Read those before hand-deriving anything:
 - [SUPERPAVE (MIXPACK) QCQA Sample Information Field Hand Out for Applet](https://transportation.ky.gov/Materials/Documents/SUPERPAVE%20_MIXPACK_%20QCQA%20Sample%20Information%20Field%20Hand%20OUT%20for%20Applet%20FINAL.pdf) - 28 pages, `t_smpl` and the rest
 - [KYTC SiteManager page](https://transportation.ky.gov/Materials/Pages/SiteManager.aspx) - the blank templates, MEDL, and the equivalent documents for the other seven disciplines
 
+## Built into DesignBook, 2026-09-11
+
+The page now generates the workbook itself. Once a design is approved, a
+reviewer (`can_review`) sees **Download MixPack for SiteManager** beside the
+approval download; it fetches KYTC's blank `MIXPACK2026_VER12_01.xlsm` from
+`public/` once, writes the payload into it, evaluates the ten staging sheets
+and downloads `<sample id>.xlsm` (`07640AMD260467.xlsm`). Around a second on a
+laptop, 340 cells written and 1,765 staging cells banked on #467PA. A
+contractor never sees the button - the workbook is what KYTC loads, and its
+sample id, MIX ID, approver and release date all come from the approval.
+
+Three blocks in `designbook.html`, in order:
+
+- **`CONFIG.MIXPACK`** - every template address, by what the cell is
+  (`DD.SUMMARY.vfa: "O56"`), plus `DISTRICTS` (district -> lab unit and
+  sample-id lab code; only 07's pair has been read off a real file, an
+  unknown district leaves the sample id blank and the report says so).
+- **`MIXPACK ENGINE`** (`MP`) - a browser port of
+  `scripts/mixpack/{xlsx,formula,write}.mjs`: same cell parser, same
+  seven-function grammar, same evaluate-to-a-fixed-point-and-bank approach,
+  with fflate for the zip layer. Edits are zip-level XML splices so
+  `vbaProject.bin`, `xmlMaps.xml` and the ListObjects come through
+  byte-identical. Sheet names resolve through the workbook's own manifest,
+  not a fixed number table.
+- **`MIXPACK MAPPER`** (`mixpackCells`) - payload in, `{ values, evalOnly,
+  report }` out. `values` are written; `evalOnly` are fed to the evaluator
+  without being written. `report.missing` names every cell the design should
+  carry and does not, and the page prints it under the button.
+
+**Two write modes, and the distinction matters for the archived copy.** A
+template cell that holds a formula whose inputs DesignBook also writes (an
+aggregate's MAT code from its type, a TSR strength from load and thickness)
+keeps its `<f>` with the value cached beside it - Excel recomputes the same
+answer on open. A result whose raw inputs DesignBook never had (Gmb from
+specimen weights, air voids, the CT index) has its formula **dropped** and
+the value written plain, because Excel's recalc on open would otherwise
+blank it. `evalOnly` is the third case: `Design Data!O56-O69`, `C18`, `Q14`
+and the like are formulas over VLOOKUP / AND / AVERAGE, outside the grammar,
+so the mapper supplies the value the staging needs now and leaves the
+template's formula to recompute the same thing when Excel opens the file.
+
+**The header is driven from Chart Data, not typed.** `Design Data!C18`
+(binder grade), `Q14` (plant), `Q16` (mix MAT code), `H18`, `H20`, `O8`,
+`R10`, `C20` are all VLOOKUPs over `Chart Data!W14` (the bid item), `AO2`
+(plant), `AJ2` (terminal) and `J7` (submittal type). The mapper writes those
+four and supplies the eight. The plant must be spelled exactly as the
+template's own list has it - `"AMP070301      "`, trailing spaces included -
+or the lookup fails; the mapper takes the list's spelling. A Portal-started
+design knows only the mix signature, which the template's bid-item list
+resolves uniquely for 124 of 127 items; a legacy import knows the exact
+bid item and uses it.
+
+**What a generated file still lacks, measured on #467PA against the real
+one:** 69 of 275 target cells, every one a value DesignBook does not hold -
+%Gmm @ Nini and film thickness (need gyratory heights), the KYCT curve
+parameters and raw curve, the 1-Pt. Check tab, the TSR and performance
+specimens' raw weights, the volumetric criteria strings the Department fills
+(`P56-P60`). None of them reaches a staging sheet as anything but blank, and
+a partly filled real MixPack looks the same. The 32 cells that differ are
+precision (DesignBook's computed volumetrics against hand-rounded entries)
+or legitimately different data (`T15` test cost counts only the boxes
+DesignBook ticks).
+
+`scripts/mixpack/check_page_engine.mjs <real.xlsm>` lifts the engine block
+out of the page and runs the same parity check `regenerate.mjs` does - 1,702
+matching, 5 expected, 0 unexplained on #467PA - so the browser copy and the
+Node copy cannot drift without a test saying so. Run it after touching either.
+
+Still owed to KYTC before this is trusted in production: a load through MEDL
+of a file this page produced (Andrew and Tate loaded a `regenerate.mjs` file
+2026-09-10; the browser output is byte-for-byte the same staging), and the
+lab-unit / sample-id codes for the other eleven districts.
+
 ## Appendix: the AMMIXPACK field dictionary
 
 `tst_fld_sn` 8-254, verbatim from the hidden `AMMIXPACK` sheet. "Cell" is the
