@@ -189,14 +189,18 @@
   /* Explicit placement, because the rail is BEFORE <main> in the document -
      it has to be, so that one column stacks it above the form and a screen
      reader meets it in that order. Auto-flow would put it in column one. */
+  .layout > .railnav{grid-column:1; grid-row:1;}
   .layout > main{grid-column:1; grid-row:2;}
+  /* Row 2, level with the card - NOT spanning both rows. Spanning them made
+     grid share the rail's surplus height back into row 1, which opened ~160px
+     of blank between the step chips and the card they sit over. */
   .layout > .valpark{grid-column:2; grid-row:2;}
   /* One column below 1100px: the rail is 270px plus the gap, and under that
      the form is squeezed for a list that reads perfectly well stacked. Here
      document order decides again, which puts the list above the form. */
   @media (max-width:1100px){
     .layout{grid-template-columns:minmax(0,1fr);}
-    .layout > main, .layout > .valpark{grid-column:1; grid-row:auto;}
+    .layout > .railnav, .layout > main, .layout > .valpark{grid-column:1; grid-row:auto;}
   }
   /* 32px of side padding is 16% of a 390px screen. 16px is the floor a phone
      needs (CLAUDE.md), and the 32px it gives back goes to the form. */
@@ -210,7 +214,10 @@
      long step, so the rail only has to be somewhere you can get back to.
      The current step is a navy pill with a gold numeral, which is the same
      pair the section band uses, so "where I am" reads once in two places. */
-  .railnav{grid-column:1 / -1; margin-bottom:2px;}
+  /* Column one only, NOT 1 / -1: spanning both columns centred the chips
+     across the form plus the 270px rail beside it, so they sat visibly left
+     of the card they belong to. They centre on the card now. */
+  .railnav{grid-column:1; margin-bottom:2px;}
   .rail{display:flex; flex-wrap:wrap; justify-content:center; gap:6px;}
   .railstep{display:inline-flex; align-items:center; gap:8px; min-height:38px;
             padding:4px 13px 4px 5px; border:1px solid var(--line); border-radius:20px;
