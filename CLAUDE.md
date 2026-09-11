@@ -1228,6 +1228,39 @@ read-only, so a write test goes through `apply_migration` and ends in
   and its dolomite footnote both resolve from the type name. `Granite Sand`,
   `Gravel Sand-Crushed`, `Siltsone Sand` and the Class A sands are
   manufactured and must not count as natural sand.
+- **A legacy import resolves the producer by KYTC's own number, not by its
+  name** (2026-09-11). Design Data's aggregate block carries **AGG. PROD. NO.
+  in column A** beside the free-text PRODUCER NAME in column C, and the
+  importer read only the name - which a MixPack writes freehand ("Haydon
+  Materials", "Watson Sand and Gravel", "Clover Bottom Quarry"), so nearly
+  every row raised an off-list warning and the producer had to be re-picked
+  by hand on every single import. The number is an **AGP** for an aggregate
+  row and an **AMP** for a RAP row, matching the two registries the Producer
+  column already switches between, and both are already aliases on their
+  reference entries - so `resolveProducerCode()` is a lookup, not a fuzzy
+  match. The code rides on the row as `_agp`, which is deliberately not a
+  schema column, so it never reaches the form or the payload. The lists reach
+  `extractLegacy()` through `ctx`, not `state`, so it stays a pure function
+  of its inputs; `resolveProducersLate()` re-runs the same resolution when
+  the lists load after an import, touching only a cell that still holds
+  exactly what the workbook wrote. `refMatch()` now delegates to
+  `refMatchIn()` so the page and the importer cannot grow two definitions of
+  "this value is that entry". General lesson, the third time this project has
+  hit it: **when a workbook carries a key beside a label, import the key** -
+  the same rule as the TSR thickness and `TSR!B38`.
+
+- **Open for Andrew: THE ALLEN COMPANY'S QUARRIES ARE NOT IN `aggregates`.**
+  Found 2026-09-11 while fixing the producer resolution above. `AGP011701`
+  (The Allen Company @ Clover Bottom) returns nothing, and
+  `producer_name ilike '%allen%'` over all 178 rows returns only
+  `SCOTTY'S ALLEN COUNTY STONE @ SCOTTSVILLE` - a different company. So no
+  Allen Company aggregate source is on KYTC's list, and every Allen design
+  will keep raising a correct off-list warning on those rows until the table
+  gains them. `plants` is fine by contrast: `AMP070301` is there as
+  `The Allen Company @ Berea`, which is why RAP rows resolve. Worth checking
+  whether other producers are missing the same way rather than adding one
+  row at a time.
+
 - **Open for Andrew: does KYTC enforce 403.03.03 A)'s *fine* aggregate
   column?** The spec table gives Type B two columns — coarse (100% Class B,
   or +4 at least 50% Class A) and fine (30% of total combined from a Class B
