@@ -3452,6 +3452,7 @@ function evaluatePolish(comps, mix) {
   const conditional = use.some((c) => Number.isFinite(c.rapCredit) && c.cls);
 
   const contrib = (c) => c.pct * (100 - c.p4) / 100;      // % of TOTAL combined that is +4 from c
+  const minus4  = (c) => c.pct * c.p4 / 100;              // % of TOTAL combined that passes the #4
   const sum = (f) => use.reduce((a, c) => a + (f(c) || 0), 0);
   const inClass = (c, k) => (c.cls === k ? share(c) : 0);
 
@@ -3460,8 +3461,19 @@ function evaluatePolish(comps, mix) {
   const plus4ClassA = sum((c) => contrib(c) * inClass(c, "A"));
   const blendClassA = sum((c) => c.pct * inClass(c, "A"));
   const blendClassB = sum((c) => c.pct * inClass(c, "B"));
-  const fineClassA  = sum((c) => (c.role === "fine" ? c.pct * inClass(c, "A") : 0));
-  const fineClassB  = sum((c) => (c.role === "fine" ? c.pct * inClass(c, "B") : 0));
+  // FINE AGGREGATE IS MATERIAL, NOT SOURCES (Jake, 2026-09-11). This used to
+  // be `role === "fine" ? c.pct : 0` - the whole blend percentage of anything
+  // designated a fine source, and nothing at all from a coarse one. That was
+  // asymmetric with the +4 route two lines up, which has always counted
+  // actual retained material, and it threw away real fine aggregate: a Class
+  // A stone at 30% blend passing 17.7% of the #4 puts 5.31% of the total
+  // combined into the blend as polish-resistant FINES, and none of it
+  // counted. Both columns are material now, and they partition: minus4 +
+  // contrib = pct for every component.
+  // Note what this leaves the coarse/fine Source column doing - the
+  // "100% Class B coarse" route and the non-PR fine check below, not this.
+  const fineClassA  = sum((c) => minus4(c) * inClass(c, "A"));
+  const fineClassB  = sum((c) => minus4(c) * inClass(c, "B"));
   const coarseTotal = sum((c) => (c.role === "coarse" ? c.pct : 0));
   const coarseClassA = sum((c) => (c.role === "coarse" ? c.pct * inClass(c, "A") : 0));
   const coarseClassB = sum((c) => (c.role === "coarse" ? c.pct * inClass(c, "B") : 0));
@@ -3517,9 +3529,10 @@ function evaluatePolish(comps, mix) {
         coarseTotal > 0 && pctOf(coarseClassA, coarseTotal) + 1e-9 >= P.STANDARD.A.COARSE_CLASS_A,
         coarseTotal > 0 ? `${pctOf(coarseClassA, coarseTotal).toFixed(1)}% of the coarse aggregate is Class A; 100% required.`
                         : "No component is marked a coarse source.");
-    add("Type A - fine aggregate from a Class A fine source",
+    add("Type A - fine aggregate from a Class A source",
         fineClassA + 1e-9 >= P.STANDARD.A.FINE_CLASS_A,
-        `${fineClassA.toFixed(1)}% of total combined; ${P.STANDARD.A.FINE_CLASS_A}% required.`);
+        `${fineClassA.toFixed(1)}% of total combined passes the #4 and is Class A; ` +
+        `${P.STANDARD.A.FINE_CLASS_A}% required. Counted as material, so a coarse aggregate's own minus-#4 counts.`);
     add("Type A - non-polish-resistant fine retained on the #4",
         Math.round(nonPrFine4) <= P.NON_PR_FINE_RETAINED_MAX,
         `${nonPrFine4.toFixed(2)}% of total combined (rounds to ${Math.round(nonPrFine4)}%); ` +
@@ -3542,7 +3555,8 @@ function evaluatePolish(comps, mix) {
     add("Type B - fine aggregate: 30% Class B, or 20% Class A",
         fineClassB + 1e-9 >= P.STANDARD.B.FINE_CLASS_B || fineClassA + 1e-9 >= P.STANDARD.B.FINE_CLASS_A,
         `Class B fine ${fineClassB.toFixed(1)}% (${P.STANDARD.B.FINE_CLASS_B}% required); ` +
-        `Class A fine ${fineClassA.toFixed(1)}% (${P.STANDARD.B.FINE_CLASS_A}% required). Either route qualifies.`);
+        `Class A fine ${fineClassA.toFixed(1)}% (${P.STANDARD.B.FINE_CLASS_A}% required). Either route qualifies. ` +
+        `Fine means material passing the #4, from every component - a coarse aggregate's own minus-#4 counts.`);
   }
 
   // Applies whatever the type is, and does not depend on any class, so a
