@@ -663,6 +663,24 @@ TBD — cite the governing spec section when encoding a limit in code.
   already flagged unproven by `unknown`, which is the honest answer rather
   than a guessed one.
 
+- **The Polish-Resistant step exists only for a Type A or Type B mix**, and
+  that is a rule rather than a default (Jake, 2026-09-11). `polishApplies()`
+  reads the letter off `effectiveMix().nominal_size` - Contract Information's
+  Nominal size + Mix type, falling back to the Portal's lookup - and
+  `applyPolishVisibility()` puts the section AND its rail chip away for
+  anything else, so such a design is eight steps rather than nine and
+  Next/Back skip it. Verified across every combination 2026-09-11: A and B
+  show, D and a blank letter hide, for both `0.38` and `NO.4` sizes.
+  Hidden, never removed - classes and gradations already typed stay in the
+  DOM and in the payload, so correcting D -> B brings the answers back.
+  Two consequences worth knowing. `evaluatePolish()`'s "no restriction"
+  branch and `polishVerdict()`'s matching state are **unreachable on screen**
+  - they are the honest answer for a Type D blend, kept for if the section is
+  ever shown for one, not a state anyone can meet. And because the section is
+  hidden before Nominal size is typed, a brand-new design is eight steps
+  until the mix type is chosen; that is why the step numerals have to be
+  visible positions rather than schema indices (see the wizard note above).
+
 - **Superpave consensus properties: values + per-mix spec limits.** Added
   2026-09-10 (Andrew): a `CONFIG.SECTIONS` section `id: "consensus"` with
   four number fields (`caa`, `faa`, `flat_elongated`, `sand_equivalent`),

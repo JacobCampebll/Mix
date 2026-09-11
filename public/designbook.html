@@ -3935,6 +3935,11 @@ function polishComponents() {
 function polishVerdict(r) {
   if (!r) return { state: "none", word: "\u2014", sub: "Add the aggregate structure first." };
   if (!r.ready) return { state: "none", word: "\u2014", sub: r.reason || "Not enough entered yet." };
+  // Unreachable on screen while applyPolishVisibility() puts the whole
+  // section away for anything but A or B - which is the rule, and is
+  // deliberate (Jake, 2026-09-11). Kept because evaluatePolish() still
+  // answers honestly for a Type D blend and this is that answer; if the
+  // section is ever shown for one, this is what it should say.
   if (!r.restricted) return { state: "ok", word: "No restriction",
                               sub: "403.03.03 A) restricts Type A and Type B only." };
   const checks = r.checks || [];
