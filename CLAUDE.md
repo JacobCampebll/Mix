@@ -329,6 +329,21 @@ TBD — cite the governing spec section when encoding a limit in code.
   a contract has one PCN per route, on the proposal's Project(s) page (262120
   has two; #467PA used the KY 627 one), and the function does not parse that
   page yet. Parsing it is the next step for that function, Andrew's deploy.
+  **AADTT Class was on that "cannot supply" list and shouldn't have been -
+  fixed 2026-09-11 (Andrew).** A mix's signature ("CL3 ASPH SURF 0.38A
+  PG64-22") always starts with its Class - confirmed with Andrew, it's the
+  same Class `CONFIG.CONSENSUS_CRITERIA` is keyed on, and only 2/3/4 occur -
+  and `parseSignature()` was already pulling it into `mix_class` for every
+  mix, it just wasn't wired to the `aadtt_class` field. `CONFIG.MIX_PREFILL`
+  now includes it, same tinted/editable path as every other prefilled field.
+  Worth flagging as a class of bug for both of us: a value already sitting
+  parsed in `state.mix` (or anywhere else) is easy to leave unwired to its
+  field, and it fails silent - the form just keeps asking a human to type
+  something the page already knows, and nothing marks that as wrong. What
+  the proposal genuinely still can't supply is narrower than it first
+  looked: binder supplier, depth, and the project number - AADTT class is
+  available per-mix (off the signature), just not off the bare header, which
+  has no single mix to read a Class from.
   The target gradation band (Andrew's) landed 2026-09-04 - see the two entries
   below.
 

@@ -1176,6 +1176,17 @@ const CONFIG = {
     mix_type:     (m) => splitMixDesignation(m.nominal_size).letter,
     // The bid-item lines the mix appears on ("0070", or "0050, 0070").
     line_items:   (m) => (m.lines || []).join(", "),
+    // The signature's leading "CL3" is KYTC's AADTT Class (confirmed with
+    // Andrew 2026-09-11 - it is the same Class CONFIG.CONSENSUS_CRITERIA is
+    // keyed on, and only 2/3/4 occur). parseSignature() already pulls it as
+    // mix_class for every mix - it's a fixed part of the signature grammar -
+    // so this was just never wired to a form field; the tech had to retype
+    // what the Portal already showed them. String() so selectHTML's strict
+    // value match hits "2"/"3"/"4". See the CONTRACT_LOOKUP comment below:
+    // it used to list AADTT class among what the proposal can't supply -
+    // that was true of the header lookup (no mix in scope to read a
+    // signature from) but not of this mix-prefill step, which always has one.
+    aadtt_class:  (m) => (m.mix_class == null ? null : String(m.mix_class)),
   },
 
   // ---- Contract Information from the KYTC proposal ----
@@ -1188,11 +1199,13 @@ const CONFIG = {
   // for everything else - a legacy import, a link opened on another device -
   // and fills only what is blank, tinted, with the source underneath.
   //
-  // What the proposal does NOT carry, so the technician still types it: the
-  // binder supplier (the contractor's choice), depth, AADTT class, and the
+  // What the proposal header does NOT carry, so the technician still types
+  // it: the binder supplier (the contractor's choice), depth, and the
   // project number - a contract has one PCN per route (262120 has two, and
   // #467PA used the KY 627 one), listed on the proposal's "Project(s)" page,
-  // which the function does not parse yet.
+  // which the function does not parse yet. AADTT class *is* available, but
+  // only per-mix (off the signature, see MIX_PREFILL above) - the header
+  // itself has no single mix to read a Class off of.
   CONTRACT_LOOKUP: {
     fn: "kytc-lookup",
     // Cold starts on the function can exceed the worker budget (546) about one
