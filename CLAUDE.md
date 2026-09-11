@@ -1311,9 +1311,47 @@ read-only, so a write test goes through `apply_migration` and ends in
   `aggregates` is 179 rows now. This gap is closed; Clover Bottom rows
   resolve by AGP number like every other producer.
 
-- **Open for Andrew/Tate, and the sharper half of the fine-column question:
-  the coarse route counts MATERIAL, the fine route counts SOURCES.** Raised
-  by Jake 2026-09-11 - "are you counting the fine portion of the coarse
+- **SETTLED 2026-09-11 (Jake): the polish fine column counts MATERIAL.** Both
+  columns do now - `minus4(c) = pct * p4 / 100` beside the existing
+  `contrib(c) = pct * (100 - p4) / 100`, and they partition every component
+  exactly. A coarse aggregate's own minus-#4 is real polish-resistant fine
+  material and is credited as such; a fine source no longer contributes its
+  +4 to the fine side. On #467PA fine Class A goes 10.0% -> 15.1%. What the
+  coarse/fine **Source** column still decides: the "100% Class B coarse"
+  route and the non-PR-fine-retained-on-the-#4 check, both of which are
+  genuinely about the designation rather than the material. The note below
+  records how it used to work and why it changed.
+
+- **OPEN FOR ANDREW - the polish-resistant class is a property of the SOURCE,
+  and `aggregate_types` only carries it for the coarse sizes.** Jake,
+  2026-09-11: "the Dol. #10's are dolomite and they're Class A". The table
+  disagrees, and the shape of the disagreement is the point - checked live:
+  every COARSE dolomite size carries a three-way set (`Dolomite #8's` /
+  `#8's Class A` / `#8's Class B`, and the same for #67's, #68's, #78's,
+  #9M's, NSG), while **`Dol. #10's`, `Dol. #11's`, `Dol. NSG Fine` and
+  `Dol. Sand` have no classed variant at all** - Washed and Unwashed only,
+  all null. `Dolomite Sand Class A`/`Class B` do exist, so it is not that
+  KYTC never classes a fine dolomite.
+  If Jake is right - and a polish value is measured on a quarry's ledge, not
+  on a gradation size, so he very likely is - then **the "a null class means
+  definitively not polish-resistant" inference recorded under Reference data
+  is wrong for these sizes**, and `polishFactsFor()` is reporting proven-not
+  where the honest answer is unknown. That inference is load-bearing: it
+  decides `unknown`, which decides whether a failing check reads "Out of
+  spec" or "Not proven".
+  **This is a reference-data question and has deliberately NOT been patched
+  in the page** - not by special-casing dolomite, and not by editing Andrew's
+  table, which CLAUDE.md reserves to him. Two things make it less urgent than
+  it looks: the matrix's Polish class dropdown is editable precisely for this
+  ("the class can be changed here when the list does not settle it"), so a
+  technician can set it per design today; and doing so on #467PA takes fine
+  Class A to 23.5% and the verdict to **In spec**, which matches what KYTC
+  actually approved. That is good evidence the class, not the arithmetic, was
+  the gap - and it is the same conclusion the fine-column work reached from
+  the other direction.
+
+- **How the fine column used to work, for anyone reading old designs:** it
+  was `role === "fine" ? c.pct : 0`. Raised by Jake 2026-09-11 - "are you counting the fine portion of the coarse
   aggregate in the fine portion?" The answer is no, and the asymmetry is
   real: `plus4Total`/`plus4ClassA` are `pct * (100 - p4) / 100`, so the +4
   route is actual retained material, while `fineClassA`/`fineClassB` are
