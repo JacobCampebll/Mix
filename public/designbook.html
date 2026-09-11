@@ -281,6 +281,17 @@
   .section-head .seclookup{color:var(--gold); border-color:var(--gold);}
   .section-head .seclookup:hover:not(:disabled){background:var(--gold); color:var(--navy);}
   .section-head .seclookup:disabled{color:var(--navy-dim); border-color:var(--navy-hairline);}
+  /* A block drawn inside another section (`into` in CONFIG.SECTIONS):
+     Consensus Properties under Aggregate Structure. A rule and a smaller
+     heading rather than a second card - it is part of the section above it,
+     not a neighbour of it, and a nested card would read as a second step. The
+     citation chips here sit on white, so they keep the accent values: that is
+     exactly why the on-navy overrides are scoped to .section-head. */
+  .subsection{margin-top:26px; padding-top:18px; border-top:1px solid var(--line);}
+  .subhead{display:flex; align-items:baseline; justify-content:space-between;
+           gap:12px; flex-wrap:wrap; margin-bottom:14px;}
+  .subhead h3{font-size:16px; color:var(--navy);}
+  @media (max-width:700px){ .subsection{margin-top:20px; padding-top:14px;} }
   .lookupnote{font-size:11.5px; color:var(--muted); line-height:1.45; margin:-4px 0 12px;}
   .lookupnote.error{color:var(--bad);} .lookupnote.ok{color:var(--ok);} .lookupnote:empty{display:none;}
   /* The head's right-hand side: the spec citations, then the tag. */
@@ -1955,7 +1966,16 @@ const CONFIG = {
       ],
     },
     {
-      id: "consensus", label: "Consensus Properties", step: "Consensus",
+      id: "consensus", label: "Consensus Properties",
+      // `into` makes this a block INSIDE another section's body rather than a
+      // section of its own: these four are measured on the combined aggregate
+      // blend, so they belong under the blend that produces them. It stays a
+      // full CONFIG.SECTIONS entry, which is what keeps its cite, its legacy
+      // cells, its computeConsensus() limits and the review sheet's bespoke
+      // RENDER.consensus block all working untouched - only where it draws
+      // changed. A section with `into` is not a step: the rail, the numerals
+      // and jumpTo() all resolve it to its host.
+      into: "aggregate",
       tag: "Superpave · measured on the combined aggregate blend", type: "grid",
       cites: ["consensus"],
       // AASHTO M323 Table 5 consensus properties. Legacy source is MixPack
@@ -1995,7 +2015,7 @@ const CONFIG = {
       ],
     },
     {
-      id: "design-values", label: "Design Values", step: "Results",
+      id: "design-values", label: "Design Values", step: "Design Values",
       tag: "computed from Four Points", type: "computed",
       cites: ["volumetric", "optimumac"],
       // `wb` names the CONFIG.LEGACY.DESIGN_VALUES entry this output is the
@@ -2036,7 +2056,12 @@ const CONFIG = {
       // row rather than assuming 1-3 or 4-6.
       rows: [
         {
-          key: "tsr_specimens", heading: "Specimens", max: 6,
+          // `start: 6` because a KYTC TSR is six specimens - three conditioned,
+          // three broken dry - so a blank design should open with all six
+          // waiting rather than one row and five presses of the add button.
+          // collectForm() drops a row where every cell is empty, so unused
+          // rows never reach the payload.
+          key: "tsr_specimens", heading: "Specimens", max: 6, start: 6,
           addLabel: "+ add TSR specimen (up to 6)",
           grid: ".7fr 1fr .8fr .85fr .85fr .85fr .85fr auto",
           columns: [
@@ -2069,11 +2094,13 @@ const CONFIG = {
       ],
       rows: [
         {
-          // span: [wide, medium] twelfths of the section. All three of these
-          // tables fit on one line above 1460px; below that Performance
-          // Specimens takes the full width and the two narrow ones pair up.
+          // span: [wide, medium] twelfths of the section. With one step on a
+          // screen there is no reason to squeeze all three onto one line:
+          // Performance Specimens takes the full width - twelve rows of five
+          // columns, which is what that table actually is - and KYCT and
+          // Hamburg pair up beneath it.
           key: "perf_specimens", heading: "Performance specimens", max: 12,
-          addLabel: "+ add performance specimen", span: [5, 12],
+          addLabel: "+ add performance specimen", span: [12, 12],
           grid: "1.45fr .85fr .85fr .95fr .75fr auto",
           columns: [
             { key: "specimen",  label: "Specimen #",    type: "text",   req: true,  mono: true },
@@ -2084,7 +2111,7 @@ const CONFIG = {
           ],
         },
         {
-          key: "ct", heading: "KYCT (Kentucky Crack Test)", max: 8, span: [4, 6],
+          key: "ct", heading: "KYCT (Kentucky Crack Test)", max: 8, span: [6, 12],
           addLabel: "+ add KYCT specimen (up to 8)",
           // The specimen name is the long one and the only thing that tells
           // two rows apart (..._SPEC_1 vs ..._SPEC_2), so it gets the room.
@@ -2095,7 +2122,7 @@ const CONFIG = {
           ],
         },
         {
-          key: "hamburg_curve", heading: "Hamburg — rut depth by pass count", fixed: true, span: [3, 6],
+          key: "hamburg_curve", heading: "Hamburg — rut depth by pass count", fixed: true, span: [6, 12],
           grid: "0.9fr 1fr 1fr",
           seed: [
             { passes: "100" }, { passes: "5000" }, { passes: "10000" },
@@ -2353,7 +2380,10 @@ function rowsHTML(spec) {
       rowHeadHTML(spec) + `<div class="rowlist" data-rowlist="${spec.key}">${rows}</div>`;
   }
   const found = state.extracted ? (state.extracted.tables[spec.key] || []) : [];
-  const seed = found.length ? found.slice(0, spec.max) : [null];
+  // `start` is how many blank rows a spec opens with when nothing was
+  // imported - one unless the test itself has a fixed specimen count.
+  const blanks = Math.min(spec.start || 1, spec.max || 1);
+  const seed = found.length ? found.slice(0, spec.max) : Array.from({ length: blanks }, () => null);
   return (spec.heading ? `<div class="rowgroup-head">${spec.heading}</div>` : "") +
     rowHeadHTML(spec) +
     `<div class="rowlist" data-rowlist="${spec.key}">
@@ -2605,34 +2635,62 @@ function sectionCitesHTML(section) {
   return (section.cites || []).map((k) => specLink(k)).join("");
 }
 
+// The sections a person steps through: everything that is not drawn inside
+// another one. `state.step` indexes this list, not CONFIG.SECTIONS.
+function topSections() { return CONFIG.SECTIONS.filter((s) => !s.into); }
+// A section id resolved to the step it is reached on - "consensus" is filled
+// in on the Aggregate Structure step, so the rail, the numerals and jumpTo()
+// all have to agree that is where it lives.
+function hostSectionId(id) {
+  const s = CONFIG.SECTIONS.find((x) => x.id === id);
+  return (s && s.into) || id;
+}
+
+// One section's fields, rows or bespoke body. Shared by a top-level section
+// and by anything drawn inside one, so a sub-block is rendered by exactly the
+// same code path and needs no second set of rules.
+function sectionBodyHTML(s) {
+  if (s.type === "sieves") return sievesHTML(s);
+  if (s.type === "status") return statusHTML();
+  if (s.type === "fourpoint") return fourpointHTML(s);
+  if (s.type === "polish") return polishHTML(s);
+  if (s.type === "computed") return computedHTML(s);
+  let body = "";
+  if (s.fields) body += gridHTML(s.fields);
+  if (s.rows) body += (s.fields ? '<div style="height:14px"></div>' : "") + rowsBlockHTML(s.rows);
+  return body;
+}
+
 function renderForm() {
   // #valBlock is one node that lives inside whichever step is active. Park it
   // before the wholesale rewrite below, or it is destroyed with the sections
   // and every later msg($("saveMsg"), …) writes to nothing.
   $("valPark").appendChild($("valBlock"));
-  $("sections").innerHTML = CONFIG.SECTIONS.map((s, i) => {
-    let body = "";
-    if (s.type === "sieves") body = sievesHTML(s);
-    else if (s.type === "status") body = statusHTML();
-    else if (s.type === "fourpoint") body = fourpointHTML(s);
-    else if (s.type === "polish") body = polishHTML(s);
-    else if (s.type === "computed") body = computedHTML(s);
-    else {
-      if (s.fields) body += gridHTML(s.fields);
-      if (s.rows) body += (s.fields ? '<div style="height:14px"></div>' : "") + rowsBlockHTML(s.rows);
-    }
-    // data-step is the section's index in CONFIG.SECTIONS - the schema is the
-    // only place the step order is written down, so adding a section adds a
-    // step and nothing else has to be told. .stepval is where the per-step
-    // outstanding-items block lands; .tsrresults is emitted here rather than
-    // being appended by computeTSR(), which used to put it after .stepval.
+  const tops = topSections();
+  $("sections").innerHTML = tops.map((s, i) => {
+    // A section with `into` set draws inside its host's body as a labelled
+    // sub-block rather than as a section of its own. It is not a .section, so
+    // recompute()'s sweep counts its required fields under the host - which
+    // is right, because that is the step a person fills them on.
+    const child = CONFIG.SECTIONS.filter((c) => c.into === s.id).map((c) =>
+      `<div class="subsection" data-subsection="${c.id}" data-label="${esc(c.label)}">
+         <div class="subhead"><h3>${esc(c.label)}</h3><span class="headmeta">${sectionCitesHTML(c)}<span class="section-tag mono">${c.tag}</span></span></div>
+         ${sectionBodyHTML(c)}
+       </div>`).join("");
+    // data-step is the section's index among the top-level sections - the
+    // schema is the only place the step order is written down, so adding a
+    // section adds a step and nothing else has to be told. .stepval is where
+    // the per-step outstanding-items block lands; .tsrresults is emitted here
+    // rather than being appended by computeTSR(), which used to put it after
+    // .stepval.
     return `<section class="section step" id="${s.id}" data-section="${s.id}" data-label="${s.label}" data-step="${i}">
-      <div class="section-head"><div class="headtitle"><span class="kicker">Step ${i + 1} of ${CONFIG.SECTIONS.length}</span><h2>${s.label}</h2></div>
+      <div class="section-head"><div class="headtitle"><span class="kicker">Step ${i + 1} of ${tops.length}</span><h2>${s.label}</h2></div>
         <span class="headmeta">${sectionCitesHTML(s)}${s.lookup && state.job && state.job.cid
           ? `<button type="button" class="seclookup" id="contractLookupBtn">Look up<span class="wide-only"> contract</span> ${esc(state.job.cid)}</button>` : ""}<span class="section-tag mono">${s.tag}</span></span></div>
       ${s.lookup ? `<div class="lookupnote${state.contractNote ? " " + esc(state.contractNote.kind) : ""}" id="contractLookupNote">${state.contractNote ? esc(state.contractNote.text) : ""}</div>` : ""}
       <div class="stepval"></div>
-      ${body}
+      ${sectionBodyHTML(s)}
+      ${child}
       ${s.id === "tsr" ? `<div class="tsrresults"></div>` : ""}
     </section>`;
   }).join("");
@@ -2671,7 +2729,7 @@ const ONE_PAGE = window.matchMedia("(max-width:700px)");
 function onePage() { return ONE_PAGE.matches; }
 
 function stepSections() { return Array.from(document.querySelectorAll("#sections .section")); }
-function stepIndexOf(id) { return CONFIG.SECTIONS.findIndex((s) => s.id === id); }
+function stepIndexOf(id) { const h = hostSectionId(id); return topSections().findIndex((s) => s.id === h); }
 function stepHidden(sec) { return !sec || sec.classList.contains("hidden"); }
 function visibleSteps() { return stepSections().filter((sec) => !stepHidden(sec)); }
 
@@ -2682,7 +2740,7 @@ function renderRail() {
   // position, which only paintStepChrome() knows, and which changes whenever
   // a section is hidden. Numbering it from the CONFIG.SECTIONS index instead
   // put a rail reading 1,2,3,4,6,7… beside a bar reading "Step 5 of 9".
-  rail.innerHTML = CONFIG.SECTIONS.map((s, i) =>
+  rail.innerHTML = topSections().map((s, i) =>
     `<button type="button" class="railstep" data-step="${i}" data-tick="${s.id}" data-target="${s.id}"
              title="${esc(s.label)}"><span class="dot"></span><span class="lbl">${esc(s.step || s.label)}</span></button>`
   ).join("");
@@ -3184,7 +3242,9 @@ function computeFourPoint() {
   dv("gse", fmt(gse, 3));
   dv("pbe", fmt(pbe, 1));
   dv("dust_pbe", fmt(dust, 1));
-  dv("density", densD == null ? "—" : String(Math.round(densD)));
+  // A tenth, like every other Design Value - CONFIG.DP.density has said 1 all
+  // along and this one line rounded to whole regardless, so 149.4 printed 149.
+  dv("density", fmt(densD, CONFIG.DP.density));
 
   drawFpChart(pbs, vas, vaFit, vaTgt, designPb);
   return { designPb, supLo: loX, supHi: hiX,
@@ -3819,7 +3879,10 @@ function consensusChecks() {
 // must not count them missing). Called from recompute() BEFORE its
 // required-field sweep so the class change lands the same tick.
 function computeConsensus() {
-  const host = document.querySelector('[data-section="consensus"]');
+  // Consensus draws inside Aggregate Structure now (`into` in the schema), so
+  // it is a [data-subsection]; the [data-section] form is kept in case it is
+  // ever promoted back to a step of its own.
+  const host = document.querySelector('[data-subsection="consensus"],[data-section="consensus"]');
   if (!host) return;
   const checks = consensusChecks();
   const no4 = isNo4Mix();
@@ -4049,7 +4112,7 @@ function recompute() {
   // - the design is complete, it just would not meet the spec limit.
   const cc = consensusChecks();
   if (cc) {
-    const sec = document.querySelector('[data-section="consensus"]');
+    const sec = document.querySelector('[data-subsection="consensus"],[data-section="consensus"]');
     const label = sec ? sec.dataset.label : "Consensus Properties";
     const fdef = (CONFIG.SECTIONS.find((s) => s.id === "consensus") || {}).fields || [];
     cc.filter((c) => c.state === "fail").forEach((c) => {
@@ -4105,7 +4168,7 @@ function recompute() {
 
   const missing = outstanding.filter((o) => o.kind !== "warn"), warns = outstanding.filter((o) => o.kind === "warn");
   const all = missing.concat(warns);
-  const items = rollUp ? all : all.filter((o) => o.id === hereId);
+  const items = rollUp ? all : all.filter((o) => hostSectionId(o.id) === hereId);
   const mine = { missing: items.filter((o) => o.kind !== "warn").length,
                  warns: items.filter((o) => o.kind === "warn").length };
 
@@ -4113,7 +4176,7 @@ function recompute() {
   // page it names a place the reader cannot go - the same reason the rail
   // keeps its labels on a phone rather than showing bare numerals.
   const stepNo = (id) => {
-    const sec = secs.find((x) => x.dataset.section === id);
+    const sec = secs.find((x) => x.dataset.section === hostSectionId(id));
     const vis = visibleSteps();
     const n = sec ? vis.indexOf(sec) + 1 : 0;
     return n ? `step ${n}` : "";
