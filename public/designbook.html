@@ -180,6 +180,13 @@
                 gap:12px; flex-wrap:wrap;}
   .section-tag{font-size:10px; color:var(--muted); border:1px solid var(--line);
                border-radius:3px; padding:2px 7px; letter-spacing:.03em; white-space:nowrap;}
+  /* Contract Information's "Look up contract" - a chip-sized button in the
+     head, and the one-line result under it. */
+  .seclookup{font:inherit; font-size:10px; letter-spacing:.03em; color:var(--accent); background:none;
+             border:1px solid var(--accent); border-radius:3px; padding:2px 8px; cursor:pointer;}
+  .seclookup:disabled{color:var(--muted); border-color:var(--line); cursor:default;}
+  .lookupnote{font-size:11.5px; color:var(--muted); line-height:1.45; margin:-4px 0 12px;}
+  .lookupnote.error{color:var(--bad);} .lookupnote.ok{color:var(--ok);} .lookupnote:empty{display:none;}
   /* The head's right-hand side: the spec citations, then the tag. */
   .headmeta{display:flex; align-items:baseline; justify-content:flex-end; gap:6px; flex-wrap:wrap;}
   /* A citation is the spec's own name and nothing else, and it opens that
@@ -662,6 +669,35 @@ const CONFIG = {
     // fields: "0.38B" -> nominal_size "0.38", mix_type "B".
     nominal_size: (m) => splitMixDesignation(m.nominal_size).size,
     mix_type:     (m) => splitMixDesignation(m.nominal_size).letter,
+    // The bid-item lines the mix appears on ("0070", or "0050, 0070").
+    line_items:   (m) => (m.lines || []).join(", "),
+  },
+
+  // ---- Contract Information from the KYTC proposal ----
+  // The same Edge Function the Portal's mix step calls (portal.html
+  // CONFIG.MIX_LOOKUP - shared ground, keep the two in step): it reads the
+  // proposal PDF off transportation.ky.gov and returns the header plus the
+  // mixes the contract requires. A design started from the Portal arrives
+  // with that record already in localStorage (MIX_HANDOFF_KEY) and is filled
+  // without a call; the "Look up contract" button in Contract Information is
+  // for everything else - a legacy import, a link opened on another device -
+  // and fills only what is blank, tinted, with the source underneath.
+  //
+  // What the proposal does NOT carry, so the technician still types it: the
+  // binder supplier (the contractor's choice), depth, AADTT class, and the
+  // project number - a contract has one PCN per route (262120 has two, and
+  // #467PA used the KY 627 one), listed on the proposal's "Project(s)" page,
+  // which the function does not parse yet.
+  CONTRACT_LOOKUP: {
+    fn: "kytc-lookup",
+    // Cold starts on the function can exceed the worker budget (546) about one
+    // call in three and succeed on retry - same as the Portal.
+    retries: 1,
+    // Proposal header -> Contract Information field.
+    HEADER: {
+      county:  (hd) => titleCase(hd.county),
+      funding: (hd) => hd.fed_state_number,
+    },
   },
 
   // Mix Design Tech cert (unexpired), from technician_capabilities.
@@ -1563,7 +1599,7 @@ const CONFIG = {
   SECTIONS: [
     {
       id: "contract", label: "Contract Information",
-      tag: "will pull from a KYTC contract lookup", type: "grid",
+      tag: "from the KYTC proposal, or typed", type: "grid", lookup: true,
       cites: ["km421", "jmf"],
       fields: [
         { key: "county",          label: "County",          type: "text",   req: true },
@@ -1833,6 +1869,8 @@ const state = {
   sources: {},       // fieldKey -> where it came from (cell address, or the mix lookup)
   mix: null,         // { signature, binder_grade, total_quantity, unit, mix_class, layer,
                      //   nominal_size, county, lines, source } or null
+  contract: null,    // { header, source } - the proposal header from the Portal's record or a lookup
+  contractNote: null,// { text, kind } - what the last lookup did, re-rendered with the form
   extracted: null,   // { scalars, tables } from the workbook, if any
   legacy: null,      // full import result: version, sheet resolution, per-field log, unmapped, context
   // Reference lists, one array per CONFIG.REFERENCE.TABLES key (aggregates,
@@ -2325,7 +2363,9 @@ function renderForm() {
     }
     return `<section class="section" id="${s.id}" data-section="${s.id}" data-label="${s.label}">
       <div class="section-head"><h2>${s.label}</h2>
-        <span class="headmeta">${sectionCitesHTML(s)}<span class="section-tag mono">${s.tag}</span></span></div>
+        <span class="headmeta">${sectionCitesHTML(s)}${s.lookup && state.job && state.job.cid
+          ? `<button type="button" class="seclookup" id="contractLookupBtn">Look up contract ${esc(state.job.cid)}</button>` : ""}<span class="section-tag mono">${s.tag}</span></span></div>
+      ${s.lookup ? `<div class="lookupnote${state.contractNote ? " " + esc(state.contractNote.kind) : ""}" id="contractLookupNote">${state.contractNote ? esc(state.contractNote.text) : ""}</div>` : ""}
       ${body}
     </section>`;
   }).join("");
@@ -7031,12 +7071,25 @@ function parseSignature(sig) {
   };
 }
 
+// The Portal's record for this job, if it made one (portal.html go()): the
+// chosen mix, the county and - since 2026-09-11 - the whole proposal header,
+// so Contract Information fills on the way in without re-calling the lookup.
+function portalRecord(job) {
+  try {
+    const s = JSON.parse(localStorage.getItem(CONFIG.MIX_HANDOFF_KEY) || "null");
+    return s && job && s.cid === job.cid ? s : null;
+  } catch (_) { return null; }
+}
+function loadContractContext(job) {
+  const s = portalRecord(job);
+  return s && s.header ? { header: s.header, source: `kytc-lookup · contract ${job.cid}` } : null;
+}
+
 function loadMixContext(job, signature) {
   if (!signature) return null;
-  let stored = null;
-  try { stored = JSON.parse(localStorage.getItem(CONFIG.MIX_HANDOFF_KEY) || "null"); } catch (_) {}
+  const stored = portalRecord(job);
 
-  const matches = stored && stored.signature === signature && stored.cid === job.cid;
+  const matches = stored && stored.signature === signature;
   const raw = matches && stored.mix ? stored.mix : null;
   const parsed = parseSignature(signature);
   return {
@@ -7057,16 +7110,163 @@ function loadMixContext(job, signature) {
 // tinted with a source note and ships in extracted_from. Workbook values win:
 // a key that already has a value is left alone.
 function applyMixPrefill() {
-  const m = state.mix;
-  if (!m) return;
+  const m = state.mix, c = state.contract;
+  if (!m && !c) return;
   if (!state.extracted) state.extracted = { scalars: {}, tables: {} };
-  Object.entries(CONFIG.MIX_PREFILL).forEach(([key, pick]) => {
-    const v = pick(m);
+  const seed = (key, v, source) => {
     if (v === null || v === undefined || v === "") return;
     if (!isBlank(state.extracted.scalars[key])) return;
     state.extracted.scalars[key] = v;
-    state.sources[key] = m.source;
-  });
+    state.sources[key] = source;
+  };
+  if (m) Object.entries(CONFIG.MIX_PREFILL).forEach(([key, pick]) => seed(key, pick(m), m.source));
+  if (c) Object.entries(CONFIG.CONTRACT_LOOKUP.HEADER).forEach(([key, pick]) => seed(key, pick(c.header || {}), c.source));
+}
+
+/* ---------- Contract Information: the live lookup ----------
+ *
+ * The Portal already read the proposal for a design it started; this is the
+ * same call made from the form, for a design that did not come that way. It
+ * fills only what is blank - a workbook's or a person's value is never
+ * overwritten - and tints what it filled with the source underneath, the
+ * provisional-values rule. Which mix's tonnage and lines to take: the one
+ * the Portal chose (?mix=), else the one whose designation matches what the
+ * form already says (a legacy import has Nominal size, Mix type and Binder
+ * grade filled from Design Data), else the only one on the contract; two or
+ * more with nothing to choose by fills the header and names them.
+ */
+async function fetchContract(cid, letting) {
+  const cfg = CONFIG.CONTRACT_LOOKUP;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(letting || "");
+  const body = { contract_id: cid, letting_date: m ? `${m[2]}/${m[3]}/${m[1]}` : letting };
+  let last = "lookup failed";
+  for (let attempt = 0; attempt <= (cfg.retries || 0); attempt++) {
+    try {
+      // A plain fetch with only the headers the function's CORS allow-list
+      // names, exactly as the Portal does; sb.functions.invoke() adds
+      // x-client-info and used to fail the preflight.
+      const { data } = await sb.auth.getSession();
+      const token = (data && data.session && data.session.access_token) || CONFIG.SUPABASE_ANON_KEY;
+      const res = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/${cfg.fn}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": CONFIG.SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch (_) {}
+      if (!res.ok) throw new Error((json && (json.message || json.error)) || `HTTP ${res.status}`);
+      if (json && json.error) throw new Error(json.error);
+      return json;
+    } catch (err) { last = err.message || "lookup failed"; }
+  }
+  throw new Error(last);
+}
+
+// Which of the contract's mixes this design is. Returns { mix, why } where
+// mix is null when nothing decides it.
+function pickContractMix(mixes, formValues) {
+  if (!mixes.length) return { mix: null, why: "no asphalt mix items" };
+  if (state.mix && state.mix.signature) {
+    const hit = mixes.find((x) => x.signature === state.mix.signature);
+    if (hit) return { mix: hit, why: "chosen on the Portal" };
+  }
+  const size = String(formValues.nominal_size || "").trim() + String(formValues.mix_type || "").trim();
+  const grade = String(formValues.binder_grade || "").trim().toUpperCase();
+  if (size) {
+    const hits = mixes.filter((x) => String(x.nominal_size || "").toUpperCase() === size.toUpperCase() &&
+                                     (!grade || String(x.binder_grade || "").toUpperCase() === grade));
+    if (hits.length === 1) return { mix: hits[0], why: "matches the designation on the form" };
+  }
+  if (mixes.length === 1) return { mix: mixes[0], why: "the only mix on the contract" };
+  return { mix: null, why: "" };
+}
+
+// Fill one field in the rendered form if it is blank. Sets the value the way
+// a workbook import would have - tinted, source noted, recorded in
+// state.extracted / state.sources so it ships in extracted_from - without
+// firing the input event, whose handler treats any input as the person's
+// and strips the tint.
+function prefillLive(key, value, source) {
+  if (value === null || value === undefined || value === "") return "none";
+  const el = document.querySelector(`[data-field="${key}"]`);
+  if (!el) return "none";
+  if (String(el.value || "").trim() !== "") return "kept";
+  const v = String(value);
+  if (el.tagName === "SELECT" && !Array.from(el.options).some((o) => o.value === v)) return "none";
+  el.value = v;
+  el.classList.add("prefilled");
+  if (!state.extracted) state.extracted = { scalars: {}, tables: {} };
+  state.extracted.scalars[key] = v;
+  state.sources[key] = source;
+  const field = el.closest(".field");
+  if (field) {
+    let note = field.querySelector(".srcnote");
+    if (!note) { note = document.createElement("div"); note.className = "srcnote"; field.appendChild(note); }
+    note.textContent = `from ${source}`;
+  }
+  if (el.dataset.source) snapToReference(el);
+  autofillFrom(el);
+  return "filled";
+}
+
+function applyContractLookup(data) {
+  const cid = state.job.cid, source = `kytc-lookup · contract ${cid}`;
+  const hd = data.header || {}, mixes = Array.isArray(data.required_mix_designs) ? data.required_mix_designs : [];
+  state.contract = { header: hd, source };
+  const { values } = collectForm();
+  const { mix, why } = pickContractMix(mixes, values);
+  const labelOf = (key) => { const d = legacyFieldDef(key); return d ? d.label : key; };
+  const filled = [], kept = [];
+  const apply = (key, v) => { const r = prefillLive(key, v, source); if (r === "filled") filled.push(labelOf(key)); else if (r === "kept") kept.push(labelOf(key)); };
+  Object.entries(CONFIG.CONTRACT_LOOKUP.HEADER).forEach(([key, pick]) => apply(key, pick(hd)));
+  if (mix) {
+    const ctx = {
+      signature: mix.signature, binder_grade: mix.binder_grade, nominal_size: mix.nominal_size,
+      total_quantity: mix.total_quantity, county: null,
+      lines: (mix.instances || []).map((i) => i.line_no).filter(Boolean),
+    };
+    Object.entries(CONFIG.MIX_PREFILL).forEach(([key, pick]) => apply(key, pick(ctx)));
+  }
+  recompute();
+  if (filled.length) { state.dirty = true; renderSavedState(); }
+
+  const parts = [];
+  parts.push(`Contract ${cid}${hd.county ? ` - ${titleCase(hd.county)} County` : ""}${hd.work_type ? `, ${hd.work_type.toLowerCase()}` : ""}.`);
+  if (mix) {
+    const qty = Number(mix.total_quantity);
+    parts.push(`Mix: ${mix.signature} (${why}), ${Number.isFinite(qty) ? qty.toLocaleString() : mix.total_quantity} ${mix.unit || ""} on line${(mix.instances || []).length === 1 ? "" : "s"} ${(mix.instances || []).map((i) => i.line_no).join(", ")}.`);
+  } else if (mixes.length > 1) {
+    parts.push(`${mixes.length} mixes on this contract - ${mixes.map((x) => x.signature).join("; ")}. Set Nominal size, Mix type and Binder grade, then look up again for the tonnage and line items.`);
+  } else if (!mixes.length) parts.push("No asphalt mix items were found on the proposal.");
+  if (filled.length) parts.push(`Filled: ${filled.join(", ")}.`);
+  if (kept.length) parts.push(`Kept as entered: ${kept.join(", ")}.`);
+  parts.push("Project number is per route (one PCN each, on the proposal's Project(s) page) and is not in the lookup - take it from there.");
+  if (data.requires_contractor_confirmation) parts.push("An addendum changed or removed a mix item on this contract - check the proposal.");
+  return { text: parts.join(" "), kind: filled.length ? "ok" : "" };
+}
+
+async function lookupContract() {
+  const btn = $("contractLookupBtn"), note = $("contractLookupNote");
+  if (!btn || btn.disabled || !note) return;
+  const j = state.job;
+  if (!j || !j.cid || !j.letting) { note.className = "lookupnote error"; note.textContent = "The lookup needs the contract ID and letting date the Portal sends; start from the Portal."; return; }
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = "Reading the proposal...";
+  note.className = "lookupnote"; note.textContent = `Reading contract ${j.cid}'s proposal from transportation.ky.gov - this can take a few seconds.`;
+  try {
+    const data = await fetchContract(j.cid, j.letting);
+    state.contractNote = applyContractLookup(data);
+    note.className = "lookupnote" + (state.contractNote.kind ? " " + state.contractNote.kind : "");
+    note.textContent = state.contractNote.text;
+    audit(`Contract ${j.cid} looked up - ${state.tech ? state.tech.sm_id : ""}`);
+  } catch (err) {
+    note.className = "lookupnote error";
+    note.textContent = `Couldn't read the proposal (${err.message || "lookup failed"}). The KYTC site is slow at times - try again in a moment, or type the values.`;
+  } finally {
+    btn.disabled = false; btn.textContent = was;
+  }
 }
 
 function enterForm() {
@@ -7164,6 +7364,7 @@ async function boot(session) {
     state.mode = mode;
     state.job = job;
     state.mix = loadMixContext(job, mix);
+    state.contract = loadContractContext(job);
     applyMixPrefill();
 
     if (mode === "legacy") {
@@ -7187,6 +7388,7 @@ document.addEventListener("click", (e) => {
   if (e.target.id === "submittalPdfBtn") downloadSubmittalPDF();
   if (e.target.id === "approvalPdfBtn") downloadApprovalPDF();
   if (e.target.id === "mixpackBtn") downloadMixPack();
+  if (e.target.id === "contractLookupBtn") lookupContract();
 });
 $("skipUpload").addEventListener("click", () => {
   state.mode = "new";
