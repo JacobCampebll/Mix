@@ -3683,7 +3683,13 @@ function extractLegacy(wb, ctx) {
   plain.forEach((key) => {
     const r = chase(cells[key] || []);
     if (r.value === null) return miss(key, r);
-    const def = legacyFieldDef(key), v = coerceField(key, r.value, def ? def.type : "text");
+    // CAA on the MixPack is "one face / two or more faces" ("100/100"). The
+    // form holds one number and checks it against the second figure (see
+    // CONFIG.CONSENSUS_CRITERIA), so take that - coerce() on the raw string
+    // stripped the slash and stored 100100.
+    const caa = key === "caa" ? /^\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/.exec(String(r.value)) : null;
+    const raw = caa ? caa[2] : r.value;
+    const def = legacyFieldDef(key), v = coerceField(key, raw, def ? def.type : "text");
     if (v === "") return miss(key, r, "value present but not usable as a " + (def ? def.type : "text"));
     const fb = r.tried.length > 1 && r.tried[0].source !== r.source ? `fallback (primary ${r.tried[0].source} was ${r.tried[0].status})` : "";
     put(key, v, r.source, fb);
