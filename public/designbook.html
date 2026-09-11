@@ -218,18 +218,6 @@
     .navitem{padding:5px 0;}
     .navtitle{margin-bottom:8px;}
   }
-  /* Narrower still and ten wrapped chips were six rows, 244px of an 844px
-     screen before the form started. One scrolling line instead - the chips
-     run to the card's edge, which is what says there is more to the right.
-     A contained overflow-x, never the page's (CLAUDE.md). */
-  @media (max-width:700px){
-    .nav{padding:12px 0 12px 14px;}
-    .navtitle{margin-bottom:6px;}
-    .navlist{flex-wrap:nowrap; overflow-x:auto; gap:0 16px; padding-bottom:2px;
-             scrollbar-width:none; -webkit-overflow-scrolling:touch;}
-    .navlist::-webkit-scrollbar{display:none;}
-    .navitem{white-space:nowrap;}
-  }
 
   /* (job context strip lives in .appbar now — see top of stylesheet) */
 

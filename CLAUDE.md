@@ -412,15 +412,21 @@ TBD — cite the governing spec section when encoding a limit in code.
   of it, on every scroll - and the first form field sat 674px down, so the page
   opened on a header and a section list rather than on the design. The Portal's
   bar was 204px, its right-aligned `.who` block going ragged once it wrapped to
-  its own line. Now 116px and 97px. Three things did it, all worth reusing: the
+  its own line. Now 116px and 97px. Two things did it, both worth reusing: the
   three job chips become **one line** of contract / date / plant with the plant
   ellipsised (its full name goes in the span's `title`, and it is on the Portal
-  a step earlier); `order` on the flex children re-groups the header rows
+  a step earlier); and `order` on the flex children re-groups the header rows
   without touching the DOM, which is how the status pill gets up beside the book
-  switch with the mix id between them in source; and the section rail becomes
-  **one horizontally scrolling line** instead of six wrapped rows - a contained
-  `overflow-x`, never the page's. The layout's side padding also drops 32px to
-  16px, the floor a phone needs, which is 32px straight back to the form.
+  switch with the mix id between them in source. The layout's side padding also
+  drops 32px to 16px, the floor a phone needs, which is 32px straight back to
+  the form - and that alone packs the section chips from six rows into five.
+  **The section rail stays a wrapping chip row on a phone, deliberately.** It
+  was tried as one horizontally scrolling line and Jake turned that down the
+  same day, rightly: below 1240px the rail is not sticky, so you scroll past
+  its 212px once and never meet it again, and a wrapped row shows all ten
+  sections at once where a scrolling one hides six behind a swipe. Vertical
+  space is only worth buying where the element is sticky - the header was, this
+  is not.
   Measure this with `getBoundingClientRect().height` at a real phone viewport
   rather than by eye, and re-check 1500/1366/1240/1000/800/701 afterwards to
   prove nothing above the breakpoint moved.
