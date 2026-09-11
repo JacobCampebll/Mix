@@ -4812,21 +4812,22 @@ async function buildReviewPDF(payload) {
     // Since PR #8 the importer records an explicit "None" when the workbook
     // says so, and leaves the field empty only when nobody recorded
     // anything - so a blank here really does mean "not stated".
+    // Four values, no specimen table. The sheet is fighting for one page and
+    // the specimens are not what anyone reads a TSR off (Jake, 2026-09-11):
+    // the number, whether an additive was used, and the binder it was run
+    // with. Nothing is lost by leaving them out - the six specimens ride
+    // inside this PDF as part of the embedded payload and come back on the
+    // page the moment the file is uploaded again.
     tsr(section) {
       const pct = hdNum(values.tsr_pct, 0), withAdd = hdNum(values.tsr_pct_additive, 0);
-      const spec = rowTables(section)[0];
-      if (pct === "" && withAdd === "" && !spec) return;
-      sectionHead(section.label, spec ? RW.headH + Math.min(6, spec.body.length) * RW.rowH + 26 : 0);
+      if (pct === "" && withAdd === "") return;
+      sectionHead(section.label);
       const list = [];
       if (pct !== "") list.push(["TSR", pct + "%"]);
       if (withAdd !== "") list.push(["TSR with additive", withAdd + "%"]);
       list.push(["Binder grade", values.binder_grade || "-"]);
       list.push(["Anti-strip additive", values.tsr_additive || "not stated"]);
       pairs(list, { cols: 4 });
-      // The specimens behind the ratio. A reviewer checking a TSR wants to
-      // see which three were conditioned and what each one broke at, which
-      // is the whole reason they are imported rather than just the average.
-      if (spec) table(spec);
     },
     // Binder alone above the specimens; KYCT and the Hamburg readings side
     // by side below, instead of three stacked full-width tables.
@@ -4838,9 +4839,24 @@ async function buildReviewPDF(payload) {
         "hamburg_right_passmax", "hamburg_left_sip", "hamburg_right_sip"]
         .some((k) => values[k] != null && String(values[k]).trim() !== "");
       if (!spec && !ct && !hasHamburg) return;
-      sectionHead(section.label, RW.headH + Math.min(4, spec ? spec.body.length : 1) * RW.rowH + 26);
-      if (values.perf_binder) pairs([["Specimens made with (binder)", values.perf_binder]], { cols: 3 });
-      if (spec) table(spec);
+      sectionHead(section.label, RW.headH + Math.min(4, ct ? ct.body.length : 1) * RW.rowH + 26);
+      // Same call as TSR's, for the same reason: eleven rows of dry / SSD /
+      // in-water weights is the bulk of what pushed this sheet onto a second
+      // page, and nobody reads a performance result off a specimen weight.
+      // One line says the specimens exist and their voids were in range; the
+      // weights themselves ride inside the PDF and come back on upload.
+      const made = values.perf_binder
+        ? [["Specimens made with (binder)", values.perf_binder]] : [];
+      if (spec) {
+        const iv = spec.head.findIndex((h) => /air voids/i.test(h));
+        const av = iv < 0 ? [] : spec.body.map((r) => parseFloat(r[iv])).filter(Number.isFinite);
+        const range = av.length
+          ? `${Math.min(...av).toFixed(1)}-${Math.max(...av).toFixed(1)}% air voids ` +
+            `(mean ${(av.reduce((a, b) => a + b, 0) / av.length).toFixed(1)}%)`
+          : "air voids not stated";
+        made.push([`Performance specimens`, `${spec.body.length} · ${range}`]);
+      }
+      if (made.length) pairs(made, { cols: 2 });
 
       const half = (colW - 14) / 2;
       const startY = y, startCol = colIdx;
