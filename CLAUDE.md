@@ -468,15 +468,37 @@ TBD — cite the governing spec section when encoding a limit in code.
   since a button and an anchor sit on the same line a pixel apart.
 
 
-- **DesignBook is a ten-step wizard as of 2026-09-11, one step on screen at a
-  time.** It was a single scrolling sheet with a section list down the left and
-  an outstanding-items rail down the right; both rails are gone. The steps
+- **DesignBook is two shapes as of 2026-09-11, and the breakpoint is 700px.**
+  Above it, a ten-step wizard, one step on screen at a time. Below it, the
+  page it has always been: every section on one vertical scroll under its own
+  navy band. Jake's call, and the reasoning is worth keeping - one step per
+  screen reads well on a wide window and badly on a phone, where a person is
+  already scrolling and a fixed bar plus a step counter are chrome in place of
+  the thing they came for.
+  **The two share every renderer, every computation and the same `#valBlock`
+  node.** Exactly three things differ, and if a fourth ever appears, that is
+  the smell: where `#valBlock` sits (the active step's `.stepval`, or
+  `#valPark` above the sections - `.valpark:empty` collapses it, so no JS
+  decides), whether the sections hide each other (`.step{display:block}` below
+  700px), and whether a rail click switches or scrolls. On one page the rail
+  keeps its labels, because a bare numeral means nothing beside a section you
+  can simply scroll to, and the outstanding list is the whole-design roll-up.
+  Both rails of the old three-column layout are gone in both shapes. The steps
   **are** `CONFIG.SECTIONS`, in order, derived - the count is never written
   down, which is what makes "adding a section adds a step" true, and each
   section now carries a short `step` name for the rail beside its long
   `label`. `state.step` is the index into `CONFIG.SECTIONS`, not the visible
   position: a hidden section (Polish on a Type D mix) is skipped by Next/Back
   and left out of both numerals, so that mix reads "Step 5 of 9".
+  **Every number a person sees is a VISIBLE position, and it is painted in one
+  place** - `paintStepChrome()`, called from the END of `recompute()` rather
+  than from `go()`. Both halves of that matter and both were got wrong first
+  time: numbering the rail's dots from the `CONFIG.SECTIONS` index gave a rail
+  reading 1,2,3,4,6,7 beside a bar reading "Step 5 of 9" on every Type D mix
+  *and* on every design before Nominal size is typed (no size -> no letter ->
+  Polish hidden), which is the default; and painting from inside `go()` read
+  the counts before `applyPolishVisibility()` had run, since `recompute()` is
+  its only caller, so the first paint always said "of 10" beside nine chips.
   Four things about the rebuild are worth carrying forward.
   **`recompute()` is still the single producer of `outstanding`** - all that
   changed is which slice renders. Resist a second list-builder for the step
@@ -517,7 +539,21 @@ TBD — cite the governing spec section when encoding a limit in code.
   form of forty fields was a zoom and a pinch-back per field. And
   `.rowitem .box` / `.prtable .box` have to restate it, because a two-class
   rule outranks a one-class `.box` whatever the source order - the same
-  cascade trap as the `@media` gotcha above, one rung sideways. Fields and
+  cascade trap as the `@media` gotcha above, one rung sideways. **That trap
+  bit a second time in the same commit and is worth stating as a rule: any
+  new property on `.box` has to be checked against those two.** `select.box`
+  gained `appearance:none` with a drawn caret (so iOS honours the 44px) and
+  `padding-right:26px` to reserve room for it - and every select inside a
+  repeating row or the polish matrix painted the caret straight over its own
+  text, because those two rules set `padding` as a shorthand.
+  **The internal breakpoints above 1240px all had to be recalibrated, and the
+  reason generalises**: they were written against the width the FORM had, and
+  the two rails used to take 450px of the window out of it. The form is now
+  `min(1180, window) - 64` and reaches its full 1116px at a 1244px window, so
+  `1600`/`1601` became `1243`/`1244`. Left alone, Performance Testing would
+  never have got its three-up arrangement on any monitor, silently. If the
+  layout's width ever changes again, grep every `min-width`/`max-width` above
+  the one-column line and re-derive it from the form, not the window. Fields and
   aggregate row cards go to one column below 560px, where 16px type in two
   columns clipped its own values. What still clips at 390px is two genuinely
   long strings (a producer name at 387px, the RAP note) and no layout fixes
