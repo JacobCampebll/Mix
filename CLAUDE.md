@@ -453,6 +453,29 @@ TBD — cite the governing spec section when encoding a limit in code.
   since a button and an anchor sit on the same line a pixel apart.
 
 
+- **Three of the five sheet treatments are in the page behind `?treatment=`,
+  to be compared and then cut down to one (2026-09-11).** The five were mocked
+  2026-09-10; **Plates** and **Provenance** are what the page already wears
+  (plate fields, and colour saying where a value came from), so **Ledger**,
+  **Banded** and **Ruled** were built as pure override layers scoped under
+  `[data-treatment="..."]` on `<html>`, in the `SHEET TREATMENTS` block at the
+  end of the stylesheet. With no attribute set not one of their declarations
+  applies, so the default is untouched; a small script in `<head>` reads the
+  query parameter before first paint so there is no flash. **This is a fork in
+  the stylesheet and is meant to be temporary** - when Jake picks, the winner
+  folds into the base rules and the other two blocks are deleted. Do not build
+  on top of a treatment meanwhile.
+  Two things worth keeping from building them. A treatment rule is easily
+  MORE specific than the base rule it did not mean to catch:
+  `[data-treatment="ruled"] .dvrow .v` outranked `.dvhead .v`, so the Design
+  Values column names jumped from 10px to 14px, overflowed their 76px track
+  and gave the page 52px of sideways scroll - `:not(.dvhead)` was the fix.
+  And **right-aligned nowrap text spills LEFTWARD**, which is why those column
+  names have always been wider than their track without anyone noticing: the
+  base absorbs the spill into the label column, and it only became page scroll
+  once a treatment widened the section. Check a treatment with
+  `documentElement.scrollWidth` at 390px, not by eye.
+
 - **A native `<datalist>` is not a typeahead, and it looks exactly like
   one.** It substring-matches an option's **`value` only** — never the
   option's label text, never anything you put in an alias — it ranks
