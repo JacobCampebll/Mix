@@ -723,7 +723,9 @@
   .computed-note{font-size:11px; color:var(--muted); margin-top:10px;}
 
   .rowgroup-head{font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);
-                 margin:14px 0 6px;}
+                 margin:14px 0 6px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+  .rowgroup-head .seclookup{margin-left:auto; text-transform:none; letter-spacing:.03em;}
+  .rowgroup-head + .lookupnote{margin:-2px 0 8px;}
 
   /* status */
   .timeline{display:flex; align-items:center; margin:6px 0 4px;}
@@ -1060,6 +1062,43 @@ const CONFIG = {
     },
   },
 
+  // ---- Project items, from the contract's newest KYTC pay estimate ----
+  // The Project Items sheet of a generated MixPack is what MEDL and
+  // SiteManager check a design against, and it is the one thing on the
+  // workbook a contractor cannot get right from their own paperwork: they
+  // fill it from the proposal they bid, and a proposal goes stale the moment
+  // a change order adds, deletes or re-numbers an item. MEDL then refuses the
+  // load. KYTC's own current list is the newest pay estimate for the contract
+  // (Jake, 2026-09-11: "always use the newest pay estimate for this, its the
+  // top one in the list") - so the page reads that rather than asking anyone
+  // to re-type it. Contract 252112 is the worked example: its estimate 0006
+  // carries ten items numbered 8000-8009 that no proposal has, and the mix
+  // item itself sits on a supplemental item code (22906ES403).
+  //
+  // netlify/functions/kytc-items - the KYTC site is public but sends no CORS
+  // headers, so the browser cannot read it; the function is the proxy, and it
+  // stores nothing, like the other two.
+  PROJECT_ITEMS: {
+    fn: "/.netlify/functions/kytc-items",
+    // Same as CONTRACT_LOOKUP: KYTC's IIS is slow enough under load that one
+    // call in three can time out and the retry succeeds.
+    retries: 1,
+    // The template's Project Items sheet is A6:D105, and its own note says
+    // "Add as many rows as required". 20 is the form's cap, not the sheet's.
+    MAX_ROWS: 20,
+    // An asphalt mix item's description IS the mix signature ("CL3 ASPH SURF
+    // 0.38A PG64-22"), which is what parseSignature() already reads - so the
+    // design's own Nominal size + Mix type and Binder grade pick its lines
+    // out of a contract that can carry 282 of them. Anything parseSignature()
+    // gives no nominal size for is not a mix item and is never offered.
+    MATCH: {
+      // Fill the table with the matching mix lines only. Everything else on
+      // the contract (DGA, tack, striping) has nothing to do with this design
+      // and SiteManager does not want it on the sheet.
+      mixItemsOnly: true,
+    },
+  },
+
   // Mix Design Tech cert (unexpired), from technician_capabilities.
   REQUIRES_CAPABILITY: "can_access_designbook",
 
@@ -1354,7 +1393,12 @@ const CONFIG = {
     // had, written plain.
     KYCT: { labelCols: ["A", "C", "E", "G", "I", "K", "M", "O"], rows: { sampleId: 22, ctIndex: 21, seriesName: 16 } },
     RECYCLE: { row: 12, cols: { amp: "D", plant: "F", matCode: "J", type: "L", pct: "N" }, NOTE: "F18" },
-    PROJECT_ITEMS: { firstRow: 6, cols: { project: "A", line: "B", qty: "C", unit: "D" }, UNIT: "TON" },
+    // A6:D105 on the template, whose own note beside it reads "Add as many
+    // rows as required" - so maxRows is the sheet's extent, not a choice.
+    // UNIT is the fallback for a row that carries none; an item's real unit
+    // comes off the pay estimate (DOLL, SQYD and LF all occur on a contract,
+    // though a mix item is always TON).
+    PROJECT_ITEMS: { firstRow: 6, maxRows: 100, cols: { project: "A", line: "B", qty: "C", unit: "D" }, UNIT: "TON" },
     POLISH: { cols: ["B", "C", "D", "E", "F", "G"], PR_ROW: 17, sieveRows: { s50: 21, s37_5: 22, s25: 23, s19: 24, s12_5: 25, s9_5: 26, s4_75: 27, s2_36: 28, s1_18: 29, s0_6: 30, s0_3: 31, s0_15: 32, s0_075: 33 } },
     SUBMITTAL_TYPES: { "New Mix Design": "New Mix Design", "Reference Mix Design": "Ref. Mix Design (project change only)" },
   },
@@ -2053,6 +2097,37 @@ const CONFIG = {
           options: ["2", "3", "4"] },
         { key: "designer",        label: "Designer",        type: "text",   req: true },
       ],
+      // The project items this design covers - what the generated MixPack's
+      // Project Items sheet becomes, and what MEDL checks the load against.
+      // A table rather than the two scalars above because a contract can put
+      // the same mix on several lines and on more than one PCN (262120 has
+      // two routes), and the sheet's own note is "Add as many rows as
+      // required". The scalars stay: they are where a legacy MixPack's
+      // "PROJ. (ITEM)" cell lands and what the approval sheet prints, and
+      // they seed row 1 when nobody has run the lookup.
+      rows: [
+        {
+          key: "project_items", heading: "Project Items", max: 20, start: 1,
+          addLabel: "+ add project item",
+          // The button that fills this table, on the table rather than in the
+          // section head: Contract Information's head already carries two
+          // citations and the contract lookup, and at 360px that was measured
+          // at the edge of one line.
+          action: { id: "itemsLookupBtn", note: "itemsLookupNote", key: "items", label: "Look up<span class=\"wide-only\"> project</span> items" },
+          grid: "1.1fr .62fr 2fr .8fr .55fr auto",
+          columns: [
+            // Column A of the sheet. A contract with two routes has a PCN
+            // each, so this is per row and not the scalar above.
+            { key: "project",     label: "Project number",  type: "text",   req: true,  mono: true },
+            { key: "line",        label: "Line item",       type: "text",   req: true,  mono: true },
+            // Not written to the workbook - it is how a reviewer sees at a
+            // glance that the line really is this mix.
+            { key: "description", label: "Item description", type: "text",  req: false },
+            { key: "quantity",    label: "Represented qty", type: "number", req: true,  mono: true },
+            { key: "unit",        label: "Unit",            type: "text",   req: false, mono: true },
+          ],
+        },
+      ],
     },
     {
       id: "aggregate", label: "Aggregate Structure", step: "Aggregates",
@@ -2324,6 +2399,10 @@ const state = {
                      //   nominal_size, county, lines, source } or null
   contract: null,    // { header, source } - the proposal header from the Portal's record or a lookup
   contractNote: null,// { text, kind } - what the last lookup did, re-rendered with the form
+  // Notes for the lookups that hang off a row table's head, keyed by the
+  // note id in that spec's `action`. Same shape and same job as
+  // contractNote: kept on state so the message survives renderForm().
+  notes: {},
   extracted: null,   // { scalars, tables } from the workbook, if any
   legacy: null,      // full import result: version, sheet resolution, per-field log, unmapped, context
   // Reference lists, one array per CONFIG.REFERENCE.TABLES key (aggregates,
@@ -2549,6 +2628,21 @@ function rowHeadHTML(spec) {
     ${cells}${spec.fixed ? "" : "<div></div>"}</div>`;
 }
 
+// A row table's group head, with the optional button a spec declares in
+// `action` - the one that fills the table from somewhere. It sits here rather
+// than in the section head because a head already carries the citations, the
+// section tag and (on Contract Information) the contract lookup, which at
+// 360px is one line's worth. The note under it is where the lookup reports
+// what it found, the same job #contractLookupNote does for the proposal.
+function rowHeadingHTML(spec) {
+  if (!spec.heading) return "";
+  const a = spec.action;
+  return `<div class="rowgroup-head">${esc(spec.heading)}` +
+    (a ? `<button type="button" class="seclookup" id="${a.id}">${a.label}</button>` : "") +
+    `</div>` +
+    (a ? `<div class="lookupnote${state.notes[a.key] ? " " + esc(state.notes[a.key].kind) : ""}" id="${a.note}">${state.notes[a.key] ? esc(state.notes[a.key].text) : ""}</div>` : "");
+}
+
 function rowsHTML(spec) {
   if (spec.fixed) {
     // Seeded rows still carry entered values - merge what is in hand over
@@ -2557,7 +2651,7 @@ function rowsHTML(spec) {
     const held = state.extracted ? (state.extracted.tables[spec.key] || []) : [];
     const rows = (spec.seed || []).map((v, i) =>
       rowHTML(spec, held[i] ? Object.assign({}, v, held[i]) : v, i)).join("");
-    return (spec.heading ? `<div class="rowgroup-head">${spec.heading}</div>` : "") +
+    return rowHeadingHTML(spec) +
       rowHeadHTML(spec) + `<div class="rowlist" data-rowlist="${spec.key}">${rows}</div>`;
   }
   const found = state.extracted ? (state.extracted.tables[spec.key] || []) : [];
@@ -2565,7 +2659,7 @@ function rowsHTML(spec) {
   // imported - one unless the test itself has a fixed specimen count.
   const blanks = Math.min(spec.start || 1, spec.max || 1);
   const seed = found.length ? found.slice(0, spec.max) : Array.from({ length: blanks }, () => null);
-  return (spec.heading ? `<div class="rowgroup-head">${spec.heading}</div>` : "") +
+  return rowHeadingHTML(spec) +
     rowHeadHTML(spec) +
     `<div class="rowlist" data-rowlist="${spec.key}">
       ${seed.map((v, i) => rowHTML(spec, v, i)).join("")}
@@ -2741,7 +2835,9 @@ function statusHTML() {
        <div class="dot"></div><div class="tl">${s.key}</div></div>`).join("");
   return `<div class="timeline" id="timeline">${steps}</div>
     <button class="stagebtn" id="advanceStage"></button><button class="stagebtn ghost hidden" id="sendBackStage">Send back to the contractor</button>
+    <button class="stagebtn ghost hidden" id="itemsLookupBtnStatus">Project look up</button>
     <div class="stagenote" id="stageNote"></div>
+    <div class="lookupnote" id="itemsLookupNoteStatus"></div>
     <div class="stagewarn hidden" id="stageWarn"></div>
     <div class="approvalbox hidden" id="approvalBox">
       <label for="approvalSeq">KYTC approval number</label>
@@ -4734,6 +4830,14 @@ function renderStage() {
   // The SiteManager workbook is KYTC's to load, so it appears for a reviewer once there is an approval.
   const mpb = $("mixpackBtn");
   if (mpb) mpb.classList.toggle("hidden", !(state.approval && state.canReview));
+  // The project-items lookup, beside Approve rather than only on the table in
+  // Contract Information (Jake, 2026-09-11). This is where Andrew and Tate
+  // are when they approve and generate the workbook, and the stale sheet is
+  // the thing MEDL rejects - so the refresh belongs at the hand-off, not only
+  // back on step 1 where a contractor filled it.
+  const pib = $("itemsLookupBtnStatus");
+  if (pib) pib.classList.toggle("hidden", !state.canReview);
+  paintItemsNote();
   // Only a design that has actually been sent has a submittal to print.
   const spdf = $("submittalPdfBtn");
   if (spdf) spdf.classList.toggle("hidden", !state.submitted);
@@ -4921,7 +5025,7 @@ function extractLegacy(wb, ctx) {
   // The workbook's own polish YES/NO per component, kept so the rail can say
   // where it disagrees with KYTC's approved list. Never imported as an answer.
   let polishClaims = null;
-  const tables = { aggregate: [], ct: [], perf_specimens: [], hamburg_curve: [], fourpoint: [], tsr_specimens: [] };
+  const tables = { aggregate: [], ct: [], perf_specimens: [], hamburg_curve: [], fourpoint: [], tsr_specimens: [], project_items: [] };
 
   function chase(chain) {
     const tried = [];
@@ -5004,6 +5108,18 @@ function extractLegacy(wb, ctx) {
       } else {
         put("project_number", String(r.value).trim(), r.source);
       }
+      // Seed the Project Items table from the same cell. The table is what
+      // the workbook's Project Items sheet is written from, so a design that
+      // came in from a MixPack has to arrive with the row the MixPack stated
+      // rather than with three blank required cells - and the quantity is
+      // the design's own tonnage, which is what the old single-row mapper
+      // used. Provisional like everything else here: the lookup replaces it
+      // with the contract's current lines, and says so.
+      const pn = scalars.project_number, ln = scalars.line_items;
+      if (pn) tables.project_items = [{
+        project: pn, line: ln || "", description: "",
+        quantity: scalars.total_tons == null ? "" : scalars.total_tons, unit: "TON",
+      }];
     }
   }
   { // tsr_additive: "<type> — <%>" - an explicit "none" is a real answer
@@ -7492,13 +7608,30 @@ function mixpackCells(payload, tpl, ref) {
   });
 
   /* ---- project items ---- */
+  // Project Items. This sheet is what MEDL checks the load against, so it is
+  // one row per line item the design covers, not one row full stop - a
+  // contract can put the same mix on several lines and on more than one PCN.
+  // The table is the authority when it has rows (the "Look up project items"
+  // button fills it from the contract's newest pay estimate); the two
+  // Contract Information scalars still seed a single row when nobody ran it,
+  // which is what a legacy MixPack's "PROJ. (ITEM)" cell gives.
   const PI = X.PROJECT_ITEMS;
-  if (mpHas(v.project_number)) {
-    put("Project Items", `${PI.cols.project}${PI.firstRow}`, mpStr(v.project_number));
-    put("Project Items", `${PI.cols.line}${PI.firstRow}`, mpStr(v.line_items));
-    put("Project Items", `${PI.cols.qty}${PI.firstRow}`, mpNum(v.total_tons));
-    put("Project Items", `${PI.cols.unit}${PI.firstRow}`, PI.UNIT);
-  } else need("Project Items", "no project number on the design");
+  const piRows = (rows.project_items || []).filter((r) => mpHas(r.project) && mpHas(r.line));
+  const piWrite = (row, project, line, qty, unit) => {
+    put("Project Items", `${PI.cols.project}${row}`, mpStr(project));
+    put("Project Items", `${PI.cols.line}${row}`, mpStr(line));
+    put("Project Items", `${PI.cols.qty}${row}`, mpNum(qty));
+    put("Project Items", `${PI.cols.unit}${row}`, mpStr(unit) || PI.UNIT);
+  };
+  if (piRows.length) {
+    const fits = piRows.slice(0, PI.maxRows);
+    fits.forEach((r, i) => piWrite(PI.firstRow + i, r.project, r.line, r.quantity, r.unit));
+    if (piRows.length > fits.length) need("Project Items", `${piRows.length} rows on the design, and the sheet holds ${PI.maxRows}`);
+    if (fits.some((r) => mpNum(r.quantity) === null)) need("Project Items", "a line item has no represented quantity");
+  } else if (mpHas(v.project_number)) {
+    piWrite(PI.firstRow, v.project_number, v.line_items, v.total_tons, PI.UNIT);
+    notes.push("Project Items is one row from the design's project number and line items - run the project-items lookup for the contract's current list.");
+  } else need("Project Items", "no project items and no project number on the design");
 
   return { values, evalOnly, report: { missing, notes, cells: Object.keys(values).length } };
 }
@@ -8436,6 +8569,164 @@ function applyContractLookup(data) {
   return { text: parts.join(" "), kind: filled.length ? "ok" : "" };
 }
 
+/* ---------- project items, from the contract's newest pay estimate ----------
+ *
+ * The one thing on a generated MixPack that a correct design can still get
+ * wrong. See CONFIG.PROJECT_ITEMS for why the estimate and not the proposal.
+ */
+
+// Normalised mix designation, so "NO.4B", "no.4 b" and "0.38A" compare.
+function mixKey(size, grade) {
+  const sz = String(size || "").toUpperCase().replace(/\s+/g, "").replace(/^NO\.?4/, "NO.4");
+  const pg = String(grade || "").toUpperCase().replace(/\s+/g, "");
+  return { size: sz, grade: pg };
+}
+
+// Which of a contract's line items belong to THIS design. An asphalt mix
+// item's description is the mix signature, so parseSignature() reads it the
+// same way it reads the Portal's lookup; anything it gives no nominal size
+// for is not a mix item at all (DGA, tack, striping) and is never offered.
+// Pure, so it can be tested without a page.
+function pickProjectItems(items, want) {
+  const mixes = (items || []).map((it) => ({ item: it, sig: parseSignature(it.description) }))
+                             .filter((x) => x.sig.nominal_size);
+  const w = mixKey(want.nominal_size, want.binder_grade);
+  if (!w.size) return { rows: [], mixes, why: "no-designation" };
+  const hit = mixes.filter((x) => {
+    const k = mixKey(x.sig.nominal_size, x.sig.binder_grade);
+    if (k.size !== w.size) return false;
+    return !w.grade || !k.grade || k.grade === w.grade;
+  });
+  return { rows: hit.map((x) => x.item), mixes, why: hit.length ? "designation" : "no-match" };
+}
+
+// The lookup's rows -> the table, replacing whatever is in it. Replacing and
+// not merging is the point: a stale row is exactly what this is here to fix,
+// and the source line under the table says where the rows came from. Anything
+// typed by hand that the estimate does not carry is reported, never silently
+// dropped - the provisional-values rule under "Pages downstream of login".
+function applyProjectItems(data) {
+  const spec = rowSpec("project_items");
+  const values = collectForm().values;
+  const { rows, mixes, why } = pickProjectItems(data.items, {
+    nominal_size: (effectiveMix() || {}).nominal_size,
+    binder_grade: values.binder_grade,
+  });
+  const src = data.source === "estimate"
+    ? `pay estimate ${data.estimate ? data.estimate.number : ""}${data.estimate && data.estimate.final ? " (final)" : ""}`
+    : "item list as awarded";
+  const parts = [];
+  const designation = (effectiveMix() || {}).nominal_size || "";
+
+  if (!rows.length) {
+    if (why === "no-designation") parts.push("Set Nominal size and Mix type first - they are what picks this design's lines out of the contract.");
+    else if (mixes.length) parts.push(`No line item on this contract is ${designation}. The contract's mix items are ${mixes.map((x) => x.item.description).join("; ")}.`);
+    else parts.push("No asphalt mix items on this contract.");
+    parts.push(`Read from ${data.file} (${src}).`);
+    return { text: parts.join(" "), kind: "error" };
+  }
+
+  const kept = existingItemRows().filter((r) =>
+    !rows.some((n) => String(n.line).trim() === String(r.line).trim() && String(n.project).trim() === String(r.project).trim()));
+  const capped = rows.slice(0, Math.min(spec.max, CONFIG.PROJECT_ITEMS.MAX_ROWS));
+  setRowTable("project_items", capped.map((r) => ({
+    project: r.project, line: r.line, description: r.description,
+    quantity: r.quantity == null ? "" : String(r.quantity), unit: r.unit,
+  })), `kytc-items · ${src}`);
+
+  parts.push(`${capped.length} line item${capped.length === 1 ? "" : "s"} for ${designation} from ${src}${data.estimate && data.estimate.approved ? `, approved ${data.estimate.approved}` : ""}: ${capped.map((r) => `${r.project} ln ${r.line} (${(r.quantity == null ? "?" : r.quantity.toLocaleString())} ${r.unit})`).join(", ")}.`);
+  if (rows.length > capped.length) parts.push(`${rows.length - capped.length} more matched and were not written - the table holds ${spec.max}.`);
+  if (kept.length) parts.push(`Replaced what was here; ${kept.length} row${kept.length === 1 ? "" : "s"} KYTC's list does not carry ${kept.length === 1 ? "was" : "were"} removed: ${kept.map((r) => `${r.project || "?"} ln ${r.line || "?"}`).join(", ")}.`);
+  if (data.source !== "estimate") parts.push("This contract has no pay estimate yet, so these are the items as awarded - run the lookup again before the hand-off if a change order lands.");
+  return { text: parts.join(" "), kind: "ok" };
+}
+
+// The table as it stands, so the note can say what a replace removed.
+function existingItemRows() {
+  const list = document.querySelector('[data-rowlist="project_items"]');
+  if (!list) return [];
+  return [...list.children].map((item) => {
+    const out = {};
+    item.querySelectorAll("[data-col]").forEach((el) => { out[el.dataset.col] = String(el.value || "").trim(); });
+    return out;
+  }).filter((r) => Object.values(r).some((v) => v !== ""));
+}
+
+// Re-seed a row table from data and re-render it in place. Goes through
+// state.extracted.tables, which is the same shape rowsHTML() reads, so the
+// rows come back on a reopen exactly as an imported table does.
+function setRowTable(key, rows, source) {
+  if (!state.extracted) state.extracted = { scalars: {}, tables: {} };
+  state.extracted.tables[key] = rows;
+  const spec = rowSpec(key);
+  const block = document.querySelector(`[data-rowlist="${key}"]`);
+  if (!block || !spec) return;
+  block.innerHTML = rows.map((v, i) => rowHTML(spec, v, i)).join("");
+  state.sources[key] = source;   // -> extracted_from, the provenance record
+  wireForm();
+  state.dirty = true;
+  renderSavedState();
+  recompute();
+}
+
+async function fetchProjectItems(cid) {
+  const cfg = CONFIG.PROJECT_ITEMS;
+  let last = "lookup failed";
+  for (let attempt = 0; attempt <= (cfg.retries || 0); attempt++) {
+    try {
+      const res = await fetch(`${cfg.fn}?cid=${encodeURIComponent(cid)}`, { headers: { Accept: "application/json" } });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+      return data;
+    } catch (err) { last = (err && err.message) || last; }
+  }
+  throw new Error(last);
+}
+
+// Two buttons run this lookup and both report the same thing: the one on the
+// Project Items table, and the reviewer's "Project look up" beside Approve on
+// the Status step. One state key, one message, however many elements are on
+// the page - ids have to stay unique, so they cannot share one note element.
+const ITEMS = {
+  buttons: ["itemsLookupBtn", "itemsLookupBtnStatus"],
+  notes: ["itemsLookupNote", "itemsLookupNoteStatus"],
+  key: "items",
+};
+function paintItemsNote() {
+  const n = state.notes[ITEMS.key];
+  ITEMS.notes.forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.className = "lookupnote" + (n && n.kind ? " " + n.kind : "");
+    el.textContent = n ? n.text : "";
+  });
+}
+function itemsBusy(on, label) {
+  ITEMS.buttons.forEach((id) => {
+    const b = $(id);
+    if (!b) return;
+    if (on) { if (b.dataset.was == null) b.dataset.was = b.innerHTML; b.textContent = label; b.disabled = true; }
+    else { if (b.dataset.was != null) { b.innerHTML = b.dataset.was; delete b.dataset.was; } b.disabled = false; }
+  });
+}
+
+async function lookupProjectItems() {
+  if (ITEMS.buttons.some((id) => { const b = $(id); return b && b.dataset.was != null; })) return;   // already running
+  const setNote = (n) => { state.notes[ITEMS.key] = n; paintItemsNote(); };
+  const j = state.job;
+  if (!j || !j.cid) { setNote({ text: "The lookup needs the contract ID the Portal sends; start from the Portal, or type the items.", kind: "error" }); return; }
+  itemsBusy(true, "Reading the estimate...");
+  setNote({ text: `Reading contract ${j.cid}'s newest pay estimate from transportation.ky.gov - this can take a few seconds.`, kind: "" });
+  try {
+    setNote(applyProjectItems(await fetchProjectItems(j.cid)));
+    audit(`Project items for contract ${j.cid} looked up - ${state.tech ? state.tech.sm_id : ""}`);
+  } catch (err) {
+    setNote({ text: `Couldn't read the contract's items (${err.message || "lookup failed"}). The KYTC site is slow at times - try again in a moment, or type them from the newest pay estimate.`, kind: "error" });
+  } finally {
+    itemsBusy(false);
+  }
+}
+
 async function lookupContract() {
   const btn = $("contractLookupBtn"), note = $("contractLookupNote");
   if (!btn || btn.disabled || !note) return;
@@ -8610,7 +8901,12 @@ document.addEventListener("click", (e) => {
   if (e.target.id === "submittalPdfBtn") downloadSubmittalPDF();
   if (e.target.id === "approvalPdfBtn") downloadApprovalPDF();
   if (e.target.id === "mixpackBtn") downloadMixPack();
-  if (e.target.id === "contractLookupBtn") lookupContract();
+  // closest(), not e.target.id: both lookup buttons carry a .wide-only span,
+  // so a click that lands on the word "contract" or "project" targets the
+  // span and not the button.
+  const look = e.target.closest ? e.target.closest("button") : null;
+  if (look && look.id === "contractLookupBtn") lookupContract();
+  if (look && ITEMS.buttons.includes(look.id)) lookupProjectItems();
 });
 $("skipUpload").addEventListener("click", () => {
   state.mode = "new";
