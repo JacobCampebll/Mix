@@ -559,6 +559,64 @@ TBD — cite the governing spec section when encoding a limit in code.
   comment but not enforced — that's the Department's re-test side, not the
   contractor's. Full table in `docs/legacy-mixpack-map.md`.
 
+- **Design Values no longer shows the uploaded MixPack's own stated figure
+  next to the one computed from Four Points — decided 2026-09-11 (Andrew):
+  the calculated value is gospel, not something a contractor should be able
+  to dispute with a MixPack cell.** Until this, `computedHTML()` printed
+  both columns for the ten quantities both sources have (AC/Pb, Va, VMA,
+  VFA, Gmm, Gse, Pbe, dust ratio, density — everything but Gmb, which the
+  workbook never states) so a reviewer could sanity-check the curve fit
+  against what the technician originally submitted. That comparison is
+  gone from the page now; only "From Four Points" prints. **Nothing was
+  removed from the import itself** — `state.legacy.designValues`, the
+  upload inspector log, and `extracted_from` still capture the workbook's
+  figures exactly as before, same as every other provisional value in this
+  codebase; only this one display stopped rendering them. The "Stated only
+  in the MixPack" side panel (Gsb, %Gmm @ Nini/Nmax, absorbed AC, film
+  thickness) is untouched — those five have no computed counterpart at
+  all, so there's nothing to dispute them against, and Andrew confirmed
+  keeping them visible. The PDF was never part of this: `RENDER["design-
+  values"]` in `buildReviewPDF` only ever printed `dv[o.key]` — the
+  computed figure — so the review sheet was already "gospel-only" and
+  needed no change. If this section's `.dvtable.two` CSS variant or the
+  `has`/`wb`-column logic in `computedHTML()` ever comes back, it's a
+  reversion of this decision, not a bug fix — check here first.
+
+- **The Va-vs-Pb chart got real axes 2026-09-11 (Andrew), and the page and
+  the review PDF now share the axis code.** It had no tick marks and no
+  numbers at all - you could see the curve cross the target but not read a
+  value off either axis - and no y-axis title. Two pure helpers next to
+  `solveQuadForTarget` are the shared ground: **`niceTicks()`** (round-number
+  bounds + ticks; raw data bounds put the axis on values like 4.3 and 7.3,
+  unreadable once labelled) and **`fitRuns()`** (splits the fitted curve into
+  the stretch the four trial points support and the stretches past them).
+  `drawFpChart()` and `fourpointBlock()` in `buildReviewPDF` both call them,
+  so the two can never disagree about where a gridline sits - same reason
+  `trimFlatCoarseEnd` is shared by the gradation chart and the sheet. Three
+  things worth knowing if you touch this:
+  **(1) A parabola drawn past its outermost trial point is extrapolation and
+  must not read as measured** - those runs are dashed and faded, and when the
+  *solved design Pb itself* lands outside the trial range the marker, its
+  dropline and its label turn red (`--bad`), say "extrapolated", and
+  `recompute()` raises a matching non-blocking rail warning (same footing as
+  Polish / Consensus - the arithmetic is valid, whether the design stands on
+  it is the Department's call). `solveQuadForTarget()` does **not** clamp its
+  root to the trial range - it picks the root nearest the range's midpoint,
+  which can sit well outside it - so this was previously invisible.
+  **(2) The target label sits at the LEFT end of its line, deliberately.** The
+  design-Pb marker is *on* the target line by definition, so a label at the
+  right end collides with it exactly when the solve lands over there - which
+  is where an extrapolated one does, and its label is the longest. Caught in
+  a browser, not by eye on the source.
+  **(3) `computeFourPoint()` now returns its solve and runs at the TOP of
+  `recompute()`, not the bottom.** The rail's extrapolation warning reads that
+  return value, and reading it from the old end-of-function call site would
+  have left the rail one keystroke behind. Moving it also fixed a latent
+  one-cycle lag of its own: `autoFpInputs()` fills Combined Gsb and %#200,
+  which the required-field sweep counts, and it used to run *after* that
+  sweep. Same "compute first, then count" rule `computeConsensus()` already
+  followed.
+
 - **A `<select>` fires `input` BEFORE `change`, so clearing an "auto-filled"
   marker only on `change` lets the `input` handler undo the person's first
   pick.** The Polish-Resistant Source column (coarse/fine) is prefilled from
