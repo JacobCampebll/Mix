@@ -177,7 +177,7 @@
   .layout{max-width:1180px; margin:0 auto; padding:24px 32px 132px;}
   /* 32px of side padding is 16% of a 390px screen. 16px is the floor a phone
      needs (CLAUDE.md), and the 32px it gives back goes to the form. */
-  @media (max-width:700px){ .layout{padding:14px 16px 128px;} }
+  @media (max-width:700px){ .layout{padding:14px 16px 60px;} }
 
   /* ---- the step rail ----
      Ten steps, every one of them on screen. It wraps rather than scrolling
@@ -211,20 +211,16 @@
      rows - 38px tall each, so still a real tap target. Measured: the labelled
      version wrapped to four rows at 390px, which is 160px of a phone screen
      spent on navigation before the form starts. */
+  /* On one page the rail is a jump list rather than a stepper, so it keeps its
+     labels - a bare numeral means nothing beside a section you can simply
+     scroll to. A wrapping row, not a scrolling line: it is not sticky, so you
+     meet it once, and a wrapped row shows all ten where a swipe hides six
+     (Jake, 2026-09-11). Short names keep it to two rows at 390px. */
   @media (max-width:700px){
     .railnav{margin-bottom:14px;}
-    /* A ten-column grid rather than a wrapping flex row: ten equal cells fit
-       one line at 360px (35px each), where wrapping left an orphan tenth
-       circle on a second row. Still every step at once, still no swipe. */
-    .rail{display:grid; grid-template-columns:repeat(10,minmax(0,1fr)); gap:3px;}
-    .railstep{padding:2px; gap:0; border-radius:50%; justify-content:center;
-              min-height:36px; min-width:0;}
-    .railstep .lbl{display:none;}
-    /* 24px, not 26: at 360px the ten cells are (328 - 27) / 10 = 30.1px, and a
-       26px dot inside 2px of padding is 30 - it overflowed by 12px across the
-       row. Measured, not guessed. */
-    .railstep .dot{width:24px; height:24px;}
-    .railstep.current{border-radius:50%;}
+    .rail{gap:5px;}
+    .railstep{padding:3px 11px 3px 4px; gap:6px; min-height:34px; font-size:12px;}
+    .railstep .dot{width:22px; height:22px; font-size:10px;}
   }
 
   /* (job context strip lives in .appbar now — see top of stylesheet) */
@@ -241,6 +237,15 @@
   .step.active{display:block; animation:stepin .18s ease-out;}
   @keyframes stepin{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;}}
   @media (prefers-reduced-motion:reduce){ .step.active{animation:none;} }
+  /* Below 700px every section is on one page under its own band - the shape
+     this page has always had. Only the display rules change; the sections,
+     the bands and every renderer are the same objects the wizard uses.
+     Below the rules it overrides, per the convention: a @media block is not a
+     tiebreaker, and .step.active is one class like .step. */
+  @media (max-width:700px){
+    .step{display:block;}
+    .step.active{animation:none;}
+  }
   /* The head is a full-bleed navy band with the KYTC gold rule under it -
      chosen from five treatments 2026-09-11. On a sheet this long the band is
      what tells you where you are without looking back at the rail, which is
@@ -314,6 +319,9 @@
   @media (max-width:700px){
     .section-head{align-items:flex-start; gap:8px; margin:-22px -24px 16px; padding:11px 24px 9px;}
     .section-tag{display:none;}
+    /* "Step 3 of 10" is a wizard's idea of where you are. On one page the
+       answer is: wherever you have scrolled to. */
+    .kicker{display:none;}
     .headmeta{justify-content:flex-start; max-width:100%; gap:5px;}
     /* One line, measured rather than guessed (Jake, 2026-09-11). At 360px the
        head has 278px for these: Contract Information's two citations plus the
@@ -336,7 +344,9 @@
      measured the FORM, which the nav and the rail shrink to ~680px at 1300,
      and dropped to two columns there - taller than the three it replaced. */
   .grid{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px;}
-  @media (min-width:1601px){ .grid{grid-template-columns:repeat(4,minmax(0,1fr));} }
+  /* Same recalibration: four columns once the form is its full 1116px, which
+     is 279px a field - the ~260px this rule was always aiming at. */
+  @media (min-width:1244px){ .grid{grid-template-columns:repeat(4,minmax(0,1fr));} }
   @media (max-width:700px){ .grid{grid-template-columns:1fr 1fr;} }
   /* One column below 560px. At 165px a field clipped its own value - binder
      supplier, mix type, the project number, all measured on a 390px screen -
@@ -427,7 +437,13 @@
   .rowblocks{display:grid; grid-template-columns:repeat(12,minmax(0,1fr));
              gap:18px; align-items:start;}
   .rowblock{grid-column:span var(--w,12); min-width:0;}
-  @media (max-width:1600px){ .rowblock{grid-column:span var(--w2,12);} }
+  /* 1243px, not 1600. The two rails used to take 450px of the window, so a
+     1600px window gave the form 1086px - which is what this line really
+     meant. The form is now min(1180, window) - 64, so it reaches its full
+     1116px at a 1244px window and never grows past it: measured against the
+     form rather than the window, the wide arrangement starts there. Left at
+     1600 it meant Performance Testing never got its three-up on any monitor. */
+  @media (max-width:1243px){ .rowblock{grid-column:span var(--w2,12);} }
   @media (max-width:1240px){ .rowblock{grid-column:span 12;} }
 
   /* Repeating rows read as a table: the column names once, then thin rows.
@@ -447,6 +463,12 @@
   /* .rowitem .box outranks .box whatever the source order, so the phone
      sizes have to be restated here. Same two reasons. */
   @media (max-width:700px){ .rowitem .box{padding:8px 10px; font-size:16px; min-height:44px;} }
+  /* .rowitem .box (0,2,0) beats select.box's padding-right (0,1,1) whatever
+     the order, so a select in a row painted the drawn caret straight over its
+     own text. Restated at (0,2,1), outside any media query, so it holds at
+     both row paddings above. */
+  .rowitem select.box{padding-right:22px;
+                      background-position:calc(100% - 12px) calc(50% + 1px), calc(100% - 7px) calc(50% + 1px);}
   .rowitem{gap:7px;}
   .rmbtn{border:1px solid transparent; background:transparent; color:var(--muted);
          border-radius:var(--radius); width:26px; height:26px; cursor:pointer; font-size:14px;
@@ -549,6 +571,9 @@
      polish matrix stays dense - it is ninety controls in a grid a person
      scrolls sideways - but 16px stops the zoom-per-cell. */
   @media (max-width:700px){ .prtable .box{padding:6px 7px; font-size:16px; min-height:40px;} }
+  /* Same again - the Polish class and Source columns are selects. */
+  .prtable select.box{padding-right:20px;
+                      background-position:calc(100% - 11px) calc(50% + 1px), calc(100% - 6px) calc(50% + 1px);}
   .prtable .prkey{background:var(--flag-soft);}  /* the #4 is the one the arithmetic keys on */
   /* A cell KYTC's approved-materials list settled: stated, not asked. Reads as
      data rather than as an empty control somebody forgot to fill in. */
@@ -652,6 +677,9 @@
      stack rather than beside it.
      The left edge carries the state: amber while something is missing on
      this step, green when the step is clear. */
+  /* Empty whenever go() has moved the block into a step, which is every
+     desktop state - so no JS has to decide whether this shows. */
+  .valpark:empty{display:none;}
   .valblock{background:var(--panel); border:1px solid var(--line);
             border-left:4px solid var(--flag); border-radius:var(--radius);
             padding:11px 14px; margin-bottom:16px;}
@@ -710,14 +738,11 @@
   .bar i{display:block; height:100%; width:0; background:var(--ok); transition:width .25s;}
   .compnote{font-size:11px; color:var(--muted); white-space:nowrap;
             font-family:'Roboto Mono',monospace;}
-  /* Below 700px the bar is two buttons and one line between them: the step
-     name goes, the numerals and the meter stay. */
-  @media (max-width:700px){
-    .actionbar{padding:7px 14px calc(7px + env(safe-area-inset-bottom,0px));}
-    .abinner{gap:9px;}
-    .stepbtn{font-size:12.5px; padding:0 12px; min-height:42px;}
-    .compnote{font-size:10px;}
-  }
+  /* Below 700px there are no steps to move between, so the bar goes entirely
+     and the page keeps the 44px of screen it was spending. The completeness
+     meter goes with it; on one page the outstanding-items block above the
+     sections already says what is left, in words. */
+  @media (max-width:700px){ .actionbar{display:none;} }
 
   /* gate + upload screens */
   .centercard{max-width:620px; margin:40px auto; background:var(--panel);
@@ -814,6 +839,18 @@
     <div class="rail" id="railnav"></div>
   </nav>
 
+  <!-- The outstanding-items block is ONE node. On a desktop go() moves it into
+       the active step's .stepval; on a phone, where every section is on one
+       page, it stays here above them. :empty collapses this to nothing in the
+       first case, so no JS decides whether it shows. -->
+  <div id="valPark" class="valpark">
+    <div class="valblock" id="valBlock">
+      <div class="valsub" id="valsub">Live — updates as you fill the form</div>
+      <div id="vallist"></div>
+      <div class="msg" id="saveMsg"></div>
+    </div>
+  </div>
+
   <main>
     <div id="sections"></div>
     <details id="inspectorWrap" class="hidden">
@@ -825,17 +862,6 @@
       <pre id="payload"></pre>
     </details>
   </main>
-
-  <!-- The outstanding-items block is ONE node that go() moves into the active
-       step's .stepval. It is parked here between renders because renderForm()
-       rewrites #sections wholesale and would otherwise destroy it. -->
-  <div id="valPark" hidden>
-    <div class="valblock" id="valBlock">
-      <div class="valsub" id="valsub">Live — updates as you fill the form</div>
-      <div id="vallist"></div>
-      <div class="msg" id="saveMsg"></div>
-    </div>
-  </div>
 
 </div>
 
@@ -2624,7 +2650,7 @@ function renderForm() {
   applyAutofills();
   renderRefStatus();
   renderStage();
-  go(state.step || 0);      // puts #valBlock back into the active step, and recomputes
+  go(state.step || 0, null, false);   // places #valBlock and recomputes; does not scroll
 }
 
 /* ---------- the step rail + the action bar ----------
@@ -2633,6 +2659,17 @@ function renderForm() {
    section add a step and nothing else.
    A step can be hidden (Polish, on a Type D mix), and a hidden step is not a
    step: it is skipped by Next/Back and left out of both numerals. */
+// Below 700px DesignBook is the page it always was: every section on one
+// vertical scroll, each under its own navy band. The wizard is a desktop
+// shape - one step per screen reads well on a wide window and badly on a
+// phone, where a person is already scrolling and the fixed bar and the
+// per-step counter are chrome in place of the thing they came for (Jake,
+// 2026-09-11). The two share every renderer, every computation and the same
+// #valBlock node; what differs is where that node sits, whether the sections
+// hide each other, and whether a rail click switches or scrolls.
+const ONE_PAGE = window.matchMedia("(max-width:700px)");
+function onePage() { return ONE_PAGE.matches; }
+
 function stepSections() { return Array.from(document.querySelectorAll("#sections .section")); }
 function stepIndexOf(id) { return CONFIG.SECTIONS.findIndex((s) => s.id === id); }
 function stepHidden(sec) { return !sec || sec.classList.contains("hidden"); }
@@ -2641,9 +2678,13 @@ function visibleSteps() { return stepSections().filter((sec) => !stepHidden(sec)
 function renderRail() {
   const rail = $("railnav");
   if (!rail) return;
+  // The dot is left empty here on purpose: its numeral is the step's VISIBLE
+  // position, which only paintStepChrome() knows, and which changes whenever
+  // a section is hidden. Numbering it from the CONFIG.SECTIONS index instead
+  // put a rail reading 1,2,3,4,6,7… beside a bar reading "Step 5 of 9".
   rail.innerHTML = CONFIG.SECTIONS.map((s, i) =>
     `<button type="button" class="railstep" data-step="${i}" data-tick="${s.id}" data-target="${s.id}"
-             title="${esc(s.label)}"><span class="dot">${i + 1}</span><span class="lbl">${esc(s.step || s.label)}</span></button>`
+             title="${esc(s.label)}"><span class="dot"></span><span class="lbl">${esc(s.step || s.label)}</span></button>`
   ).join("");
   rail.querySelectorAll(".railstep").forEach((b) => {
     b.addEventListener("click", () => go(Number(b.dataset.step)));
@@ -2652,7 +2693,10 @@ function renderRail() {
 
 // Move to a step. Everything about "where am I" is decided here rather than
 // inferred from scroll position: with one step on screen, current is a fact.
-function go(i, focusEl) {
+// `scroll` is false for the first paint: on one page go() scrolls the section
+// into view, and doing that on load put the form under the header and the
+// step rail off the top of the screen before anyone had touched anything.
+function go(i, focusEl, scroll) {
   const secs = stepSections();
   if (!secs.length) return;
   i = Math.max(0, Math.min(secs.length - 1, i));
@@ -2672,39 +2716,89 @@ function go(i, focusEl) {
     b.classList.toggle("current", k === i);
     b.setAttribute("aria-current", k === i ? "step" : "false");
   });
-  const host = secs[i].querySelector(".stepval");
-  if (host) host.appendChild($("valBlock"));
-
-  const vis = visibleSteps(), pos = vis.indexOf(secs[i]) + 1;
-  $("backBtn").disabled = pos <= 1;
-  $("nextBtn").disabled = pos >= vis.length;
-  // On the last step Next has nowhere to go; the real action there is the
-  // stage button inside the Status section, which stays where it is rather
-  // than being moved into this bar - two elements with one id is a bug that
-  // hides for a long time.
-  $("nextBtn").textContent = pos >= vis.length ? "Last step" : "Next →";
-  $("stepcount").querySelector(".sc1").innerHTML =
-    `Step ${pos} of ${vis.length} · <b>${esc(secs[i].dataset.label || "")}</b>`;
-  window.scrollTo({ top: 0, behavior: "auto" });
+  if (onePage()) {
+    // The block belongs above the whole page, not inside one section of it.
+    $("valPark").appendChild($("valBlock"));
+    if (scroll !== false) {
+      secs[i].scrollIntoView({ behavior: "smooth", block: "start" });
+      secs[i].classList.add("flash");
+      setTimeout(() => secs[i].classList.remove("flash"), 900);
+    }
+  } else {
+    const host = secs[i].querySelector(".stepval");
+    if (host) host.appendChild($("valBlock"));
+    if (scroll !== false) window.scrollTo({ top: 0, behavior: "auto" });
+  }
+  // recompute() first, then paint: recompute() is what runs
+  // applyPolishVisibility(), so before it the freshly rendered markup carries
+  // no .hidden at all and every count would be taken from ten steps. It
+  // paints at its own end, so there is nothing to call here.
   recompute();
   if (focusEl) {
     // requestAnimationFrame, not a 400ms timer: there is no smooth scroll to
     // wait out any more, and .focus() on an element in a display:none step
     // does nothing and throws nothing.
-    requestAnimationFrame(() => {
+    const land = () => {
       if (!document.contains(focusEl)) return;
-      focusEl.focus({ preventScroll: false });
+      focusEl.focus({ preventScroll: onePage() });
       const sec = focusEl.closest(".section");
       if (sec) { sec.classList.add("flash"); setTimeout(() => sec.classList.remove("flash"), 900); }
-    });
+    };
+    // One page still smooth-scrolls, so give it a moment; the wizard has
+    // nothing to wait for, one step having replaced the other outright.
+    if (onePage()) setTimeout(land, 380); else requestAnimationFrame(land);
   }
 }
 
 function goBy(d) {
   const secs = stepSections(), cur = secs[state.step || 0];
   const vis = visibleSteps(), pos = vis.indexOf(cur);
+  // A current step that is not in the visible list has no neighbours to walk
+  // to; go() is the thing that knows how to resolve off a hidden index.
+  if (pos < 0) return go(state.step || 0, null, false);
   const next = vis[pos + d];
   if (next) go(secs.indexOf(next));
+}
+
+// The numerals, the counter and Back/Next. Split out of go() because what it
+// writes depends on which sections are hidden, and that is only settled once
+// recompute() has run applyPolishVisibility() - so this is called from the end
+// of recompute(), not from go(). Every number here is a VISIBLE position: a
+// design with Polish hidden is nine steps, numbered one to nine, in the rail
+// and in the bar and in the roll-up alike.
+let painting = false;
+function paintStepChrome() {
+  const secs = stepSections();
+  if (!secs.length) return;
+  const cur = secs[state.step || 0];
+  // The step you are on just became hidden - changing Mix type to D while
+  // standing on Polish. Move rather than leave a blank screen.
+  if (stepHidden(cur) && !onePage() && !painting) {
+    painting = true;
+    try { go(state.step || 0, null, false); } finally { painting = false; }
+    return;
+  }
+  const rail = document.querySelectorAll("#railnav .railstep");
+  let n = 0;
+  secs.forEach((sec, k) => {
+    const dot = rail[k] && rail[k].querySelector(".dot");
+    if (!dot) return;
+    dot.textContent = stepHidden(sec) ? "" : String(++n);
+  });
+  if (onePage()) return;      // no action bar to paint
+  const vis = visibleSteps(), pos = vis.indexOf(cur) + 1;
+  const back = $("backBtn"), next = $("nextBtn"), sc = $("stepcount");
+  if (back) back.disabled = pos <= 1;
+  if (next) {
+    next.disabled = pos >= vis.length;
+    // On the last step Next has nowhere to go; the real action there is the
+    // stage button inside the Status section, which stays where it is rather
+    // than being moved into this bar - two elements with one id is a bug that
+    // hides for a long time.
+    next.textContent = pos >= vis.length ? "Last step" : "Next →";
+  }
+  const line = sc && sc.querySelector(".sc1");
+  if (line) line.innerHTML = `Step ${pos} of ${vis.length} · <b>${esc(cur.dataset.label || "")}</b>`;
 }
 
 /* ---------- 0.45 power chart (large, vertical-table companion) ---------- */
@@ -4004,7 +4098,10 @@ function recompute() {
   const secs = stepSections();
   const here = secs[state.step || 0];
   const hereId = here ? here.dataset.section : null;
-  const rollUp = hereId === "status" || !hereId;
+  // On one page there is no "this step", so the list is the whole design -
+  // which is what the old right-hand rail showed, and each item still says
+  // which section it belongs to and scrolls there.
+  const rollUp = onePage() || hereId === "status" || !hereId;
 
   const missing = outstanding.filter((o) => o.kind !== "warn"), warns = outstanding.filter((o) => o.kind === "warn");
   const all = missing.concat(warns);
@@ -4052,6 +4149,8 @@ function recompute() {
   });
   drawChart();
   computeRapNote();
+  // Last, because everything above may have changed which steps are visible.
+  paintStepChrome();
 }
 
 // Go to the step a section is on, and put the cursor where the item points.
@@ -4067,6 +4166,13 @@ function jumpTo(id, focusFirstEmpty, focusEl) {
   }
   go(i, target);
 }
+
+// Crossing the breakpoint re-places #valBlock and re-paints the rail. Without
+// this, rotating a phone leaves the block inside a section on a desktop
+// layout, or above a wizard that has already hidden nine of its ten steps.
+if (ONE_PAGE.addEventListener) ONE_PAGE.addEventListener("change", () => {
+  if (document.getElementById("dbLayout") && !$("dbLayout").classList.contains("hidden")) go(state.step || 0, null, false);
+});
 
 /* ---------- workflow stage ---------- */
 // The file's history IS the chain of custody - who submitted, who approved,
