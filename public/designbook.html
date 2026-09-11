@@ -630,6 +630,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fflate@0.8.3/umd/index.js"></script>
 <script>
 /* ==================================================================
    CONFIG — everything tunable lives here.
@@ -833,6 +834,113 @@ const CONFIG = {
   // to enforce are re-expressed against that history, and the ones that
   // actually matter are enforced again server-side when an approval is
   // signed - a status carried in a file is a claim, not a fact.
+  /* ---- The MixPack workbook DesignBook hands to KYTC ----
+   *
+   * The artifact SiteManager takes is the MixPack itself, loaded through
+   * MEDL (docs/sitemanager-handoff.md). So an approved design is written
+   * INTO KYTC's own blank template, its nine hidden staging sheets are
+   * evaluated and banked, and the result downloads as <sample id>.xlsm.
+   *
+   * Everything here is an address in that template, verified against
+   * MIXPACK2026_VER12_01.xlsm and a real approved file (#467PA) 2026-09-11.
+   * Two kinds of cell, and the distinction matters:
+   *
+   *   INPUT  - the template holds no formula there. Written as a literal.
+   *   RESULT - the template holds a formula. Where DesignBook holds the
+   *            inputs too (an aggregate's MAT code from its type name), the
+   *            formula is KEPT and a cached value set beside it - Excel
+   *            recomputes the same answer on open. Where it does not (Gmb
+   *            from specimen weights DesignBook never had), the formula is
+   *            DROPPED and the value written plain: Excel's recalc on open
+   *            would otherwise blank it, and the archived record would show
+   *            an empty Gmb next to a staging sheet that carries the number.
+   *
+   * The staging formulas read ~550 Design Data cells, many of them results
+   * (O56-O69, H23-H28, C18, Q14...). Their template formulas use VLOOKUP,
+   * AND, AVERAGE - outside the evaluator's grammar - so the mapper SUPPLIES
+   * their values (evalOnly) rather than deriving them. What it cannot supply
+   * stays blank, exactly as on a partly-filled real MixPack.
+   */
+  MIXPACK: {
+    TEMPLATE: "MIXPACK2026_VER12_01.xlsm",
+    // fflate: 30 KB, zip read/write, no dependencies. Same CDN as the other
+    // three scripts; pinned.
+    FFLATE_CDN: "https://cdn.jsdelivr.net/npm/fflate@0.8.3/umd/index.js",
+    // The nine SiteManager tables plus `discipline`. Data starts on row 8
+    // under a seven-row header block; `discipline` on row 2.
+    STAGING: ["discipline", "t_smpl", "t_cont_smpl", "t_rmks_dtl", "t_smpl_tst", "t_smpl_tstr",
+              "t_tst_rslt_hdr", "t_tst_rslt_dtl", "t_superpave", "t_bit_conc_mixblnd"],
+    FIRST_DATA_ROW: { discipline: 2, default: 8 },
+    // District -> lab. The sample id is district + lab code + "AMD" + letting
+    // year + 4-digit sequence (07640AMD260467), and the lab unit is the LU
+    // number. Only District 07's pair has been read off a real file; an
+    // unknown district leaves both blank and the report says so - MEDL will
+    // refuse a file with no sample id, which is the right failure.
+    DISTRICTS: { "07": { lab: "LU00642", sampleLab: "640" } },
+    // Chart Data is the workbook's input layer for the header. Design Data's
+    // C18 / Q14 / Q16 / H18 / H20 / O8 / R10 / C20 are all formulas over these.
+    CHART: {
+      BID_ITEM: "W14", SUBMITTAL_TYPE: "J7", PLANT: "AO2", TERMINAL: "AJ2", PERF_BINDER: "AJ37",
+      // Reference tables the template carries, read at build time so the
+      // VLOOKUP-derived cells can be supplied. [first row, last row].
+      MIXES:      { col: "A", from: 51, to: 300, cols: { binderCode: "E", grade: "F", esal: "G", matCode: "H", maxSize: "I", nmas: "J", cdId: "M" } },
+      PLANTS:     { key: "AM", name: "AN", from: 2, to: 300 },
+      TERMINALS:  { key: "AH", name: "AI", from: 2, to: 100 },
+      AGG_TYPES:  { key: "AR", code: "AS", from: 2, to: 300 },
+      BINDERS:    { grade: "W", code: "X", from: 1, to: 20 },
+      TEMPS:      { grade: "J", temps: "K", from: 33, to: 36 },
+    },
+    // Design Data addresses, by what the cell is.
+    DD: {
+      CONTRACT: "C8", LETTING: "H8", SAMPLE_ID: "C10", MIX_ID: "H10", COUNTY: "K10", FUNDING: "C12",
+      LAB: "H12", TONS: "Q12", DATE_RECEIVED: "H14", DATE_RELEASED: "H16", DESIGNER: "K16",
+      DEPTH: "K20", APPROVER: "S82", FLAG_NEW_DESIGN: "N80", FLAG_CONTRACTOR_DESIGN: "Q81",
+      REMARKS: "A121", DESIGN_AC: "B49", GMM_AC: "Q25", GMM_DETERMINATION: "R25",
+      // Results the staging sheets read and the template computes with
+      // functions we do not evaluate - supplied from the payload.
+      RESULTS: { binderGrade: "C18", plant: "Q14", mixMatCode: "Q16", terminal: "H18", esal: "H20",
+                 mixType: "O8", submittalType: "R10", binderCode: "C20", combinedGsb: "O23", gse: "O24",
+                 gmmAvg: "R28", rapNote: "A19" },
+      MIX_TEMPS: "K18", REVISED_SIEVES: "T", REVISED_ROW_OFFSET: 46,   // T62..T74 mirror T16..T28
+      // The Criteria column beside the consensus values and the TSR - the
+      // spec limit as the workbook words it. Only what DesignBook already
+      // carries a limit for; the volumetric criteria (VFA, VMA, D/A, %Gmm)
+      // are the Department's tables and stay the template's to fill.
+      CRITERIA: { caa: "P52", faa: "P53", flat_elongated: "P54", sand_equivalent: "P55", va: "P61", tsr: "P72", tsrAdditive: "P73" },
+      // Design Data column O, the summary the staging reads (O56-O75).
+      SUMMARY: { vfa: "O56", vma: "O57", dustRatio: "O58", gmmNini: "O59", gmmNmax: "O60", va: "O61",
+                 unitWeight: "O62", ac: "O63", effAc: "O64", gmm: "O65", absAc: "O66", gsb: "O67",
+                 gse: "O68", film: "O69", tsr: "O72", tsrAdditive: "O73", additivePct: "O74", additiveType: "O75" },
+      // Graphs tab K-cells are the hand-entered design values Design Data's
+      // O-column prefers; writing them makes Excel agree with the staging.
+      GRAPHS: { ac: "K17", gmmNini: "K20", va: "K23", vma: "K26", vfa: "K77", unitWeight: "K80", gmm: "K83", film: "K137", dustRatio: "K140" },
+      AGG: { firstRow: 23, cols: { agp: "A", producer: "C", matCode: "H", type: "J", gsb: "L", pct: "M" } },
+      SIEVES: { jmf: "T", weighUp: "U", rows: { s50: 15, s37_5: 16, s25: 17, s19: 18, s12_5: 19, s9_5: 20, s6_3: 21, s4_75: 22, s2_36: 23, s1_18: 24, s0_6: 25, s0_3: 26, s0_15: 27, s0_075: 28 } },
+      // Four Points. Pb is an input; Gmb (G) and Gmm (I) are results of
+      // weights DesignBook does not hold, written plain (see above).
+      FOURPOINT: { rows: [34, 37, 40, 43], pb: "B", gmb: "G", gmm: "I", va: "J", vma: "M", vfa: "N", unitWeight: "H" },
+      CONSENSUS: { caa: "O52", faa: "O53", flat_elongated: "O54", sand_equivalent: "O55" },
+      GYRATIONS: { nIni: "Q87", nDes: "Q88", nMax: "Q89" },
+    },
+    TSR: { AC: "G18", ADDITIVE_PCT: "H18", ADDITIVE_TYPE: "G20", GMM: "B38",
+           cols: ["B", "C", "D", "E", "F", "G"],
+           rows: { dryThickness: 32, airVoids: 39, dryLoad: 41, saturation: 46, condThickness: 49, condLoad: 53, wet: 54, dry: 55 },
+           AVG: { wet: "H54", dry: "H55", airVoids: "H39", saturation: "H46", ratio: "G57", ratioAdditive: "N57" } },
+    PERF: { AC: "G18", GMM_N: "N24", GMM_B: "B40", CT_AVG: "F48",
+            cols: ["B", "C", "D", "E", "F", "G", "I", "J", "K", "L", "M", "N"],
+            rows: { thickness: 34, dryWt: 35, ssdWt: 36, wtWater: 37, airVoids: 41 }, AVG: { airVoids: "H41" } },
+    HAMBURG: { passRow: { 100: 19, 5000: 20, 10000: 21, 15000: 22, 20000: 23, 25000: 24 }, left: "J", right: "M",
+               maxDef: { left: "J26", right: "M26" }, passMax: { left: "J27", right: "M27" }, sip: { left: "J28", right: "M28" } },
+    // KYCT: label column, value one to the right. Sample ID is the input the
+    // Series Name formula reads; CT index is a result of a curve we never
+    // had, written plain.
+    KYCT: { labelCols: ["A", "C", "E", "G", "I", "K", "M", "O"], rows: { sampleId: 22, ctIndex: 21, seriesName: 16 } },
+    RECYCLE: { row: 12, cols: { amp: "D", plant: "F", matCode: "J", type: "L", pct: "N" }, NOTE: "F18" },
+    PROJECT_ITEMS: { firstRow: 6, cols: { project: "A", line: "B", qty: "C", unit: "D" }, UNIT: "TON" },
+    POLISH: { cols: ["B", "C", "D", "E", "F", "G"], PR_ROW: 17, sieveRows: { s50: 21, s37_5: 22, s25: 23, s19: 24, s12_5: 25, s9_5: 26, s4_75: 27, s2_36: 28, s1_18: 29, s0_6: 30, s0_3: 31, s0_15: 32, s0_075: 33 } },
+    SUBMITTAL_TYPES: { "New Mix Design": "New Mix Design", "Reference Mix Design": "Ref. Mix Design (project change only)" },
+  },
+
   SUBMIT: {
     // Netlify Functions. They are transit, not storage: nothing is kept.
     // There is deliberately no send function - see submitToKYTC().
