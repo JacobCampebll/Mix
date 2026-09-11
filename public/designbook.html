@@ -697,6 +697,24 @@
   .rsub{font-size:10.5px; color:var(--muted); margin-top:2px; line-height:1.35;}
   @media (max-width:700px){ .rvalue{font-size:26px;} }
 
+  /* The polish section's answer, above the matrix rather than under it - the
+     matrix is thirteen sieve rows tall, so a verdict below it is a verdict
+     nobody meets until they scroll past the thing they came to fill in.
+     Same type as a .readout, in a strip that carries the state's colour. */
+  .prverdict{display:flex; flex-direction:column; gap:1px; margin:0 0 16px;
+             padding:12px 16px; border-radius:var(--radius);
+             border:1px solid var(--line); border-left:5px solid var(--line);
+             background:var(--wash);}
+  .prverdict:empty{display:none;}
+  .prverdict .rvalue{font-size:26px; margin-top:0;}
+  .prverdict.ok{border-left-color:var(--ok); background:var(--ok-soft);}
+  .prverdict.ok .rvalue{color:var(--ok);}
+  .prverdict.bad{border-left-color:var(--bad); background:#FBEEEE;}
+  .prverdict.bad .rvalue{color:var(--bad);}
+  .prverdict.warn{border-left-color:var(--flag); background:var(--flag-soft);}
+  .prverdict.warn .rvalue{color:var(--flag);}
+  .prverdict.none .rvalue{color:var(--muted);}
+
   /* The TSR tab's own targets, under the specimen table. */
   .tsrtargets{display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:12px;
               padding-top:10px; border-top:1px solid var(--line);
@@ -3676,6 +3694,7 @@ function polishHTML(section) {
       KYTC's approved aggregate types; what the list says stays printed under each one, and the class can be changed
       here when the list does not settle it. Set whether each is a coarse or a fine source, then enter its own
       gradation. ${specLinkify(P.CITE)} restricts Type A and Type B; Type D is unrestricted.</div>
+    <div id="prVerdict" class="prverdict"></div>
     <div class="prscroll"><div id="prGrid"></div></div>
     <div id="prResults" class="prresults"></div>
     <div class="prnote small">${specLinkify(P.CLASS_B_REVIEW_NOTE)}</div>
@@ -3907,6 +3926,34 @@ function polishComponents() {
   }));
 }
 
+// The whole section in one word. Every check is ANDed - each is its own line
+// below - so the banner is the worst of them, with the same three states the
+// lines use: proven ok, proven not ok, or not provable because a component is
+// not on KYTC's approved list. Deliberately NOT a blocker: a design that does
+// not qualify is still complete and still submittable, the same footing
+// Consensus and TSR sit on. It says what the design IS, not what to do.
+function polishVerdict(r) {
+  if (!r) return { state: "none", word: "\u2014", sub: "Add the aggregate structure first." };
+  if (!r.ready) return { state: "none", word: "\u2014", sub: r.reason || "Not enough entered yet." };
+  if (!r.restricted) return { state: "ok", word: "No restriction",
+                              sub: "403.03.03 A) restricts Type A and Type B only." };
+  const checks = r.checks || [];
+  const failed = checks.filter((c) => !c.ok);
+  const unproven = failed.filter((c) => c.unproven);
+  const hard = failed.filter((c) => !c.unproven);
+  if (!failed.length) {
+    return { state: "ok", word: "In spec",
+             sub: `Meets every polish-resistant requirement (${checks.length} check${checks.length === 1 ? "" : "s"}).` };
+  }
+  if (!hard.length) {
+    return { state: "warn", word: "Not proven",
+             sub: `${unproven.length} check${unproven.length === 1 ? "" : "s"} cannot be settled - a component is not on ` +
+                  `KYTC's approved aggregate list, so its polish class is unknown.` };
+  }
+  return { state: "bad", word: "Out of spec",
+           sub: hard.map((c) => c.label).join(" \u00b7 ") };
+}
+
 function renderPolish() {
   renderPolishGrid(false);
   const host = $("prResults");
@@ -3923,8 +3970,15 @@ function renderPolish() {
   // The grid itself already says "add aggregate components first" when there
   // are none. Saying it again in different words directly underneath read as
   // two separate complaints about the same empty section.
-  if (!comps.length) { host.innerHTML = ""; return null; }
+  const paint = (r) => {
+    const v = polishVerdict(r), el = $("prVerdict");
+    if (!el) return;
+    el.className = "prverdict " + v.state;
+    el.innerHTML = `<div class="rvalue">${esc(v.word)}</div><div class="rsub">${esc(v.sub)}</div>`;
+  };
+  if (!comps.length) { host.innerHTML = ""; paint(null); return null; }
   const r = evaluatePolish(comps, polishMixType(effectiveMix()));
+  paint(r);
   if (!r.ready) { host.innerHTML = `<div class="prempty">${esc(r.reason)}</div>`; return r; }
   const t = r.totals || {};
   const totals = r.restricted
