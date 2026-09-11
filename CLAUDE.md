@@ -468,6 +468,61 @@ TBD — cite the governing spec section when encoding a limit in code.
   since a button and an anchor sit on the same line a pixel apart.
 
 
+- **DesignBook is a ten-step wizard as of 2026-09-11, one step on screen at a
+  time.** It was a single scrolling sheet with a section list down the left and
+  an outstanding-items rail down the right; both rails are gone. The steps
+  **are** `CONFIG.SECTIONS`, in order, derived - the count is never written
+  down, which is what makes "adding a section adds a step" true, and each
+  section now carries a short `step` name for the rail beside its long
+  `label`. `state.step` is the index into `CONFIG.SECTIONS`, not the visible
+  position: a hidden section (Polish on a Type D mix) is skipped by Next/Back
+  and left out of both numerals, so that mix reads "Step 5 of 9".
+  Four things about the rebuild are worth carrying forward.
+  **`recompute()` is still the single producer of `outstanding`** - all that
+  changed is which slice renders. Resist a second list-builder for the step
+  view; the moment there are two, one of them is wrong.
+  **`#valBlock` is ONE node that `go()` moves into the active step's
+  `.stepval`, and `renderForm()` parks it in `#valPark` before rewriting
+  `#sections`** - without that park it is destroyed with the sections and
+  every later `msg($("saveMsg"), ...)` writes to nothing. The alternative
+  considered and rejected was moving `#advanceStage` into the action bar the
+  same way: `statusHTML()` re-creates it on every `renderForm()`, so the
+  moved node and the new one would both answer to `getElementById`. The
+  submit button stays in the Status step's body and the bar's Next simply
+  disables there.
+  **`#saveMsg` is in that block and NOT in the action bar**, deliberately: its
+  content is not a status word. The legacy importer writes its whole
+  found / not-cached / mismatch summary there, and so does the MixPack
+  generator's list of what the design lacks - a 44px fixed bar clips exactly
+  the message you cannot afford to lose.
+  **Anything the old page inferred from scroll position is now a fact.** The
+  `IntersectionObserver` scroll-spy is gone, and `jumpTo()` no longer waits on
+  a 400ms timer before focusing - there is no smooth scroll left to wait out,
+  and `.focus()` inside a `display:none` step does nothing and reports
+  nothing, which is the general trap: **a measurement or a focus inside a
+  hidden step silently returns zero or no-ops**, so any check written against
+  the wizard has to `go(i)` first and measure only `.section.active`. What is
+  safe there: `collectForm()` (verified byte-identical on a re-imported
+  467PA), the review PDF's build and round-trip, and both charts, which use a
+  fixed viewBox and measure nothing.
+  The rail wraps rather than scrolling sideways, same call as the section list
+  the day before, and is not sticky - the fixed action bar carries Back/Next
+  for the middle of a long step. Below 700px it is a ten-column grid of bare
+  numerals: a wrapping flex row left an orphan tenth circle on a second row,
+  and at 360px the ten cells are (328 - 27) / 10 = 30.1px, so the dot is 24px
+  and not 26 - a 26px dot inside 2px of padding overflowed the row by 12px.
+  **Two touch-target facts from the same round, both measured.** `.box` is
+  44px and 16px below 700px, and the SIZE is a bug fix rather than taste: iOS
+  zooms the whole page in whenever a focused input is under 16px, which on a
+  form of forty fields was a zoom and a pinch-back per field. And
+  `.rowitem .box` / `.prtable .box` have to restate it, because a two-class
+  rule outranks a one-class `.box` whatever the source order - the same
+  cascade trap as the `@media` gotcha above, one rung sideways. Fields and
+  aggregate row cards go to one column below 560px, where 16px type in two
+  columns clipped its own values. What still clips at 390px is two genuinely
+  long strings (a producer name at 387px, the RAP note) and no layout fixes
+  that - the combo popup and the `title` attribute are the answer there.
+
 - **The section head is a navy band with the gold rule under it - Banded, one
   of five treatments, chosen by Jake 2026-09-11.** The other four were built
   or mocked and are gone: Plates and Provenance were already the page's look
