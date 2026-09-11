@@ -400,6 +400,13 @@ TBD — cite the governing spec section when encoding a limit in code.
   the convention, not decoration. Worth checking with
   `getComputedStyle(el).position` at a phone viewport rather than by eye,
   since a dead override looks identical to a live one in the source.
+  **The one-column breakpoint is 1240px since 2026-09-11**, up from 1080: the
+  two rails plus gaps take 450px, so at 1100-1200px three columns left the form
+  510-630px and the aggregate MAT code, Gsb and type cells and the TSR loads
+  clipped (measured by `scrollWidth > clientWidth`, zero clipped after). It is
+  the same step the row tables take (`--w2`), so there is one "medium" line,
+  and in one-column mode the section rail runs as a wrapping chip row rather
+  than a 400px column above the form.
 
 
 - **A native `<datalist>` is not a typeahead, and it looks exactly like
