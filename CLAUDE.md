@@ -1311,6 +1311,33 @@ read-only, so a write test goes through `apply_migration` and ends in
   `aggregates` is 179 rows now. This gap is closed; Clover Bottom rows
   resolve by AGP number like every other producer.
 
+- **Open for Andrew/Tate, and the sharper half of the fine-column question:
+  the coarse route counts MATERIAL, the fine route counts SOURCES.** Raised
+  by Jake 2026-09-11 - "are you counting the fine portion of the coarse
+  aggregate in the fine portion?" The answer is no, and the asymmetry is
+  real: `plus4Total`/`plus4ClassA` are `pct * (100 - p4) / 100`, so the +4
+  route is actual retained material, while `fineClassA`/`fineClassB` are
+  `pct * inClass(...)` gated on `role === "fine"` - a coarse-designated
+  component contributes NOTHING to the fine total even though part of it
+  passes the #4, and a fine-designated one contributes its WHOLE blend
+  percentage rather than just its minus-#4 fraction. The spec's wording
+  ("30% of total combined from a Class B fine SOURCE") is what the role
+  reading rests on; nobody has confirmed it.
+  **Worked on #467PA, because it settles what is actually at stake.** By
+  role, fine Class A is 10.0% (the Natural Sand alone); by material it is
+  15.1% (adding the Dolomite Class A's 5.31%, being 30% blend at 17.7%
+  passing the #4). **Twenty percent is required, so the design fails either
+  way** - changing the interpretation does not flip it, which means this
+  question and the approval question are separate.
+  **What decides #467PA is one component's class.** `Dol. #10's Washed` is
+  10% of the blend at 84.2% passing the #4 and carries NO class in
+  `aggregate_types`, but the uploaded workbook declared it polish-resistant
+  (the page already warns about exactly this disagreement). Make it Class A
+  and the design passes under BOTH readings - 20.0% by role, 23.5% by
+  material. That is the likeliest explanation of the approval, and it is a
+  reference-data question rather than an arithmetic one.
+  The arithmetic has deliberately NOT been changed pending this.
+
 - **Open for Andrew: does KYTC enforce 403.03.03 A)'s *fine* aggregate
   column?** The spec table gives Type B two columns — coarse (100% Class B,
   or +4 at least 50% Class A) and fine (30% of total combined from a Class B
