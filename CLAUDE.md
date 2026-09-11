@@ -1238,6 +1238,42 @@ read-only, so a write test goes through `apply_migration` and ends in
   the +4/coarse side, which is probably why it went through. Not resolved
   here; whichever way it goes it is a one-line change.
 
+- **The "no class = definitively not polish-resistant" rule two entries up is
+  true only as a reading of `aggregate_types`, and that table is not the
+  Department's actual last word on polish class — the LAM (List of Approved
+  Materials) is, and it certifies per PRODUCER, not per generic material
+  name.** Found 2026-09-11 chasing a real DesignBook screenshot where a
+  Haydon Materials dolomite sand and a Watson Gravel natural sand both
+  autopopulated "Not polish-resistant" from `aggregate_types`, and the LAM
+  says otherwise for both. Confirmed against the live LAM (pp. 37-51, Class
+  A+/A/B Polish-Resistant Aggregate Source List, dated 12/22/2025): **Haydon
+  Materials, LLC — Airport Rd. @ Bardstown (AGP027501) is Class A dolomite,
+  restricted to Bench B** — a real approval `aggregate_types` cannot encode,
+  since that table has no producer dimension at all, only a type_name one.
+  Worse, the LAM certifies at **producer + bench/ledge** grain, finer than
+  either `aggregates` (producer only) or `aggregate_types` (type name only)
+  — the same quarry can have benches that qualify and benches that don't.
+  **Natural (river) sand is the other half, and it is not a data gap at
+  all — confirmed by Andrew: it is automatically Class A for any approved
+  producer, no bench check, independent of this list entirely** (the LAM's
+  own p.37 text: polish-resistant fine aggregate "includes... natural
+  sands... which are on the Aggregate Source List" — the general producer
+  list, not the lettered one). So `aggregate_types`' `Natural Sand` row being
+  null is correct as data; the bug is that the page's PR logic reads null as
+  "proven not PR" for every type, when for natural sand specifically it
+  should mean "always Class A." Whether conglomerate sand and
+  `Gravel Sand-Crushed` get the same automatic treatment is NOT yet
+  confirmed — open question.
+  A `polish_resistant_sources` table (agp_number, lithology, class,
+  restriction_note) exists live, seeded with all 45 producer/bench entries
+  from pp. 37-51 — **staged only as of 2026-09-11, not yet queried by
+  `designbook.html`** (Andrew asked to hold wiring it in). Full extraction,
+  every entry, and the open questions (does A+ imply A the way this table
+  assumes; does the sand rule extend past natural sand; bench-level truth
+  has nowhere to live on the current Aggregate Structure form) are in
+  `docs/lam-polish-resistant-sources.md` and `supabase/polish_resistant_sources.sql`.
+  Whoever wires this in next should start there rather than re-deriving it.
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
