@@ -4109,6 +4109,9 @@ function recompute() {
   const mine = { missing: items.filter((o) => o.kind !== "warn").length,
                  warns: items.filter((o) => o.kind === "warn").length };
 
+  // The step number is only meaningful in the shape that has steps. On one
+  // page it names a place the reader cannot go - the same reason the rail
+  // keeps its labels on a phone rather than showing bare numerals.
   const stepNo = (id) => {
     const sec = secs.find((x) => x.dataset.section === id);
     const vis = visibleSteps();
@@ -4117,7 +4120,7 @@ function recompute() {
   };
   const item = (o, i) =>
     `<div class="vitem${o.kind === "warn" ? " warn" : ""}" data-idx="${i}"><span class="flag${o.kind === "warn" ? " warn" : ""}"></span>
-       <span>${rollUp ? `<a>${esc(o.label)}</a> — ` : ""}${esc(o.text)}</span>${rollUp ? `<span class="vstep">${esc(stepNo(o.id))}</span>` : ""}</div>`;
+       <span>${rollUp ? `<a>${esc(o.label)}</a> — ` : ""}${esc(o.text)}</span>${rollUp && !onePage() ? `<span class="vstep">${esc(stepNo(o.id))}</span>` : ""}</div>`;
 
   if (!list || !sub) { /* nothing to render into - fall through to the charts */ }
   else if (rollUp) {
