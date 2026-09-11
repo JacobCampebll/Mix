@@ -802,8 +802,16 @@
                   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .stepcount .sc1 b{color:var(--navy); font-weight:600;}
   .compwrap{display:flex; align-items:center; gap:9px;}
-  .bar{flex:1; min-width:60px; height:5px; background:var(--line); border-radius:3px; overflow:hidden;}
-  .bar i{display:block; height:100%; width:0; background:var(--ok); transition:width .25s;}
+  /* The completeness meter. Sky rather than the ok-green, matching the step
+     rail's own done-marker - one blue for "this much is finished", in both
+     places (Jake, 2026-09-11). Gold was the other candidate and measures
+     1.12:1 against the old --line track, which is a filled bar you cannot
+     tell from an empty one; sky is 1.63 there and 2.16 against the paler
+     --wash track used here, so the track lightens and the bar goes 5px to
+     6px to make up the rest. */
+  .bar{flex:1; min-width:60px; height:6px; background:var(--wash);
+       box-shadow:inset 0 0 0 1px var(--line); border-radius:3px; overflow:hidden;}
+  .bar i{display:block; height:100%; width:0; background:var(--sky); transition:width .25s;}
   .compnote{font-size:11px; color:var(--muted); white-space:nowrap;
             font-family:'Roboto Mono',monospace;}
   /* Below 700px there are no steps to move between, so the bar goes entirely
