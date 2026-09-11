@@ -363,6 +363,16 @@
   .fp-defaultnote{font-size:11px; color:var(--flag); display:none;}
 
   /* polish-resistant: a component-per-column matrix, like the MixPack tab */
+  /* TSR: one line of arithmetic under the specimen table, then anything
+     worth saying about a specimen. */
+  .tsrresults{margin-top:12px;}
+  .tsrline{font-size:12px; color:var(--ink); display:flex; flex-wrap:wrap; gap:6px; align-items:baseline;}
+  .tsrline b{font-size:14px; color:var(--accent);}
+  .tsrline .sep{color:var(--line);}
+  .tsrline .ok{color:var(--ok);}
+  .tsrline .bad{color:var(--bad);}
+  .tsrwarn{margin:8px 0 0; padding-left:18px; font-size:11px; color:var(--muted); line-height:1.5;}
+
   .prnote{font-size:12px; color:var(--muted); line-height:1.5; max-width:78ch; margin-bottom:12px;}
   .prnote.small{font-size:11px; margin:10px 0 0;}
   .prempty{font-size:12px; color:var(--muted); padding:10px 0;}
@@ -1052,6 +1062,35 @@ const CONFIG = {
     // ssd_wt / wt_water / air_voids.
     PERF_SPECIMENS: { sheet: "perfSpec", cols: ["B", "C", "D", "E", "F", "G", "I", "J", "K", "L", "M", "N"],
                       rows: { dry_wt: 35, ssd_wt: 36, wt_water: 37, air_voids: 41 } },
+    /* The TSR tab's six specimens (the no-additive set, columns B..G, average
+     * in H). Row numbers verified identical in the 12.1 template and in two
+     * real files, one of each version, 2026-09-11.
+     *
+     * WHICH THREE ARE CONDITIONED IS NOT FIXED. #467PA conditioned 1-3 and
+     * broke 4-6 dry; the Ver 11.3 file did the opposite. The workbook's own
+     * discriminator is the CONDITIONED THICKNESS row (49): its dry-strength
+     * formula blanks itself the moment that cell has a value. So read row 49,
+     * do not assume, and do not infer it from the order.
+     *
+     * Strengths are CARRIED, never recomputed. The sheet's psi is
+     * 2P / (pi * d * t) with both in inches, and it takes t for a conditioned
+     * specimen from row 49 - which in that Ver 11.3 file reads 150, the
+     * DIAMETER, not the 95 mm height in row 32. Recomputing at 95 would turn
+     * its approved 83.5% TSR into 131%. Carrying the value keeps DesignBook
+     * agreeing with the document KYTC approved; `thickness` is imported too
+     * so the page can point the oddity out rather than silently absorb it.
+     *
+     * Saturation is row 46, the INITIAL saturation under "Saturated" - not
+     * row 52, which is the same measurement taken again after the 24-hour
+     * 140 F conditioning and is always higher. The 65 +/- 5 % target the tab
+     * prints on itself is the initial figure, so reading 52 flags every
+     * correctly-run test: #467PA's three specimens are 88.6 / 84.8 / 72.2
+     * there but 69.7 / 66.1 / 61.8 in row 46, all inside the window.
+     */
+    TSR_SPECIMENS: { sheet: "tsr", cols: ["B", "C", "D", "E", "F", "G"],
+                     rows: { sample_id: 30, dry_thickness: 32, air_voids: 39, dry_load: 41,
+                             cond_thickness: 49, saturation: 46, cond_load: 53,
+                             wet_strength: 54, dry_strength: 55 } },
     // Hamburg rut-by-pass table: Pass Count in G, left rut in J, right rut in M.
     HAMBURG_CURVE: { sheet: "hamburg", passRow: { 100: 19, 5000: 20, 10000: 21, 15000: 22, 20000: 23, 25000: 24 },
                      left: "J", right: "M" },
@@ -1268,6 +1307,31 @@ const CONFIG = {
     },
   },
 
+  /* ---- TSR specimen conditions ----
+   *
+   * The targets the TSR tab prints on itself (A17:A20), which is ASTM D 4867
+   * as KYTC runs it: compact to 95.0 mm, 7.0 +/- 1.0 % air voids, and
+   * condition to 65.0 +/- 5.0 % initial saturation. A specimen outside
+   * either one is a WARNING, never a blocker - the test was run, and whether
+   * to accept it is the Department's call under KM 64-443.
+   *
+   * MIN_PER_SET is three: the ratio is an average of three dry against three
+   * conditioned, and a set short of that is worth saying out loud.
+   *
+   * RATIO_TOLERANCE is how far the ratio computed from these specimens may
+   * sit from the TSR the workbook reported before the page says they
+   * disagree. Both come from the same file, so any gap is a sign the file
+   * was edited after the fact or a specimen was left out.
+   */
+  TSR: {
+    CITE: "KYTC 403.03.03 C) 3)",
+    THICKNESS_MM: 95.0, THICKNESS_TOL: 5.0,
+    AIR_VOIDS: 7.0, AIR_VOIDS_TOL: 1.0,
+    SATURATION: 65.0, SATURATION_TOL: 5.0,
+    MIN_PER_SET: 3,
+    RATIO_TOLERANCE: 0.5,
+  },
+
   /* ---- Polish-resistant aggregate: KYTC 403.03.03 A) ----
    *
    * 2026 Standard Specifications, Section 400 Asphalt Pavements, pp. 403-3/4.
@@ -1352,6 +1416,10 @@ const CONFIG = {
     total_tons: 0,
     // TSR tab. The ratio itself is a whole percent; the strengths a tenth.
     tsr_pct: 0, tsr_pct_additive: 0, tsr_wet_strength: 1, tsr_dry_strength: 1,
+    // Per-specimen columns. These are formula cells on the TSR tab, so they
+    // arrive as full floats (67.225760605149176 psi) - see the row-importer
+    // note in this file's gotchas.
+    thickness: 1, saturation: 1, load: 1, strength: 1,
     // Hamburg: the deformations are millimetres to three places; the pass
     // counts and stripping-inflection points are General in the workbook.
     hamburg_left_maxdef: 3, hamburg_right_maxdef: 3,
@@ -1561,6 +1629,29 @@ const CONFIG = {
         { key: "tsr_dry_strength", label: "Dry strength (psi)",         type: "number", req: false, mono: true },
         { key: "tsr_wet_strength", label: "Wet strength (psi)",         type: "number", req: false, mono: true },
         { key: "tsr_additive",     label: "Anti-strip additive & %",    type: "text",   req: false },
+      ],
+      // The six specimens behind the ratio. Condition is a real column, not
+      // an order convention: see CONFIG.LEGACY.TSR_SPECIMENS for why, and
+      // note the importer reads it from the workbook's conditioned-thickness
+      // row rather than assuming 1-3 or 4-6.
+      rows: [
+        {
+          key: "tsr_specimens", heading: "Specimens", max: 6,
+          addLabel: "+ add TSR specimen (up to 6)",
+          grid: ".7fr 1fr .8fr .85fr .85fr .85fr .85fr auto",
+          columns: [
+            { key: "specimen",   label: "Specimen",       type: "text",   req: true,  mono: true },
+            { key: "condition",  label: "Condition",      type: "select", req: true,
+              options: ["Dry", "Conditioned"] },
+            { key: "thickness",  label: "Thick. (mm)",    type: "number", req: false, mono: true },
+            { key: "air_voids",  label: "Air voids (%)",  type: "number", req: false, mono: true },
+            // Initial saturation (the tab's row 46), which is what the
+            // 65 +/- 5 target governs - not the higher post-conditioning one.
+            { key: "saturation", label: "Initial sat. (%)", type: "number", req: false, mono: true },
+            { key: "load",       label: "Load (lbf)",     type: "number", req: false, mono: true },
+            { key: "strength",   label: "Strength (psi)", type: "number", req: false, mono: true },
+          ],
+        },
       ],
     },
     {
@@ -3080,6 +3171,93 @@ function computeConsensus() {
   });
 }
 
+/* ---------- TSR from the six specimens ----------
+ *
+ * The ratio is an average of conditioned strengths over an average of dry
+ * ones - exactly what the workbook's H54/H55/G57 do - so this is the same
+ * arithmetic on the same carried numbers, not a re-derivation. Strength is
+ * never recomputed from load and thickness: see CONFIG.LEGACY.TSR_SPECIMENS
+ * for the real approved file that would break if it were.
+ *
+ * Pure, so it can be reasoned about without the DOM: rows in, summary out.
+ */
+function tsrSummary(rows) {
+  const T = CONFIG.TSR;
+  const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+  const used = (rows || []).filter((r) =>
+    ["thickness", "air_voids", "saturation", "load", "strength"].some((k) => String(r[k] || "").trim() !== ""));
+  if (!used.length) return null;
+
+  const cond = used.filter((r) => String(r.condition || "").toLowerCase().startsWith("cond"));
+  const dry = used.filter((r) => !String(r.condition || "").toLowerCase().startsWith("cond"));
+  const mean = (list, key) => {
+    const v = list.map((r) => num(r[key])).filter((n) => n != null);
+    return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+  };
+  const condAvg = mean(cond, "strength"), dryAvg = mean(dry, "strength");
+  const ratio = condAvg != null && dryAvg ? (condAvg / dryAvg) * 100 : null;
+
+  const warn = [];
+  const off = (n, target, tol) => n != null && Math.abs(n - target) > tol + 1e-9;
+  used.forEach((r, i) => {
+    const name = r.specimen ? `Specimen ${r.specimen}` : `Specimen ${i + 1}`;
+    if (off(num(r.air_voids), T.AIR_VOIDS, T.AIR_VOIDS_TOL)) {
+      warn.push(`${name} is ${fmt(num(r.air_voids), 1)}% air voids; the target is ` +
+                `${T.AIR_VOIDS} ± ${T.AIR_VOIDS_TOL}.`);
+    }
+    const isCond = String(r.condition || "").toLowerCase().startsWith("cond");
+    if (isCond && off(num(r.saturation), T.SATURATION, T.SATURATION_TOL)) {
+      warn.push(`${name} reached ${fmt(num(r.saturation), 1)}% saturation; the target is ` +
+                `${T.SATURATION} ± ${T.SATURATION_TOL}.`);
+    }
+    // Thickness is not a result, but it divides into the psi, so a wrong one
+    // changes the ratio silently - a real Ver 11.3 file carries the 150 mm
+    // diameter here instead of the 95 mm height.
+    if (off(num(r.thickness), T.THICKNESS_MM, T.THICKNESS_TOL)) {
+      warn.push(`${name} is ${fmt(num(r.thickness), 1)} mm thick, not ${T.THICKNESS_MM} — ` +
+                `the strength is computed from it, so the ratio moves with it.`);
+    }
+  });
+  if (cond.length < T.MIN_PER_SET || dry.length < T.MIN_PER_SET) {
+    warn.push(`${cond.length} conditioned and ${dry.length} dry; the ratio averages ` +
+              `${T.MIN_PER_SET} of each.`);
+  }
+  const reported = num(fieldValue("tsr_pct"));
+  const disagrees = ratio != null && reported != null &&
+    Math.abs(ratio - reported) > CONFIG.TSR.RATIO_TOLERANCE;
+  if (disagrees) {
+    warn.push(`These specimens give ${fmt(ratio, 1)}%, but the reported TSR is ${fmt(reported, 1)}%.`);
+  }
+  return { used, cond, dry, condAvg, dryAvg, ratio, reported, disagrees, warn };
+}
+
+// The summary line under the specimen table, and the same warnings the rail
+// shows. Rebuilt on every recompute, like the consensus notes.
+function computeTSR() {
+  const sec = document.querySelector('[data-section="tsr"]');
+  if (!sec) return null;
+  const list = sec.querySelector('[data-rowlist="tsr_specimens"]');
+  const s = tsrSummary(list ? Array.from(list.children).map(rowValuesOf) : []);
+  let host = sec.querySelector(".tsrresults");
+  if (!host) {
+    host = document.createElement("div");
+    host.className = "tsrresults";
+    sec.appendChild(host);
+  }
+  if (!s) { host.innerHTML = ""; return null; }
+  const parts = [
+    `<span><b>${fmt(s.ratio, 1)}%</b> from these specimens</span>`,
+    `<span>conditioned ${fmt(s.condAvg, 1)} psi (${s.cond.length})</span>`,
+    `<span>dry ${fmt(s.dryAvg, 1)} psi (${s.dry.length})</span>`,
+  ];
+  if (s.reported != null) {
+    parts.push(`<span class="${s.disagrees ? "bad" : "ok"}">reported ${fmt(s.reported, 1)}%</span>`);
+  }
+  host.innerHTML = `<div class="tsrline mono">${parts.join('<span class="sep">·</span>')}</div>` +
+    (s.warn.length ? `<ul class="tsrwarn">${s.warn.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : "");
+  return s;
+}
+
 /* ---------- validation rail + nav ticks ---------- */
 function recompute() {
   const outstanding = [];
@@ -3189,6 +3367,16 @@ function recompute() {
       outstanding.push({ id: "consensus", label, kind: "warn",
         text: `${fl} ${fieldValue(c.key)} is outside the limit (${c.text}) - ${CONFIG.CONSENSUS_CRITERIA.CITE}` });
     });
+  }
+
+  // TSR: the specimens behind the ratio. Non-blocking, same footing as
+  // Polish and Consensus - the test was run, and whether an out-of-target
+  // specimen is acceptable is the Department's call under KM 64-443.
+  const ts = computeTSR();
+  if (ts && ts.warn.length) {
+    const sec = document.querySelector('[data-section="tsr"]');
+    const label = sec ? sec.dataset.label : "Tensile Strength Ratio (TSR)";
+    ts.warn.forEach((w) => outstanding.push({ id: "tsr", label, kind: "warn", text: w }));
   }
 
   const list = $("vallist"), sub = $("valsub");
@@ -3457,7 +3645,7 @@ function extractLegacy(wb, ctx) {
   // The workbook's own polish YES/NO per component, kept so the rail can say
   // where it disagrees with KYTC's approved list. Never imported as an answer.
   let polishClaims = null;
-  const tables = { aggregate: [], ct: [], perf_specimens: [], hamburg_curve: [], fourpoint: [] };
+  const tables = { aggregate: [], ct: [], perf_specimens: [], hamburg_curve: [], fourpoint: [], tsr_specimens: [] };
 
   function chase(chain) {
     const tried = [];
@@ -3638,6 +3826,46 @@ function extractLegacy(wb, ctx) {
     log.push({ field: "perf specimens", source: `${L.SHEET_NAMES[P.sheet]} rows ${Object.values(P.rows).join("/")}`,
                value: tables.perf_specimens.length, status: tables.perf_specimens.length ? "found" : "missing",
                note: tables.perf_specimens.length ? "" : "no specimen weights entered" });
+  }
+
+  { // TSR specimens: one column per specimen on the TSR tab.
+    //
+    // Condition comes from the workbook, not from the column order: a
+    // specimen with a conditioned thickness (row 49) was conditioned, which
+    // is the same test the sheet's own dry-strength formula applies. #467PA
+    // conditioned 1-3, the Ver 11.3 file conditioned 4-6.
+    const T = L.TSR_SPECIMENS, ws = S[T.sheet], spec = rowSpec("tsr_specimens");
+    const num = (col, rowNo) => {
+      const c = legacyCell(ws, `${col}${rowNo}`);
+      return c.status === "found" ? coerce(c.value, "number") : "";
+    };
+    T.cols.forEach((col, i) => {
+      if (!ws || tables.tsr_specimens.length >= spec.max) return;
+      const condT = num(col, T.rows.cond_thickness), dryT = num(col, T.rows.dry_thickness);
+      const conditioned = condT !== "";
+      const load = conditioned ? num(col, T.rows.cond_load) : num(col, T.rows.dry_load);
+      const strength = conditioned ? num(col, T.rows.wet_strength) : num(col, T.rows.dry_strength);
+      const id = legacyCell(ws, `${col}${T.rows.sample_id}`);
+      const row = {
+        specimen: id.status === "found" && String(id.value).trim() !== ""
+          ? String(id.value).trim() : String(i + 1),
+        condition: conditioned ? "Conditioned" : "Dry",
+        thickness:  roundTo(conditioned ? condT : dryT, CONFIG.DP.thickness),
+        air_voids:  roundTo(num(col, T.rows.air_voids), CONFIG.DP.air_voids),
+        saturation: conditioned ? roundTo(num(col, T.rows.saturation), CONFIG.DP.saturation) : "",
+        load:       roundTo(load, CONFIG.DP.load),
+        strength:   roundTo(strength, CONFIG.DP.strength),
+      };
+      // A column with nothing but its printed sample number is an empty slot.
+      if ([row.thickness, row.air_voids, row.load, row.strength].some((v) => v !== "")) {
+        tables.tsr_specimens.push(row);
+      }
+    });
+    const n = tables.tsr_specimens.length;
+    const cond = tables.tsr_specimens.filter((r) => r.condition === "Conditioned").length;
+    log.push({ field: "TSR specimens", source: `${L.SHEET_NAMES[T.sheet]} rows ${T.rows.dry_thickness}-${T.rows.dry_strength}`,
+               value: n, status: n ? "found" : "missing",
+               note: n ? `${cond} conditioned, ${n - cond} dry` : "no specimen data entered" });
   }
 
   { // Hamburg rut-by-pass fixed table
@@ -4586,14 +4814,19 @@ async function buildReviewPDF(payload) {
     // anything - so a blank here really does mean "not stated".
     tsr(section) {
       const pct = hdNum(values.tsr_pct, 0), withAdd = hdNum(values.tsr_pct_additive, 0);
-      if (pct === "" && withAdd === "") return;
-      sectionHead(section.label);
+      const spec = rowTables(section)[0];
+      if (pct === "" && withAdd === "" && !spec) return;
+      sectionHead(section.label, spec ? RW.headH + Math.min(6, spec.body.length) * RW.rowH + 26 : 0);
       const list = [];
       if (pct !== "") list.push(["TSR", pct + "%"]);
       if (withAdd !== "") list.push(["TSR with additive", withAdd + "%"]);
       list.push(["Binder grade", values.binder_grade || "-"]);
       list.push(["Anti-strip additive", values.tsr_additive || "not stated"]);
       pairs(list, { cols: 4 });
+      // The specimens behind the ratio. A reviewer checking a TSR wants to
+      // see which three were conditioned and what each one broke at, which
+      // is the whole reason they are imported rather than just the average.
+      if (spec) table(spec);
     },
     // Binder alone above the specimens; KYCT and the Hamburg readings side
     // by side below, instead of three stacked full-width tables.
