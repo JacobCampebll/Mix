@@ -687,6 +687,16 @@
     .dvrow{grid-template-columns:minmax(0,1fr) 76px;}
     .dvrow .l{font-size:10px;}
   }
+  /* A readout: a computed figure given a grid cell, so it reads as a result
+     rather than as something to fill in. Bigger than a field's value on
+     purpose - it is the number the whole tab exists to produce. */
+  .field.readout{justify-content:flex-start;}
+  .rvalue{font-size:30px; font-weight:600; line-height:1.15; color:var(--navy);
+          letter-spacing:-.01em; margin-top:2px;}
+  .rvalue.ok{color:var(--ok);} .rvalue.bad{color:var(--bad);}
+  .rsub{font-size:10.5px; color:var(--muted); margin-top:2px; line-height:1.35;}
+  @media (max-width:700px){ .rvalue{font-size:26px;} }
+
   /* The TSR tab's own targets, under the specimen table. */
   .tsrtargets{display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:12px;
               padding-top:10px; border-top:1px solid var(--line);
@@ -2173,6 +2183,11 @@ const CONFIG = {
         // different air-void target and are bulked separately. Left blank the
         // page uses the design Gmm, which is what a same-day test would give.
         { key: "tsr_gmm",          label: "Max. sp. gravity (Gmm)",     type: "number", req: false, mono: true },
+        // The ratio these specimens actually give, beside the values it is
+        // built from. Not a field: nothing is collected or saved from it -
+        // computeTSR() writes it, the same figure the summary line prints.
+        { type: "readout", label: "TSR percentage", out: "tsr_ratio",
+          sub: "from the specimens below" },
       ],
       // The six specimens behind the ratio. Condition is a real column, not
       // an order convention: see CONFIG.LEGACY.TSR_SPECIMENS for why, and
@@ -2449,6 +2464,17 @@ function inputFor(f, value) {
 
 function gridHTML(fields) {
   return `<div class="grid">` + fields.map((f) => {
+    // A readout is not a field: no input, nothing collected, nothing saved -
+    // it is a computed figure given a cell in the grid so it sits beside the
+    // values it comes from rather than in a footnote under the table. It
+    // declares `out`, which is the data-out key whatever computes it writes.
+    if (f.type === "readout") {
+      return `<div class="field readout">
+        <label>${esc(f.label)}</label>
+        <div class="rvalue mono" data-out="${esc(f.out)}">—</div>
+        <div class="rsub" data-outsub="${esc(f.out)}">${esc(f.sub || "")}</div>
+      </div>`;
+    }
     const v = state.extracted ? state.extracted.scalars[f.key] : "";
     const src = state.sources[f.key];
     return `<div class="field">
@@ -4285,6 +4311,23 @@ function computeTSR() {
     host = document.createElement("div");
     host.className = "tsrresults";
     sec.appendChild(host);
+  }
+  const out = sec.querySelector('[data-out="tsr_ratio"]');
+  const outSub = sec.querySelector('[data-outsub="tsr_ratio"]');
+  const setOut = (txt, sub, cls) => {
+    if (out) { out.textContent = txt; out.className = "rvalue mono" + (cls ? " " + cls : ""); }
+    if (outSub) outSub.textContent = sub;
+  };
+  if (!s || s.ratio == null) {
+    setOut("—", s ? "needs three conditioned and three dry" : "from the specimens below", "");
+  } else {
+    // Green or red against the reported figure when there is one to compare
+    // against, plain otherwise - the same disagreement tsrSummary warns about.
+    setOut(`${fmt(s.ratio, 1)}%`,
+           s.reported != null
+             ? (s.disagrees ? `reported ${fmt(s.reported, 1)}% — they disagree` : `agrees with the reported ${fmt(s.reported, 1)}%`)
+             : "from the specimens below",
+           s.reported == null ? "" : (s.disagrees ? "bad" : "ok"));
   }
   if (!s) { host.innerHTML = tsrTargetsHTML(); return null; }
   const parts = [
