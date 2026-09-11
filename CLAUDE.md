@@ -486,6 +486,13 @@ TBD — cite the governing spec section when encoding a limit in code.
   also appears inline in `.prnote` / `.prsub` on white, where it must keep the
   accent values. `--navy-dim` and `--navy-hairline` in `:root` are the derived
   pair for small type on navy; `--muted` on `--line` is unreadable there.
+  **The Portal's card headings match** (same day): there is no head wrapper
+  there as there is in DesignBook, so the `h2` itself is the band, with
+  `.lead` staying on white beneath it. Two of the cards put the "so far"
+  breadcrumb above the heading, so on those the band keeps its full-bleed
+  width and loses its shoulders rather than pulling up over the breadcrumb -
+  `.sofar + h2`. The negative margins are `.card`'s own 24px/28px, not
+  DesignBook's 22px/24px, so do not copy the numbers between the two files.
   Two things worth keeping from building the three. A treatment rule is easily
   MORE specific than a base rule it did not mean to catch:
   `[data-treatment="ruled"] .dvrow .v` outranked `.dvhead .v`, so the Design

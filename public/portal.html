@@ -103,7 +103,28 @@
   .stage{max-width:760px; margin:0 auto; padding:24px 32px 80px;}
   .card{background:var(--panel); border:1px solid var(--line); border-radius:10px;
         padding:24px 28px; margin-bottom:16px;}
-  .card h2{font-size:20px; margin:0 0 4px;}
+  /* The heading is a navy band with the gold rule under it, matching
+     DesignBook's section heads (chosen 2026-09-11). Same construction: the
+     negative margins equal .card's own 24px/28px padding so the band reaches
+     the card edge without overflow:hidden, and the 9px radius is the card's
+     10px less its 1px border, so the shoulders sit inside the corners.
+     :not(.eyebrow) because the eyebrow is a small muted label, not a title.
+     There is no head wrapper here as there is in DesignBook - the Portal's
+     h2 IS the head, and .lead stays on white underneath it. */
+  .card h2:not(.eyebrow){font-size:20px; color:var(--panel);
+           margin:-24px -28px 18px; padding:13px 28px 11px;
+           background:var(--navy); border-radius:9px 9px 0 0;
+           border-bottom:3px solid var(--gold);}
+  /* Steps 2 and 3 put the "so far" breadcrumb above the heading, so there the
+     band is not the card's top edge: it keeps the full-bleed width and loses
+     the shoulders rather than pulling up over the breadcrumb. Directly below
+     the rule it overrides - a @media block is not a tiebreaker and neither is
+     a later selector of lower specificity. */
+  .card .sofar + h2:not(.eyebrow){margin-top:0; border-radius:0;}
+  @media (max-width:700px){
+    .card h2:not(.eyebrow){margin:-24px -28px 16px; padding:11px 28px 9px;}
+    .card .sofar + h2:not(.eyebrow){margin-top:0;}
+  }
   .card h2.eyebrow{font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 18px;}
   .lead{color:var(--muted); font-size:13px; margin:0 0 18px;}
 
