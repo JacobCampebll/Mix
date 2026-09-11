@@ -380,6 +380,12 @@ TBD — cite the governing spec section when encoding a limit in code.
   values, same family as the `supabase`/`sb` naming gotcha above in spirit
   (silent, no console error, looks like a data problem instead of a code one).
 
+- **The shaded target band is gold and translucent** (`--band-fill` /
+  `--band-edge`, 2026-09-11): green was a third hue on a page built from
+  navy, sky and gold. `CONFIG.HANDOFF.BRAND.bandEdge` and `CHART.bandOpacity`
+  carry the same pair into the review sheet - one fact, one colour, the same
+  rule that makes `effectiveMix()` and `trimFlatCoarseEnd()` shared.
+
 - **Gradation control points (the shaded target band on the 0.45 power
   chart) are a `CONFIG` constant, not a Supabase table — deliberately, on
   the same footing as the sieve mm list and the R35 Pb tolerance already in
@@ -476,13 +482,21 @@ TBD — cite the governing spec section when encoding a limit in code.
   already scrolling and a fixed bar plus a step counter are chrome in place of
   the thing they came for.
   **The two share every renderer, every computation and the same `#valBlock`
-  node.** Exactly three things differ, and if a fourth ever appears, that is
-  the smell: where `#valBlock` sits (the active step's `.stepval`, or
-  `#valPark` above the sections - `.valpark:empty` collapses it, so no JS
-  decides), whether the sections hide each other (`.step{display:block}` below
-  700px), and whether a rail click switches or scrolls. On one page the rail
-  keeps its labels, because a bare numeral means nothing beside a section you
-  can simply scroll to, and the outstanding list is the whole-design roll-up.
+  node.** Exactly two things differ now, and if a third ever appears that is
+  the smell: whether the sections hide each other (`.step{display:block}`
+  below 700px), and whether a rail click switches or scrolls.
+  **`#valBlock` does not move at all** (corrected 2026-09-11, Jake: "put it
+  back on the right like we used to"). It lives in `#valPark` and the
+  stylesheet decides where that is - a sticky right-hand column beside the
+  form above 1100px, above the sections below it. It lists the WHOLE design
+  in both shapes, and clicking an item goes to the step it is on, which is
+  the point: a per-step slice hides the other eight sections' gaps behind a
+  click. The earlier build moved the node into the active step's `.stepval`
+  and partitioned the list per step; both are gone, and so is `.stepval`.
+  Note `.layout` places `main` and `.valpark` EXPLICITLY above 1100px,
+  because the rail is before `<main>` in the document - it has to be, so one
+  column stacks it above the form and a screen reader meets it in that order,
+  and auto-flow would otherwise put it in column one.
   Both rails of the old three-column layout are gone in both shapes. The steps
   **are** `CONFIG.SECTIONS`, in order, derived - the count is never written
   down, which is what makes "adding a section adds a step" true, and each
@@ -540,11 +554,12 @@ TBD — cite the governing spec section when encoding a limit in code.
   467PA), the review PDF's build and round-trip, and both charts, which use a
   fixed viewBox and measure nothing.
   The rail wraps rather than scrolling sideways, same call as the section list
-  the day before, and is not sticky - the fixed action bar carries Back/Next
-  for the middle of a long step. Below 700px it is a ten-column grid of bare
-  numerals: a wrapping flex row left an orphan tenth circle on a second row,
-  and at 360px the ten cells are (328 - 27) / 10 = 30.1px, so the dot is 24px
-  and not 26 - a 26px dot inside 2px of padding overflowed the row by 12px.
+  the day before, is centred, and is not sticky - the fixed action bar carries
+  Back/Next for the middle of a long step. A done step's numeral is the logo's
+  **sky**, not the ok-green (Jake, 2026-09-11): the rail is brand furniture
+  rather than a pass/fail readout, and navy type on sky, since white on it is
+  thin. Below 700px it keeps its labels, because a bare numeral means nothing
+  beside a section you can simply scroll to.
   **Two touch-target facts from the same round, both measured.** `.box` is
   44px and 16px below 700px, and the SIZE is a bug fix rather than taste: iOS
   zooms the whole page in whenever a focused input is under 16px, which on a
@@ -636,6 +651,17 @@ TBD — cite the governing spec section when encoding a limit in code.
   every real design it returned null and the RAP note silently never
   computed. `isRapRow()` is now the single definition and accepts either
   spelling.
+
+- **Natural sand and dolomite are not rows of the polish matrix any more**
+  (2026-09-11). Both are settled entirely by the type name in the column
+  caption above them - `Natural Sand` is the one uncrushed sand on KYTC's
+  list and `Dol.`/`Dolomite` the only dolomite prefixes, per the reference-
+  data note below - so two rows of Yes/No restating the caption were
+  redundant. They are tags on the column now, shown only when true, and
+  `polishComponents()` reads them from `polishFactsFor()` rather than from
+  the DOM. A type KYTC's list does not carry reports neither; that blend is
+  already flagged unproven by `unknown`, which is the honest answer rather
+  than a guessed one.
 
 - **Superpave consensus properties: values + per-mix spec limits.** Added
   2026-09-10 (Andrew): a `CONFIG.SECTIONS` section `id: "consensus"` with
@@ -809,6 +835,29 @@ TBD — cite the governing spec section when encoding a limit in code.
   line; pick the breakpoints from what the window leaves the *form* (the nav
   and the rail take 450px of it), and check for clipping by comparing each
   input's `scrollWidth` to its `clientWidth` rather than by eye.
+
+- **The TSR tab carries the specimen weights and derives from them as of
+  2026-09-11, and the tab's OWN Gmm (`TSR!B38`) is the cell that makes that
+  correct.** DesignBook imports dry / SSD / in-water weights (rows 33/34/35)
+  and the vacuum-saturated SSD weight (row 44), and `tsrSpecimenDerived()`
+  computes Gmb - KYTC calls it **Bulk Specific Gravity** - air voids and
+  initial saturation exactly as the sheet does. **TSR specimens are compacted
+  to a different air-void target (7 +/- 1 %) and bulked separately, so the
+  TSR tab's Gmm is NOT the design Gmm**: computing against the design figure
+  put #467PA's specimen 1 at 71.3 % saturation and raised a warning on a test
+  KYTC approved, where `TSR!B38` reproduces the workbook's own
+  69.7 / 66.1 / 61.8 exactly and warns about nothing. Same lesson as the
+  thickness one below, twice over: import the cell a workbook computes FROM.
+  Two details worth keeping. The absorbed-water line mirrors the workbook
+  including its oddity - the guard tests `row44 - row34 > 0` (the SSD weight)
+  while the value returned is `row44 - row33` (the DRY weight); do not "fix"
+  it to one or the other, it is what every approved design on file was judged
+  by. And a derived cell is only written when all its inputs are present, so
+  a workbook that carried a cached result and no weights keeps the number it
+  came with rather than being blanked by an incomplete recalculation.
+  The targets (95 mm, 7 +/- 1 % air voids, 65 +/- 5 % initial saturation) now
+  print under the table as well as firing in the rail - `CONFIG.TSR` had held
+  them all along, but only somewhere you met after getting one wrong.
 
 - **The MixPack's TSR tab: three traps, all only visible against a real
   file.** DesignBook imports the six specimens as of 2026-09-11
