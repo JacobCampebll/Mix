@@ -582,6 +582,41 @@ TBD — cite the governing spec section when encoding a limit in code.
   `has`/`wb`-column logic in `computedHTML()` ever comes back, it's a
   reversion of this decision, not a bug fix — check here first.
 
+- **The Va-vs-Pb chart got real axes 2026-09-11 (Andrew), and the page and
+  the review PDF now share the axis code.** It had no tick marks and no
+  numbers at all - you could see the curve cross the target but not read a
+  value off either axis - and no y-axis title. Two pure helpers next to
+  `solveQuadForTarget` are the shared ground: **`niceTicks()`** (round-number
+  bounds + ticks; raw data bounds put the axis on values like 4.3 and 7.3,
+  unreadable once labelled) and **`fitRuns()`** (splits the fitted curve into
+  the stretch the four trial points support and the stretches past them).
+  `drawFpChart()` and `fourpointBlock()` in `buildReviewPDF` both call them,
+  so the two can never disagree about where a gridline sits - same reason
+  `trimFlatCoarseEnd` is shared by the gradation chart and the sheet. Three
+  things worth knowing if you touch this:
+  **(1) A parabola drawn past its outermost trial point is extrapolation and
+  must not read as measured** - those runs are dashed and faded, and when the
+  *solved design Pb itself* lands outside the trial range the marker, its
+  dropline and its label turn red (`--bad`), say "extrapolated", and
+  `recompute()` raises a matching non-blocking rail warning (same footing as
+  Polish / Consensus - the arithmetic is valid, whether the design stands on
+  it is the Department's call). `solveQuadForTarget()` does **not** clamp its
+  root to the trial range - it picks the root nearest the range's midpoint,
+  which can sit well outside it - so this was previously invisible.
+  **(2) The target label sits at the LEFT end of its line, deliberately.** The
+  design-Pb marker is *on* the target line by definition, so a label at the
+  right end collides with it exactly when the solve lands over there - which
+  is where an extrapolated one does, and its label is the longest. Caught in
+  a browser, not by eye on the source.
+  **(3) `computeFourPoint()` now returns its solve and runs at the TOP of
+  `recompute()`, not the bottom.** The rail's extrapolation warning reads that
+  return value, and reading it from the old end-of-function call site would
+  have left the rail one keystroke behind. Moving it also fixed a latent
+  one-cycle lag of its own: `autoFpInputs()` fills Combined Gsb and %#200,
+  which the required-field sweep counts, and it used to run *after* that
+  sweep. Same "compute first, then count" rule `computeConsensus()` already
+  followed.
+
 - **A `<select>` fires `input` BEFORE `change`, so clearing an "auto-filled"
   marker only on `change` lets the `input` handler undo the person's first
   pick.** The Polish-Resistant Source column (coarse/fine) is prefilled from
