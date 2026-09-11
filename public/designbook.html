@@ -122,6 +122,39 @@
   .whoami #whoName:empty{display:none;}
   .whoami a{cursor:pointer; text-decoration:underline; text-underline-offset:2px; white-space:nowrap;}
 
+  /* ---- The header on a phone ----
+     At 390px this block measured 375px tall - 44% of the screen - and it is
+     sticky, so it cost that on every scroll; the first form field sat 674px
+     down. Reported off a phone 2026-09-11. Three tight rows instead of four
+     loose ones: `order` lifts the status pill up beside the book switch (the
+     DOM has the mix id between the two), the spacer goes, and the job strip
+     drops its labels for one line of contract / date / plant with the plant
+     name ellipsised - the full text stays in its title attribute. This block
+     sits BELOW every rule it overrides, which is the convention here and not
+     decoration: a @media block is not a tiebreaker, so at equal specificity
+     source order decides. See the gotcha in CLAUDE.md. */
+  @media (max-width:700px){
+    .topbar{padding:7px 14px; gap:6px 10px;}
+    .logo{height:22px;}
+    .bookswitch{padding:2px;}
+    .book{font-size:12px; padding:4px 11px;}
+    .mixid{font-size:11px;}
+    .pill{font-size:10px; padding:3px 8px;}
+    .savedstate{font-size:11px;}
+    .whoami{font-size:11px; gap:10px;}
+    .spacer{display:none;}
+    /* Row 1 identity, row 2 what this design is and whether it is saved,
+       row 3 who is signed in. */
+    .logo{order:1;} .bookswitch{order:2;} .pill{order:3;}
+    .mixid{order:4;} .savedstate{order:5;} .whoami{order:6;}
+    .jobstrip{flex-wrap:nowrap; align-items:baseline; gap:0 8px; padding:0 14px 7px;}
+    .jobchip{flex:0 0 auto; min-width:0; border:0; background:none; padding:0; border-radius:0;}
+    .jobchip + .jobchip{padding-left:8px; border-left:1px solid var(--line);}
+    .jobchip:last-child{flex:1 1 auto;}
+    .jobchip small{display:none;}
+    .jobchip span{font-size:12px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  }
+
   /* Both rails are a fixed width and the form is the only 1fr, so the cap is
      what decides how much room the form gets: at 1220 it was 650px on any
      monitor, with the rest of a wide screen left empty either side. Raised to
@@ -137,6 +170,9 @@
      cells and the TSR loads all clipped there. The rails are 450px plus
      gaps, so the form only has room beside them from about 1240px up. */
   @media (max-width:1240px){ .layout{grid-template-columns:minmax(0,1fr);} }
+  /* 32px of side padding is 16% of a 390px screen. 16px is the floor a phone
+     needs (CLAUDE.md), and the 32px it gives back goes to the form. */
+  @media (max-width:700px){ .layout{padding:16px 16px 60px; gap:16px;} }
 
   /* left ledger rail */
   /* The rail is a navy card. Two reasons beyond looking like it belongs to
@@ -181,6 +217,18 @@
     .navlist::before{display:none;}
     .navitem{padding:5px 0;}
     .navtitle{margin-bottom:8px;}
+  }
+  /* Narrower still and ten wrapped chips were six rows, 244px of an 844px
+     screen before the form started. One scrolling line instead - the chips
+     run to the card's edge, which is what says there is more to the right.
+     A contained overflow-x, never the page's (CLAUDE.md). */
+  @media (max-width:700px){
+    .nav{padding:12px 0 12px 14px;}
+    .navtitle{margin-bottom:6px;}
+    .navlist{flex-wrap:nowrap; overflow-x:auto; gap:0 16px; padding-bottom:2px;
+             scrollbar-width:none; -webkit-overflow-scrolling:touch;}
+    .navlist::-webkit-scrollbar{display:none;}
+    .navitem{white-space:nowrap;}
   }
 
   /* (job context strip lives in .appbar now — see top of stylesheet) */
@@ -7290,7 +7338,7 @@ function enterForm() {
   $("jobStrip").hidden = false;
   $("outContract").textContent = state.job.cid;
   $("outLetting").textContent = state.job.letting;
-  $("outPlant").textContent = state.job.plant;
+  $("outPlant").textContent = $("outPlant").title = state.job.plant;
   loadPlantName();          // fills in "AMP… — Name" once the lookup resolves
   // Mix ID isn't assigned yet — it should come from the DesignBook table's
   // identity once that exists. Until then, show the chosen mix if there is
@@ -7307,7 +7355,9 @@ async function loadPlantName() {
   if (!amp) return;
   try {
     const { data } = await sb.from("plants").select("name").eq("amp_number", amp).maybeSingle();
-    if (data && data.name) { state.plantName = data.name; $("outPlant").textContent = `${amp} — ${data.name}`; }
+    // title as well as text: the job line is one ellipsised row on a phone,
+      // so the full plant name has to stay recoverable.
+      if (data && data.name) { state.plantName = data.name; $("outPlant").textContent = $("outPlant").title = `${amp} — ${data.name}`; }
   } catch (_) { /* leave the bare AMP number */ }
 }
 
