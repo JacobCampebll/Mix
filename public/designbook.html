@@ -84,6 +84,14 @@
        transparent. It is the plate ground one shade cooler, for a surface
        that is read rather than typed into. */
     --wash:#F6F6F2;
+    /* The target gradation band on the 0.45 power chart. Gold rather than
+       green, so the one shaded area on the page belongs to the brand's own
+       palette instead of introducing a third hue (Jake, 2026-09-11). Kept
+       translucent: the design's own line is drawn over it and has to stay the
+       thing you read first. --band-edge is the same gold darkened enough to
+       hold a 1px dashed rung against white. */
+    --band-fill:rgba(255,195,18,.22);
+    --band-edge:#C79400;
     /* The appbar's real height, measured on load and on resize. Every sticky
        offset and scroll-margin on the page is derived from it: the header is
        three rows on a desktop and two on a phone, and hard-coded 132/150px
@@ -174,10 +182,25 @@
      the widest thing on the page (the polish matrix at six components, 785px)
      fits inside it without scrolling in its own box.
      The bottom padding clears the fixed action bar. */
-  .layout{max-width:1180px; margin:0 auto; padding:24px 32px 132px;}
+  /* The form and the outstanding-items rail beside it. */
+  .layout{max-width:1500px; margin:0 auto; padding:24px 32px 132px;
+          display:grid; grid-template-columns:minmax(0,1fr) 270px; gap:26px;
+          align-items:start;}
+  /* Explicit placement, because the rail is BEFORE <main> in the document -
+     it has to be, so that one column stacks it above the form and a screen
+     reader meets it in that order. Auto-flow would put it in column one. */
+  .layout > main{grid-column:1; grid-row:2;}
+  .layout > .valpark{grid-column:2; grid-row:2;}
+  /* One column below 1100px: the rail is 270px plus the gap, and under that
+     the form is squeezed for a list that reads perfectly well stacked. Here
+     document order decides again, which puts the list above the form. */
+  @media (max-width:1100px){
+    .layout{grid-template-columns:minmax(0,1fr);}
+    .layout > main, .layout > .valpark{grid-column:1; grid-row:auto;}
+  }
   /* 32px of side padding is 16% of a 390px screen. 16px is the floor a phone
      needs (CLAUDE.md), and the 32px it gives back goes to the form. */
-  @media (max-width:700px){ .layout{padding:14px 16px 60px;} }
+  @media (max-width:700px){ .layout{padding:14px 16px 60px; gap:16px;} }
 
   /* ---- the step rail ----
      Ten steps, every one of them on screen. It wraps rather than scrolling
@@ -187,8 +210,8 @@
      long step, so the rail only has to be somewhere you can get back to.
      The current step is a navy pill with a gold numeral, which is the same
      pair the section band uses, so "where I am" reads once in two places. */
-  .railnav{margin-bottom:20px;}
-  .rail{display:flex; flex-wrap:wrap; gap:6px;}
+  .railnav{grid-column:1 / -1; margin-bottom:2px;}
+  .rail{display:flex; flex-wrap:wrap; justify-content:center; gap:6px;}
   .railstep{display:inline-flex; align-items:center; gap:8px; min-height:38px;
             padding:4px 13px 4px 5px; border:1px solid var(--line); border-radius:20px;
             background:var(--panel); color:var(--muted); cursor:pointer;
@@ -200,7 +223,10 @@
                  display:grid; place-items:center;
                  font-family:'Roboto Mono',monospace; font-size:11px; font-weight:500;
                  color:var(--muted); transition:.15s;}
-  .railstep.filled .dot{background:var(--ok); border-color:var(--ok); color:#FFFFFF;}
+  /* Sky, not the ok-green: the rail is brand furniture rather than a pass/fail
+     readout, and the logo's blue is what the rest of the chrome is built from
+     (Jake, 2026-09-11). Navy type on it, since white on --sky is thin. */
+  .railstep.filled .dot{background:var(--sky); border-color:var(--sky); color:var(--navy);}
   .railstep.partial .dot{border-color:var(--flag); background:var(--flag-soft); color:var(--flag);}
   .railstep.current{background:var(--navy); border-color:var(--navy); color:#FFFFFF; font-weight:600;}
   .railstep.current .dot{border-color:var(--gold); background:var(--navy); color:var(--gold);}
@@ -310,6 +336,12 @@
   .section-head a.cite:hover{background:var(--sky); color:var(--navy);}
   .section-head a.cite:focus-visible{outline-color:var(--gold);}
   /* Inline in a note or a check result there is no chip - just a link. */
+  /* What the type name settles, stated on the column instead of as two rows
+     of Yes/No across the whole matrix. */
+  .prtags{display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;}
+  .prtags span{font-size:9px; text-transform:uppercase; letter-spacing:.04em;
+               color:var(--accent); background:var(--accent-soft);
+               border-radius:3px; padding:1px 5px; white-space:nowrap;}
   .prnote a.cite, .prsub a.cite{border:0; padding:0; font-size:inherit; font-family:inherit;
                                 white-space:normal; text-decoration:underline;}
   .prnote a.cite:hover, .prsub a.cite:hover{background:transparent; color:var(--accent);}
@@ -630,15 +662,29 @@
   .dvrow .v{font-family:'Roboto Mono',monospace; font-size:13px; color:var(--accent);
             white-space:nowrap; text-align:right;}
   .dvrow .v.none{color:var(--line);}
-  /* The column names, in the same small caps as every other header here. */
-  .dvhead{border-bottom:1px solid var(--line);}
+  /* The column names are a navy band with gold type, centred across the whole
+     width - the same treatment the section heads take, at the size the
+     column names already were (Jake, 2026-09-11). The band overrides .dvrow's
+     two-column grid rather than sitting inside one cell of it, so "From Four
+     Points" reads as the name of the table under it, not of one column. */
+  .dvhead{display:block; border-bottom:0; border-radius:4px 4px 0 0;
+          background:var(--navy); padding:6px 10px; text-align:center;}
   .dvhead .v, .dvhead .l{font-family:inherit; font-size:10px; text-transform:uppercase;
-             letter-spacing:.03em; color:var(--muted);}
-  .dvhead:hover{background:transparent;}
+             letter-spacing:.06em; font-weight:600; color:var(--gold);
+             text-align:center; white-space:normal;}
+  .dvhead .l:empty, .dvhead .v:empty{display:none;}
+  .dvhead:hover{background:var(--navy);}
+  /* The band is the table's top edge now, so the table drops its own. */
+  .dvtable{border-top:0;}
   @media (max-width:700px){
     .dvrow{grid-template-columns:minmax(0,1fr) 76px;}
     .dvrow .l{font-size:10px;}
   }
+  /* The TSR tab's own targets, under the specimen table. */
+  .tsrtargets{display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:12px;
+              padding-top:10px; border-top:1px solid var(--line);
+              font-size:11px; color:var(--muted);}
+  .tsrtargets b{color:var(--ink); font-weight:500;}
   .computed-note{font-size:11px; color:var(--muted); margin-top:10px;}
 
   .rowgroup-head{font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);
@@ -688,8 +734,12 @@
      stack rather than beside it.
      The left edge carries the state: amber while something is missing on
      this step, green when the step is clear. */
-  /* Empty whenever go() has moved the block into a step, which is every
-     desktop state - so no JS has to decide whether this shows. */
+  /* The rail's column. Sticky, because the list is about the whole design and
+     is the thing you steer by; --headh keeps it clear of the real header
+     height rather than a guessed one. Below 1100px it is the full width,
+     above the form. */
+  .valpark{position:sticky; top:calc(var(--headh) + 18px);}
+  @media (max-width:1100px){ .valpark{position:static;} }
   .valpark:empty{display:none;}
   .valblock{background:var(--panel); border:1px solid var(--line);
             border-left:4px solid var(--flag); border-radius:var(--radius);
@@ -850,10 +900,10 @@
     <div class="rail" id="railnav"></div>
   </nav>
 
-  <!-- The outstanding-items block is ONE node. On a desktop go() moves it into
-       the active step's .stepval; on a phone, where every section is on one
-       page, it stays here above them. :empty collapses this to nothing in the
-       first case, so no JS decides whether it shows. -->
+  <!-- Outstanding items, for the whole design. A sticky right-hand rail on a
+       desktop and a block above the sections on one page - the stylesheet
+       decides which, and this node never moves. Clicking an item goes to the
+       step that item is on. -->
   <div id="valPark" class="valpark">
     <div class="valblock" id="valBlock">
       <div class="valsub" id="valsub">Live — updates as you fill the form</div>
@@ -1103,7 +1153,10 @@ const CONFIG = {
     // Gradation chart. The coarse end of a gradation is a flat run of 100s
     // that eats ~40% of the plot; trim it, keeping this many sieves above
     // the finest 100% so the curve is visibly flat before it departs.
-    CHART: { sieveHeadroom: 1, bandOpacity: 0.30, capW: 6 },
+    // The target band is gold here as it is on the page (--band-fill /
+    // --band-edge): the sheet and the screen must not disagree about what the
+    // band is. 0.22 is the same alpha the page uses.
+    CHART: { sieveHeadroom: 1, bandOpacity: 0.22, capW: 6 },
 
     // Team Kentucky palette, 0-1 per channel (same tokens as the pages' CSS).
     BRAND: {
@@ -1112,6 +1165,9 @@ const CONFIG = {
       accent: [0x1C / 255, 0x7C / 255, 0xC0 / 255],
       sky:    [0x5F / 255, 0xB2 / 255, 0xE4 / 255],
       gold:   [0xFF / 255, 0xC3 / 255, 0x12 / 255],
+      // The gradation band's edge: the same gold darkened enough to hold a
+      // 0.4pt line against white. Matches --band-edge on the page.
+      bandEdge: [0xC7 / 255, 0x94 / 255, 0x00 / 255],
       muted:  [0x6E / 255, 0x75 / 255, 0x80 / 255],
       rule:   [0xDA / 255, 0xD7 / 255, 0xCE / 255],
       wash:   [0xF2 / 255, 0xF1 / 255, 0xEC / 255],
@@ -1325,6 +1381,14 @@ const CONFIG = {
         flat_elongated:  [["designData", "O54"]],   // Flat & elongated particles
         sand_equivalent: [["designData", "O55"]],   // Clay content (SE)
         // --- TSR box ---
+        // TSR!B38 is the tab's OWN maximum specific gravity, and every derived
+        // figure on the tab (air voids, and the saturation that divides by
+        // them) comes off it. Reading it means a reopened design reproduces
+        // KYTC's own numbers instead of recomputing them against the design
+        // Gmm - which moved #467PA's specimen 1 from 69.7% saturation to
+        // 71.3% and flagged a test KYTC approved. Same lesson as the
+        // thickness: import the cell a workbook computes FROM.
+        tsr_gmm:          [["tsr", "B38"]],
         tsr_pct:          [["tsr", "G57"], ["designData", "O72"]],   // % TSR without additive
         tsr_pct_additive: [["tsr", "N57"], ["designData", "O73"]],   // % TSR with additive
         tsr_wet_strength: [["tsr", "H54"]],
@@ -1354,6 +1418,7 @@ const CONFIG = {
         faa:             [["designData", "O53"]],
         flat_elongated:  [["designData", "O54"]],
         sand_equivalent: [["designData", "O55"]],
+        tsr_gmm:          [["tsr", "B38"]],
         tsr_pct:          [["tsr", "G57"], ["designData", "O72"]],
         tsr_pct_additive: [["tsr", "N57"], ["designData", "O73"]],
         tsr_wet_strength: [["tsr", "H54"]],
@@ -1498,8 +1563,13 @@ const CONFIG = {
      * correctly-run test: #467PA's three specimens are 88.6 / 84.8 / 72.2
      * there but 69.7 / 66.1 / 61.8 in row 46, all inside the window.
      */
+    // Rows 33/34/35 are the weights the tab derives Gmb, air voids and
+    // saturation from; 44 is the vacuum-saturated SSD weight behind the
+    // initial-saturation figure in row 46. Importing them means a reopened
+    // design can recompute rather than only carry KYTC's cached answers.
     TSR_SPECIMENS: { sheet: "tsr", cols: ["B", "C", "D", "E", "F", "G"],
                      rows: { sample_id: 30, dry_thickness: 32, air_voids: 39, dry_load: 41,
+                             dry_wt: 33, ssd_wt: 34, wt_water: 35, sat_ssd_wt: 44,
                              cond_thickness: 49, saturation: 46, cond_load: 53,
                              wet_strength: 54, dry_strength: 55 } },
     // Hamburg rut-by-pass table: Pass Count in G, left rut in J, right rut in M.
@@ -1827,10 +1897,13 @@ const CONFIG = {
     total_tons: 0,
     // TSR tab. The ratio itself is a whole percent; the strengths a tenth.
     tsr_pct: 0, tsr_pct_additive: 0, tsr_wet_strength: 1, tsr_dry_strength: 1,
+    tsr_gmm: 3,
     // Per-specimen columns. These are formula cells on the TSR tab, so they
     // arrive as full floats (67.225760605149176 psi) - see the row-importer
     // note in this file's gotchas.
     thickness: 1, saturation: 1, load: 1, strength: 1,
+    // The TSR tab's specimen weights, which KYTC records to a tenth of a gram.
+    tsr_weight: 1, gmb_tsr: 3,
     // Hamburg: the deformations are millimetres to three places; the pass
     // counts and stripping-inflection points are General in the workbook.
     hamburg_left_maxdef: 3, hamburg_right_maxdef: 3,
@@ -2049,6 +2122,11 @@ const CONFIG = {
         { key: "tsr_dry_strength", label: "Dry strength (psi)",         type: "number", req: false, mono: true },
         { key: "tsr_wet_strength", label: "Wet strength (psi)",         type: "number", req: false, mono: true },
         { key: "tsr_additive",     label: "Anti-strip additive & %",    type: "text",   req: false },
+        // The workbook keeps its own Gmm on this tab (TSR!B38) rather than
+        // reading Design Values, because TSR specimens are compacted to a
+        // different air-void target and are bulked separately. Left blank the
+        // page uses the design Gmm, which is what a same-day test would give.
+        { key: "tsr_gmm",          label: "Max. sp. gravity (Gmm)",     type: "number", req: false, mono: true },
       ],
       // The six specimens behind the ratio. Condition is a real column, not
       // an order convention: see CONFIG.LEGACY.TSR_SPECIMENS for why, and
@@ -2063,16 +2141,29 @@ const CONFIG = {
           // rows never reach the payload.
           key: "tsr_specimens", heading: "Specimens", max: 6, start: 6,
           addLabel: "+ add TSR specimen (up to 6)",
-          grid: ".7fr 1fr .8fr .85fr .85fr .85fr .85fr auto",
+          // The weights the workbook derives everything from, in its own order
+          // (TSR tab rows 33/34/35 then 44), and the three values it derives:
+          // Gmb - KYTC calls it Bulk Specific Gravity - air voids, and
+          // initial saturation. Those three are readonly and written by
+          // computeTSR(); a legacy import still fills them directly, so a
+          // workbook with cached results and no weights is not blanked.
+          grid: ".85fr .9fr .62fr .72fr .72fr .72fr .62fr .78fr .62fr .68fr .7fr .72fr auto",
           columns: [
             { key: "specimen",   label: "Specimen",       type: "text",   req: true,  mono: true },
             { key: "condition",  label: "Condition",      type: "select", req: true,
               options: ["Dry", "Conditioned"] },
             { key: "thickness",  label: "Thick. (mm)",    type: "number", req: false, mono: true },
-            { key: "air_voids",  label: "Air voids (%)",  type: "number", req: false, mono: true },
+            { key: "dry_wt",     label: "Dry wt (g)",     type: "number", req: false, mono: true },
+            { key: "ssd_wt",     label: "SSD wt (g)",     type: "number", req: false, mono: true },
+            { key: "wt_water",   label: "Wt in water (g)", type: "number", req: false, mono: true },
+            { key: "gmb",        label: "Gmb (BSG)",      type: "text",   req: false, mono: true, readonly: true },
+            // The vacuum-saturated SSD weight (row 44) - what the initial
+            // saturation is computed from. Only a conditioned specimen has one.
+            { key: "sat_ssd_wt", label: "Sat. SSD wt (g)", type: "number", req: false, mono: true },
+            { key: "air_voids",  label: "Air voids (%)",  type: "text",   req: false, mono: true, readonly: true },
             // Initial saturation (the tab's row 46), which is what the
             // 65 +/- 5 target governs - not the higher post-conditioning one.
-            { key: "saturation", label: "Initial sat. (%)", type: "number", req: false, mono: true },
+            { key: "saturation", label: "Initial sat. (%)", type: "text", req: false, mono: true, readonly: true },
             { key: "load",       label: "Load (lbf)",     type: "number", req: false, mono: true },
             { key: "strength",   label: "Strength (psi)", type: "number", req: false, mono: true },
           ],
@@ -2662,10 +2753,6 @@ function sectionBodyHTML(s) {
 }
 
 function renderForm() {
-  // #valBlock is one node that lives inside whichever step is active. Park it
-  // before the wholesale rewrite below, or it is destroyed with the sections
-  // and every later msg($("saveMsg"), …) writes to nothing.
-  $("valPark").appendChild($("valBlock"));
   const tops = topSections();
   $("sections").innerHTML = tops.map((s, i) => {
     // A section with `into` set draws inside its host's body as a labelled
@@ -2679,16 +2766,14 @@ function renderForm() {
        </div>`).join("");
     // data-step is the section's index among the top-level sections - the
     // schema is the only place the step order is written down, so adding a
-    // section adds a step and nothing else has to be told. .stepval is where
-    // the per-step outstanding-items block lands; .tsrresults is emitted here
-    // rather than being appended by computeTSR(), which used to put it after
-    // .stepval.
+    // section adds a step and nothing else has to be told. .tsrresults is
+    // emitted here rather than being appended by computeTSR(), which used to
+    // put it at the very end of the section.
     return `<section class="section step" id="${s.id}" data-section="${s.id}" data-label="${s.label}" data-step="${i}">
       <div class="section-head"><div class="headtitle"><span class="kicker">Step ${i + 1} of ${tops.length}</span><h2>${s.label}</h2></div>
         <span class="headmeta">${sectionCitesHTML(s)}${s.lookup && state.job && state.job.cid
           ? `<button type="button" class="seclookup" id="contractLookupBtn">Look up<span class="wide-only"> contract</span> ${esc(state.job.cid)}</button>` : ""}<span class="section-tag mono">${s.tag}</span></span></div>
       ${s.lookup ? `<div class="lookupnote${state.contractNote ? " " + esc(state.contractNote.kind) : ""}" id="contractLookupNote">${state.contractNote ? esc(state.contractNote.text) : ""}</div>` : ""}
-      <div class="stepval"></div>
       ${sectionBodyHTML(s)}
       ${child}
       ${s.id === "tsr" ? `<div class="tsrresults"></div>` : ""}
@@ -2774,18 +2859,19 @@ function go(i, focusEl, scroll) {
     b.classList.toggle("current", k === i);
     b.setAttribute("aria-current", k === i ? "step" : "false");
   });
-  if (onePage()) {
-    // The block belongs above the whole page, not inside one section of it.
-    $("valPark").appendChild($("valBlock"));
-    if (scroll !== false) {
+  // #valBlock does not move any more: it is the outstanding-items rail, and it
+  // lists the WHOLE design so clicking an item takes you to the step it is on
+  // (Jake, 2026-09-11 - "like we used to before"). Where it sits is a layout
+  // question the stylesheet answers: a sticky right-hand column on a desktop,
+  // above the sections on one page.
+  if (scroll !== false) {
+    if (onePage()) {
       secs[i].scrollIntoView({ behavior: "smooth", block: "start" });
       secs[i].classList.add("flash");
       setTimeout(() => secs[i].classList.remove("flash"), 900);
+    } else {
+      window.scrollTo({ top: 0, behavior: "auto" });
     }
-  } else {
-    const host = secs[i].querySelector(".stepval");
-    if (host) host.appendChild($("valBlock"));
-    if (scroll !== false) window.scrollTo({ top: 0, behavior: "auto" });
   }
   // recompute() first, then paint: recompute() is what runs
   // applyPolishVisibility(), so before it the freshly rendered markup carries
@@ -2918,14 +3004,14 @@ function drawChart() {
     const fill = both.length >= 2
       ? `<polygon points="${both.map((p) => `${x(p.mm).toFixed(1)},${y(p.max).toFixed(1)}`).join(" ")} ${
             [...both].reverse().map((p) => `${x(p.mm).toFixed(1)},${y(p.min).toFixed(1)}`).join(" ")}"
-           fill="var(--ok-soft)" stroke="none"/>`
+           fill="var(--band-fill)" stroke="none"/>`
       : "";
     const rungs = both.map((p) =>
       `<line x1="${x(p.mm).toFixed(1)}" y1="${y(p.max).toFixed(1)}" x2="${x(p.mm).toFixed(1)}" y2="${y(p.min).toFixed(1)}"
-         stroke="var(--ok)" stroke-width="1" stroke-dasharray="2,1.5"/>`).join("");
+         stroke="var(--band-edge)" stroke-width="1" stroke-dasharray="2,1.5"/>`).join("");
     const ticks = band.filter((p) => p.min == null || p.max == null).map((p) => {
       const yy = y(p.max != null ? p.max : p.min).toFixed(1);
-      return `<line x1="${(x(p.mm) - 5).toFixed(1)}" y1="${yy}" x2="${(x(p.mm) + 5).toFixed(1)}" y2="${yy}" stroke="var(--ok)" stroke-width="1.4"/>`;
+      return `<line x1="${(x(p.mm) - 5).toFixed(1)}" y1="${yy}" x2="${(x(p.mm) + 5).toFixed(1)}" y2="${yy}" stroke="var(--band-edge)" stroke-width="1.4"/>`;
     }).join("");
     bandSvg = fill + rungs + ticks;
   } else if (nominalSize) {
@@ -3548,18 +3634,29 @@ function renderPolishGrid(force) {
     if (bag && Object.prototype.hasOwnProperty.call(bag, sp.sub)) return bag[sp.sub];
     return fallback == null ? "" : fallback;
   };
-  const head = comps.map((c, i) =>
-    `<th><div class="prname">${esc(c.type_size || "component " + (i + 1))}</div>
+  // Facts read off KYTC's approved-materials list, once, for every column.
+  const facts = comps.map((c) => polishFactsFor(c.type_size));
+
+  // Natural sand and dolomite used to be two rows of Yes/No across the whole
+  // matrix. Both are settled entirely by the type name in the caption above
+  // them (CLAUDE.md: Natural Sand is the one uncrushed sand on the list, and
+  // Dol./Dolomite the only dolomite prefixes), so two rows to restate what
+  // the caption already says was redundant - Jake, 2026-09-11. They are tags
+  // on the column now, shown only when true, and polishComponents() reads
+  // them from the same facts rather than from the DOM.
+  const head = comps.map((c, i) => {
+    const f = facts[i];
+    const tags = [f.naturalSand ? "natural sand" : null, f.dolomite ? "dolomite" : null].filter(Boolean);
+    return `<th><div class="prname">${esc(c.type_size || "component " + (i + 1))}</div>
       <div class="prsub">${esc(c.producer || "")}</div>
-      <div class="prsub mono" data-prpct="${i}">${esc(c.pct_blend || "0")}% blend</div></th>`).join("");
+      <div class="prsub mono" data-prpct="${i}">${esc(c.pct_blend || "0")}% blend</div>
+      ${tags.length ? `<div class="prtags">${tags.map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : ""}</th>`;
+  }).join("");
 
   const selRow = (label, key, opts, pick, guess) => `<tr><th class="prrowhead">${label}</th>` + comps.map((c, i) =>
     `<td><select class="box" data-pr="${key}:${i}"${guess && guess(i) ? ' data-guess="1"' : ""}>` +
       opts.map((o) => `<option value="${esc(o.v)}"${pick(c, i) === o.v ? " selected" : ""}>${esc(o.l)}</option>`).join("") +
     `</select></td>`).join("") + `</tr>`;
-
-  // Facts read off KYTC's approved-materials list, once, for every column.
-  const facts = comps.map((c) => polishFactsFor(c.type_size));
 
   // A derived cell: what the list says, stated rather than asked, with a
   // hidden input so everything downstream still reads it through data-pr.
@@ -3600,18 +3697,6 @@ function renderPolishGrid(force) {
     },
     (i) => (heldFor[i] || {}).role == null);
 
-  // Natural sand and dolomite are the other two the list settles. Same rule:
-  // stated when the type is known, asked only when it is not.
-  const flagRow = (label, key, pick) => `<tr><th class="prrowhead">${label}</th>` + comps.map((c, i) => {
-    const f = facts[i];
-    if (f.known) {
-      const on = pick(f);
-      return derived(key, i, on ? "1" : "", on ? "Yes" : "No",
-        `${f.canonical} \u2014 from KYTC's approved aggregate types`);
-    }
-    return `<td><input type="checkbox" data-pr="${key}:${i}" value="1"${val(`${key}:${i}`, "") ? " checked" : ""}></td>`;
-  }).join("") + `</tr>`;
-
   const sieveRows = sieves.map((sv) => `<tr><th class="prrowhead mono">${esc(sv.label)}</th>` + comps.map((c, i) =>
     `<td><input type="text" inputmode="decimal" class="box mono${sv.key === P.RETAINED_SIEVE ? " prkey" : ""}"
         data-pr="g:${i}:${sv.key}" value="${esc(val(`g:${i}:${sv.key}`, ""))}" placeholder="—"></td>`).join("") + `</tr>`).join("");
@@ -3624,7 +3709,6 @@ function renderPolishGrid(force) {
 
   host.innerHTML = `<table class="prtable"><thead><tr><th class="prrowhead"></th>${head}</tr></thead>
     <tbody>${classRow}${roleRow}
-      ${flagRow("Natural sand", "sand", (f) => f.naturalSand)}${flagRow("Dolomite", "dol", (f) => f.dolomite)}
       <tr class="prspacer"><th class="prrowhead">% passing</th>${comps.map(() => "<td></td>").join("")}</tr>
       ${sieveRows}</tbody></table>`;
 }
@@ -3668,8 +3752,12 @@ function polishComponents() {
     unknown: !polishFactsFor(r.type_size).known,
     role: txt(`role:${i}`) || "coarse",
     p4: num(txt(`g:${i}:${P.RETAINED_SIEVE}`)),
-    naturalSand: chk(`sand:${i}`),
-    dolomite: chk(`dol:${i}`),
+    // From the type name, not from a control: the two rows that used to ask
+    // are gone (see renderPolishGrid). A type KYTC's list does not carry
+    // reports neither, and the blend is already flagged unproven above by
+    // `unknown`, which is the honest answer rather than a guessed one.
+    naturalSand: polishFactsFor(r.type_size).naturalSand,
+    dolomite: polishFactsFor(r.type_size).dolomite,
     rapCredit: null,        // the grid no longer asks; see renderPolishGrid
 
   }));
@@ -3916,6 +4004,31 @@ function computeConsensus() {
  *
  * Pure, so it can be reasoned about without the DOM: rows in, summary out.
  */
+// One specimen's derived values, exactly as the MixPack's TSR tab derives
+// them (rows 36/37/39/40/45/46). Pure: computeTSR() does the DOM.
+//   volume  = SSD wt - wt in water                       (cm3)
+//   Gmb     = dry wt / volume                            ("Bulk Spec. Gravity")
+//   Va      = 100 * (Gmm - Gmb) / Gmm                    (%)
+//   volAir  = Va * volume / 100                          (cm3)
+//   absorbed= saturated SSD wt - dry wt                  (cm3 of water)
+//   sat     = 100 * absorbed / volAir                    (%)
+// Note the absorbed-water line mirrors the workbook exactly, oddity included:
+// its guard tests (row44 - row34) > 0 - the SSD weight - while the value it
+// returns is (row44 - row33), against the DRY weight. Do not "fix" that to
+// one or the other; it is what KYTC's own sheet computes and what every
+// approved design on file was judged by.
+function tsrSpecimenDerived(r, gmm) {
+  const n = (v) => { const x = parseFloat(v); return Number.isFinite(x) ? x : null; };
+  const dry = n(r.dry_wt), ssd = n(r.ssd_wt), water = n(r.wt_water), satSsd = n(r.sat_ssd_wt);
+  const volume = (ssd != null && water != null) ? ssd - water : null;
+  const gmb = (dry != null && volume) ? dry / volume : null;
+  const va = (gmb != null && gmm) ? 100 * (gmm - gmb) / gmm : null;
+  const volAir = (va != null && volume != null) ? va * volume / 100 : null;
+  const absorbed = (satSsd != null && dry != null && ssd != null && satSsd - ssd > 0) ? satSsd - dry : null;
+  const sat = (absorbed != null && volAir) ? 100 * absorbed / volAir : null;
+  return { volume, gmb, va, volAir, absorbed, sat };
+}
+
 function tsrSummary(rows) {
   const T = CONFIG.TSR;
   const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
@@ -3966,23 +4079,56 @@ function tsrSummary(rows) {
   return { used, cond, dry, condAvg, dryAvg, ratio, reported, disagrees, warn };
 }
 
+// The targets the MixPack's own TSR tab prints on itself (its rows 17-20).
+// They were only ever enforced in the rail, where you meet them after getting
+// a value wrong; a technician filling this in wants them in front of the
+// table they are filling.
+function tsrTargetsHTML() {
+  const T = CONFIG.TSR;
+  return `<div class="tsrtargets mono">` +
+    `<span>compacted to <b>${T.THICKNESS_MM} mm</b></span>` +
+    `<span>air voids <b>${T.AIR_VOIDS} ± ${T.AIR_VOIDS_TOL} %</b></span>` +
+    `<span>initial saturation <b>${T.SATURATION} ± ${T.SATURATION_TOL} %</b></span>` +
+    `<span>${specLinkify(T.CITE)}</span></div>`;
+}
+
 // The summary line under the specimen table, and the same warnings the rail
 // shows. Rebuilt on every recompute, like the consensus notes.
 function computeTSR() {
   const sec = document.querySelector('[data-section="tsr"]');
   if (!sec) return null;
   const list = sec.querySelector('[data-rowlist="tsr_specimens"]');
+  // Fill Gmb, air voids and initial saturation from the weights, per specimen.
+  // A cell is only written when its inputs are all present: a workbook that
+  // carried the cached result and no weights must keep the number it came
+  // with rather than being blanked by an incomplete recalculation.
+  // The Gmm is this tab's own if one is typed (the workbook keeps a separate
+  // TSR!B38, since TSR specimens are compacted to a different air-void target
+  // and bulked separately), otherwise the design Gmm from Four Points.
+  const dvGmm = (document.querySelector('[data-dv="gmm_design"]') || {}).textContent;
+  const gmm = num(fieldValue("tsr_gmm")) || num(dvGmm);
+  if (list) Array.from(list.children).forEach((row) => {
+    const d = tsrSpecimenDerived(rowValuesOf(row), gmm);
+    const put = (col, v, dp) => {
+      const el = row.querySelector(`[data-col="${col}"]`);
+      if (el && v != null) el.value = fmt(v, dp);
+    };
+    put("gmb", d.gmb, 3);
+    put("air_voids", d.va, 1);
+    put("saturation", d.sat, 1);
+  });
   const s = tsrSummary(list ? Array.from(list.children).map(rowValuesOf) : []);
   // The renderer emits this at the end of the TSR section body. The fallback
   // appends to the section, which is where it used to go every time - and
-  // that put the summary after .stepval rather than under the specimens.
+  // that put the summary at the end of the section rather than under the
+  // specimens.
   let host = sec.querySelector(".tsrresults");
   if (!host) {
     host = document.createElement("div");
     host.className = "tsrresults";
     sec.appendChild(host);
   }
-  if (!s) { host.innerHTML = ""; return null; }
+  if (!s) { host.innerHTML = tsrTargetsHTML(); return null; }
   const parts = [
     `<span><b>${fmt(s.ratio, 1)}%</b> from these specimens</span>`,
     `<span>conditioned ${fmt(s.condAvg, 1)} psi (${s.cond.length})</span>`,
@@ -3991,8 +4137,10 @@ function computeTSR() {
   if (s.reported != null) {
     parts.push(`<span class="${s.disagrees ? "bad" : "ok"}">reported ${fmt(s.reported, 1)}%</span>`);
   }
+  const targets = tsrTargetsHTML();
   host.innerHTML = `<div class="tsrline mono">${parts.join('<span class="sep">·</span>')}</div>` +
-    (s.warn.length ? `<ul class="tsrwarn">${s.warn.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : "");
+    (s.warn.length ? `<ul class="tsrwarn">${s.warn.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : "") +
+    targets;
   return s;
 }
 
@@ -4161,10 +4309,11 @@ function recompute() {
   const secs = stepSections();
   const here = secs[state.step || 0];
   const hereId = here ? here.dataset.section : null;
-  // On one page there is no "this step", so the list is the whole design -
-  // which is what the old right-hand rail showed, and each item still says
-  // which section it belongs to and scrolls there.
-  const rollUp = onePage() || hereId === "status" || !hereId;
+  // Always the whole design. The block is a rail beside the form rather than
+  // a note inside one step, so a per-step slice would hide the other eight
+  // sections' gaps behind a click - and clicking an item is exactly how a
+  // person gets to the step it is on.
+  const rollUp = true;
 
   const missing = outstanding.filter((o) => o.kind !== "warn"), warns = outstanding.filter((o) => o.kind === "warn");
   const all = missing.concat(warns);
@@ -4500,7 +4649,7 @@ function extractLegacy(wb, ctx) {
     "county", "total_tons", "binder_grade", "binder_terminal", "funding",
     "depth_mm", "rap_note", "designer",
     "caa", "faa", "flat_elongated", "sand_equivalent",
-    "tsr_pct", "tsr_pct_additive", "tsr_wet_strength", "tsr_dry_strength",
+    "tsr_gmm", "tsr_pct", "tsr_pct_additive", "tsr_wet_strength", "tsr_dry_strength",
     "perf_binder", "hamburg_left_maxdef", "hamburg_right_maxdef",
     "hamburg_left_passmax", "hamburg_right_passmax", "hamburg_left_sip", "hamburg_right_sip",
   ];
@@ -4676,18 +4825,29 @@ function extractLegacy(wb, ctx) {
       const load = conditioned ? num(col, T.rows.cond_load) : num(col, T.rows.dry_load);
       const strength = conditioned ? num(col, T.rows.wet_strength) : num(col, T.rows.dry_strength);
       const id = legacyCell(ws, `${col}${T.rows.sample_id}`);
+      // The three weights, and the vacuum-saturated one behind the initial
+      // saturation. Imported so a reopened design can recompute Gmb, air
+      // voids and saturation rather than only carry KYTC's cached answers -
+      // and so a hand-entered correction to a weight moves them.
+      const dryWt = num(col, T.rows.dry_wt), ssdWt = num(col, T.rows.ssd_wt);
+      const wtWater = num(col, T.rows.wt_water), satSsd = num(col, T.rows.sat_ssd_wt);
       const row = {
         specimen: id.status === "found" && String(id.value).trim() !== ""
           ? String(id.value).trim() : String(i + 1),
         condition: conditioned ? "Conditioned" : "Dry",
         thickness:  roundTo(conditioned ? condT : dryT, CONFIG.DP.thickness),
+        dry_wt:     roundTo(dryWt, CONFIG.DP.tsr_weight),
+        ssd_wt:     roundTo(ssdWt, CONFIG.DP.tsr_weight),
+        wt_water:   roundTo(wtWater, CONFIG.DP.tsr_weight),
+        gmb:        "",
+        sat_ssd_wt: conditioned ? roundTo(satSsd, CONFIG.DP.tsr_weight) : "",
         air_voids:  roundTo(num(col, T.rows.air_voids), CONFIG.DP.air_voids),
         saturation: conditioned ? roundTo(num(col, T.rows.saturation), CONFIG.DP.saturation) : "",
         load:       roundTo(load, CONFIG.DP.load),
         strength:   roundTo(strength, CONFIG.DP.strength),
       };
       // A column with nothing but its printed sample number is an empty slot.
-      if ([row.thickness, row.air_voids, row.load, row.strength].some((v) => v !== "")) {
+      if ([row.thickness, row.air_voids, row.dry_wt, row.load, row.strength].some((v) => v !== "")) {
         tables.tsr_specimens.push(row);
       }
     });
@@ -5415,10 +5575,10 @@ async function buildReviewPDF(payload) {
         const px = p45(a.mm) + (p45(b.mm) - p45(a.mm)) * (s / steps);
         page.drawRectangle({ x: gx + (px - xmin) / (xmax - xmin) * gw, y: Y(at(px, a, b, "lo")),
           width: Math.abs(xb - xa) / steps + 0.6, height: Y(at(px, a, b, "hi")) - Y(at(px, a, b, "lo")),
-          color: col(C.sky), opacity: H.CHART.bandOpacity });
+          color: col(C.gold), opacity: H.CHART.bandOpacity });
       }
-      page.drawLine({ start: { x: X(a.mm), y: Y(a.lo) }, end: { x: X(b.mm), y: Y(b.lo) }, thickness: 0.4, color: col(C.sky) });
-      page.drawLine({ start: { x: X(a.mm), y: Y(a.hi) }, end: { x: X(b.mm), y: Y(b.hi) }, thickness: 0.4, color: col(C.sky) });
+      page.drawLine({ start: { x: X(a.mm), y: Y(a.lo) }, end: { x: X(b.mm), y: Y(b.lo) }, thickness: 0.4, color: col(C.bandEdge) });
+      page.drawLine({ start: { x: X(a.mm), y: Y(a.hi) }, end: { x: X(b.mm), y: Y(b.hi) }, thickness: 0.4, color: col(C.bandEdge) });
     }
     plot.forEach((s) => page.drawLine({ start: { x: X(s.mm), y: gy }, end: { x: X(s.mm), y: gy + gh }, thickness: 0.2, color: col(C.rule) }));
     for (let p = 20; p < 100; p += 20)
