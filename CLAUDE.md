@@ -1299,13 +1299,19 @@ read-only, so a write test goes through `apply_migration` and ends in
   confirmed — open question.
   A `polish_resistant_sources` table (agp_number, lithology, class,
   restriction_note) exists live, seeded with all 45 producer/bench entries
-  from pp. 37-51 — **staged only as of 2026-09-11, not yet queried by
-  `designbook.html`** (Andrew asked to hold wiring it in). Full extraction,
-  every entry, and the open questions (does A+ imply A the way this table
-  assumes; does the sand rule extend past natural sand; bench-level truth
-  has nowhere to live on the current Aggregate Structure form) are in
+  from pp. 37-51, and **is wired into `designbook.html` as of 2026-09-11**:
+  `polishFactsFor(typeName, producer)` derives a lithology from the type name
+  (`polishLithologyOf()`), resolves the component's producer to its AGP
+  number, and checks this table before falling back to `aggregate_types`'
+  generic answer. Natural sand short-circuits to Class A directly, same
+  function. The seeded value's caption now says which of the three answered
+  ("LAM: Class A (Bench B)" / "Natural sand — automatically Class A" / the
+  old generic wording), since a LAM-sourced class carries a bench/restriction
+  this form has no field to verify and prints instead. Full extraction, every
+  entry, and the open questions (does A+ imply A the way this table assumes;
+  does the sand rule extend past natural sand; bench-level truth still has
+  nowhere to live on the current Aggregate Structure form) are in
   `docs/lam-polish-resistant-sources.md` and `supabase/polish_resistant_sources.sql`.
-  Whoever wires this in next should start there rather than re-deriving it.
 
 ## Conventions for changing this file
 
