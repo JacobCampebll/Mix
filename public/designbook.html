@@ -520,7 +520,11 @@
      as bordered cards three across they took a full screen and put the
      workbook's own results a scroll away from the ones fit from the curve,
      which is the one comparison this section exists to make. */
-  /* The comparison, and beside it what only the workbook states. */
+  /* The comparison, and beside it what only the workbook states. Was a
+     two-value-column comparison (workbook figure beside the computed one)
+     until 2026-09-11, when the workbook figure stopped printing at all
+     (see computedHTML()) - .dvtable is single-column everywhere now, no
+     ".two" variant left to size for. */
   .dvsplit{display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr);
            gap:18px 34px; align-items:start;}
   .dvsplit.one{grid-template-columns:minmax(0,620px); justify-content:center;}
@@ -529,7 +533,6 @@
   .dvrow{display:grid; grid-template-columns:minmax(0,1fr) 108px;
          align-items:baseline; gap:14px; padding:5px 4px;
          border-bottom:1px solid var(--line);}
-  .dvtable.two .dvrow{grid-template-columns:minmax(0,1fr) 108px 108px;}
   .dvrow:hover{background:var(--well);}
   .dvrow .l{font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);}
   .dvrow .v{font-family:'Roboto Mono',monospace; font-size:13px; color:var(--accent);
@@ -541,7 +544,7 @@
              letter-spacing:.03em; color:var(--muted);}
   .dvhead:hover{background:transparent;}
   @media (max-width:700px){
-    .dvrow, .dvtable.two .dvrow{grid-template-columns:minmax(0,1fr) 76px 76px;}
+    .dvrow{grid-template-columns:minmax(0,1fr) 76px;}
     .dvrow .l{font-size:10px;}
   }
   .computed-note{font-size:11px; color:var(--muted); margin-top:10px;}
@@ -2328,32 +2331,34 @@ function fourpointHTML(section) {
 }
 
 function computedHTML(section) {
-  // Legacy MixPack upload: alongside the computed path (now seeded from the
-  // workbook's own FOURPOINT trial data, when the version's cell map has
-  // it), show the workbook's own stated design results read-only so a
-  // reviewer can compare "what the curve fit says today" against "what the
-  // technician originally submitted". Rebuilt on every render from
-  // state.legacy.designValues (set by the importer / a reopened legacy
-  // design).
+  // Legacy MixPack upload: this used to print the workbook's own stated
+  // design results beside the computed-from-Four-Points figures, so a
+  // reviewer could compare "what the curve fit says today" against "what
+  // the technician originally submitted". Decided 2026-09-11 (Andrew): for
+  // these ten quantities the calculated value is gospel - a contractor must
+  // not be able to point at a MixPack cell to dispute what the four trial
+  // points compute, so the workbook's figure no longer prints in this
+  // comparison at all. It is still captured on import (state.legacy.
+  // designValues, the upload inspector log, extracted_from) for KYTC's own
+  // record; only this on-page display changed. Whatever the workbook states
+  // that the calculator has no counterpart for (Gsb, the %Gmm pair, absorbed
+  // AC, film thickness) still gets its own panel below - there is nothing
+  // calculated to dispute those against, so the concern doesn't apply to them.
   const wb = state.legacy && Array.isArray(state.legacy.designValues)
     ? state.legacy.designValues.filter((d) => d.status === "found") : [];
-  // One line per quantity, the workbook's figure beside the one fit from the
-  // four points. Reading one against the other is the only reason this
-  // section exists, and two independent lists left VMA on line 2 of the left
-  // and line 3 of the right. The pairing is declared on each output (`wb`),
-  // not matched on label text here.
-  const has = wb.length > 0;
-  const byLabel = new Map(wb.map((d) => [d.label, String(d.value)]));
   const used = new Set();
-  const row = (label, wbVal, dvKey) =>
+  const row = (label, dvKey) =>
     `<div class="dvrow">
        <span class="l">${esc(label)}</span>
-       ${has ? `<span class="v wb">${wbVal == null ? "—" : esc(wbVal)}</span>` : ""}
-       <span class="v"${dvKey ? ` data-dv="${dvKey}"` : ""}>${dvKey ? "—" : "—"}</span>
+       <span class="v"${dvKey ? ` data-dv="${dvKey}"` : ""}>—</span>
      </div>`;
+  // o.wb is still marked used even though its value no longer prints here -
+  // otherwise it would leak into "Stated only in the MixPack" below despite
+  // having a calculated counterpart, which is exactly the comparison this
+  // change removes.
   const paired = section.outputs.map((o) => {
     if (o.wb) used.add(o.wb);
-    return row(o.row || o.label, o.wb ? (byLabel.has(o.wb) ? byLabel.get(o.wb) : null) : null, o.key);
+    return row(o.row || o.label, o.key);
   }).join("");
   // Whatever the workbook states that the calculator has no counterpart for.
   const extra = wb.filter((d) => !used.has(d.label))
@@ -2363,7 +2368,6 @@ function computedHTML(section) {
      </div>`).join("");
   const head = `<div class="dvrow dvhead">
       <span class="l"></span>
-      ${has ? `<span class="v wb">Uploaded MixPack</span>` : ""}
       <span class="v">From Four Points</span>
     </div>`;
   // What only the workbook states goes in its own table beside the
@@ -2376,11 +2380,9 @@ function computedHTML(section) {
          ${extra}
        </div>`
     : "";
-  const note = has
-    ? `${wb.length} value(s) from ${esc(wb[0].source.split("!")[0])}, read-only, beside the calculator fit from the four trial points.`
-    : "Read-only — derived from the Four Points inputs above.";
+  const note = "Read-only — derived from the Four Points inputs above.";
   return `<div class="dvsplit${extraPanel ? "" : " one"}">
-      <div class="dvtable${has ? " two" : ""}">${head}${paired}</div>
+      <div class="dvtable">${head}${paired}</div>
       ${extraPanel}
     </div>
     <div class="computed-note">${note}</div>`;

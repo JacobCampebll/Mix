@@ -559,6 +559,29 @@ TBD — cite the governing spec section when encoding a limit in code.
   comment but not enforced — that's the Department's re-test side, not the
   contractor's. Full table in `docs/legacy-mixpack-map.md`.
 
+- **Design Values no longer shows the uploaded MixPack's own stated figure
+  next to the one computed from Four Points — decided 2026-09-11 (Andrew):
+  the calculated value is gospel, not something a contractor should be able
+  to dispute with a MixPack cell.** Until this, `computedHTML()` printed
+  both columns for the ten quantities both sources have (AC/Pb, Va, VMA,
+  VFA, Gmm, Gse, Pbe, dust ratio, density — everything but Gmb, which the
+  workbook never states) so a reviewer could sanity-check the curve fit
+  against what the technician originally submitted. That comparison is
+  gone from the page now; only "From Four Points" prints. **Nothing was
+  removed from the import itself** — `state.legacy.designValues`, the
+  upload inspector log, and `extracted_from` still capture the workbook's
+  figures exactly as before, same as every other provisional value in this
+  codebase; only this one display stopped rendering them. The "Stated only
+  in the MixPack" side panel (Gsb, %Gmm @ Nini/Nmax, absorbed AC, film
+  thickness) is untouched — those five have no computed counterpart at
+  all, so there's nothing to dispute them against, and Andrew confirmed
+  keeping them visible. The PDF was never part of this: `RENDER["design-
+  values"]` in `buildReviewPDF` only ever printed `dv[o.key]` — the
+  computed figure — so the review sheet was already "gospel-only" and
+  needed no change. If this section's `.dvtable.two` CSS variant or the
+  `has`/`wb`-column logic in `computedHTML()` ever comes back, it's a
+  reversion of this decision, not a bug fix — check here first.
+
 - **A `<select>` fires `input` BEFORE `change`, so clearing an "auto-filled"
   marker only on `change` lets the `input` handler undo the person's first
   pick.** The Polish-Resistant Source column (coarse/fine) is prefilled from
