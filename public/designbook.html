@@ -1546,8 +1546,15 @@ const CONFIG = {
       },
     },
     // Aggregate blend: Design Data rows 23-28, stop at the first blank producer.
+    // Column A is "AGG. PROD. NO." - KYTC's own key for the producer, which
+    // is what makes the free-text name in column C resolvable. It is an AGP
+    // number for an aggregate and an AMP number for a RAP row, matching the
+    // two registries the Producer column already switches between. Carried on
+    // the row as `_agp`, which is not a schema column, so it never reaches
+    // the form or the payload - it is only the key the import resolves with.
     AGGREGATE: { sheet: "designData", firstRow: 23, lastRow: 28, stopOn: "C",
-                 columns: { producer: "C", type_size: "J", mat_code: "H", pct_blend: "M", gsb: "L" } },
+                 columns: { producer: "C", type_size: "J", mat_code: "H", pct_blend: "M", gsb: "L" },
+                 producerCode: "A" },
     // Performance specimens: Performance Specimens rows, one column per specimen
     // (B..O; H and O are averages, skipped). Form columns: specimen / dry_wt /
     // ssd_wt / wt_water / air_voids.
@@ -4623,6 +4630,39 @@ function legacyFieldDef(key) {
   return null;
 }
 
+// A MixPack's AGG. PROD. NO. resolved to the producer name KYTC's list uses.
+// Two registries, chosen the same way the Producer column chooses its list:
+// an aggregate component resolves against `aggregates`, a RAP component
+// against `plants`, because a RAP row's "producer" is the asphalt plant its
+// millings came off (an AMP number, not an AGP one).
+// The lists reach here through `ctx`, not from `state`, so the extractor
+// stays a pure function of its inputs; a run before they load simply keeps
+// the workbook's own spelling, which is what happened every time until now.
+function resolveProducerCode(ctx, code, typeSize) {
+  const ref = ctx && ctx.ref;
+  const key = String(code || "").trim();
+  if (!ref || !key) return null;
+  const list = isRapRow({ type_size: typeSize }) ? "plants" : "aggregates";
+  const hit = refMatchIn(ref[list], key);
+  if (hit) return { value: hit.value, list };
+  // A RAP row whose number is an AGP rather than an AMP, or the reverse -
+  // cheap to try, and it is the same question either way.
+  const other = list === "plants" ? "aggregates" : "plants";
+  const alt = refMatchIn(ref[other], key);
+  return alt ? { value: alt.value, list: other } : null;
+}
+// refMatch() against a list passed in rather than against state.ref, so the
+// two share one definition of "this value is that entry".
+function refMatchIn(list, value) {
+  const v = String(value == null ? "" : value).trim();
+  if (!v || !(list || []).length) return null;
+  const k = refKey(v);
+  return list.find((o) => o.value === v)
+      || list.find((o) => refKey(o.value) === k)
+      || list.find((o) => o.aliases.some((a) => refKey(a) === k))
+      || null;
+}
+
 function extractLegacy(wb, ctx) {
   const L = CONFIG.LEGACY;
   const { sheets: S, log: sheetLog } = resolveLegacySheets(wb);
@@ -4787,6 +4827,7 @@ function extractLegacy(wb, ctx) {
   { // aggregate blend rows
     const A = L.AGGREGATE, ws = S[A.sheet], spec = rowSpec("aggregate");
     let uncachedMat = 0;
+    const producerFixes = [];
     for (let r = A.firstRow; r <= A.lastRow && tables.aggregate.length < spec.max; r++) {
       if (legacyCell(ws, `${A.stopOn}${r}`).status !== "found") break;
       const row = {};
@@ -4795,10 +4836,30 @@ function extractLegacy(wb, ctx) {
         row[col.key] = c.status === "found" ? coerceField(col.key, c.value, col.type) : "";
         if (col.key === "mat_code" && c.status === "not-cached") uncachedMat++;
       });
+      // KYTC's own key for this producer, from the AGG. PROD. NO. column.
+      const code = legacyCell(ws, `${A.producerCode}${r}`);
+      row._agp = code.status === "found" ? String(code.value).trim() : "";
+      // Resolve the producer to the spelling KYTC's list uses. A MixPack
+      // writes the name freehand - "Haydon Materials", "Clover Bottom
+      // Quarry", "Watson Sand and Gravel" - and none of those match the
+      // aggregates table, so every import used to raise an off-list warning
+      // per row and the producer had to be re-picked by hand. The NUMBER
+      // does match: it is an alias on every entry in both registries.
+      const hit = resolveProducerCode(ctx, row._agp, row.type_size);
+      if (hit && hit.value && hit.value !== row.producer) {
+        producerFixes.push({ row: tables.aggregate.length + 1, code: row._agp,
+                             was: row.producer, now: hit.value, list: hit.list });
+        row.producer = hit.value;
+      }
       tables.aggregate.push(row);
     }
     log.push({ field: "aggregate rows", source: `${L.SHEET_NAMES[A.sheet]}!${A.stopOn}${A.firstRow}:${A.lastRow}`, value: tables.aggregate.length,
                status: tables.aggregate.length ? "found" : "missing", note: uncachedMat ? `${uncachedMat} MAT. CODE cell(s) are formulas with no cached value` : "" });
+    producerFixes.forEach((f) => log.push({
+      field: `producer (aggregate row ${f.row})`,
+      source: `${L.SHEET_NAMES[A.sheet]}!${A.producerCode}${A.firstRow + f.row - 1}`,
+      value: f.now, status: "found",
+      note: `${f.code} resolved against the KYTC ${f.list} list; the workbook wrote "${f.was}"` }));
   }
 
   { // Performance specimens: one column per specimen (Performance Specimens sheet)
@@ -5022,7 +5083,9 @@ async function handleFile(file) {
     return resumeFromPDF(file);
   try {
     const wb = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
-    const res = extractLegacy(wb, { job: state.job, mix: state.mix });
+    // state.ref goes in so the aggregate rows' AGG. PROD. NO. can be resolved
+    // to KYTC's own producer spelling as they are read.
+    const res = extractLegacy(wb, { job: state.job, mix: state.mix, ref: state.ref });
 
     state.extracted = { scalars: res.scalars, tables: res.tables };
     state.sources = res.sources;
@@ -7505,15 +7568,7 @@ async function loadReferenceData() {
 
 function refKey(v) { return String(v == null ? "" : v).toLowerCase().replace(/\s+/g, ""); }
 // Exact value first, then case/whitespace-insensitive, then an alias.
-function refMatch(sourceKey, value) {
-  const list = state.ref[sourceKey] || [], v = String(value == null ? "" : value).trim();
-  if (!v || !list.length) return null;
-  const k = refKey(v);
-  return list.find((o) => o.value === v)
-      || list.find((o) => refKey(o.value) === k)
-      || list.find((o) => o.aliases.some((a) => refKey(a) === k))
-      || null;
-}
+function refMatch(sourceKey, value) { return refMatchIn(state.ref[sourceKey], value); }
 function rowSpecFor(key) { return rowSpec(key); }   // array-aware; see rowSpec()
 // The schema definition behind a rendered control: a field (data-field) or
 // a row column (data-row + data-col).
@@ -7589,6 +7644,28 @@ function retargetRowControls(row) {
 // its value, tint, disabled state and auto-fill mark; then re-run the
 // auto-fill and the rail so warnings appear. Listeners are delegated on
 // #sections, so swapping the element loses nothing.
+// The same AGG. PROD. NO. resolution the importer does, re-run once the
+// reference lists arrive. An import that happened before they loaded kept
+// the workbook's own producer spelling, which is correct but off-list; this
+// is the only chance to fix it without the person retyping.
+// Only a cell still holding exactly what the workbook wrote is touched - a
+// producer someone has since chosen themselves is theirs.
+function resolveProducersLate() {
+  const src = (state.extracted && state.extracted.tables && state.extracted.tables.aggregate) || [];
+  const list = document.querySelector('[data-rowlist="aggregate"]');
+  if (!src.length || !list || !state.ref.loaded) return;
+  Array.from(list.children).forEach((row, i) => {
+    const from = src[i];
+    if (!from || !from._agp) return;
+    const el = row.querySelector('[data-col="producer"]');
+    if (!el || String(el.value).trim() !== String(from.producer || "").trim()) return;
+    const hit = resolveProducerCode({ ref: state.ref }, from._agp, rowValuesOf(row).type_size);
+    if (!hit || hit.value === el.value) return;
+    el.value = hit.value;
+    from.producer = hit.value;    // so a later pass does not undo a person's edit
+  });
+}
+
 function refreshReferenceControls() {
   if (!$("sections").children.length) { renderRefStatus(); return; }   // not drawn yet; renderForm reads state.ref itself
   comboClose();   // the input the popup is anchored to is about to be replaced
@@ -7597,6 +7674,7 @@ function refreshReferenceControls() {
     if (def) replaceRefControl(el, def);
   });
   applyAutofills();
+  resolveProducersLate();
   // Every polish-resistant fact is read off aggregate_types, and the grid is
   // built before the lists arrive - so without this the whole matrix stays in
   // its "type not on the list" fallback, asking for answers it already has.
