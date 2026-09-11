@@ -468,29 +468,34 @@ TBD — cite the governing spec section when encoding a limit in code.
   since a button and an anchor sit on the same line a pixel apart.
 
 
-- **Three of the five sheet treatments are in the page behind `?treatment=`,
-  to be compared and then cut down to one (2026-09-11).** The five were mocked
-  2026-09-10; **Plates** and **Provenance** are what the page already wears
-  (plate fields, and colour saying where a value came from), so **Ledger**,
-  **Banded** and **Ruled** were built as pure override layers scoped under
-  `[data-treatment="..."]` on `<html>`, in the `SHEET TREATMENTS` block at the
-  end of the stylesheet. With no attribute set not one of their declarations
-  applies, so the default is untouched; a small script in `<head>` reads the
-  query parameter before first paint so there is no flash. **This is a fork in
-  the stylesheet and is meant to be temporary** - when Jake picks, the winner
-  folds into the base rules and the other two blocks are deleted. Do not build
-  on top of a treatment meanwhile.
-  Two things worth keeping from building them. A treatment rule is easily
-  MORE specific than the base rule it did not mean to catch:
+- **The section head is a navy band with the gold rule under it - Banded, one
+  of five treatments, chosen by Jake 2026-09-11.** The other four were built
+  or mocked and are gone: Plates and Provenance were already the page's look
+  and stay (plate fields, and colour saying where a value came from), Ledger
+  and Ruled were built behind a `?treatment=` switch for comparison and have
+  been deleted along with the switch. Do not go looking for them in the file;
+  they are in the history at `f9355ef` if anyone wants them back.
+  The band is folded into the base rules rather than layered on top, so there
+  is one `.section-head` and no scoping attribute anywhere. Three things about
+  it are load-bearing. The negative margins equal `.section`'s own 22px/24px
+  padding so the band reaches the card edge **without** `overflow:hidden` on
+  `.section` - that would make a scroll container of every card and break the
+  polish matrix's sticky row head. The 9px radius is the card's 10px less its
+  1px border, so the band's shoulders sit inside the card's corners. And the
+  on-navy rules are scoped to `.section-head` on purpose, because `a.cite`
+  also appears inline in `.prnote` / `.prsub` on white, where it must keep the
+  accent values. `--navy-dim` and `--navy-hairline` in `:root` are the derived
+  pair for small type on navy; `--muted` on `--line` is unreadable there.
+  Two things worth keeping from building the three. A treatment rule is easily
+  MORE specific than a base rule it did not mean to catch:
   `[data-treatment="ruled"] .dvrow .v` outranked `.dvhead .v`, so the Design
-  Values column names jumped from 10px to 14px, overflowed their 76px track
-  and gave the page 52px of sideways scroll - `:not(.dvhead)` was the fix.
-  And **right-aligned nowrap text spills LEFTWARD**, which is why those column
-  names have always been wider than their track without anyone noticing: the
-  base absorbs the spill into the label column, and it only became page scroll
-  once a treatment widened the section. Check a treatment with
-  `documentElement.scrollWidth` at 390px, not by eye.
-
+  Values column names went from 10px to 14px, overflowed their 76px track and
+  gave the page 52px of sideways scroll. And **right-aligned nowrap text
+  spills LEFTWARD**, which is why those column names have always been wider
+  than their track without anyone noticing: the base absorbs the spill into
+  the label column, and it only became page scroll once a treatment widened
+  the section. Check a restyle with `documentElement.scrollWidth` at 390px,
+  never by eye.
 - **A native `<datalist>` is not a typeahead, and it looks exactly like
   one.** It substring-matches an option's **`value` only** — never the
   option's label text, never anything you put in an alias — it ranks

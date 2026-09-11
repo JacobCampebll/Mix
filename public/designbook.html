@@ -67,6 +67,9 @@
     --line:#DAD7CE; --accent:#1C7CC0; --accent-soft:#E4F2FB;
     /* Team Kentucky Transportation Cabinet brand: navy, sky blue, gold, sampled from the logo */
     --navy:#002050; --sky:#5FB2E4; --gold:#FFC312;
+    /* Derived, for small type sitting ON navy - the section bands, and the
+       same pair the nav card and the validation rail already use by hand. */
+    --navy-dim:rgba(255,255,255,.72); --navy-hairline:rgba(255,255,255,.30);
     --flag:#A56F00; --flag-soft:#FDF1C7; --ok:#3F7A56; --ok-soft:#E3EFE7;
     --bad:#9B2C2C;
     --radius:6px;
@@ -225,9 +228,24 @@
   .section{background:var(--panel); border:1px solid var(--line); border-radius:10px;
            padding:22px 24px; margin-bottom:20px; scroll-margin-top:150px; transition:box-shadow .3s;}
   .section.flash{box-shadow:0 0 0 2px var(--accent);}
+  /* The head is a full-bleed navy band with the KYTC gold rule under it -
+     chosen from five treatments 2026-09-11. On a sheet this long the band is
+     what tells you where you are without looking back at the rail, which is
+     why nothing else about a section is decorated: eleven bands down one page
+     is already the whole budget.
+     The negative margins equal .section's own 22px/24px padding, so the band
+     reaches the card's edge WITHOUT overflow:hidden on .section - that would
+     make a scroll container of every card and break the polish matrix's
+     sticky row head. The 9px radius is the card's 10px less its 1px border,
+     so the band's shoulders sit inside the card's corners. */
   .section-head{display:flex; align-items:baseline; justify-content:space-between;
-                margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line);
+                margin:-22px -24px 18px; padding:13px 24px 11px;
+                background:var(--navy); border-radius:9px 9px 0 0;
+                border-bottom:3px solid var(--gold);
                 gap:12px; flex-wrap:wrap;}
+  .section-head h2{color:var(--panel);}
+  /* On navy, --muted on --line is unreadable; these are the derived pair. */
+  .section-head .section-tag{color:var(--navy-dim); border-color:var(--navy-hairline);}
   .section-tag{font-size:10px; color:var(--muted); border:1px solid var(--line);
                border-radius:3px; padding:2px 7px; letter-spacing:.03em; white-space:nowrap;}
   /* Contract Information's "Look up contract" - a chip-sized button in the
@@ -235,6 +253,10 @@
   .seclookup{font:inherit; font-size:10px; letter-spacing:.03em; color:var(--accent); background:none;
              border:1px solid var(--accent); border-radius:3px; padding:2px 8px; cursor:pointer;}
   .seclookup:disabled{color:var(--muted); border-color:var(--line); cursor:default;}
+  /* The one action in the head goes gold, matching the rule under it. */
+  .section-head .seclookup{color:var(--gold); border-color:var(--gold);}
+  .section-head .seclookup:hover:not(:disabled){background:var(--gold); color:var(--navy);}
+  .section-head .seclookup:disabled{color:var(--navy-dim); border-color:var(--navy-hairline);}
   .lookupnote{font-size:11.5px; color:var(--muted); line-height:1.45; margin:-4px 0 12px;}
   .lookupnote.error{color:var(--bad);} .lookupnote.ok{color:var(--ok);} .lookupnote:empty{display:none;}
   /* The head's right-hand side: the spec citations, then the tag. */
@@ -247,6 +269,11 @@
          letter-spacing:.03em; white-space:nowrap;}
   a.cite:hover{background:var(--accent); color:#FFFFFF;}
   a.cite:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+  /* Scoped to the head on purpose: the inline citations in .prnote / .prsub
+     sit on white and keep the accent-on-white values above. */
+  .section-head a.cite{color:var(--sky); border-color:var(--sky);}
+  .section-head a.cite:hover{background:var(--sky); color:var(--navy);}
+  .section-head a.cite:focus-visible{outline-color:var(--gold);}
   /* Inline in a note or a check result there is no chip - just a link. */
   .prnote a.cite, .prsub a.cite{border:0; padding:0; font-size:inherit; font-family:inherit;
                                 white-space:normal; text-decoration:underline;}
@@ -266,7 +293,7 @@
      block is not a tiebreaker, and at equal specificity the later rule wins -
      see the same trap in CLAUDE.md's gotchas. */
   @media (max-width:700px){
-    .section-head{align-items:flex-start; gap:8px;}
+    .section-head{align-items:flex-start; gap:8px; margin:-22px -24px 16px; padding:11px 24px 9px;}
     .section-tag{display:none;}
     .headmeta{justify-content:flex-start; max-width:100%; gap:5px;}
     /* One line, measured rather than guessed (Jake, 2026-09-11). At 360px the
@@ -313,6 +340,13 @@
   .box:focus{outline:2px solid var(--accent); outline-offset:-1px;}
   .box.prefilled{background:var(--accent-soft);}
   .box.autofilled{background:var(--accent-soft);}
+  /* On a page broken up by eleven bands the fill alone is easy to scan past,
+     so a value that came from a file also carries an accent edge. An inset
+     shadow, so there is no border-box shift and no fight with the focus
+     outline. The :not()s keep today's precedence: out-of-spec stays
+     red-on-pink, readonly and frozen stay grey. */
+  .box.prefilled:not(.critfail):not([readonly]):not(:disabled),
+  .box.autofilled:not(.critfail):not([readonly]):not(:disabled){box-shadow:inset 2px 0 0 var(--accent);}
   .box[readonly]{background:#EFEDE6; color:var(--muted); cursor:default;}
   /* A frozen (Approved) form: flatter than the paper, so the whole sheet
      reads as closed rather than as a page of fields that happen not to work. */
@@ -611,443 +645,9 @@
       padding:12px; overflow:auto; max-height:320px; font-size:11px; margin-top:10px;
       font-family:'Roboto Mono',monospace;}
 
-  /* ===== SHEET TREATMENTS =========================================
-   *
-   * Three alternative dressings of the form, from the five mocked on
-   * 2026-09-10 (Plates and Provenance are what the page already wears:
-   * plate fields, and colour saying where a value came from). Each is a
-   * pure override layer scoped under [data-treatment="..."] on <html>,
-   * so with no attribute set not one declaration below applies and the
-   * default look is untouched.
-   *
-   * Reach one with ?treatment=ledger | banded | ruled on any DesignBook
-   * URL. This is here to be COMPARED and then cut down to one: when Jake
-   * picks, the winner folds into the base rules and the other two blocks
-   * are deleted. Do not build on top of a treatment in the meantime.
-   *
-   * Nothing here may touch a JS hook: collectForm() reads the children of
-   * .rowlist as the rows, the row renderer writes grid-template-columns
-   * inline, and data-field / data-row / data-col drive the rail, the
-   * combo popup and the payload.
-   * ================================================================ */
-/* ===== TREATMENT: LEDGER ==========================================
-   The MixPack look: no plates, no cards, no chips. A field is a label on
-   the left, a value on the right, and a hairline under the pair. Numbers
-   right-align in mono, the way they sit in the workbook.
-
-   Everything is scoped under [data-treatment="ledger"] on <html>, so with
-   no attribute set not one declaration below applies and the page is
-   exactly what it is today.
-
-   Because nothing wears a fill any more, hover and focus carry the whole
-   burden of saying "this is a control": hover brings back a --well ground
-   AND a --line box, focus is the 2px accent outline with no radius, which
-   reads as a selected cell rather than as a form field.
-
-   Every responsive override sits DIRECTLY BELOW the rule it overrides, per
-   the convention in CLAUDE.md - a @media block is not a tiebreaker and at
-   equal specificity the later rule wins.
-   ------------------------------------------------------------------ */
-
-[data-treatment="ledger"]{
-  /* The value column of a ledger row, as a grid track. Proportional rather
-     than a fixed px so three pairs across still hold at 800px. */
-  --ledger-val: minmax(0,1.05fr);
-  /* The heading rule: a ledger's column names sit under a heavier line than
-     the row hairlines, which is what separates head from body without a box. */
-  --ledger-head: 2px solid var(--ink);
-}
-
-/* --- the card stops being a card ---------------------------------- */
-[data-treatment="ledger"] .section{border:0; border-radius:0; padding:20px 22px;}
-@media (max-width:700px){
-  [data-treatment="ledger"] .section{padding:14px 14px 10px;}
-}
-[data-treatment="ledger"] .section-head{border-bottom:var(--ledger-head);
-  padding-bottom:8px; margin-bottom:14px;}
-/* The head's chips were the only boxes left up there. Flattened to text and
-   an underline, which also buys back width for the 700px one-line head. */
-[data-treatment="ledger"] .headmeta{gap:4px 12px;}
-[data-treatment="ledger"] .section-tag{border:0; padding:0;}
-[data-treatment="ledger"] a.cite{border:0; border-radius:0; padding:0;
-  text-decoration:underline; text-underline-offset:2px;}
-[data-treatment="ledger"] a.cite:hover{background:transparent; color:var(--accent);
-  text-decoration-thickness:2px;}
-[data-treatment="ledger"] .seclookup{border:0; border-bottom:1px solid var(--accent);
-  border-radius:0; padding:0 0 1px;}
-
-/* --- the scalar grid becomes ledger rows --------------------------- */
-/* Three pairs across, and stated here so the 1601px four-column rule does
-   not apply: a label/value pair needs more width than a stacked field. */
-[data-treatment="ledger"] .grid{grid-template-columns:repeat(3,minmax(0,1fr));
-  gap:0 26px;}
-/* Two across once the form is the whole column: at 800px three pairs left
-   the label ~110px and long labels wrapped to three lines. */
-@media (max-width:1000px){
-  [data-treatment="ledger"] .grid{grid-template-columns:repeat(2,minmax(0,1fr));}
-}
-@media (max-width:700px){
-  [data-treatment="ledger"] .grid{grid-template-columns:minmax(0,1fr);}
-}
-
-[data-treatment="ledger"] .grid .field{display:grid;
-  grid-template-columns:minmax(0,1fr) var(--ledger-val);
-  align-items:center; align-content:start; column-gap:12px;
-  padding:6px 0 5px; border-bottom:1px solid var(--line);}
-/* At 390px the row is ~330px of usable width: 180 label + 10 gap + 140
-   value. Measured, not guessed - a proportional track here gave the value
-   ~150px and the label ~160, and "Binder supplier terminal" went to three
-   lines. */
-@media (max-width:700px){
-  [data-treatment="ledger"] .grid .field{
-    grid-template-columns:minmax(0,1fr) minmax(0,140px); column-gap:10px;}
-}
-/* Sentence case in ink: in a workbook the label is the thing you read, and
-   the value earns its difference from being mono and accent. */
-[data-treatment="ledger"] .field label{font-size:11.5px; text-transform:none;
-  letter-spacing:0; color:var(--ink); line-height:1.35; margin-bottom:0;}
-/* Four Points' constants keep their stacked shape (four across, they have no
-   room for a pair) but take the hairline so the language holds. */
-[data-treatment="ledger"] .fp-consts .field{border-bottom:1px solid var(--line);
-  padding-bottom:6px;}
-
-/* --- the plate becomes a cell -------------------------------------- */
-[data-treatment="ledger"] .box{background:transparent; border-color:transparent;
-  border-radius:0; padding:4px 6px; min-height:26px;}
-/* Numbers right-align on the mono grid. Selects stay left: their text is
-   words, and text-align-last on a <select> is not dependable across
-   browsers. */
-[data-treatment="ledger"] input.box.mono,
-[data-treatment="ledger"] input.box[inputmode="decimal"]{text-align:right;}
-/* Hover and focus do all the announcing now - see the block comment. */
-[data-treatment="ledger"] .box:hover:not([readonly]):not(:disabled){
-  background:var(--well); border-color:var(--line);}
-[data-treatment="ledger"] .box:focus{outline:2px solid var(--accent); outline-offset:0;}
-/* Provenance, re-expressed: the tint alone is too quiet without a plate
-   around it, so a value that came from a file also carries an accent rule
-   down its left edge, and its .srcnote is in the accent rather than muted.
-   box-shadow is used deliberately - it survives the focus state and does not
-   move the box model. */
-[data-treatment="ledger"] .box.prefilled,
-[data-treatment="ledger"] .box.autofilled{background:var(--accent-soft);
-  box-shadow:inset 2px 0 0 var(--accent);}
-[data-treatment="ledger"] .srcnote{color:var(--accent);}
-/* A computed cell is a printed number: no ground, no affordance. */
-[data-treatment="ledger"] .box[readonly]{background:transparent; color:var(--muted);}
-/* Frozen (Approved): full ink, no ground - the sheet reads as a record. */
-[data-treatment="ledger"] .box:disabled{background:transparent;
-  border-color:transparent; color:var(--ink);}
-/* Out of spec, without a pink box: the value goes red over a red rule. */
-[data-treatment="ledger"] .box.critfail{background:transparent;
-  border-color:transparent; color:var(--bad); box-shadow:inset 0 -2px 0 var(--bad);}
-/* The two notes that hang under a value span the whole row and right-align
-   to it - a 10.5px spec limit inside a 140px column wrapped to three lines. */
-[data-treatment="ledger"] .grid .field > .srcnote,
-[data-treatment="ledger"] .grid .field > .crit{grid-column:1 / -1; text-align:right;}
-
-/* --- repeating rows: same hairline language, not a new one ---------- */
-[data-treatment="ledger"] .rowhead{border-bottom:var(--ledger-head); padding-bottom:4px;}
-[data-treatment="ledger"] .rowitem{padding:2px 10px;}
-[data-treatment="ledger"] .rowitem .box{padding:3px 6px; min-height:26px;}
-/* The phone card had a border, a radius and a #FCFCFA ground - three boxes
-   this treatment does not use. The inline grid-template-columns and its
-   !important are untouched; only the skin changes. */
-@media (max-width:700px){
-  [data-treatment="ledger"] .rowitem{border:0; border-bottom:1px solid var(--line);
-    border-radius:0; background:transparent; padding:8px 0;}
-  [data-treatment="ledger"] .rowitem:hover{background:transparent;}
-}
-[data-treatment="ledger"] .addrow{border:0; border-bottom:1px solid var(--line);
-  border-radius:0; text-align:left; padding:8px 10px;}
-[data-treatment="ledger"] .addrow:hover:not(:disabled){background:var(--well);}
-
-/* --- gradation and four-point tables ------------------------------- */
-[data-treatment="ledger"] table.sievetable th,
-[data-treatment="ledger"] table.fptable th{border-bottom:var(--ledger-head);}
-[data-treatment="ledger"] table.sievetable input,
-[data-treatment="ledger"] table.fptable input{background:transparent;
-  border-color:transparent; border-radius:0; text-align:right; padding:4px 6px;}
-[data-treatment="ledger"] table.sievetable input:hover:not(:disabled),
-[data-treatment="ledger"] table.fptable input:hover:not(:disabled){
-  background:var(--well); border-color:var(--line);}
-[data-treatment="ledger"] table.fptable td.calc{background:transparent;
-  color:var(--ink); text-align:right;}
-[data-treatment="ledger"] .chartwrap{border:0; border-radius:0;
-  background:transparent; padding:8px 0 0;}
-
-/* --- readouts ------------------------------------------------------ */
-/* Design Values is already a ledger; only its labels need to match. */
-[data-treatment="ledger"] .dvrow .l{text-transform:none; font-size:11.5px;
-  letter-spacing:0; color:var(--ink);}
-[data-treatment="ledger"] .dvhead .l, [data-treatment="ledger"] .dvhead .v{
-  text-transform:uppercase; font-size:10px; letter-spacing:.03em; color:var(--muted);}
-/* Four Points' result cards become ruled lines. The hero keeps its gold, as
-   a rule rather than as a fill. */
-[data-treatment="ledger"] .fp-card{background:transparent; border-radius:0;
-  border-bottom:1px solid var(--line); padding:6px 0;}
-[data-treatment="ledger"] .fp-card.hero{background:transparent;
-  border-bottom:2px solid var(--gold);}
-/* ===== END TREATMENT: LEDGER ===== */
-
-/* ===== TREATMENT: BANDED =================================================
-   Every section head becomes a full-bleed navy band inside its card, with the
-   KYTC gold rule under it and the title in white. The band is the whole idea,
-   so nothing else about a section changes - doubling it with more decoration
-   is what would make eleven navy bands down one page unbearable.
-   Everything here is scoped under [data-treatment="banded"]; with no attribute
-   on the root element the page renders exactly as it does today. */
-
-[data-treatment="banded"]{
-  /* Derived on-navy values only - the same white hairline/dim-white pair the
-     navy nav and the validation rail already use. No new hue. */
-  --banded-hairline:rgba(255,255,255,.30);
-  --banded-dim:rgba(255,255,255,.72);
-}
-
-/* The band itself. Negative margins equal to .section's own 22px/24px padding
-   carry it out to the card's padding box, so it bleeds to the card edge
-   WITHOUT putting overflow:hidden on .section - that would make a scroll
-   container of every card and is exactly the sort of thing that breaks the
-   polish matrix's position:sticky row head. 9px radius = the card's 10px less
-   its 1px border, so the band's shoulders sit inside the card's corners.
-   The 1px --line rule under the head becomes the 3px gold rule. */
-[data-treatment="banded"] .section-head{
-  margin:-22px -24px 18px; padding:13px 24px 11px;
-  background:var(--navy); border-radius:9px 9px 0 0;
-  border-bottom:3px solid var(--gold);
-}
-/* Directly below the rule it overrides, per this file's convention: a @media
-   block is not a tiebreaker. At 700px the head already left-aligns and the
-   chips already shrink; the band only needs to sit tighter. The side values
-   stay -24px/24px because .section's own padding does not change at 700px. */
-@media (max-width:700px){
-  [data-treatment="banded"] .section-head{margin:-22px -24px 16px; padding:11px 24px 9px;}
-}
-
-/* Title on navy. Size and family are left alone - the band is doing the work. */
-[data-treatment="banded"] .section-head h2{color:var(--panel);}
-
-/* The head's contents now sit on navy, so they take their on-navy values
-   rather than the accent-on-white ones. Citations go sky (a link), the one
-   action in the head goes gold (it matches the rule under it), and the source
-   tag goes to the dim white + white hairline pair, since --muted on --line is
-   unreadable on navy. All three are scoped to .section-head so the inline
-   citations inside .prnote / .prsub, which sit on white, are untouched. */
-[data-treatment="banded"] .section-head a.cite{color:var(--sky); border-color:var(--sky);}
-[data-treatment="banded"] .section-head a.cite:hover{background:var(--sky); color:var(--navy);}
-[data-treatment="banded"] .section-head a.cite:focus-visible{outline-color:var(--gold);}
-[data-treatment="banded"] .section-head .seclookup{color:var(--gold); border-color:var(--gold);}
-[data-treatment="banded"] .section-head .seclookup:hover:not(:disabled){background:var(--gold); color:var(--navy);}
-[data-treatment="banded"] .section-head .seclookup:disabled{color:var(--banded-dim); border-color:var(--banded-hairline);}
-[data-treatment="banded"] .section-head .section-tag{color:var(--banded-dim); border-color:var(--banded-hairline);}
-
-/* Provenance, re-expressed rather than replaced. The pale --accent-soft fill
-   still means "this came from a file", and .srcnote under it is untouched; on
-   a page broken up by eleven bands the fill alone is easy to scan past, so a
-   prefilled/autofilled plate also gets a 2px accent edge - an inset shadow, so
-   no border-box shift and no interference with the focus outline. The :not()s
-   keep today's precedence intact: an out-of-spec value stays red-on-pink, and
-   a readonly or frozen plate stays grey, exactly as now. */
-[data-treatment="banded"] .box.prefilled:not(.critfail):not([readonly]):not(:disabled),
-[data-treatment="banded"] .box.autofilled:not(.critfail):not([readonly]):not(:disabled){
-  box-shadow:inset 2px 0 0 var(--accent);
-}
-/* ===== END TREATMENT: BANDED ============================================= */
-
-/* ===== TREATMENT: RULED =========================================
-   Everything below is scoped to [data-treatment="ruled"] on <html>.
-   With no attribute set, not one of these rules matches and the page
-   is exactly what it is today.
-
-   The idea: no cards, no fills, no boxes. The section card dissolves so
-   the ten sections read as one continuous sheet; every control is a
-   single baseline rule; type and rule WEIGHT carry the hierarchy
-   (ink rule = a section starts, hairline = a field), and the room the
-   borders and plate fills gave back is spent on vertical rhythm.
-   Responsive overrides sit directly below the rule they override -
-   a @media block is not a tiebreaker (CLAUDE.md).
-   ================================================================= */
-
-/* The sheet. The form no longer sits on cards, so the ground goes to the
-   panel white the cards used to wear; --paper stays for the one thing that
-   is still a card (the book switch) and the appbar's gradient rule is what
-   separates header from sheet. */
-[data-treatment="ruled"] body{background:var(--panel);}
-
-/* A section is no longer a card - it is a run of the sheet with a ruled
-   heading. The 12px of left padding (pulled straight back with the negative
-   margin, so nothing moves) exists only so .flash has somewhere to draw:
-   a ring around a borderless block looks like a box coming back, a bar in
-   the gutter does not. scroll-margin-top is untouched. */
-[data-treatment="ruled"] .section{
-  background:transparent; border:0; border-radius:0;
-  padding:0 0 0 12px; margin:0 0 44px -12px;
-}
-[data-treatment="ruled"] .section.flash{box-shadow:inset 3px 0 0 var(--accent);}
-[data-treatment="ruled"] .section-head{
-  border-bottom:1px solid var(--ink); padding-bottom:10px; margin-bottom:26px;
-}
-[data-treatment="ruled"] .section-head h2{font-size:19px; letter-spacing:-.005em;}
-@media (max-width:700px){
-  [data-treatment="ruled"] .section{margin-bottom:34px;}
-  [data-treatment="ruled"] .section-head{margin-bottom:20px;}
-  [data-treatment="ruled"] .section-head h2{font-size:17px;}
-}
-
-/* The head's small type loses its chips too - an outlined chip is a box.
-   The citations become what they are, links; the base 700px rule still
-   takes them to 9px, so the head holds one line with room to spare. */
-[data-treatment="ruled"] .headmeta{gap:6px 14px;}
-[data-treatment="ruled"] a.cite{border:0; padding:2px 0; text-decoration:underline; text-underline-offset:2px;}
-[data-treatment="ruled"] a.cite:hover{background:transparent; color:var(--ink);}
-[data-treatment="ruled"] .section-tag{border:0; padding:2px 0;}
-[data-treatment="ruled"] .seclookup{border:0; border-bottom:1px solid var(--accent); border-radius:0; padding:2px 0;}
-
-/* Air. The grid's 12px gap was sized for plates that had their own edges;
-   with only a hairline under each value the row gap IS the separation, so
-   it has to be several times the 3px that binds a label to its own rule.
-   That ratio is what keeps label and value paired when the grid drops to
-   two columns on a phone - hence the gap staying generous down there. */
-[data-treatment="ruled"] .grid{gap:26px 28px;}
-@media (max-width:700px){ [data-treatment="ruled"] .grid{gap:22px 18px;} }
-[data-treatment="ruled"] .field label{color:var(--ink); font-weight:500; margin-bottom:3px;}
-[data-treatment="ruled"] .field label .opt{color:var(--muted);}
-
-/* The control: one baseline rule, no fill, no radius, no side padding, so
-   the value sits on the same left edge as its label. 14px value against a
-   10.5px label is the hierarchy the plate used to carry. min-height keeps
-   the tap target where it is today. */
-[data-treatment="ruled"] .box{
-  background:transparent; border:0; border-bottom:1px solid var(--line);
-  border-radius:0; padding:6px 2px 5px; min-height:32px; font-size:14px;
-}
-[data-treatment="ruled"] .box:hover:not([readonly]):not(:disabled){border-bottom-color:var(--muted);}
-/* Focus is the rule thickening, not an inset outline (which draws the box
-   back). The inset band sits above the border, so nothing reflows. */
-[data-treatment="ruled"] .box:focus{
-  outline:none; border-bottom-color:var(--accent);
-  box-shadow:inset 0 -2px 0 var(--accent);
-}
-/* Read-only/computed: no rule at all. There is nothing to type on, and the
-   muted figure then reads as stated rather than as an empty control. */
-[data-treatment="ruled"] .box[readonly]{background:transparent; color:var(--muted); border-bottom-color:transparent;}
-[data-treatment="ruled"] .box.critfail{background:transparent; border-bottom-color:var(--bad); box-shadow:inset 0 -2px 0 var(--bad);}
-
-/* PROVENANCE. The pale-blue plate is gone, so a value that came from a file
-   says so in the rule itself: accent, and DASHED - provisional, check me -
-   where a typed value is solid and a focused one is solid and thick. The
-   padding-bottom gives back the pixel the 2px rule takes, so a prefilled
-   field does not sit 1px lower than its neighbour. Its .srcnote joins the
-   same signal by taking the accent. */
-[data-treatment="ruled"] .box.prefilled,
-[data-treatment="ruled"] .box.autofilled{
-  background:transparent; border-bottom:2px dashed var(--accent); padding-bottom:4px;
-}
-[data-treatment="ruled"] .srcnote{color:var(--accent);}
-
-/* Row tables. The row already carries a hairline, so a rule under each of
-   its five controls would be five lines saying one thing - the controls go
-   ruleless and the row's own line serves. Provenance is the exception and
-   keeps its accent, since that is the one thing the row line cannot say. */
-[data-treatment="ruled"] .rowhead{border-bottom-color:var(--ink); padding-bottom:7px;}
-[data-treatment="ruled"] .rowitem{padding:9px 10px 9px 0;}
-[data-treatment="ruled"] .rowitem:hover{background:transparent; border-bottom-color:var(--muted);}
-[data-treatment="ruled"] .rowitem .box{border-bottom-color:transparent; min-height:26px; padding:4px 2px; font-size:13px;}
-[data-treatment="ruled"] .rowitem .box.prefilled,
-[data-treatment="ruled"] .rowitem .box.autofilled{border-bottom-color:var(--accent);}
-/* Below 700px the base turns each row into a bordered card. That is the one
-   thing this treatment does not do, so the card becomes a ruled block - and
-   because the controls now stack under their own labels two-up, they take
-   their baseline rule back: that rule is what pairs a label with its value
-   here. Nothing touches grid-template-columns, which is written inline by
-   rowHTML() and stays the base's !important two-column card. */
-@media (max-width:700px){
-  [data-treatment="ruled"] .rowitem{
-    background:transparent; border:0; border-top:1px solid var(--line);
-    border-radius:0; padding:12px 0 14px;
-  }
-  [data-treatment="ruled"] .rowitem:hover{background:transparent;}
-  [data-treatment="ruled"] .rowitem .box{border-bottom-color:var(--line);}
-  [data-treatment="ruled"] .rowitem label{color:var(--ink); font-weight:500;}
-}
-/* The last row's rule is already the line above this, so the dashed box goes. */
-[data-treatment="ruled"] .addrow{border:0; border-radius:0; padding:12px 0 0; margin-top:0; text-align:left;}
-
-/* Sieve and Four Points tables: same argument as the rows - the cell is
-   already ruled, so the input inside it is not. Zero left padding puts each
-   figure under its own column head. */
-[data-treatment="ruled"] table.sievetable input,
-[data-treatment="ruled"] table.fptable input{
-  background:transparent; border:0; border-radius:0; padding:6px 0; font-size:13px;
-}
-[data-treatment="ruled"] table.sievetable input:focus,
-[data-treatment="ruled"] table.fptable input:focus{outline:none; box-shadow:inset 0 -2px 0 var(--accent);}
-[data-treatment="ruled"] table.sievetable td,
-[data-treatment="ruled"] table.fptable td{padding:6px 8px 6px 0;}
-[data-treatment="ruled"] table.sievetable th,
-[data-treatment="ruled"] table.fptable th{padding:6px 8px 6px 0;}
-[data-treatment="ruled"] table.fptable td.calc{background:transparent; color:var(--muted);}
-
-/* Readouts and the chart lose their fills; a rule above each one is enough
-   to group it, and the accent/gold that was a background becomes the rule. */
-[data-treatment="ruled"] .fp-card{background:transparent; border-radius:0; border-top:2px solid var(--accent); padding:8px 0 0;}
-[data-treatment="ruled"] .fp-card.hero{background:transparent; border-top-color:var(--flag);}
-[data-treatment="ruled"] .chartwrap{background:transparent; border:0; border-top:1px solid var(--line); border-radius:0; padding:12px 0 0;}
-
-/* Polish matrix: horizontal rules only. The 132px column minimum is what
-   separates the columns now, so the padding-right has to do the work the
-   vertical borders did. The sticky first column needs a real ground or the
-   matrix scrolls visibly under it - --wash is undefined in this file, so
-   this also quietly fixes that. The keyed #4 row swaps its amber fill for
-   an amber rule. */
-[data-treatment="ruled"] .prtable th,
-[data-treatment="ruled"] .prtable td{border:0; border-bottom:1px solid var(--line); padding:7px 16px 7px 0;}
-[data-treatment="ruled"] .prtable thead th{background:transparent; border-bottom-color:var(--ink);}
-[data-treatment="ruled"] .prrowhead{background:var(--panel);}
-[data-treatment="ruled"] .prtable .prkey{background:transparent; box-shadow:inset 0 -2px 0 var(--gold);}
-[data-treatment="ruled"] .prderived{background:transparent; color:var(--muted);}
-[data-treatment="ruled"] .prtable .box{border-bottom-color:transparent; padding:4px 0; min-height:26px;}
-[data-treatment="ruled"] .prtable .box.prefilled,
-[data-treatment="ruled"] .prtable .box.autofilled{border-bottom-color:var(--accent);}
-
-/* Design Values is already a ruled list - it only needs the extra air and
-   the same ink-rule-starts-a-block grammar as everything above. */
-[data-treatment="ruled"] .dvtable{border-top-color:var(--ink);}
-[data-treatment="ruled"] .dvrow{padding:8px 4px 8px 0;}
-[data-treatment="ruled"] .dvrow:hover{background:transparent; border-bottom-color:var(--muted);}
-/* :not(.dvhead) matters - the base keeps the COLUMN NAMES at 10px sans so
-   "Uploaded MixPack" fits its 76px track on a phone, and this selector is
-   more specific than that rule. Without the exclusion the headers went to
-   14px, overflowed the track and gave the page 52px of sideways scroll. */
-[data-treatment="ruled"] .dvrow:not(.dvhead) .v{font-size:14px;}
-/* The two column names are wider than their 76px track at any size. The
-   base absorbs that because the cells are right-aligned and nowrap, so the
-   spill goes LEFTWARD into the label column; this treatment widens the
-   section by 12px and turns some of it into rightward overflow, which the
-   page then scrolls. Letting them wrap removes the spill rather than hiding
-   it. Below the base rule it overrides, as the convention requires. */
-@media (max-width:700px){
-  [data-treatment="ruled"] .dvhead .v{white-space:normal; line-height:1.2;}
-}
-
-/* Status: the approval panel is the last enclosed thing in the form column. */
-[data-treatment="ruled"] .approvalbox{background:transparent; border:0; border-top:1px solid var(--line); border-radius:0; padding:14px 0 0;}
-[data-treatment="ruled"] .approvalbox input{border:0; border-bottom:1px solid var(--line); border-radius:0; padding:6px 2px;}
-[data-treatment="ruled"] .approvalbox input:focus{outline:none; box-shadow:inset 0 -2px 0 var(--accent);}
-/* ===== END RULED ================================================ */
-
-  /* ===== END SHEET TREATMENTS ===== */
 
 </style>
-<script>
-/* ?treatment=ledger|banded|ruled dresses the form differently - see the
-   SHEET TREATMENTS block above. Runs in <head> so the page never paints the
-   default first. An unknown value is ignored rather than guessed at. */
-(function(){
-  var t = new URLSearchParams(location.search).get("treatment");
-  if (["ledger","banded","ruled"].indexOf(t) >= 0) document.documentElement.setAttribute("data-treatment", t);
-})();
-</script>
+
 </head>
 <body>
 
