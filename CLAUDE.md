@@ -407,6 +407,23 @@ TBD — cite the governing spec section when encoding a limit in code.
   the same step the row tables take (`--w2`), so there is one "medium" line,
   and in one-column mode the section rail runs as a wrapping chip row rather
   than a 400px column above the form.
+  **Below 700px the header is the other half of that problem, fixed the same
+  day.** DesignBook's sticky header measured **375px on a 390px screen** - 44%
+  of it, on every scroll - and the first form field sat 674px down, so the page
+  opened on a header and a section list rather than on the design. The Portal's
+  bar was 204px, its right-aligned `.who` block going ragged once it wrapped to
+  its own line. Now 116px and 97px. Three things did it, all worth reusing: the
+  three job chips become **one line** of contract / date / plant with the plant
+  ellipsised (its full name goes in the span's `title`, and it is on the Portal
+  a step earlier); `order` on the flex children re-groups the header rows
+  without touching the DOM, which is how the status pill gets up beside the book
+  switch with the mix id between them in source; and the section rail becomes
+  **one horizontally scrolling line** instead of six wrapped rows - a contained
+  `overflow-x`, never the page's. The layout's side padding also drops 32px to
+  16px, the floor a phone needs, which is 32px straight back to the form.
+  Measure this with `getBoundingClientRect().height` at a real phone viewport
+  rather than by eye, and re-check 1500/1366/1240/1000/800/701 afterwards to
+  prove nothing above the breakpoint moved.
 
 
 - **A native `<datalist>` is not a typeahead, and it looks exactly like
