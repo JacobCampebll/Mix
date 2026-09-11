@@ -2635,6 +2635,61 @@ function solveQuadForTarget(co, target, loX, hiX) {
   return best;
 }
 
+/* ---------- chart axis helpers (shared: page + review PDF) ----------
+ *
+ * Both the on-page Va-vs-Pb chart (drawFpChart) and the review PDF's copy of
+ * it (fourpointBlock in buildReviewPDF) call these, so the two can never
+ * disagree about where a gridline sits or where the fit stops being
+ * supported - same reason trimFlatCoarseEnd is shared by the gradation chart
+ * and the sheet. Pure, no DOM: each renderer maps the result to its own
+ * pixels.
+ */
+
+// Axis bounds and ticks on round numbers. Straight data bounds landed the
+// axis on values like 4.3 and 7.3, which is unreadable once ticks are
+// labelled, so pad the range slightly and snap outward to a 1/2/5 x 10^n
+// step. `want` is roughly how many intervals to aim for - the page has room
+// for more than the PDF's thumbnail, so each passes its own.
+// Returns { lo, hi, ticks, dp }, dp being the decimals the labels need.
+function niceTicks(min, max, want, padFrac) {
+  let a = min, b = max;
+  // Flat data (every trial point the same Va) has no range to scale; invent a
+  // readable window around it rather than dividing by zero below.
+  if (!(b > a)) { const c = Number.isFinite(a) ? a : 0; a = c - 0.5; b = c + 0.5; }
+  const padding = (b - a) * (padFrac == null ? 0.06 : padFrac);
+  a -= padding; b += padding;
+  const raw = (b - a) / Math.max(1, want);
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const n = raw / mag;
+  const step = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * mag;
+  const lo = Math.floor(a / step) * step, hi = Math.ceil(b / step) * step;
+  const dp = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
+  const ticks = [];
+  // Walk integer multiples of step. `v += step` accumulates float drift and
+  // drops or duplicates the last tick - 0.1 and 0.5 steps are the offenders.
+  for (let i = 0; lo + i * step <= hi + step * 1e-6; i++) ticks.push(+(lo + i * step).toFixed(dp + 2));
+  return { lo, hi, ticks, dp };
+}
+
+// The fitted curve split into the stretch the four trial points actually
+// support and the stretches beyond them. A parabola drawn past its outermost
+// point is extrapolation, and it must not read as measured - the renderers
+// draw `supported` runs solid and the rest dashed. Points are in data space
+// ({ pb, va }); consecutive runs share their boundary point so the solid and
+// dashed halves meet instead of leaving a gap.
+function fitRuns(fit, lo, hi, supLo, supHi, n) {
+  const runs = [];
+  for (let i = 0; i <= n; i++) {
+    const pb = lo + i / n * (hi - lo);
+    const supported = pb >= supLo && pb <= supHi;
+    const p = { pb, va: evalPoly(fit, pb) };
+    const last = runs[runs.length - 1];
+    if (!last || last.supported !== supported) runs.push({ supported, pts: last ? [last.pts[last.pts.length - 1], p] : [p] });
+    else last.pts.push(p);
+  }
+  return runs.filter((r) => r.pts.length > 1);
+}
+
 // Auto-derive Combined Gsb from the aggregate blend and %#200 from gradation.
 function autoFpInputs() {
   let wsum = 0, gsum = 0;
@@ -2757,9 +2812,14 @@ function updateFpDefaultNote(section) {
   el.classList.toggle("show", stillDefault);
 }
 
+// Returns a summary of the solve for the validation rail - { designPb,
+// supLo, supHi, extrapolated } - or null when there is nothing solved yet.
+// recompute() calls this BEFORE it assembles the outstanding list (same
+// reason computeConsensus() runs first): reading it afterwards would leave
+// the rail one edit behind, showing the previous keystroke's verdict.
 function computeFourPoint() {
   const sec = fpSection();
-  if (!sec || !$("fpResults")) return;
+  if (!sec || !$("fpResults")) return null;
   autoFpInputs();
   updateFpDefaultNote(sec);
   const cv = (k) => num(document.querySelector(`[data-fp="const:${k}"]`)?.value);
@@ -2789,7 +2849,7 @@ function computeFourPoint() {
     res.innerHTML = `<div class="fp-card"><div class="l">Waiting on inputs</div><div class="v">need Gb, target, and ≥3 complete points</div></div>`;
     ["design_pb","gmm_design","gmb_design","va_design","vma_design","vfa_design","gse","pbe","dust_pbe","density"].forEach((k) => dv(k, "—"));
     drawFpChart(pbs, vas, null, vaTgt, null);
-    return;
+    return null;
   }
 
   const vaFit = polyFit(pbs, vas, 2), vmaFit = polyFit(pbs, vmas, 2),
@@ -2835,6 +2895,8 @@ function computeFourPoint() {
   dv("density", densD == null ? "—" : String(Math.round(densD)));
 
   drawFpChart(pbs, vas, vaFit, vaTgt, designPb);
+  return { designPb, supLo: loX, supHi: hiX,
+           extrapolated: designPb != null && (designPb < loX || designPb > hiX) };
 }
 
 /* ===== POLISH-RESISTANT AGGREGATE (KYTC 403.03.03 A) =====
@@ -3338,31 +3400,79 @@ function drawFpChart(pbs, vas, vaFit, vaTgt, designPb) {
   if (!el) return;
   // Wider/taller now that the chart runs the full section width (Four
   // Points layout Option A, 2026-09-04) instead of sharing a row with the
-  // results cards.
-  const W = 760, H = 320, pad = { l: 40, r: 16, t: 16, b: 32 };
+  // results cards. The left/bottom pads carry the tick labels and the two
+  // axis titles added 2026-09-11 - shrinking them clips the labels.
+  const W = 760, H = 320, pad = { l: 58, r: 18, t: 18, b: 48 };
   if (pbs.length < 2) { el.innerHTML = `<svg viewBox="0 0 ${W} ${H}"><text x="${W/2}" y="${H/2}" font-size="10" fill="var(--muted)" text-anchor="middle">enter the four design points</text></svg>`; return; }
-  const minPb = Math.min(...pbs) - 0.3, maxPb = Math.max(...pbs) + 0.3;
   const allVa = vas.concat(vaTgt != null ? [vaTgt] : []);
-  const minVa = Math.min(...allVa) - 1, maxVa = Math.max(...allVa) + 1;
-  const xp = (pb) => pad.l + (pb - minPb) / (maxPb - minPb) * (W - pad.l - pad.r);
-  const yp = (va) => H - pad.b - (va - minVa) / (maxVa - minVa) * (H - pad.t - pad.b);
-  let curve = "";
-  if (vaFit) {
-    const pline = [];
-    for (let i = 0; i <= 60; i++) { const pb = minPb + i / 60 * (maxPb - minPb); pline.push(`${xp(pb).toFixed(1)},${yp(evalPoly(vaFit, pb)).toFixed(1)}`); }
-    curve = `<polyline fill="none" stroke="var(--accent)" stroke-width="2" points="${pline.join(" ")}"/>`;
+  // Round-number axes (niceTicks), not raw data bounds - see its comment.
+  const ax = niceTicks(Math.min(...pbs), Math.max(...pbs), 6);
+  const ay = niceTicks(Math.min(...allVa), Math.max(...allVa), 5);
+  const xp = (pb) => pad.l + (pb - ax.lo) / (ax.hi - ax.lo) * (W - pad.l - pad.r);
+  const yp = (va) => H - pad.b - (va - ay.lo) / (ay.hi - ay.lo) * (H - pad.t - pad.b);
+  const x0 = pad.l, x1 = W - pad.r, yBase = H - pad.b, yTop = pad.t;
+
+  // Gridline + tick + label per axis value. The gridline weight (0.4) matches
+  // the gradation chart above, so the two read as one family.
+  const xAxis = ax.ticks.map((t) => {
+    const x = xp(t).toFixed(1);
+    return `<line x1="${x}" y1="${yTop}" x2="${x}" y2="${yBase}" stroke="var(--line)" stroke-width="0.4"/>
+      <line x1="${x}" y1="${yBase}" x2="${x}" y2="${yBase + 5}" stroke="var(--line)"/>
+      <text x="${x}" y="${yBase + 16}" font-size="9" fill="var(--muted)" text-anchor="middle">${t.toFixed(ax.dp)}</text>`;
+  }).join("");
+  const yAxis = ay.ticks.map((t) => {
+    const y = yp(t), ys = y.toFixed(1);
+    return `<line x1="${x0}" y1="${ys}" x2="${x1}" y2="${ys}" stroke="var(--line)" stroke-width="0.4"/>
+      <line x1="${x0 - 5}" y1="${ys}" x2="${x0}" y2="${ys}" stroke="var(--line)"/>
+      <text x="${x0 - 9}" y="${(y + 3).toFixed(1)}" font-size="9" fill="var(--muted)" text-anchor="end">${t.toFixed(ay.dp)}</text>`;
+  }).join("");
+
+  // Solid where the four points support the fit, dashed past them (fitRuns).
+  const supLo = Math.min(...pbs), supHi = Math.max(...pbs);
+  const curve = vaFit
+    ? fitRuns(vaFit, ax.lo, ax.hi, supLo, supHi, 120).map((r) =>
+        `<polyline fill="none" stroke="var(--accent)" stroke-width="2"${
+          r.supported ? "" : ` stroke-dasharray="5 4" opacity="0.6"`} points="${
+          r.pts.map((p) => `${xp(p.pb).toFixed(1)},${yp(p.va).toFixed(1)}`).join(" ")}"/>`).join("")
+    : "";
+
+  // The target label sits at the LEFT end of its line. The design-Pb marker
+  // is on that same line by definition, so anything labelled at the right end
+  // collides with it the moment the solve lands over there - which is exactly
+  // where an extrapolated one does, and its label is the longest.
+  const tgt = vaTgt != null ? `<line x1="${x0}" y1="${yp(vaTgt).toFixed(1)}" x2="${x1}" y2="${yp(vaTgt).toFixed(1)}" stroke="var(--flag)" stroke-width="1" stroke-dasharray="4 3"/>
+     <text x="${x0 + 4}" y="${(yp(vaTgt) - 5).toFixed(1)}" font-size="9" fill="var(--flag)">target ${vaTgt}%</text>` : "";
+  // <title> is a native hover tooltip - the numbers without the clutter of
+  // printing them beside every dot.
+  const dots = pbs.map((pb, i) =>
+    `<circle cx="${xp(pb).toFixed(1)}" cy="${yp(vas[i]).toFixed(1)}" r="3.5" fill="var(--ink)"><title>Pb ${pb.toFixed(1)}%  ·  Va ${vas[i].toFixed(1)}%</title></circle>`).join("");
+
+  // The solved point, with a dropline to the Pb axis so the solve reads at a
+  // glance: target line across, design line down, dot where they cross (the
+  // review PDF has drawn it this way since Jake rebuilt the sheet). A design
+  // Pb outside the trial points was extrapolated, not interpolated - it turns
+  // red and says so, and recompute() raises the matching rail warning.
+  let dpSvg = "";
+  if (designPb != null && vaTgt != null) {
+    const extrap = designPb < supLo || designPb > supHi;
+    const c = extrap ? "var(--bad)" : "var(--flag)";
+    const x = xp(designPb), yv = yp(vaTgt);
+    // Flip the label left of the marker near the right edge, or it runs off.
+    const right = x > W * 0.7;
+    dpSvg = `<line x1="${x.toFixed(1)}" y1="${yv.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yBase}" stroke="${c}" stroke-width="1" stroke-dasharray="3 3"/>
+      <circle cx="${x.toFixed(1)}" cy="${yv.toFixed(1)}" r="5" fill="${c}"/>
+      <text x="${(x + (right ? -8 : 8)).toFixed(1)}" y="${(yv - 10).toFixed(1)}" font-size="10" font-weight="600"
+        fill="${c}" text-anchor="${right ? "end" : "start"}">Pb ${designPb.toFixed(1)}%${extrap ? " — extrapolated" : ""}</text>`;
   }
-  const tgt = vaTgt != null ? `<line x1="${pad.l}" y1="${yp(vaTgt).toFixed(1)}" x2="${W - pad.r}" y2="${yp(vaTgt).toFixed(1)}" stroke="var(--flag)" stroke-width="1" stroke-dasharray="4 3"/>
-     <text x="${W - pad.r}" y="${yp(vaTgt) - 4}" font-size="8" fill="var(--flag)" text-anchor="end">target ${vaTgt}%</text>` : "";
-  const dots = pbs.map((pb, i) => `<circle cx="${xp(pb).toFixed(1)}" cy="${yp(vas[i]).toFixed(1)}" r="3" fill="var(--ink)"/>`).join("");
-  const dp = designPb != null && vaTgt != null
-    ? `<circle cx="${xp(designPb).toFixed(1)}" cy="${yp(vaTgt).toFixed(1)}" r="4.5" fill="var(--flag)"/>
-       <text x="${xp(designPb).toFixed(1) + 6}" y="${yp(vaTgt) - 8}" font-size="8" fill="var(--flag)">Pb ${designPb.toFixed(1)}%</text>` : "";
+
+  const mid = ((yTop + yBase) / 2).toFixed(1);
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
-    <line x1="${pad.l}" y1="${H - pad.b}" x2="${W - pad.r}" y2="${H - pad.b}" stroke="var(--line)"/>
-    <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${H - pad.b}" stroke="var(--line)"/>
-    <text x="${(pad.l + W - pad.r) / 2}" y="${H - 4}" font-size="8" fill="var(--muted)" text-anchor="middle">Pb (%)</text>
-    ${tgt}${curve}${dots}${dp}
+    ${xAxis}${yAxis}
+    <line x1="${x0}" y1="${yBase}" x2="${x1}" y2="${yBase}" stroke="var(--line)"/>
+    <line x1="${x0}" y1="${yTop}" x2="${x0}" y2="${yBase}" stroke="var(--line)"/>
+    <text x="${((x0 + x1) / 2).toFixed(1)}" y="${H - 6}" font-size="10" fill="var(--muted)" text-anchor="middle">Pb (%)</text>
+    <text x="14" y="${mid}" font-size="10" fill="var(--muted)" text-anchor="middle" transform="rotate(-90 14 ${mid})">Va (%)</text>
+    ${tgt}${curve}${dots}${dpSvg}
   </svg>`;
 }
 
@@ -3533,6 +3643,11 @@ function recompute() {
   // Consensus limits first: this may drop `req` on CAA / F&E (No. 4 mix)
   // and must do so before the required-field sweep below counts them.
   computeConsensus();
+  // Four Points next, for the same reason twice over: its autoFpInputs()
+  // fills Combined Gsb and %#200, which the sweep counts, and the rail's
+  // extrapolation warning below reads what it returns. It used to run at the
+  // very end of this function, after the list had already been rendered.
+  const fp = computeFourPoint();
   document.querySelectorAll(".section").forEach((sec) => {
     const id = sec.dataset.section;
     if (id === "status") return;
@@ -3648,6 +3763,19 @@ function recompute() {
     ts.warn.forEach((w) => outstanding.push({ id: "tsr", label, kind: "warn", text: w }));
   }
 
+  // Four Points: a design Pb solved outside the four trial points came off an
+  // extrapolated parabola, not an interpolated one - the curve was never
+  // measured out there. Non-blocking, same footing as Polish and Consensus:
+  // the arithmetic is valid, whether the design stands on it is a judgement
+  // the Department makes. The chart marks the same point red.
+  if (fp && fp.extrapolated) {
+    const sec = document.querySelector('[data-section="fourpoint"]');
+    outstanding.push({ id: "fourpoint", label: sec ? sec.dataset.label : "Four Points", kind: "warn",
+      text: `Design Pb ${fp.designPb.toFixed(1)}% falls outside the four trial points ` +
+            `(${fp.supLo.toFixed(1)}–${fp.supHi.toFixed(1)}%), so the curve was extrapolated to reach the ` +
+            `air-void target rather than interpolated. Run a trial point that brackets the target.` });
+  }
+
   const list = $("vallist"), sub = $("valsub");
   const missing = outstanding.filter((o) => o.kind !== "warn"), warns = outstanding.filter((o) => o.kind === "warn");
   const items = missing.concat(warns);
@@ -3671,7 +3799,6 @@ function recompute() {
     });
   });
   drawChart();
-  computeFourPoint();
   computeRapNote();
 }
 
@@ -4947,34 +5074,61 @@ async function buildReviewPDF(payload) {
 
     const gx = x0 + tw + gap + padL, gy = top - blockH + padB;
     const gw = colW - (tw + gap + padL), gh = blockH - padB;
-    const minPb = Math.min(...pbs) - 0.3, maxPb = Math.max(...pbs) + 0.3;
     const allVa = vas.concat(Number.isFinite(vaTgt) ? [vaTgt] : []);
-    const minVa = Math.min(...allVa) - 1, maxVa = Math.max(...allVa) + 1;
-    const X = (pb) => gx + (pb - minPb) / (maxPb - minPb) * gw;
-    const Y = (va) => gy + (va - minVa) / (maxVa - minVa) * gh;
+    // Same round-number axes the page draws (niceTicks), so a reviewer reading
+    // the sheet sees the axis the technician saw. Fewer intervals than the
+    // page asks for - this one is a thumbnail beside the table.
+    const supLo = Math.min(...pbs), supHi = Math.max(...pbs);
+    const ax = niceTicks(supLo, supHi, 4);
+    const ay = niceTicks(Math.min(...allVa), Math.max(...allVa), 4);
+    const X = (pb) => gx + (pb - ax.lo) / (ax.hi - ax.lo) * gw;
+    const Y = (va) => gy + (va - ay.lo) / (ay.hi - ay.lo) * gh;
     page.drawRectangle({ x: gx, y: gy, width: gw, height: gh, borderColor: col(C.rule), borderWidth: 0.5 });
-    for (let i = 1; i < 4; i++) page.drawLine({ start: { x: gx, y: gy + gh * i / 4 }, end: { x: gx + gw, y: gy + gh * i / 4 }, thickness: 0.2, color: col(C.rule) });
-    pbs.forEach((pb) => page.drawLine({ start: { x: X(pb), y: gy }, end: { x: X(pb), y: gy + gh }, thickness: 0.2, color: col(C.rule) }));
+    // Gridline, tick and label per axis value. The frame already draws the
+    // outermost lines, so only the interior ones are gridded.
+    ay.ticks.forEach((t) => {
+      const yy = Y(t);
+      if (yy > gy + 0.5 && yy < gy + gh - 0.5)
+        page.drawLine({ start: { x: gx, y: yy }, end: { x: gx + gw, y: yy }, thickness: 0.2, color: col(C.rule) });
+      page.drawLine({ start: { x: gx - 2, y: yy }, end: { x: gx, y: yy }, thickness: 0.3, color: col(C.rule) });
+      page.drawText(t.toFixed(ay.dp), { x: gx - 13, y: yy - 1.5, size: 4.8, font, color: col(C.muted) });
+    });
+    ax.ticks.forEach((t) => {
+      const xx = X(t);
+      if (xx > gx + 0.5 && xx < gx + gw - 0.5)
+        page.drawLine({ start: { x: xx, y: gy }, end: { x: xx, y: gy + gh }, thickness: 0.2, color: col(C.rule) });
+      page.drawLine({ start: { x: xx, y: gy - 2 }, end: { x: xx, y: gy }, thickness: 0.3, color: col(C.rule) });
+      page.drawText(t.toFixed(ax.dp), { x: xx - 4, y: gy - 8, size: 4.8, font, color: col(C.muted) });
+    });
     if (Number.isFinite(vaTgt)) {
       page.drawLine({ start: { x: gx, y: Y(vaTgt) }, end: { x: gx + gw, y: Y(vaTgt) }, thickness: 0.7, color: col(C.gold), dashArray: [3, 2] });
-      page.drawText(`target ${vaTgt}%`, { x: gx + gw - 30, y: Y(vaTgt) + 2.5, size: 5, font, color: col(C.muted) });
+      // Left end, not right - the design-Pb marker sits on this same line, and
+      // its label collides with anything at the right end (see drawFpChart).
+      page.drawText(`target ${vaTgt}%`, { x: gx + 2, y: Y(vaTgt) + 2.5, size: 5, font, color: col(C.muted) });
     }
     if (vaFit) {
-      let prev = null;
-      for (let i = 0; i <= 60; i++) {
-        const pb = minPb + i / 60 * (maxPb - minPb), pt = { x: X(pb), y: Y(evalPoly(vaFit, pb)) };
-        if (prev) page.drawLine({ start: prev, end: pt, thickness: 1.1, color: col(C.accent) });
-        prev = pt;
-      }
+      // Solid where the trial points support the fit, dashed past them - same
+      // fitRuns() split the page uses. Unsupported runs are drawn in longer
+      // strides because a dash pattern restarted every 1/60th of the width
+      // reads as a solid line at this size.
+      fitRuns(vaFit, ax.lo, ax.hi, supLo, supHi, 60).forEach((r) => {
+        const stride = r.supported ? 1 : 4;
+        for (let i = 0; i < r.pts.length - 1; i += stride) {
+          const a = r.pts[i], b = r.pts[Math.min(i + stride, r.pts.length - 1)];
+          page.drawLine({ start: { x: X(a.pb), y: Y(a.va) }, end: { x: X(b.pb), y: Y(b.va) },
+            thickness: 1.1, color: col(C.accent), ...(r.supported ? {} : { dashArray: [2, 2] }) });
+        }
+      });
     }
     pbs.forEach((pb, i) => page.drawCircle({ x: X(pb), y: Y(vas[i]), size: 1.9, color: col(C.navy) }));
     if (designPb != null && Number.isFinite(vaTgt)) {
-      page.drawLine({ start: { x: X(designPb), y: gy }, end: { x: X(designPb), y: Y(vaTgt) }, thickness: 0.6, color: col(C.gold), dashArray: [2, 2] });
-      page.drawCircle({ x: X(designPb), y: Y(vaTgt), size: 2.6, color: col(C.gold) });
+      // Red when the solve sat outside the trial points, matching the page's
+      // marker and the rail warning it raises.
+      const mk = designPb < supLo || designPb > supHi ? C.bad : C.gold;
+      page.drawLine({ start: { x: X(designPb), y: gy }, end: { x: X(designPb), y: Y(vaTgt) }, thickness: 0.6, color: col(mk), dashArray: [2, 2] });
+      page.drawCircle({ x: X(designPb), y: Y(vaTgt), size: 2.6, color: col(mk) });
       page.drawText(`Pb ${designPb.toFixed(1)}%`, { x: X(designPb) - 14, y: Y(vaTgt) + 6, size: 5.4, font: bold, color: col(C.ink) });
     }
-    pbs.forEach((pb) => page.drawText(pb.toFixed(1), { x: X(pb) - 5, y: gy - 8, size: 4.8, font, color: col(C.muted) }));
-    [minVa, maxVa].forEach((v) => page.drawText(v.toFixed(1), { x: gx - 13, y: Y(v) - 1.5, size: 4.8, font, color: col(C.muted) }));
     page.drawText("Pb (%)", { x: gx + gw / 2 - 9, y: gy - 16, size: 5, font, color: col(C.muted) });
     page.drawText("Va (%)", { x: gx - 14, y: gy + gh / 2 - 8, size: 5, font, color: col(C.muted), rotate: degrees(90) });
     y = top - blockH - 18;
