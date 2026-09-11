@@ -4543,7 +4543,16 @@ async function buildReviewPDF(payload) {
       .map((s) => ({ ...s, pct: values[s.key] }))
       .filter((s) => s.pct != null && String(s.pct).trim() !== "" && Number.isFinite(parseFloat(s.pct)));
     if (!list.length) return;
-    const cp = controlPointsForNominalSize(payload.mix && payload.mix.nominal_size);
+    // The form's own nominal size first, the Portal's mix lookup second -
+    // the same order effectiveMix() uses on the page, and the same one the
+    // consensus renderer below already used. Reading payload.mix alone meant
+    // a design that was never started from a mix lookup (a legacy MixPack
+    // upload, or a build from scratch) printed no control points: no shaded
+    // band on the chart and an empty Limits column, while the page beside it
+    // showed both.
+    const cp = controlPointsForNominalSize(
+      String(values.nominal_size || "").trim() + String(values.mix_type || "").trim() ||
+      (payload.mix && payload.mix.nominal_size));
     const cpts = cp ? list.filter((s) => cp[s.key]).map((s) => ({
       mm: s.mm, rawLo: cp[s.key][0], rawHi: cp[s.key][1],
       lo: cp[s.key][0] == null ? 0 : cp[s.key][0], hi: cp[s.key][1] == null ? 100 : cp[s.key][1],
