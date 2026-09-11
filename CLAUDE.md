@@ -1274,12 +1274,26 @@ read-only, so a write test goes through `apply_migration` and ends in
   `AGP007401` is written "Boonesboro Quarry @ Boonesboro", "The Allen Co @
   Boonesboro" and "The Allen Company @ Boonesborough". That is the whole
   argument for resolving on the number.
-  **Not yet inserted (2026-09-11, Andrew) — the `category` value is
-  unconfirmed.** `aggregates.category` is check-constrained to
-  crushed_stone / sand_gravel / slag / sandstone. Boonesboro Quarry, also an
-  Allen Co. site, is crushed_stone, and Clover Bottom reads as a limestone
-  quarry too, but that's an inference, not a source. Confirm against the LAM
-  or Jake before running the insert.
+  **Category confirmed 2026-09-11 (Andrew): `crushed_stone`.** Andrew found
+  the LAM's basic producer entry for `AGP011701` (approved, McKee KY,
+  contact Dave Reilly) — that entry alone doesn't carry a material category.
+  KYTC's own current Aggregate Source Book
+  (`transportation.ky.gov/Materials/Documents/aggsourcebook`, 12/10/2025)
+  settles it: District 11, p.27, lists `AGP011701* The Allen Company /
+  McKee, KY - 13 miles north on US 421 (Clover Bottom) / Jackson County`
+  under that district's **LIMESTONE SOURCES** heading — the same heading
+  Boonesboro and every other Allen Co. quarry in `aggregates` falls under.
+  (The `*` is the source book's own "Mine Operation" flag, unrelated to
+  category.) Independently corroborated by public listings (industrynet.com
+  lists it outright as "Crushed Limestone").
+  **Still not inserted — the write was blocked by Claude Code's auto-mode
+  classifier** (a live-database write it won't run unattended). Run this
+  once, in the Supabase SQL Editor on the `Design and Plant Book` project:
+  ```sql
+  insert into aggregates (agp_number, category, producer_name)
+  values ('AGP011701', 'crushed_stone', 'THE ALLEN COMPANY @ CLOVER BOTTOM')
+  on conflict (agp_number) do nothing;
+  ```
 
 - **Open for Andrew: does KYTC enforce 403.03.03 A)'s *fine* aggregate
   column?** The spec table gives Type B two columns — coarse (100% Class B,
