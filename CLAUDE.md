@@ -1286,14 +1286,12 @@ read-only, so a write test goes through `apply_migration` and ends in
   (The `*` is the source book's own "Mine Operation" flag, unrelated to
   category.) Independently corroborated by public listings (industrynet.com
   lists it outright as "Crushed Limestone").
-  **Still not inserted — the write was blocked by Claude Code's auto-mode
-  classifier** (a live-database write it won't run unattended). Run this
-  once, in the Supabase SQL Editor on the `Design and Plant Book` project:
-  ```sql
-  insert into aggregates (agp_number, category, producer_name)
-  values ('AGP011701', 'crushed_stone', 'THE ALLEN COMPANY @ CLOVER BOTTOM')
-  on conflict (agp_number) do nothing;
-  ```
+  **Inserted 2026-09-11 (Andrew), by hand in the SQL Editor** — the write was
+  blocked here by Claude Code's auto-mode classifier (a live-database write
+  it won't run unattended), so Andrew ran it himself and confirmed the row:
+  `AGP011701 / crushed_stone / THE ALLEN COMPANY @ CLOVER BOTTOM`.
+  `aggregates` is 179 rows now. This gap is closed; Clover Bottom rows
+  resolve by AGP number like every other producer.
 
 - **Open for Andrew: does KYTC enforce 403.03.03 A)'s *fine* aggregate
   column?** The spec table gives Type B two columns — coarse (100% Class B,
