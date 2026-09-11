@@ -1274,6 +1274,12 @@ read-only, so a write test goes through `apply_migration` and ends in
   `AGP007401` is written "Boonesboro Quarry @ Boonesboro", "The Allen Co @
   Boonesboro" and "The Allen Company @ Boonesborough". That is the whole
   argument for resolving on the number.
+  **Not yet inserted (2026-09-11, Andrew) — the `category` value is
+  unconfirmed.** `aggregates.category` is check-constrained to
+  crushed_stone / sand_gravel / slag / sandstone. Boonesboro Quarry, also an
+  Allen Co. site, is crushed_stone, and Clover Bottom reads as a limestone
+  quarry too, but that's an inference, not a source. Confirm against the LAM
+  or Jake before running the insert.
 
 - **Open for Andrew: does KYTC enforce 403.03.03 A)'s *fine* aggregate
   column?** The spec table gives Type B two columns — coarse (100% Class B,
