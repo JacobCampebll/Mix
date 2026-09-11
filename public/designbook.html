@@ -79,6 +79,16 @@
        borders, so the only thing wearing a fill is a thing you can type in. */
     --well:#FAF9F5;
     --radius-field:8px;
+    /* --wash was used by .prtable's head, .prrowhead, .prderived and
+       .approvalbox and never defined - all four have been rendering
+       transparent. It is the plate ground one shade cooler, for a surface
+       that is read rather than typed into. */
+    --wash:#F6F6F2;
+    /* The appbar's real height, measured on load and on resize. Every sticky
+       offset and scroll-margin on the page is derived from it: the header is
+       three rows on a desktop and two on a phone, and hard-coded 132/150px
+       offsets were right for exactly one of those. */
+    --headh:132px;
   }
   *{box-sizing:border-box;}
   body{margin:0; background:var(--paper); color:var(--ink);
@@ -184,7 +194,7 @@
      white cards that hold data; and a sticky element with no background is
      what let the section list ghost through the form on a phone (see the
      @media gotcha in CLAUDE.md) - an opaque card cannot do that. */
-  .nav{position:sticky; top:132px; align-self:start;
+  .nav{position:sticky; top:calc(var(--headh) + 0px); align-self:start;
        background:var(--navy); border-radius:10px; padding:16px 14px;}
   /* Keep every "un-stick the rail" override BELOW the rule it overrides. Both
      are one class, so equal specificity and source order decides: this used to
@@ -226,7 +236,8 @@
 
   /* sections */
   .section{background:var(--panel); border:1px solid var(--line); border-radius:10px;
-           padding:22px 24px; margin-bottom:20px; scroll-margin-top:150px; transition:box-shadow .3s;}
+           padding:22px 24px; margin-bottom:20px; scroll-margin-top:calc(var(--headh) + 18px);
+           transition:box-shadow .3s;}
   .section.flash{box-shadow:0 0 0 2px var(--accent);}
   /* The head is a full-bleed navy band with the KYTC gold rule under it -
      chosen from five treatments 2026-09-11. On a sheet this long the band is
@@ -244,6 +255,12 @@
                 border-bottom:3px solid var(--gold);
                 gap:12px; flex-wrap:wrap;}
   .section-head h2{color:var(--panel);}
+  /* The band's left half: which step this is, then the section's name. Sky,
+     because on navy it is the one value small type stays legible at - the
+     same pair the nav card and the validation rail already use. */
+  .section-head .headtitle{display:flex; flex-direction:column; gap:1px; min-width:0;}
+  .kicker{font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+          font-weight:600; color:var(--sky); font-family:'Roboto Mono',monospace;}
   /* On navy, --muted on --line is unreadable; these are the derived pair. */
   .section-head .section-tag{color:var(--navy-dim); border-color:var(--navy-hairline);}
   .section-tag{font-size:10px; color:var(--muted); border:1px solid var(--line);
@@ -599,7 +616,7 @@
      of them either disappears or turns muddy here, so each has an explicit
      on-blue value below. The panel is the loudest thing on the page now,
      which suits it: it is the list of what is still wrong. */
-  .valpanel{position:sticky; top:132px; align-self:start; background:var(--accent);
+  .valpanel{position:sticky; top:calc(var(--headh) + 0px); align-self:start; background:var(--accent);
             border:1px solid var(--accent); border-radius:10px; padding:18px;
             color:#FFFFFF;}
   @media (max-width:1240px){ .valpanel{position:static;} }
@@ -2468,7 +2485,7 @@ function sectionCitesHTML(section) {
 }
 
 function renderForm() {
-  $("sections").innerHTML = CONFIG.SECTIONS.map((s) => {
+  $("sections").innerHTML = CONFIG.SECTIONS.map((s, i) => {
     let body = "";
     if (s.type === "sieves") body = sievesHTML(s);
     else if (s.type === "status") body = statusHTML();
@@ -2479,12 +2496,19 @@ function renderForm() {
       if (s.fields) body += gridHTML(s.fields);
       if (s.rows) body += (s.fields ? '<div style="height:14px"></div>' : "") + rowsBlockHTML(s.rows);
     }
-    return `<section class="section" id="${s.id}" data-section="${s.id}" data-label="${s.label}">
-      <div class="section-head"><h2>${s.label}</h2>
+    // data-step is the section's index in CONFIG.SECTIONS - the schema is the
+    // only place the step order is written down, so adding a section adds a
+    // step and nothing else has to be told. .stepval is where the per-step
+    // outstanding-items block lands; .tsrresults is emitted here rather than
+    // being appended by computeTSR(), which used to put it after .stepval.
+    return `<section class="section step" id="${s.id}" data-section="${s.id}" data-label="${s.label}" data-step="${i}">
+      <div class="section-head"><div class="headtitle"><span class="kicker">Step ${i + 1} of ${CONFIG.SECTIONS.length}</span><h2>${s.label}</h2></div>
         <span class="headmeta">${sectionCitesHTML(s)}${s.lookup && state.job && state.job.cid
           ? `<button type="button" class="seclookup" id="contractLookupBtn">Look up<span class="wide-only"> contract</span> ${esc(state.job.cid)}</button>` : ""}<span class="section-tag mono">${s.tag}</span></span></div>
       ${s.lookup ? `<div class="lookupnote${state.contractNote ? " " + esc(state.contractNote.kind) : ""}" id="contractLookupNote">${state.contractNote ? esc(state.contractNote.text) : ""}</div>` : ""}
+      <div class="stepval"></div>
       ${body}
+      ${s.id === "tsr" ? `<div class="tsrresults"></div>` : ""}
     </section>`;
   }).join("");
   // The polish grid's columns come from the aggregate rows, which only exist
@@ -2496,7 +2520,13 @@ function renderForm() {
   prHeld = new Map();
   renderPolishGrid(true);
 
-  $("navlist").innerHTML = CONFIG.SECTIONS.map((s) =>
+  // Guarded: this runs immediately before wireForm() / applyAutofills() /
+  // renderStage() / recompute(), so an unguarded lookup on a rail that is not
+  // in the document takes all four of them with it and leaves static markup
+  // that never responds to typing - no console error, exactly the class of
+  // silent failure CLAUDE.md's `sb`/`supabase` note warns about.
+  const nav = $("navlist");
+  if (nav) nav.innerHTML = CONFIG.SECTIONS.map((s) =>
     `<li class="navitem" data-target="${s.id}"><span class="tick" data-tick="${s.id}"></span>${s.label}</li>`
   ).join("");
 
@@ -3322,11 +3352,12 @@ function polishApplies() {
 function applyPolishVisibility() {
   const on = polishApplies();
   const sec = document.querySelector('[data-section="polish"]');
-  const nav = document.querySelector('[data-target="polish"]');
-  // .hidden, not the hidden attribute: .navitem sets display:flex, which beats
-  // the user-agent [hidden] rule, and .hidden carries !important.
+  // .hidden, not the hidden attribute: .navitem and .railstep both set a
+  // display value, which beats the user-agent [hidden] rule, and .hidden
+  // carries !important. All of them, not the first: the old nav and the step
+  // rail each carry a [data-target="polish"] entry.
   if (sec) sec.classList.toggle("hidden", !on);
-  if (nav) nav.classList.toggle("hidden", !on);
+  document.querySelectorAll('[data-target="polish"]').forEach((n) => n.classList.toggle("hidden", !on));
   return on;
 }
 
@@ -3505,6 +3536,9 @@ function computeTSR() {
   if (!sec) return null;
   const list = sec.querySelector('[data-rowlist="tsr_specimens"]');
   const s = tsrSummary(list ? Array.from(list.children).map(rowValuesOf) : []);
+  // The renderer emits this at the end of the TSR section body. The fallback
+  // appends to the section, which is where it used to go every time - and
+  // that put the summary after .stepval rather than under the specimens.
   let host = sec.querySelector(".tsrresults");
   if (!host) {
     host = document.createElement("div");
@@ -3537,12 +3571,14 @@ function recompute() {
     const reqs = sec.querySelectorAll(".req");
     let filled = 0;
     reqs.forEach((el) => { if (String(el.value || "").trim()) filled++; });
-    const tick = document.querySelector(`[data-tick="${id}"]`);
-    if (tick) {
+    // querySelectorAll, not querySelector: while both the old nav and the new
+    // step rail are in the document they each carry a [data-tick] for every
+    // section, and the singular form would only ever tick the first one.
+    document.querySelectorAll(`[data-tick="${id}"]`).forEach((tick) => {
       tick.classList.remove("filled", "partial");
       if (reqs.length && filled === reqs.length) tick.classList.add("filled");
       else if (filled) tick.classList.add("partial");
-    }
+    });
     if (filled < reqs.length) {
       outstanding.push({ id, label: sec.dataset.label, kind: "missing", text: `${reqs.length - filled} field(s) missing` });
     }
@@ -7498,6 +7534,20 @@ async function boot(session) {
     msg($("gateMsg"), err.message || "Couldn't load your account.", "error");
   }
 }
+
+// --headh is the appbar's real height. The sticky offsets and every
+// scroll-margin on the page are derived from it rather than from a constant:
+// the header is three rows on a desktop, two on a phone, and it grows a row
+// the moment a job strip appears - a hard 132px was right for exactly one of
+// those states and silently wrong for the rest.
+function measureHeader() {
+  const bar = document.querySelector(".appbar");
+  if (!bar) return;
+  document.documentElement.style.setProperty("--headh", Math.round(bar.getBoundingClientRect().height) + "px");
+}
+measureHeader();
+window.addEventListener("resize", measureHeader);
+if (window.ResizeObserver) new ResizeObserver(measureHeader).observe(document.querySelector(".appbar"));
 
 wireDrop();
 $("portalLink").addEventListener("click", toPortal);
