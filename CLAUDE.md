@@ -499,6 +499,18 @@ TBD — cite the governing spec section when encoding a limit in code.
   Polish hidden), which is the default; and painting from inside `go()` read
   the counts before `applyPolishVisibility()` had run, since `recompute()` is
   its only caller, so the first paint always said "of 10" beside nine chips.
+  **A section can draw inside another one: `into: "<hostId>"` in
+  `CONFIG.SECTIONS`** (Consensus Properties inside Aggregate Structure, Jake
+  2026-09-11 - they are measured on the combined blend, so they belong under
+  the blend that produces them). It stays a full schema entry, which is what
+  keeps its citation, its `CONFIG.LEGACY` cells, `computeConsensus()`'s
+  per-mix limits and the review sheet's bespoke `RENDER.consensus` all working
+  untouched: only where it draws changed. **A section with `into` is not a
+  step** - `topSections()` is what the rail, the numerals and `state.step`
+  count, and `hostSectionId()` resolves a warning or a `jumpTo()` onto the
+  step it is reached on. It renders through `sectionBodyHTML()`, the same
+  function a top-level section uses, so a sub-block never needs a second set
+  of rules. DesignBook is nine steps now, eight when Polish does not apply.
   Four things about the rebuild are worth carrying forward.
   **`recompute()` is still the single producer of `outstanding`** - all that
   changed is which slice renders. Resist a second list-builder for the step
@@ -751,6 +763,23 @@ TBD — cite the governing spec section when encoding a limit in code.
   before sending a contractor to the spec book on a phone: 101 MB is the
   whole download, since a phone browser generally will not range-request a
   PDF the way desktop Chrome does.
+
+- **A row spec can declare `start: n`, the number of blank rows it opens
+  with** (2026-09-11). Only TSR uses it: a KYTC TSR is six specimens - three
+  conditioned, three broken dry - so a blank design shows six waiting rows
+  rather than one and five presses of the add button. `collectForm()` drops a
+  row where every cell is empty, so unused rows never reach the payload, but
+  note the required-field count does rise with it: six rows at two required
+  columns is twelve missing on a blank design, which is honest rather than a
+  bug. Everything else stays at one row.
+
+- **`CONFIG.DP` is only obeyed where something actually reads it, and one
+  Design Value did not.** `computeFourPoint()` wrote unit weight with
+  `Math.round()` while its nine neighbours all went through `fmt(v, DP)`, so
+  147.9 printed 147 - on a page whose whole point is that the computed value
+  is gospel. Fixed 2026-09-11. Worth pairing with the row-importer note below:
+  a precision constant is a claim about the whole page, and it takes one
+  hand-rolled line anywhere to make it false silently.
 
 - **A row table's importer is a second place `CONFIG.DP` has to be applied,
   and two of them were missing it.** The scalars and the aggregate columns
