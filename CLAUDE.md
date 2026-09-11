@@ -928,6 +928,62 @@ TBD — cite the governing spec section when encoding a limit in code.
   match is exact, so a value has to be spelled as the template's own list
   spells it, not as Supabase does. `mixpackCells()` in `designbook.html`.
 
+- **The Project Items sheet is the one thing a correct design could still get
+  wrong at the hand-off, and it is fixed by reading KYTC rather than by asking
+  anyone to re-type it** (Jake, 2026-09-11: "the only thing we need to do is
+  update the project items in the excel file before they take it to medl and
+  sitemanger, contractors use the proposal and most of the time it gets
+  outdated and medl and sitemanger wont accept it"). A contractor fills that
+  sheet from the proposal they bid; a change order then adds, deletes or
+  re-numbers an item and MEDL refuses the load. KYTC's own current list is the
+  **newest pay estimate** for the contract - "always use the newest pay
+  estimate for this, its the top one in the list" - so
+  `netlify/functions/kytc-items` reads that, and `CONFIG.PROJECT_ITEMS` wires
+  a **Look up project items** button to it. Contract 252112 is the worked
+  example that makes the case: its estimate 0006 carries ten items numbered
+  8000-8009 that no proposal has, and the mix item itself sits on a
+  supplemental code (`22906ES403`) rather than a standard one.
+  Six things worth carrying forward.
+  **The filename needs the contractor's KYTC vendor number and nobody should
+  have to know it.** Both sources are named `<cid>-<vendor>-EST<nnnn>.html`
+  (`/Construction/Pay Estimates/`) and `<cid>items<vendor>.html`
+  (`/Construction/Contract Items/`). Both are SharePoint document libraries
+  whose classic view honours
+  `Forms/AllItems.aspx?FilterField1=FileLeafRef&FilterOp1=BeginsWith`, so the
+  contract ID alone finds the file and the vendor number comes back with it.
+  That filter is also the only way in: the unfiltered listing serves 300 old
+  files (CIDs 000001-042918) and no paging parameter moves it.
+  **"Newest" is the highest sequence number, not the next one up.** The
+  numbers have gaps (030749 has no EST0076 or EST0081 - an estimate voided in
+  SiteManager leaves nothing behind), so counting up until a 404 stops early.
+  A contract's last estimate is named `FINAL-<nnnn>` rather than `EST<nnnn>`.
+  **A brand-new design usually has no estimate at all**, which is not an error
+  - paving has not started, so nobody has been paid. It falls back to the
+  Item List (the items as awarded) and the note says so, because that list can
+  itself go stale later.
+  **The description IS the mix signature**, so `parseSignature()` already
+  reads it and the design's own Nominal size + Mix type + Binder grade pick
+  its lines out of a contract that can carry 282 of them. Nothing else on the
+  contract (DGA, tack, striping) belongs on that sheet. A contract with two
+  routes has a PCN each and the right line can be on the second one - 262120's
+  0.38B is on `MP07606272601`, and #467PA's own MixPack states exactly that,
+  which is how the lookup was cross-checked against a real approved file.
+  **The mapper wrote one row and had to write all of them.** `Project Items` is
+  `A6:D105` and its own note beside it reads "Add as many rows as required";
+  the two Contract Information scalars still seed a single row when nobody ran
+  the lookup, which is what a legacy MixPack's `PROJ. (ITEM)` cell gives, and
+  the report says so rather than pretending the sheet is current.
+  **The reports are hand-rolled RTF-to-HTML from the 1990s** - unclosed `<td>`,
+  stray `<font>`, tables nested inside table *rows* - so nothing parses them as
+  a tree. Read them as a flat run of `<tr>` blocks and let the last header row
+  decide how to read the cells; the estimate has 12 columns and a live CURRENT
+  QUANTITY, the item list has 8 and only the bid quantity.
+  The lookup runs from two places and reports in both: the button on the table
+  in Contract Information, and **Project look up beside Approve on the Status
+  step** (Jake's ask the same day) - Andrew and Tate are there when they
+  approve and generate the workbook, and that is where a stale sheet actually
+  bites, not back on step 1 where a contractor filled it.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
