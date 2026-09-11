@@ -317,10 +317,20 @@ TBD — cite the governing spec section when encoding a limit in code.
   the wrong places. Re-aligned in PR #4 the same day. The importer is keyed on
   the schema, so treat the two as one change: rename a field key and you owe
   `CONFIG.LEGACY` an edit in the same commit.
-  Still open from PR #3: Contract Information's KYTC contract lookup (binder
-  supplier, funding, project items/number) is not built - Jacob's, since it is
-  the same shape as the `kytc-lookup` function. The target gradation band
-  (Andrew's) landed 2026-09-04 - see the two entries below.
+  Contract Information's KYTC contract lookup landed 2026-09-11 (Jacob): the
+  Portal's record now carries the proposal header, so a design started there
+  arrives with county and funding filled, and a **Look up contract** button in
+  the section head calls the same `kytc-lookup` function for everything else
+  (`CONFIG.CONTRACT_LOOKUP`). It fills only blanks, tinted with the source. It
+  picks the mix for tonnage and line items by the Portal's choice, else the
+  designation already on the form, else the only mix; otherwise it names them.
+  Two things the proposal cannot supply, so they stay typed: the **binder
+  supplier** (the contractor's choice, not KYTC's) and the **project number** -
+  a contract has one PCN per route, on the proposal's Project(s) page (262120
+  has two; #467PA used the KY 627 one), and the function does not parse that
+  page yet. Parsing it is the next step for that function, Andrew's deploy.
+  The target gradation band (Andrew's) landed 2026-09-04 - see the two entries
+  below.
 
 - **A completed MixPack *can* carry the 4-point gyratory trial sweep after
   all — `CONFIG.LEGACY.FOURPOINT: null` was a wrong assumption, corrected
