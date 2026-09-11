@@ -1818,8 +1818,15 @@ function rowHTML(spec, values, idx) {
     // title, because a narrow column clips from the right and the KYCT ids
     // differ only at the tail (..._SPEC_CT1 vs ..._SPEC_CT2).
     const t = v == null || v === "" ? "" : ` title="${esc(v)}"`;
+    // A column honours `type: "select"` the same way a field does. TSR's
+    // Condition is the first to use it, and it matters there: the ratio is
+    // averaged by that value, so it must come from a list rather than be
+    // typed ("Wet" would silently land in the dry set).
     const ctrl = c.source ? refControlHTML(c, cls, attrs, v)
-      : `<input type="text"${ro} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
+      : c.type === "select"
+        ? selectHTML(cls, attrs, (c.options || []).map((o) =>
+            (typeof o === "string" ? { value: o, label: o } : o)), v)
+        : `<input type="text"${ro} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
     return `<div><label>${c.label}</label>${ctrl}</div>`;
   }).join("");
   // Fixed tables (e.g. the Hamburg pass-count grid) have no remove button.
