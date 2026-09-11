@@ -787,16 +787,21 @@
     if (!cap.allowed) { setStatus($("step3Status"), cap.label, "error"); return; }
     const url = CONFIG.ROUTES[routeName];
     const params = { ...state.job };
-    if (state.mix) {
-      params.mix = state.mix;
-      const chosen = state.mixes.find((m) => m.id === state.mix);
+    if (state.mix) params.mix = state.mix;
+    // The record travels whenever the lookup returned anything, mix chosen or
+    // not: DesignBook's Contract Information fills county and funding from
+    // the proposal header without calling the function a second time
+    // (designbook.html portalRecord / loadContractContext).
+    if (state.mix || state.mixHeader) {
+      const chosen = state.mix ? state.mixes.find((m) => m.id === state.mix) : null;
       try {
         localStorage.setItem(CONFIG.MIX_LOOKUP.storageKey, JSON.stringify({
           cid: state.job.cid,
           letting: state.job.letting,
-          signature: state.mix,
+          signature: state.mix || null,
           mix: chosen ? chosen.raw : null,
           county: state.mixHeader ? state.mixHeader.county : null,
+          header: state.mixHeader,
         }));
       } catch (_) { /* storage unavailable - DesignBook falls back to parsing the signature */ }
     } else {
