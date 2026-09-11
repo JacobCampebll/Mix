@@ -521,6 +521,28 @@ TBD — cite the governing spec section when encoding a limit in code.
   and the rail take 450px of it), and check for clipping by comparing each
   input's `scrollWidth` to its `clientWidth` rather than by eye.
 
+- **The MixPack's TSR tab: three traps, all only visible against a real
+  file.** DesignBook imports the six specimens as of 2026-09-11
+  (`CONFIG.LEGACY.TSR_SPECIMENS`; full cell map in
+  `docs/legacy-mixpack-map.md`). **Which three are conditioned is not
+  fixed** - #467PA conditioned 1-3 and broke 4-6 dry, the Ver 11.3 file did
+  the opposite - and the workbook's own discriminator is the
+  **conditioned-thickness row (49)**, since its dry-strength formula blanks
+  itself the moment that cell is filled. **Carry the strengths, never
+  recompute them:** the sheet's psi is `2P/(pi*d*t)` and it takes `t` for a
+  conditioned specimen from that same row 49, which in the approved 11.3
+  file reads **150** - the diameter, not the 95 mm height - so recomputing
+  at 95 turns its approved **83.5%** TSR into **131%**. The thickness is
+  imported too, so the page warns about it rather than silently absorbing
+  it. And **saturation is row 46, not row 52**: row 52 is the same
+  measurement after the 24-hour 140F conditioning and is always higher,
+  while the 65 +/- 5 % target the tab prints on itself is the *initial*
+  figure - reading 52 flagged all three of #467PA's specimens on a design
+  KYTC approved. General lesson for any importer here: when a workbook
+  computes something from a cell, import that cell too, and check it -
+  a wrong input that the sheet has already folded into its answer is
+  invisible in the answer alone.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by

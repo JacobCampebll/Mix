@@ -168,8 +168,43 @@ MIX `L9`, PROJ.# `B11`, LAB `H11`, CONTR & LOC `L11`, BIND GRADE `B13`,
 | tsr_additive type / % | `G19` (type) + `H17`/`H19` (%) | text |
 
 Per-specimen columns: no-additive set `B:G` (avg `H`), with-additive set
-`I:N` (avg `O`); rows 30–41 conditioned-vs-dry, rows 48–55 the conditioned
-break. In `#489PA` all of this is blank (TSR not run/entered for this mix).
+`I:N` (avg `O`). In `#489PA` all of this is blank (TSR not run/entered for
+this mix).
+
+### The six specimens (`CONFIG.LEGACY.TSR_SPECIMENS`, added 2026-09-11)
+
+Imported for the no-additive set only. Row numbers identical in the 12.1
+template and in a real file of each version.
+
+| Row | Holds | Note |
+|---|---|---|
+| 30 | Sample ID | 1–6 (7–12 for the with-additive set) |
+| 32 | Thickness (mm) | the dry specimens' height |
+| 39 | % Air Voids | target **7.0 ± 1.0** |
+| 41 | Load (lbf) | **dry** break |
+| 46 | % Saturation | **initial** saturation — target **65.0 ± 5.0** |
+| 49 | Thickness (mm) | **conditioned** specimens — see below |
+| 52 | % Saturation | *after* 24 h at 140 °F; always higher, **not** the target |
+| 53 | Load (lbf) | **conditioned** break |
+| 54 | Wet Strength (psi) | `2P/(π·d·t)`, t from **row 49** |
+| 55 | Dry Strength (psi) | `2P/(π·d·t)`, t from row 32; blanks itself if row 49 is filled |
+
+Three things that only show up against real files:
+
+- **Which three are conditioned is not fixed.** `#467PA` conditioned 1–3 and
+  broke 4–6 dry; `CL3 0.38A 64-22 Haydon NEW.xlsm` (Ver 11.3) did the
+  opposite. **Row 49 is the discriminator** — the dry-strength formula in row
+  55 blanks itself the moment that cell has a value, which is the workbook's
+  own test. Never infer it from column order.
+- **Carry the strengths, never recompute them.** That 11.3 file has **150**
+  in row 49 — the specimen *diameter*, not the 95 mm height in row 32 — so
+  its wet strengths were computed at t = 150. Recomputing at 95 turns its
+  approved **83.5 %** TSR into **131 %**. DesignBook carries rows 54/55 and
+  imports the thickness alongside so it can warn instead.
+- **Saturation is row 46, not row 52.** Row 52 is the same measurement taken
+  again after conditioning. Reading it flags every correctly-run test:
+  `#467PA` is 88.6 / 84.8 / 72.2 there and 69.7 / 66.1 / 61.8 in row 46, all
+  inside 65 ± 5.
 
 ## Performance Testing box — sheets `Performance Specimens`, `KYCT Data`, `Hamburg Data`
 
