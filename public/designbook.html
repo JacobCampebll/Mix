@@ -1845,6 +1845,14 @@ const CONFIG = {
   TSR: {
     CITE: "KYTC 403.03.03 C) 3)",
     THICKNESS_MM: 95.0, THICKNESS_TOL: 5.0,
+    // The specimen diameter the workbook divides by (TSR!B31, 150 mm on every
+    // real file seen). Its strength formula is
+    //   psi = 2P / ((d/25.4) * (t/25.4) * PI)
+    // with P in lbf and d/t in mm - the /25.4 is what makes the answer psi.
+    DIAMETER_MM: 150.0,
+    // How far a carried strength may sit from that recomputation before the
+    // rail says so. Not a spec figure - a "these two disagree" threshold.
+    STRENGTH_TOLERANCE_PCT: 2.0,
     AIR_VOIDS: 7.0, AIR_VOIDS_TOL: 1.0,
     SATURATION: 65.0, SATURATION_TOL: 5.0,
     MIN_PER_SET: 3,
@@ -4136,7 +4144,13 @@ function tsrSpecimenDerived(r, gmm) {
   const volAir = (va != null && volume != null) ? va * volume / 100 : null;
   const absorbed = (satSsd != null && dry != null && ssd != null && satSsd - ssd > 0) ? satSsd - dry : null;
   const sat = (absorbed != null && volAir) ? 100 * absorbed / volAir : null;
-  return { volume, gmb, va, volAir, absorbed, sat };
+  // Indirect tensile strength, the workbook's own formula (TSR!B54):
+  //   psi = 2P / ((d/25.4) * (t/25.4) * PI)
+  // P in lbf, d and t in mm. Checked against #467PA specimen 1: 2*2332.4 /
+  // ((150/25.4)*(95/25.4)*PI) = 67.2, which is what that file carries.
+  const load = n(r.load), t = n(r.thickness), d = CONFIG.TSR.DIAMETER_MM;
+  const strengthCalc = (load != null && t) ? (2 * load) / ((d / 25.4) * (t / 25.4) * Math.PI) : null;
+  return { volume, gmb, va, volAir, absorbed, sat, strengthCalc };
 }
 
 function tsrSummary(rows) {
@@ -4174,6 +4188,17 @@ function tsrSummary(rows) {
     if (off(num(r.thickness), T.THICKNESS_MM, T.THICKNESS_TOL)) {
       warn.push(`${name} is ${fmt(num(r.thickness), 1)} mm thick, not ${T.THICKNESS_MM} — ` +
                 `the strength is computed from it, so the ratio moves with it.`);
+    }
+    // A strength that was carried from a workbook or typed in is never
+    // overwritten (see computeTSR), so the only way the load can disagree
+    // with it is to say so. This is what makes the Load column live on a
+    // design that arrived with its strengths already filled.
+    const calc = tsrSpecimenDerived(r, null).strengthCalc;
+    const given = num(r.strength);
+    if (calc != null && given != null && given &&
+        Math.abs(calc - given) / given * 100 > T.STRENGTH_TOLERANCE_PCT) {
+      warn.push(`${name}: the load and thickness give ${fmt(calc, 1)} psi, but the ` +
+                `strength on file is ${fmt(given, 1)}. The strength is kept — check which is right.`);
     }
   });
   if (cond.length < T.MIN_PER_SET || dry.length < T.MIN_PER_SET) {
@@ -4226,6 +4251,29 @@ function computeTSR() {
     put("gmb", d.gmb, 3);
     put("air_voids", d.va, 1);
     put("saturation", d.sat, 1);
+    // Strength from the load, but ONLY into a cell nothing else has claimed.
+    // A strength that came off a workbook is KYTC's own answer and stands:
+    // CLAUDE.md's worked example is a real Ver 11.3 file whose thickness row
+    // holds the 150 mm DIAMETER rather than the 95 mm height, where
+    // recomputing turns an approved 83.5% TSR into 131%. So an imported or
+    // typed value is left alone and the disagreement is raised instead (see
+    // tsrSummary); an empty cell, or one this filled before, follows the
+    // load. data-autofilled is the page's existing "we filled it, your edit
+    // takes it over" marker - the input handler already clears it.
+    // Never while the cell has focus. Clearing it to retype fires `input`,
+    // which lands here with the cell empty and still marked auto - so it was
+    // refilled between the delete and the first keystroke and the typing went
+    // in after it ("67.270.0"). A person inside the field owns it until they
+    // leave; the next recompute after that fills an empty one.
+    const st = row.querySelector('[data-col="strength"]');
+    if (st && !st.disabled && st !== document.activeElement && d.strengthCalc != null &&
+        (!String(st.value).trim() || st.dataset.autofilled)) {
+      st.value = fmt(d.strengthCalc, CONFIG.DP.strength);
+      st.dataset.autofilled = "1";
+      st.classList.add("autofilled");
+      st.title = `computed from the load at ${fmt(num(rowValuesOf(row).thickness), 1)} mm ` +
+                 `and ${CONFIG.TSR.DIAMETER_MM} mm diameter`;
+    }
   });
   const s = tsrSummary(list ? Array.from(list.children).map(rowValuesOf) : []);
   // The renderer emits this at the end of the TSR section body. The fallback
