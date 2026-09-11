@@ -1113,6 +1113,22 @@ const CONFIG = {
         // PG grades first, in numeric order; anything else (CRS-2P) after.
         sort: (a, b) => (/^PG/i.test(b.grade) - /^PG/i.test(a.grade)) || a.grade.localeCompare(b.grade),
       },
+      // LAM (List of Approved Materials) pp.37-51, Class A+/A/B Polish-
+      // Resistant Aggregate Source List - see the polish-resistant-class
+      // entry in CLAUDE.md and docs/lam-polish-resistant-sources.md. Not a
+      // dropdown - no field declares source: "polish_resistant_sources".
+      // polishFactsFor() reads this list directly by (agp_number, lithology)
+      // to override aggregate_types' generic type-name-only class when this
+      // specific producer has its own LAM entry for that lithology.
+      polish_resistant_sources: {
+        table: "polish_resistant_sources",
+        select: "agp_number, producer_name, lithology, class, restriction_note",
+        orderBy: "agp_number",
+        noun: "polish-resistant sources",
+        value: (r) => `${r.agp_number}:${r.lithology}`,
+        label: (r) => `${r.producer_name} — ${r.lithology} Class ${r.class}`,
+        aliases: (r) => [],
+      },
     },
   },
 
@@ -3527,31 +3543,96 @@ function polishAggregateRows() {
  * `known` is the point. A null polish_resistant_class is NOT a gap in the
  * data: KYTC names the polish-resistant variants explicitly ("LS #8's Class
  * A", "Dolomite NSG Class B") and leaves the plain ones plain ("Limestone
- * #8's", "Natural Sand"). Checked against the live table 2026-09-07 - all 115
- * rows agree with their own name, 30 A / 20 B / 65 with no class, and not one
+ * #8's"). Checked against the live table 2026-09-07 - all 115 rows agree
+ * with their own name, 30 A / 20 B / 65 with no class, and not one
  * contradiction either way. So a type that IS on the list and carries no
  * class is definitively not polish-resistant, and only a type that is not on
- * the list at all is genuinely unknown.
+ * the list at all is genuinely unknown - UNLESS one of the two overrides
+ * below applies, because `aggregate_types` keys class on the generic type
+ * name only, and that is not actually the Department's last word on it
+ * (found 2026-09-11 - see the CLAUDE.md entry and
+ * docs/lam-polish-resistant-sources.md for the full story):
  *
- * Lithology and natural sand come off the canonical name for the same reason
- * - "Dol." and "Dolomite" are the only prefixes in the list for the dolomite
- * lithology, and "Natural Sand" is the one uncrushed sand in it (the other
- * sands - Granite Sand, Gravel Sand-Crushed, Siltsone Sand, the Class A
- * sands - are manufactured, and 403.03.03 A)'s 15% cap is about natural
- * sand).
+ * 1. The LAM (List of Approved Materials, pp.37-51) certifies class per
+ *    PRODUCER, at a bench/ledge grain finer than either `aggregates` or
+ *    `aggregate_types` can represent alone (Haydon's Airport Rd. dolomite is
+ *    Class A, restricted to Bench B - its Greensburg and Lebanon locations
+ *    carry different AGP numbers, different lithologies, different classes
+ *    entirely). `polish_resistant_sources` holds that list, keyed on
+ *    (agp_number, lithology); when this component's producer has an entry
+ *    for the lithology its type name implies, that entry wins over
+ *    `aggregate_types`' generic answer. This form has no field for which
+ *    bench the material actually came from, so the restriction text is
+ *    surfaced for a human rather than checked - same as the note under the
+ *    control for every other seeded value on this page.
+ * 2. Natural (river) sand is not on that list at all, and is not supposed to
+ *    be - confirmed by Andrew: it is automatically Class A for ANY approved
+ *    producer, no bench check, independent of both tables (the LAM's own
+ *    p.37 text: polish-resistant fine aggregate "includes... natural
+ *    sands... which are on the [general] Aggregate Source List"). So
+ *    `aggregate_types`' null for "Natural Sand" is correct as data; this is
+ *    the one type name where that null must NOT read as "not polish-
+ *    resistant." Whether conglomerate sand and `Gravel Sand-Crushed` get the
+ *    same treatment is unconfirmed - left reading `aggregate_types` for now.
+ *
+ * Lithology and natural sand come off the canonical name - "Dol." and
+ * "Dolomite" are the only prefixes in the list for the dolomite lithology,
+ * and "Natural Sand" is the one uncrushed sand in it (the other sands -
+ * Granite Sand, Gravel Sand-Crushed, Siltsone Sand, the Class A sands - are
+ * manufactured, and 403.03.03 A)'s 15% cap is about natural sand).
  */
-function polishFactsFor(typeName) {
+// type_name prefix -> the lithology key polish_resistant_sources uses.
+// Traprock has no aggregate_types row today (a technician cannot select one),
+// so that branch never actually matches - kept so the mapping stays complete
+// if KYTC ever adds one.
+function polishLithologyOf(typeName) {
+  const n = String(typeName || "").trim();
+  if (/^dol\b|^dol\.|^dolomite/i.test(n))  return "dolomite";
+  if (/^limestone\b|^ls\b|^lss\b/i.test(n)) return "limestone";
+  if (/^sandst\.?/i.test(n))               return "sandstone";
+  if (/^silts/i.test(n))                   return "siltstone";      // catches the "Siltsone" typo too
+  if (/^granite\b/i.test(n))               return "crushed_granite";
+  if (/^quartzite\b/i.test(n))             return "crushed_quartzite";
+  if (/^gravel\b/i.test(n))                return "crushed_gravel";
+  if (/^slag\b/i.test(n))                  return "crushed_slag";
+  if (/^traprock\b/i.test(n))              return "traprock";
+  return null;
+}
+function polishFactsFor(typeName, producer) {
   const hit = refMatch("aggregate_types", typeName);
-  if (!hit) return { known: false, cls: "", dolomite: false, naturalSand: false, canonical: "" };
+  if (!hit) return { known: false, cls: "", dolomite: false, naturalSand: false, canonical: "", source: "", restrictionNote: "" };
   const name = String(hit.value || "");
-  const cls = hit.row && hit.row.polish_resistant_class
+  const naturalSand = /^natural\s+sand$/i.test(name.trim());
+  let cls = hit.row && hit.row.polish_resistant_class
     ? String(hit.row.polish_resistant_class).trim().toUpperCase() : "";
+  let source = "aggregate_types", restrictionNote = "";
+
+  if (naturalSand) {
+    cls = "A";
+    source = "natural-sand";
+  } else {
+    const lithology = polishLithologyOf(name);
+    const prodHit = producer ? refMatch("aggregates", producer) : null;
+    const agp = prodHit && prodHit.row ? prodHit.row.agp_number : null;
+    const lamHit = lithology && agp
+      ? (state.ref.polish_resistant_sources || []).find(
+          (o) => o.row && o.row.agp_number === agp && o.row.lithology === lithology)
+      : null;
+    if (lamHit) {
+      cls = String(lamHit.row.class).trim().toUpperCase();
+      source = "lam";
+      restrictionNote = lamHit.row.restriction_note || "";
+    }
+  }
+
   return {
     known: true,
     cls,
     dolomite: /^dol\b|^dol\.|^dolomite/i.test(name),
-    naturalSand: /^natural\s+sand$/i.test(name.trim()),
+    naturalSand,
     canonical: name,
+    source,
+    restrictionNote,
   };
 }
 
@@ -3657,7 +3738,7 @@ function renderPolishGrid(force) {
     return fallback == null ? "" : fallback;
   };
   // Facts read off KYTC's approved-materials list, once, for every column.
-  const facts = comps.map((c) => polishFactsFor(c.type_size));
+  const facts = comps.map((c) => polishFactsFor(c.type_size, c.producer));
 
   // Natural sand and dolomite used to be two rows of Yes/No across the whole
   // matrix. Both are settled entirely by the type name in the caption above
@@ -3695,10 +3776,17 @@ function renderPolishGrid(force) {
   // but the list cannot see every case, so the answer has to be reachable.
   // What the list says stays printed under the control, so an override reads
   // as an override rather than replacing the evidence.
+  // Three possible sources as of 2026-09-11 (see polishFactsFor): the LAM's
+  // producer-level list (prints its bench/restriction text so a human can
+  // confirm it, since this form has no bench field to check it against
+  // itself), the automatic natural-sand rule, or the generic aggregate_types
+  // fallback.
   const classRow = `<tr><th class="prrowhead">Polish class</th>` + comps.map((c, i) => {
     const f = facts[i];
     const cur = val(`cls:${i}`, f.known ? f.cls : "");
     const said = !f.known ? "not on KYTC's list"
+               : f.source === "natural-sand" ? "Natural sand — automatically Class A"
+               : f.source === "lam" ? `LAM: Class ${f.cls}${f.restrictionNote ? ` (${f.restrictionNote})` : ""}`
                : f.cls ? `KYTC's list: Class ${f.cls}`
                : "KYTC's list: no class";
     const over = f.known && cur !== f.cls;
@@ -4236,20 +4324,16 @@ function recompute() {
       const plabel = psec ? psec.dataset.label : "Polish-Resistant Aggregate";
       polishAggregateRows().forEach((c, ci) => {
         if (claims[refKey(c.type_size)] !== "YES") return;
-        const f = polishFactsFor(c.type_size);
-        if (!f.known || f.cls) return;                 // off-list, or we already agree
+        const f = polishFactsFor(c.type_size, c.producer);
+        // Off-list, or we already agree - which now covers natural sand (the
+        // automatic-Class-A rule resolved 2026-09-11, so f.cls is always "A"
+        // for it) and any producer the LAM classes for this lithology, not
+        // just a plain aggregate_types match.
+        if (!f.known || f.cls) return;
         // Someone has since set a class here by hand - the disagreement is
         // answered, so stop repeating it.
         const chosen = document.querySelector(`[data-pr="cls:${ci}"]`);
         if (chosen && String(chosen.value || "").trim()) return;
-        // Natural sand is polish-resistant by lithology, so a workbook saying
-        // YES to it is not disagreeing with anything (Jake, 2026-09-10). It
-        // carries no class in `aggregate_types` because KYTC classes named
-        // products, and the spec's routes are written per Class A / Class B
-        // source - which is why the arithmetic below still counts it by class.
-        // Whether it should count toward those routes, and as which class, is
-        // open with Andrew; it is NOT settled by suppressing this warning.
-        if (f.naturalSand) return;
         // Actionable, not just informative: KYTC lists the classed variants
         // beside the plain product (Dolomite #8's Class A sits next to plain
         // Dolomite #8's), so where one exists the fix is to pick it. Where
