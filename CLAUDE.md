@@ -1249,17 +1249,31 @@ read-only, so a write test goes through `apply_migration` and ends in
   hit it: **when a workbook carries a key beside a label, import the key** -
   the same rule as the TSR thickness and `TSR!B38`.
 
-- **Open for Andrew: THE ALLEN COMPANY'S QUARRIES ARE NOT IN `aggregates`.**
-  Found 2026-09-11 while fixing the producer resolution above. `AGP011701`
-  (The Allen Company @ Clover Bottom) returns nothing, and
-  `producer_name ilike '%allen%'` over all 178 rows returns only
-  `SCOTTY'S ALLEN COUNTY STONE @ SCOTTSVILLE` - a different company. So no
-  Allen Company aggregate source is on KYTC's list, and every Allen design
-  will keep raising a correct off-list warning on those rows until the table
-  gains them. `plants` is fine by contrast: `AMP070301` is there as
-  `The Allen Company @ Berea`, which is why RAP rows resolve. Worth checking
-  whether other producers are missing the same way rather than adding one
-  row at a time.
+- **Open for Andrew: `AGP011701` (The Allen Company @ Clover Bottom) is the
+  one producer missing from `aggregates`.** Checked 2026-09-11 against every
+  producer number that appears in the JMF corpus and in the MixPacks on hand:
+  seven distinct codes, six of them present.
+  `AGP004401` Haydon @ Greensburg, `AGP007401` Boonesboro Quarry,
+  `AGP012102` Watson Gravel, `AGP016501` Gaddie Shamrock and `AGP027501`
+  Haydon @ Airport Road are all there, as are both plants (`AMP070301`
+  Berea, `AMP070302` Boonesboro) in `plants`. Only Clover Bottom is absent,
+  and nothing matching "clover" or "bottom" exists under any other code, so
+  it is a genuine gap rather than a naming difference.
+  **CORRECTION to an earlier version of this note, which said no Allen
+  Company quarry was in the table at all.** That was wrong, and wrong in an
+  instructive way: it came from searching `producer_name ilike '%allen%'`,
+  which returns only `SCOTTY'S ALLEN COUNTY STONE @ SCOTTSVILLE` - a
+  different company - because **KYTC files a quarry under its SITE name, not
+  its owner's**. `AGP007401` is an Allen quarry and sits in the table as
+  `BOONESBORO QUARRY @ BOONESBORO`. Search this table by AGP number, never
+  by company name.
+  While confirming it: **one AGP number appears under at least four different
+  names across real approved designs** - `AGP027501` is written "Haydon
+  Materials, LLC-Airport Rd @ Bardstown", "Haydon Materials @ Airport Rd.",
+  "Haydon Mateirals @ Airport RD" (sic) and "Haydon Materials", and
+  `AGP007401` is written "Boonesboro Quarry @ Boonesboro", "The Allen Co @
+  Boonesboro" and "The Allen Company @ Boonesborough". That is the whole
+  argument for resolving on the number.
 
 - **Open for Andrew: does KYTC enforce 403.03.03 A)'s *fine* aggregate
   column?** The spec table gives Type B two columns — coarse (100% Class B,
