@@ -251,17 +251,23 @@
   .prnote a.cite, .prsub a.cite{border:0; padding:0; font-size:inherit; font-family:inherit;
                                 white-space:normal; text-decoration:underline;}
   .prnote a.cite:hover, .prsub a.cite:hover{background:transparent; color:var(--accent);}
-  /* A tag like "KYTC 403.03.03 A) · does this blend qualify as Type A or B" is
-     383px of nowrap text - wider than a phone on its own, and it was the whole
-     of this page's 165px of sideways scroll at 390px (the polish table looks
-     guilty and is not; .prscroll already clips it). The head wraps it to its
-     own line above; below 700px the text itself has to wrap too.
-     This block sits directly BELOW the two rules it overrides on purpose: a
-     @media block is not a tiebreaker, and at equal specificity the later rule
-     wins - see the same trap in CLAUDE.md's gotchas. */
+  /* The section tag is desktop-only (Jake, 2026-09-11). It says where a
+     section's data comes from - useful reading room beside a wide head, but on
+     a phone it is a wrapped two-line paragraph above every section, and the
+     person is there to fill the form, not read about it. The strings stay in
+     CONFIG.SECTIONS untouched, so this is a display decision and reversible by
+     deleting one line. It also removes the 383px of nowrap text ("KYTC
+     403.03.03 A) · does this blend qualify as Type A or B") that used to be the
+     whole of this page's 165px of sideways scroll at 390px - the polish table
+     looks guilty and is not, .prscroll already clips it.
+     a.cite still has to wrap: the citations stay on a phone, since they are
+     the link to the spec itself.
+     This block sits directly BELOW the rules it overrides on purpose: a @media
+     block is not a tiebreaker, and at equal specificity the later rule wins -
+     see the same trap in CLAUDE.md's gotchas. */
   @media (max-width:700px){
     .section-head{align-items:flex-start; gap:8px;}
-    .section-tag{white-space:normal; max-width:100%;}
+    .section-tag{display:none;}
     .headmeta{justify-content:flex-start; max-width:100%;}
     a.cite{white-space:normal; max-width:100%;}
   }

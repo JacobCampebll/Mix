@@ -430,6 +430,15 @@ TBD — cite the governing spec section when encoding a limit in code.
   Measure this with `getBoundingClientRect().height` at a real phone viewport
   rather than by eye, and re-check 1500/1366/1240/1000/800/701 afterwards to
   prove nothing above the breakpoint moved.
+  **The section tag is desktop-only below 700px, from the same round.** It is
+  the grey chip under each section title saying where that data comes from
+  (`tag` in `CONFIG.SECTIONS`) - reading room beside a wide head, but a wrapped
+  two-line paragraph above every section on a phone, where the person is there
+  to fill the form rather than read about it. The strings stay in CONFIG, so
+  this is one `display:none` and reversible. The spec citations in the same
+  `.headmeta` stay on a phone: they are the link to the spec itself, not a
+  description. Hiding the tag also removed the 383px of nowrap text that was
+  this page's only source of sideways scroll at 390px.
 
 
 - **A native `<datalist>` is not a typeahead, and it looks exactly like
