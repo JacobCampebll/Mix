@@ -121,9 +121,13 @@ const skip = (name, why) => {
   console.log(`  skip  ${name}  (${why})`);
 };
 const note = (s) => console.log(`  note  ${s}`);
-const trunc = (v) => {
+// Pre-formatted diffs arrive already laid out over several lines and must not
+// be clipped mid-diff — that is the one thing on the line worth reading. A
+// single-line value is a raw dump and is clipped hard.
+const trunc = (v, cap) => {
   const s = typeof v === 'string' ? v : JSON.stringify(v);
-  return s == null ? 'undefined' : s.length > 400 ? s.slice(0, 400) + ' …' : s;
+  const n = cap || (typeof v === 'string' && v.includes('\n') ? 2000 : 400);
+  return s == null ? 'undefined' : s.length > n ? s.slice(0, n) + ' …' : s;
 };
 
 // ---------------------------------------------------------------------
@@ -149,7 +153,14 @@ const stable = (v) => JSON.stringify(v, (_k, x) => {
   if (typeof x === 'number' && !Number.isFinite(x)) return `<${String(x)}>`;
   return x;
 });
-const same = (name, a, b) => ok(name, stable(a) === stable(b), `page  ${trunc(stable(a))}\n          module ${trunc(stable(b))}`);
+// Where two answers part, not what they start with. A 40 KB schema that
+// differs in one sieve is useless reported from its head — check_page_engine.mjs
+// prints got/want per cell for the same reason, and this is that idea applied
+// to a structure instead of a cell.
+const same = (name, a, b) => {
+  const x = stable(a), y = stable(b);
+  return ok(name, x === y, x === y ? undefined : firstDiff(x, y));
+};
 
 /** Every function-valued path in either object, compared by source text.
  *  Returns [checked, mismatches] so the caller can assert on both — a parity
@@ -183,9 +194,15 @@ function sweep(label, pageFn, modFn, cases) {
   if (typeof pageFn !== 'function' || typeof modFn !== 'function')
     return ok(`${label} exists on both copies`, false, `page ${typeof pageFn}, module ${typeof modFn}`);
   const bad = [];
-  for (const args of cases) {
+  for (let i = 0; i < cases.length; i++) {
+    const args = cases[i];
     const p = call(pageFn, args), m = call(modFn, args);
-    if (stable(p) !== stable(m)) bad.push(`${trunc(args)} -> page ${trunc(p.v)} / module ${trunc(m.v)}`);
+    const x = stable(p), y = stable(m);
+    if (x === y) continue;
+    // The input NAMED (so the case can be reproduced) and the outputs DIFFED
+    // (so the divergence is visible). A whole-lot argument is itself 2 KB, so
+    // printing both sides in full buries the one number that moved.
+    bad.push(`case ${i}  in ${trunc(JSON.stringify(args).slice(0, 160))}\n            ${firstDiff(x, y)}`);
   }
   return ok(`${label} agrees over ${cases.length} inputs`, bad.length === 0, bad.slice(0, 4).join('\n          '));
 }
@@ -275,8 +292,13 @@ function makeContext() {
 const SRC = BANNERS.map(([, ns]) => blocks.get(ns)).join('\n')
           + '\n;({ PB_SECTIONS, PB_PAY, PB_AMAW, PB_LOT });';
 let PB = null;
+// The context is kept: the page's copies are built in another vm realm, so
+// `pageError instanceof Error` is false against THIS realm's Error however
+// correct the port is. An assertion about prototype chains has to be made
+// against the realm the object came from, or it tests the checker.
+const CTX = makeContext();
 try {
-  PB = vm.runInContext(SRC, makeContext(), { filename: 'designbook.html:PLANTBOOK' });
+  PB = vm.runInContext(SRC, CTX, { filename: 'designbook.html:PLANTBOOK' });
   ok('all four blocks evaluate in one context, in the page\'s order', true);
 } catch (err) {
   ok('all four blocks evaluate in one context, in the page\'s order', false, String(err && err.stack || err).split('\n').slice(0, 3).join(' | '));
@@ -808,7 +830,13 @@ namespace('PB_LOT', '5. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
       setItem: (k, v) => { m.set(String(k), String(v)); },
       removeItem: (k) => { m.delete(String(k)); },
       clear: () => m.clear(),
-      __dump: () => [...m.entries()].sort(),
+      // Each value is PARSED before it is handed back, not compared as raw
+      // bytes. A stored lot carries its own `saved_at`, and inside a JSON
+      // string that stamp is invisible to the clock normaliser — so a byte
+      // comparison here fails whenever the two copies happen to straddle a
+      // millisecond, which is a flaky test rather than a drift detector.
+      __dump: () => [...m.entries()].sort()
+        .map(([k, v]) => { try { return [k, JSON.parse(v)]; } catch { return [k, v]; } }),
     };
   };
   const sa = stubStorage(), sb2 = stubStorage();
@@ -859,7 +887,9 @@ namespace('PB_LOT', '5. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
   // permission answer or a backend that has not been set up.
   const ea = new P.StorageError('conflict', 'x'), eb = new M.StorageError('conflict', 'x');
   same('StorageError carries the same kind/message/name', { k: ea.kind, m: ea.message, n: ea.name }, { k: eb.kind, m: eb.message, n: eb.name });
-  ok('StorageError is an Error in both copies', ea instanceof Error && eb instanceof Error);
+  ok('StorageError is an Error in both copies — each against its own realm\'s Error',
+     ea instanceof vm.runInContext('Error', CTX) && eb instanceof Error,
+     [ea instanceof vm.runInContext('Error', CTX), eb instanceof Error]);
 }
 
 // =====================================================================
@@ -980,11 +1010,13 @@ function loadPayload(name) {
 /** Where two rendered strings first part company, as a readable excerpt. A
  *  byte index alone is useless on a 40 KB table. */
 function firstDiff(a, b) {
+  a = String(a); b = String(b);
   let i = 0;
   while (i < a.length && i < b.length && a[i] === b[i]) i++;
   if (i === a.length && i === b.length) return 'identical';
-  const at = Math.max(0, i - 40);
-  return `at ${i}: page …${JSON.stringify(a.slice(at, i + 40))} / module …${JSON.stringify(b.slice(at, i + 40))}`;
+  const at = Math.max(0, i - 60);
+  const lead = at ? '…' : '';
+  return `first differ at ${i} of ${a.length}/${b.length}\n          page   ${lead}${a.slice(at, i + 60)}\n          module ${lead}${b.slice(at, i + 60)}`;
 }
 
 // =====================================================================

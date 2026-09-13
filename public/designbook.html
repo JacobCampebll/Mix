@@ -3549,6 +3549,16 @@ function splitMixDesignation(raw) {
 // contract lookup at all, state.mix null) still has a designation. Falls back
 // to state.mix so a design saved before those fields existed still resolves.
 function effectiveMix() {
+  // ONE resolver for both books, which is the point. CLAUDE.md records what
+  // happens otherwise: the review sheet drew no gradation control points for
+  // a design that had not come through the Portal's mix lookup, because it
+  // read payload.mix.nominal_size while the page read this. A lot has no
+  // Nominal size field at all - its mix is the approved design's, and it is
+  // inherited rather than typed, so there is nothing here to correct.
+  if (isPlantBook()) {
+    const d = lotDesign();
+    return d && d.nominal_size ? { nominal_size: d.nominal_size, signature: d.signature || null } : null;
+  }
   const size = fieldValue("nominal_size"), letter = fieldValue("mix_type");
   if (size || letter) return { nominal_size: size + letter };
   return state.mix;
@@ -4353,14 +4363,53 @@ function paintStepChrome() {
 }
 
 /* ---------- 0.45 power chart (large, vertical-table companion) ---------- */
+// One curve per SAMPLE, the same way the sieve table is one column per
+// sample. DesignBook declares no `columns` and gets the single implicit
+// series it has always had, drawn in the same accent at the same width, so
+// nothing about its chart changes. A lot declares seven and gets seven: the
+// JMF target it is judged against, the four measured sublots, and the two
+// Department samples.
+//
+// The colours are the page's own three - navy, sky and gold - rather than a
+// seventh hue invented for this. The JMF target is navy and the heaviest
+// line, because it is the thing the others are read against; the sublots
+// step through sky; QA and IQ take the flag colour, which is what this page
+// already uses to mean "the Department said so".
+const SERIES_STROKE = {
+  target: "var(--navy)",
+  department: "var(--flag)",
+  measured: ["var(--accent)", "var(--sky)", "#2F97D4", "#7FC4EA"],
+};
+// One colour per column, resolved in one pass: the measured columns take the
+// next shade each, so the four sublots are four distinguishable blues
+// whatever else is in the list. Computed once and handed to both the curves
+// and the legend, so the key can never disagree with the plot.
+function seriesColours(cols) {
+  let m = 0;
+  return cols.map((c) =>
+    c.target ? SERIES_STROKE.target
+      : c.department ? SERIES_STROKE.department
+        : SERIES_STROKE.measured[(m++) % SERIES_STROKE.measured.length]);
+}
+
 function drawChart() {
   const chart = $("chart");
   if (!chart) return;
-  const all = gradSection().sieves.map((s) => {
-    const el = document.querySelector(`[data-field="${s.key}"]`);
+  const sec = gradSection();
+  if (!sec) return;
+  const cols = sec.columns || [{ key: null, label: "% passing" }];
+  const readSeries = (col) => sec.sieves.map((sv) => {
+    const key = col.key ? `${col.key}_${sv.key}` : sv.key;
+    const el = document.querySelector(`[data-field="${key}"]`);
     const v = parseFloat((el && el.value) || "");
-    return { mm: s.mm, label: s.label, p: Number.isFinite(v) ? v : null };
+    return { mm: sv.mm, label: sv.label, p: Number.isFinite(v) ? v : null };
   });
+  // The first column is what the axis is built from - DesignBook's own
+  // gradation, or a lot's JMF target. It is also the only one trimFlatCoarseEnd
+  // sees, deliberately: one axis for every curve, or two sublots plotted at
+  // different scales would look like a difference in the material.
+  const series = cols.map(readSeries);
+  const all = series[0];
 
   // The mix's control points, resolved before the axis because the trim
   // below is not allowed to cut past one.
@@ -4388,16 +4437,37 @@ function drawChart() {
      <text x="${x(p.mm).toFixed(1)}" y="${H - pad.b + 8}" font-size="8" fill="var(--muted)"
        text-anchor="end" transform="rotate(-45 ${x(p.mm).toFixed(1)} ${H - pad.b + 8})">${p.label}</text>`).join("");
 
-  const have = pts.filter((p) => p.p !== null);
-  const line = have.length >= 2
-    ? `<polyline fill="none" stroke="var(--accent)" stroke-width="2" points="${
-        have.map((p) => `${x(p.mm).toFixed(1)},${y(p.p).toFixed(1)}`).join(" ")}"/>`
-    : "";
-  const dots = have.map((p) =>
-    `<circle cx="${x(p.mm).toFixed(1)}" cy="${y(p.p).toFixed(1)}" r="2.4" fill="var(--accent)"/>`).join("");
-  const empty = have.length < 2
+  // Every curve is trimmed to the same sieves the axis carries, by mm rather
+  // than by index: the trim can drop coarse sieves, and a series indexed past
+  // that would draw its #4 where the 3/8" belongs.
+  const keep = new Set(pts.map((p) => p.mm));
+  const colours = seriesColours(cols);
+  let drawn = 0;
+  const curves = series.map((row, i) => {
+    const have = row.filter((p) => p.p !== null && keep.has(p.mm));
+    if (have.length < 2) return "";
+    drawn++;
+    const stroke = colours[i];
+    const w = cols[i].target ? 2.4 : 1.6;
+    const dash = cols[i].department ? ` stroke-dasharray="3,2"` : "";
+    return `<polyline fill="none" stroke="${stroke}" stroke-width="${w}"${dash} points="${
+        have.map((p) => `${x(p.mm).toFixed(1)},${y(p.p).toFixed(1)}`).join(" ")}"/>` +
+      have.map((p) =>
+        `<circle cx="${x(p.mm).toFixed(1)}" cy="${y(p.p).toFixed(1)}" r="2.4" fill="${stroke}"/>`).join("");
+  }).join("");
+  const line = curves, dots = "";
+  const empty = !drawn
     ? `<text x="${W / 2}" y="${H / 2}" font-size="10" fill="var(--muted)" text-anchor="middle">
          enter at least two sieve values</text>`
+    : "";
+  // A legend only where there is more than one thing to tell apart. A single
+  // curve needs no key, and the caption above the chart already names it.
+  const legend = cols.length > 1
+    ? `<g>${cols.map((c, i) => {
+        const lx = pad.l + 4 + (i % 4) * 104, ly = pad.t + 6 + Math.floor(i / 4) * 11;
+        return `<line x1="${lx}" y1="${ly}" x2="${lx + 12}" y2="${ly}" stroke="${colours[i]}" stroke-width="2"/>` +
+               `<text x="${lx + 16}" y="${ly + 3}" font-size="7.5" fill="var(--muted)">${esc(c.label)}</text>`;
+      }).join("")}</g>`
     : "";
 
   // Target gradation band (AASHTO M323 Table 4 control points for this mix's
@@ -4434,7 +4504,7 @@ function drawChart() {
         `<line x1="${pad.l}" y1="${y(v).toFixed(1)}" x2="${W - pad.r}" y2="${y(v).toFixed(1)}" stroke="var(--line)" stroke-width="0.4"/>
          <text x="${pad.l - 4}" y="${(y(v) + 3).toFixed(1)}" font-size="8" fill="var(--muted)" text-anchor="end">${v}</text>`).join("")}
       <text x="${(pad.l + (W - pad.r)) / 2}" y="${H - 4}" font-size="8" fill="var(--muted)" text-anchor="middle">sieve (0.45 power scale)</text>
-      ${bandSvg}${grid}${line}${dots}${empty}${bandNote}
+      ${bandSvg}${grid}${line}${dots}${empty}${legend}${bandNote}
     </svg>`;
 }
 
