@@ -2134,6 +2134,32 @@ const CONFIG = {
     // are ROUND(Cores!I..,1) and the pay bands are laid out against that
     // tenth, so it is the schema's precision and not a display choice.
     pct_solid: 1,
+    // PlantBook's sublot volumetrics, computed from the raw bench weights by
+    // PB_VOL. These are DISPLAY precisions only - `volumetrics.mjs` rounds
+    // where the WORKBOOK rounds (bulk volume to a tenth, each BSG and each
+    // sublot MSG to three) and every figure below is carried at full float
+    // into the pay model, exactly as the workbook carries it. So do not read
+    // these as the arithmetic's precision; see DP.bulkVolume / DP.bsg /
+    // DP.msg in volumetrics.mjs for that.
+    bulk_volume: 1, bsg: 3, msg: 3,
+    // Va to two, because the air-void pay bands are laid out on tenths
+    // (3.2-3.8, 1.5-3.1) and a band edge read to one decimal hides which
+    // side of it a 3.849 sits on.
+    //
+    // `pbe` and `gse` are NOT re-declared here even though a lot carries
+    // both: DesignBook already names them and they are the same quantities,
+    // so PlantBook reads its neighbour's entry. Adding a second `pbe: 2`
+    // beside the existing `pbe: 1` is not an override, it is a DUPLICATE KEY
+    // IN AN OBJECT LITERAL - the later one wins silently, and which one is
+    // later is a matter of where somebody happened to paste. Caught here by
+    // the value printing as 5.0 when 5.02 was asked for; the harness now
+    // fails on any duplicate in this block so the next one cannot be silent.
+    va: 2, vma: 2, vfa: 2, unit_weight: 2, dust_ratio: 2,
+    // The hand-mixed sample's Gmm. FOUR decimals, not three, and
+    // deliberately: this pair is the one place the workbook does NOT round
+    // to three (see handMixedGse()), and printing it to three would show a
+    // number that is not the one the arithmetic used.
+    handmix_gmm: 4,
     // Contract
     total_tons: 0,
     // TSR tab. The ratio itself is a whole percent; the strengths a tenth.
@@ -2749,6 +2775,18 @@ const PB_SECTIONS = (() => {
   // `Gradation`, four rows of pay. Not "up to four".
   const SUBLOT_SEED = [{ sublot: "1" }, { sublot: "2" }, { sublot: "3" }, { sublot: "4" }];
 
+  // Two laboratory specimens per sublot, which is what the workbook holds: the
+  // BSG block has two rows above each Average row, and the MSG block has two
+  // COLUMNS per sublot. Seeded rather than added by hand for the same reason
+  // SUBLOT_SEED is - a lot is exactly four sublots of exactly two specimens,
+  // not "up to".
+  const SPECIMEN_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
+    ["1", "2"].map((specimen) => ({ sublot, specimen })));
+
+  // The two Rice determinations of the lot's hand-mixed check sample
+  // (`Superpave` columns M and N). One per lot, not per sublot.
+  const HANDMIX_SEED = [{ determination: "1" }, { determination: "2" }];
+
   // =====================================================================
   //  PLANTBOOK_SECTIONS
   // =====================================================================
@@ -3137,22 +3175,97 @@ const PB_SECTIONS = (() => {
             { key: "technician", label: "Tech (SM ID)", type: "text", req: true, mono: true },
           ],
         },
+        // ---- THE RAW WEIGHTS THE VOLUMETRICS ARE COMPUTED FROM ----------
+        //
+        // Jake, 2026-09-13: "we need it to where contractors can input raw
+        // results for the msg and bsg that computes the numbers and then
+        // computes air voids for each sub lot". Before this, every figure on
+        // the volumetrics table below was TYPED - eight numbers per sublot,
+        // all eight of which the AMAW computes for itself from weights already
+        // on the technician's bench sheet. Typing a derived figure is how a lot
+        // ends up disagreeing with the workbook it will be loaded from, and it
+        // is thirty-two chances to fat-finger a decimal.
+        //
+        // `volumetrics.mjs` does the arithmetic and `check_volumetrics.mjs`
+        // proves it reproduces both real lots cell for cell.
         {
-          key: "sublot_volumetrics", heading: "Sublot volumetrics", fixed: true,
-          grid: ".5fr .8fr 1fr .85fr .8fr .8fr .8fr .8fr .85fr",
+          key: "sublot_bsg", heading: "Bulk specific gravity (BSG) — two specimens per sublot",
+          fixed: true,
+          grid: ".4fr .5fr 1fr 1fr 1fr .85fr .8fr .9fr",
+          seed: SPECIMEN_SEED,
+          columns: [
+            { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+            { key: "specimen", label: "Spec.", type: "text", mono: true, readonly: true },
+            // Superpave C/D/E. KYTC's own column captions are "Weight (g)" over
+            // "(Air) / (Water) / (SSD)"; spelled out here because "(Air)" alone
+            // on a phone is not a weight.
+            { key: "wt_air", label: "Wt in air (g)", type: "number", req: true, mono: true },
+            { key: "wt_water", label: "Wt in water (g)", type: "number", req: true, mono: true },
+            { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: true, mono: true },
+            // F = ROUND(E-D,1), G = ROUND(C/F,3), H = G*62.4. Computed, never
+            // typed - readonly and not `req`, so the rail asks for the three
+            // weights a person actually has rather than for their quotient.
+            { key: "bulk_volume", label: "Bulk vol.", type: "number", req: false, mono: true, readonly: true },
+            { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
+            { key: "unit_weight", label: "Unit wt (pcf)", type: "number", req: false, mono: true, readonly: true },
+          ],
+        },
+        {
+          key: "sublot_msg", heading: "Maximum specific gravity (MSG, Rice) — two determinations per sublot",
+          fixed: true,
+          grid: ".4fr .5fr 1fr 1fr 1fr 1fr .8fr",
+          seed: SPECIMEN_SEED,
+          columns: [
+            { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+            { key: "specimen", label: "Det.", type: "text", mono: true, readonly: true },
+            // Superpave rows 36/37/39/40, in COLUMN pairs per sublot rather
+            // than rows - see SUBLOT.msg in addresses.mjs.
+            { key: "wt_mix", label: "Wt of mix (g)", type: "number", req: true, mono: true },
+            { key: "calibration", label: "Calibration (g)", type: "number", req: true, mono: true },
+            { key: "final_wt", label: "Final wt (g)", type: "number", req: true, mono: true },
+            // Blank in both real lots, and a blank reads as 0 inside the sum -
+            // so optional, and a blank one does not block the MSG.
+            { key: "absorbed_water", label: "Absorbed water (g)", type: "number", req: false, mono: true },
+            { key: "msg", label: "MSG", type: "number", req: false, mono: true, readonly: true },
+          ],
+        },
+        {
+          key: "sublot_volumetrics", heading: "Sublot volumetrics — computed", fixed: true,
+          // Ten columns of short figures. EVEN tracks, deliberately: an earlier
+          // weighting gave unit_weight 73px and va 50px at a 701px window, and
+          // "4.57" in 50px clips while the wider neighbour sat half empty. Every
+          // value here is 2-6 characters, so none has a claim on more room than
+          // the others.
+          grid: ".35fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
           seed: SUBLOT_SEED,
           columns: [
             { key: "sublot", label: "#", type: "text", mono: true, readonly: true },
-            // Superpave!B — the workbook's "% Binder in Mix".
+            // Superpave!B — the workbook's "% Binder in Mix". STILL TYPED, and
+            // the one figure on this table that is: the workbook takes it from
+            // the Gradation tab's as-tested AC less a correction at row 48
+            // (`B14 = Gradation!D33`), which is its own re-plumbing rather than
+            // part of this change. Leaving it typed is honest; computing six of
+            // the eight and silently guessing the seventh would not be.
             { key: "binder_pct", label: "%AC", type: "number", req: true, mono: true },
-            { key: "unit_weight", label: "Unit wt (pcf)", type: "number", req: false, mono: true },
-            { key: "gmm", label: "Gmm", type: "number", req: true, mono: true },
-            { key: "va", label: "Va (%)", type: "number", req: true, mono: true },
-            { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true },
-            { key: "vma", label: "VMA (%)", type: "number", req: true, mono: true },
-            { key: "vfa", label: "VFA (%)", type: "number", req: true, mono: true },
+            // Everything from here is computed by volumetrics.mjs and painted
+            // by the page. None carries `req`: the rail asks for the raw
+            // weights above, because those are what a person can supply.
+            { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
+            // NO unit weight on this row. It is BSG x 62.4 - a restatement of the
+            // column beside it - it is already shown per specimen on the BSG table
+            // above, and nothing in pay.mjs, the mapper or payview reads it. Ten
+            // columns of figures clipped at 700-800px and this was the one with no
+            // claim to the room.
+            { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
+            { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
+            { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
+            { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true, readonly: true },
+            { key: "vfa", label: "VFA (%)", type: "number", req: false, mono: true, readonly: true },
             // KYTC writes it "D/A"; pay.mjs and the loader call it dustRatio.
-            { key: "dust_ratio", label: "D/A ratio", type: "number", req: true, mono: true },
+            // = (% passing the #200, off the Gradation step) / Pbe, and it can
+            // legitimately read ">1.6" or "<0.6" rather than a number - the
+            // workbook prints a spec note beside it when it does.
+            { key: "dust_ratio", label: "D/A ratio", type: "text", req: false, mono: true, readonly: true },
           ],
         },
       ],
@@ -3172,9 +3285,35 @@ const PB_SECTIONS = (() => {
       type: "grid",
       cites: ["accept403"],
       fields: [
+        // N43, typed - the whole point of a hand-mixed sample is that somebody
+        // weighed the binder in, so this is known rather than measured.
         { key: "lot_handmix_binder_pct", label: "Hand-mixed %AC", type: "number", req: false, mono: true },
-        { key: "lot_handmix_gmm", label: "Hand-mixed Gmm", type: "number", req: false, mono: true },
+        // N42 = AVERAGE of the two determinations below, so it is computed now
+        // rather than typed.
+        { key: "lot_handmix_gmm", label: "Hand-mixed Gmm", type: "number", req: false, mono: true, readonly: true },
+        // J8 = (100-N43)/((100/N42)-(N43/1.03)). Not a cell a person fills, but
+        // shown because every sublot's VMA and Pbe are measured against it, and
+        // a blank one explains why those columns are blank.
+        { key: "lot_gse", label: "Gse (effective aggregate)", type: "number", req: false, mono: true, readonly: true },
       ],
+      // The same Rice test as the sublots', on the lot's hand-mixed sample -
+      // `Superpave` columns M and N of the same block. WATCH THE ROUNDING: this
+      // pair is NOT rounded to three decimals where the sublot pairs are, which
+      // is a real difference in the workbook and not a transcription slip. See
+      // handMixedGse() in volumetrics.mjs.
+      rows: {
+        key: "handmix_msg", heading: "Hand-mixed MSG determinations", fixed: true,
+        grid: ".5fr 1fr 1fr 1fr 1fr .8fr",
+        seed: HANDMIX_SEED,
+        columns: [
+          { key: "determination", label: "Det.", type: "text", mono: true, readonly: true },
+          { key: "wt_mix", label: "Wt of mix (g)", type: "number", req: false, mono: true },
+          { key: "calibration", label: "Calibration (g)", type: "number", req: false, mono: true },
+          { key: "final_wt", label: "Final wt (g)", type: "number", req: false, mono: true },
+          { key: "absorbed_water", label: "Absorbed water (g)", type: "number", req: false, mono: true },
+          { key: "msg", label: "MSG", type: "number", req: false, mono: true, readonly: true },
+        ],
+      },
     },
 
     {
@@ -6098,6 +6237,7 @@ function recompute() {
   // writes the readonly % solid column that lotPay() then reads, so the order
   // is not a style choice - reading it the other way round is one keystroke
   // behind for a whole render.
+  computeSublotVolumetrics();
   computeCoreSolids();
   const lp = computeLotPay();
   if (lp) {
@@ -9290,6 +9430,311 @@ function mixpackCells(payload, tpl, ref) {
 }
 /* ===== END MIXPACK MAPPER ===== */
 
+/* ===== PLANTBOOK VOLUMETRICS =====
+ *
+ * The sublot volumetric chain, from raw laboratory weights - a verbatim port
+ * of scripts/amaw/volumetrics.mjs, wrapped as ONE top-level name exactly like
+ * the four namespaces beside it. `xlRound` and `averagePresent` are the reason
+ * that matters here: PLANTBOOK PAY already defines an `xlRound` of its own,
+ * and two top-level consts of one name is a SyntaxError at
+ * script-instantiation time - not one line of this inline script would run and
+ * the page would sit on its static markup forever (CLAUDE.md, the supabase/sb
+ * gotcha). scripts/amaw/check_page_plantbook.mjs proves this copy and the
+ * module stay in step.
+ */
+const PB_VOL = (() => {
+  /**
+   * volumetrics.mjs — the sublot volumetric chain, from raw laboratory weights.
+   *
+   * WHY THIS EXISTS (Jake, 2026-09-13): "we need it to where contractors can
+   * input raw results for the msg and bsg that computes the numbers and then
+   * computes air voids for each sub lot". Until now PlantBook asked a
+   * technician to TYPE eight numbers per sublot — %AC, unit weight, Gmm, Va,
+   * Pbe, VMA, VFA, D/A — every one of which the AMAW computes for itself from
+   * weights the technician already has on the bench. Typing a derived figure is
+   * how a lot ends up disagreeing with the workbook it will be loaded from.
+   *
+   * EVERY FORMULA HERE IS THE WORKBOOK'S OWN, read off `Superpave` in Jake's
+   * two real accepted lots rather than from a standard. Where KYTC rounds, this
+   * rounds in the same place and to the same number of digits, because the
+   * rounding is not cosmetic: the two BSG specimens are each rounded to three
+   * decimals BEFORE they are averaged, so averaging the raw quotients gives a
+   * different answer. `check_volumetrics.mjs` recomputes every derived cell of
+   * all eight sublots on file and compares against the workbook's own cached
+   * values.
+   *
+   * VOCABULARY. KYTC writes BSG for bulk specific gravity (Gmb) and MSG for
+   * maximum specific gravity (Gmm, the Rice value). CLAUDE.md already records
+   * the MixPack using "BSG" the same way. The names here follow the workbook,
+   * because the person filling this in is reading the workbook's own words off
+   * a bench sheet.
+   *
+   * NULLS ARE NOT ZEROS, the same rule `pay.mjs` follows: a quantity whose
+   * inputs are incomplete comes back `null`, never 0 and never a guess. An
+   * untested sublot with a 0% air void reads as a catastrophic mix rather than
+   * as an empty row.
+   */
+
+  /**
+   * Specific gravity to pounds per cubic foot. 62.4 is KYTC's number, not a
+   * rounding of water's actual 62.428 — `Superpave!H12` is literally `G12*62.4`
+   * and `Cores!I` uses the same figure. A lot has to agree with the workbook it
+   * will be loaded from, so do not "correct" this.
+   */
+  const PCF_PER_SG = 62.4;
+
+  /**
+   * The 1.03 in the absorbed-AC and Gse formulas is the workbook's, carried
+   * verbatim from `Superpave!K14` and `J8`. It is the assumed specific gravity
+   * of the binder.
+   */
+  const BINDER_SG = 1.03;
+
+  /** Digits the workbook rounds each quantity to, at the point it rounds it. */
+  const DP = {
+    bulkVolume: 1,   // F = ROUND(E-D, 1)
+    bsg: 3,          // G = ROUND(C/F, 3)
+    msg: 3,          // row 41 = ROUND(36/(38-39+40), 3)
+  };
+
+  const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+
+  /** A blank cell, an empty string and a missing key are all "no value". */
+  function num(v) {
+    if (v == null || v === "") return null;
+    const n = typeof v === "number" ? v : Number(String(v).trim());
+    return Number.isFinite(n) ? n : null;
+  }
+
+  /**
+   * Excel's ROUND: half away from zero, where JavaScript's Math.round is half
+   * UP (so -2.5 rounds to -2 in JS and to -3 in Excel). No weight here is ever
+   * negative, but the helper is the workbook's rule rather than the language's
+   * so nobody has to wonder later.
+   */
+  function xlRound(v, digits) {
+    if (!isNum(v)) return null;
+    const m = Math.pow(10, digits);
+    return (v < 0 ? -1 : 1) * Math.round(Math.abs(v) * m) / m;
+  }
+
+  /**
+   * One BSG specimen — `Superpave` rows 12/13 (and 18/19, 24/25, 30/31).
+   *
+   *   volume     F = ROUND(SSD - water, 1)
+   *   bsg        G = ROUND(air / F, 3)
+   *   unitWeight H = G * 62.4
+   *
+   * Note `unitWeight` is computed from the ROUNDED bsg, as `H12 = G12*62.4`
+   * does — not from the raw quotient.
+   *
+   * A specimen missing any of its three weights yields nulls throughout rather
+   * than a partial answer. The workbook's own guards are one level looser
+   * (`F` only tests SSD, `G` only tests air) but it cannot produce a number
+   * without all three either, so this is the same behaviour stated honestly.
+   */
+  function bsgSpecimen(spec = {}) {
+    const air = num(spec.air), water = num(spec.water), ssd = num(spec.ssd);
+    const blank = { volume: null, bsg: null, unitWeight: null };
+    if (air == null || water == null || ssd == null) return blank;
+    const volume = xlRound(ssd - water, DP.bulkVolume);
+    if (volume == null || volume === 0) return blank;   // a zero volume is a typo, not a gravity
+    const bsg = xlRound(air / volume, DP.bsg);
+    return { volume, bsg, unitWeight: bsg == null ? null : bsg * PCF_PER_SG };
+  }
+
+  /**
+   * One MSG (Rice) determination — `Superpave` column C (and D, E, F, …).
+   *
+   *   sum   row 38 = mix + calibration
+   *   msg   row 41 = ROUND(mix / (sum - finalWeight + absorbedWater), 3)
+   *
+   * `absorbedWater` is blank in both real lots and a blank reads as 0 inside
+   * the sum, so it defaults to 0 rather than blocking the calculation — that
+   * is the workbook's behaviour, not a convenience.
+   */
+  function msgDetermination(det = {}, { round = true } = {}) {
+    const mix = num(det.mix), calibration = num(det.calibration), finalWeight = num(det.finalWeight);
+    const absorbedWater = num(det.absorbedWater) ?? 0;
+    if (mix == null || calibration == null || finalWeight == null) return { sum: null, msg: null };
+    const sum = mix + calibration;
+    const denom = sum - finalWeight + absorbedWater;
+    if (denom === 0) return { sum, msg: null };
+    const raw = mix / denom;
+    return { sum, msg: round ? xlRound(raw, DP.msg) : raw };
+  }
+
+  /**
+   * `AVERAGE()` over the values that are present, ignoring blanks exactly as
+   * Excel does, and `null` when nothing is present (Excel's #DIV/0!, which
+   * every one of these cells wraps in an IF/ISERROR and shows as blank).
+   */
+  function averagePresent(values) {
+    const got = (values || []).filter(isNum);
+    if (!got.length) return null;
+    return got.reduce((a, b) => a + b, 0) / got.length;
+  }
+
+  /**
+   * The average BSG and unit weight of a sublot — `Superpave!G14` / `H14`.
+   *
+   * ONE ODDITY REPRODUCED DELIBERATELY: the workbook gates both averages on
+   * the FIRST specimen (`IF(G12="","",AVERAGE(G12:G13))`), so a sublot whose
+   * first specimen is blank and whose second is filled reads blank rather than
+   * reporting the second alone. Same family as the TSR absorbed-water guard in
+   * CLAUDE.md — it is what every lot on file was judged by, so it is mirrored
+   * rather than tidied.
+   */
+  function bsgAverage(specimens) {
+    const each = (specimens || []).map(bsgSpecimen);
+    if (!each.length || each[0].bsg == null) {
+      return { each, bsg: null, unitWeight: null };
+    }
+    return {
+      each,
+      bsg: averagePresent(each.map((e) => e.bsg)),
+      unitWeight: averagePresent(each.map((e) => e.unitWeight)),
+    };
+  }
+
+  /**
+   * The average MSG of a sublot — `Superpave!D42` and its siblings. Unlike the
+   * BSG average this is NOT gated on the first determination: the cell is
+   * `IF(ISERROR(AVERAGE(C41:D41)),"",AVERAGE(C41:D41))`, and AVERAGE over one
+   * filled and one blank cell is that one value.
+   */
+  function msgAverage(determinations, opts) {
+    const each = (determinations || []).map((d) => msgDetermination(d, opts));
+    return { each, msg: averagePresent(each.map((e) => e.msg)) };
+  }
+
+  /**
+   * THE HAND-MIXED SAMPLE IS NOT ROUNDED, AND THE SUBLOTS ARE. Same rows, same
+   * arithmetic, two different formulas in one workbook:
+   *
+   *   sublot    C41 = IF(C39="","",ROUND(C36/(C38-C39+C40),3))
+   *   hand-mix  M41 = IF(M39="","",      M36/(M38-M39+M40)   )
+   *
+   * Three decimals is a big enough step at this magnitude to matter: rounding
+   * the hand-mix moves Gse by ~0.00018, which moves every sublot's % absorbed
+   * AC and Pbe by ~0.0023 — small, but it is the difference between agreeing
+   * with the workbook and not, and a Pbe that disagrees puts the dust ratio and
+   * VMA out with it. Caught by checking against the real files rather than by
+   * reading the formula for the sublot and assuming the hand-mix matched.
+   *
+   * Reproduced rather than tidied, the same rule as the TSR absorbed-water
+   * guard and the `Field Rutting` duplicate sn: it is what every approved lot
+   * on file was judged by. This wrapper exists so nobody has to remember the
+   * quirk at the call site.
+   */
+  function handMixedGse({ determinations, binderPct } = {}) {
+    const { each, msg } = msgAverage(determinations, { round: false });
+    return { each, gmm: msg, gse: gseFromHandMix({ gmm: msg, binderPct }) };
+  }
+
+  /**
+   * Gse — the aggregate's effective specific gravity, `Superpave!J8`:
+   *
+   *   Gse = (100 - Pb) / ((100 / Gmm) - (Pb / 1.03))
+   *
+   * read off the LOT's HAND-MIXED check sample, not off a sublot. That is the
+   * point of the hand-mixed sample: one binder content known exactly because
+   * somebody weighed it in, so Gse is measured rather than inferred from
+   * production. Every sublot's VMA and Pbe are measured against this one
+   * number, which is why a lot with no hand-mixed sample can compute air voids
+   * but not VMA.
+   */
+  function gseFromHandMix(handMix = {}) {
+    const gmm = num(handMix.gmm), binderPct = num(handMix.binderPct);
+    if (gmm == null || binderPct == null || gmm === 0) return null;
+    const denom = (100 / gmm) - (binderPct / BINDER_SG);
+    if (denom === 0) return null;
+    return (100 - binderPct) / denom;
+  }
+
+  /**
+   * Everything the volumetric row shows, from the raw weights plus the two
+   * values that come from elsewhere on the form.
+   *
+   * @param {object}   o
+   * @param {object[]} o.specimens      two {air, water, ssd} — the BSG rows
+   * @param {object[]} o.determinations two {mix, calibration, finalWeight, absorbedWater}
+   * @param {number}   o.binderPct      %AC for this sublot (the Gradation tab's
+   *                                    as-tested AC; NOT computed here)
+   * @param {number}   o.gsb            this sublot's combined aggregate Gsb,
+   *                                    off the Blend step (`Superpave!R9`..)
+   * @param {number}   o.gse            the lot's Gse, from gseFromHandMix()
+   * @param {number}   o.pctPassing200  % passing the #200 for this sublot, off
+   *                                    the Gradation tab — the D/A numerator
+   *
+   * Returns every quantity the workbook's average row carries. Each is null
+   * unless everything it needs is present, and the `needs` array says what a
+   * null one is waiting for, so the page can explain a blank rather than just
+   * showing one.
+   */
+  function sublotVolumetrics(o = {}) {
+    const { bsg: gmb, unitWeight, each: bsgEach } = bsgAverage(o.specimens);
+    const { msg: gmm, each: msgEach } = msgAverage(o.determinations);
+    const binderPct = num(o.binderPct), gsb = num(o.gsb), gse = num(o.gse);
+    const pctPassing200 = num(o.pctPassing200);
+    const needs = [];
+
+    // J = ((Gmm - Gmb) / Gmm) * 100
+    let va = null;
+    if (gmb == null) needs.push("BSG specimen weights");
+    if (gmm == null) needs.push("MSG determinations");
+    if (gmb != null && gmm != null && gmm !== 0) va = ((gmm - gmb) / gmm) * 100;
+
+    // K = ((100-Pb) * (100 * (((Gse-Gsb)/(Gsb*Gse)) * 1.03))) / 100
+    let absorbedAC = null;
+    if (binderPct != null && gsb != null && gse != null && gsb !== 0 && gse !== 0) {
+      absorbedAC = ((100 - binderPct) * (100 * (((gse - gsb) / (gsb * gse)) * BINDER_SG))) / 100;
+    }
+    // L = Pb - K
+    const pbe = (binderPct != null && absorbedAC != null) ? binderPct - absorbedAC : null;
+    // M = 100 - (Gmb * (100-Pb) / Gsb)
+    const vma = (gmb != null && binderPct != null && gsb != null && gsb !== 0)
+      ? 100 - (gmb * (100 - binderPct) / gsb) : null;
+    // N = 100 * (VMA - Va) / VMA
+    const vfa = (vma != null && va != null && vma !== 0) ? 100 * (vma - va) / vma : null;
+
+    if (binderPct == null) needs.push("%AC");
+    if (gsb == null) needs.push("combined Gsb for this sublot");
+    if (gse == null) needs.push("the hand-mixed check sample (for Gse)");
+
+    // O = %passing #200 / Pbe, reported as a band when it leaves 0.6..1.6.
+    // The workbook prints a spec note beside it rather than a number; the band
+    // strings are returned so the page can say the same thing.
+    let dustRatio = null, dustRatioNote = null;
+    if (pctPassing200 != null && pbe != null && pbe !== 0) {
+      const raw = pctPassing200 / pbe;
+      if (raw > 1.6) { dustRatio = ">1.6"; dustRatioNote = DUST_RATIO_NOTE; }
+      else if (raw < 0.6) { dustRatio = "<0.6"; dustRatioNote = DUST_RATIO_NOTE; }
+      else dustRatio = raw;
+    }
+
+    return {
+      bsgEach, msgEach,
+      gmb, unitWeight, gmm, va,
+      absorbedAC, pbe, vma, vfa,
+      dustRatio, dustRatioNote,
+      needs: [...new Set(needs)],
+    };
+  }
+
+  /** `Superpave!O15` prints this verbatim when the D/A ratio leaves the band. */
+  const DUST_RATIO_NOTE =
+    "* Does not satisfy KY Specification Subsection 402.03.02 D) 5)";
+
+
+  return {
+    PCF_PER_SG, BINDER_SG, DP, DUST_RATIO_NOTE,
+    xlRound, bsgSpecimen, msgDetermination, averagePresent,
+    bsgAverage, msgAverage, gseFromHandMix, handMixedGse, sublotVolumetrics,
+  };
+})();
+/* ===== END PLANTBOOK VOLUMETRICS ===== */
+
 /* ===== PLANTBOOK PAY =====
  *
  * AMAW lot pay - the arithmetic and the readout - as one namespaced block, for
@@ -10663,12 +11108,68 @@ const SUBLOT = {
     },
   },
 
+  // ---- THE RAW WEIGHTS THE VOLUMETRIC BLOCK IS COMPUTED FROM ----------
+  //
+  // Everything in `volumetric` above except binderPct is a FORMULA in the
+  // workbook, and these are its inputs. Read off Jake's real lots
+  // 2026-09-13 rather than inferred; `volumetrics.mjs` reproduces the
+  // arithmetic and `check_volumetrics.mjs` proves it against both files.
+  //
+  // BSG (bulk specific gravity — KYTC's name for Gmb; CLAUDE.md records the
+  // MixPack calling it "BSG" too). TWO specimens per sublot, on the two rows
+  // directly above the Average row: 12/13, 18/19, 24/25, 30/31. Same stride
+  // 6 as the volumetric block, starting two rows earlier.
+  //
+  //   C  Weight (Air)    — the dry specimen, g          INPUT
+  //   D  Weight (Water)  — submerged, g                 INPUT
+  //   E  Weight (SSD)    — saturated surface-dry, g     INPUT
+  //   F  Bulk Vol.       = ROUND(E-D, 1)
+  //   G  BSG             = ROUND(C/F, 3)
+  //   H  Unit Wt.        = G * 62.4
+  //
+  // The AVERAGE row's G and H are AVERAGE() over the two specimens — note
+  // the workbook ROUNDS each specimen before averaging, so averaging the
+  // unrounded values gives a different number in the last digits.
+  bsg: {
+    first: 12, stride: 6, specimens: 2,
+    cols: { air: "C", water: "D", ssd: "E", volume: "F", bsg: "G", unitWeight: "H" },
+  },
+
+  // MSG (maximum specific gravity — the Rice test, `I` on the average row).
+  // Laid out in COLUMNS rather than rows, two determinations per sublot:
+  // sublot 1 -> C,D   sublot 2 -> E,F   sublot 3 -> G,H   sublot 4 -> I,J
+  // and the lot's hand-mixed check sample in M,N.
+  //
+  //   row 36  Wt. of Mix               INPUT
+  //   row 37  Calibration              INPUT  (the flask/bowl calibration wt)
+  //   row 38  Wt. of Mix + Calibrat.   = 36 + 37
+  //   row 39  Final Wt.                INPUT
+  //   row 40  Absorbed Water           INPUT  (blank in both real lots; a
+  //                                            blank reads as 0 in the sum)
+  //   row 41  MSG                      = ROUND(36 / (38 - 39 + 40), 3)
+  //   row 42  Avg. =                   = AVERAGE of the pair, written in the
+  //                                      SECOND column of each pair (D/F/H/J,
+  //                                      and N for the hand-mix)
+  //
+  // The volumetric block's `gmm` reads row 42 of its own pair, which is why
+  // `I14 = IF(D42="","",D42)`.
+  msg: {
+    rows: { mix: 36, calibration: 37, sum: 38, finalWeight: 39, absorbedWater: 40, msg: 41, average: 42 },
+    // [first determination, second determination]; the average lands in the second.
+    cols: [["C", "D"], ["E", "F"], ["G", "H"], ["I", "J"]],
+    handMix: ["M", "N"],
+  },
+
   // Certified technician per sublot — a 2x2 block, NOT a stride. Read off
   // t_smpl.smpld_by / t_smpl_tstr.tst_id row by row.
   technician: ["B6", "E6", "B8", "E8"],
 
   // Hand-mixed check sample. Lot-level: one per lot, same cell in all blocks.
-  handMixed: { binderPct: "N43", gmm: "N42" },
+  // `gmm` (N42) is the AVERAGE of the two determinations in `msg.handMix`,
+  // not a typed cell; `binderPct` (N43) IS typed. Together they give Gse at
+  // J8 = (100-N43)/((100/N42)-(N43/1.03)), which every sublot's VMA and Pbe
+  // are measured against.
+  handMixed: { binderPct: "N43", gmm: "N42", gse: "J8" },
 };
 
 // ---------------------------------------------------------------------
@@ -14507,6 +15008,139 @@ function sublotGmm(n) {
   });
   return row ? num(row.querySelector('[data-col="gmm"]') ? row.querySelector('[data-col="gmm"]').value : null) : null;
 }
+/* ---------- the sublot volumetrics, from the raw bench weights ----------
+ *
+ * Jake, 2026-09-13: "we need it to where contractors can input raw results
+ * for the msg and bsg that computes the numbers and then computes air voids
+ * for each sub lot". PB_VOL does the arithmetic (a port of
+ * scripts/amaw/volumetrics.mjs, proved against both real lots cell for cell
+ * by check_volumetrics.mjs); this paints it.
+ *
+ * Runs BEFORE computeLotPay() for the same reason computeCoreSolids() does:
+ * lotPay() reads the air voids and VMA this writes, so computing after it
+ * would leave the whole pay table one keystroke behind for a render.
+ *
+ * A cell is written only when everything it needs is present, and CLEARED
+ * when it is not - never left holding a stale figure from weights that have
+ * since been edited, which on a readonly cell nobody can correct by hand is
+ * worse than a blank. The `title` carries the arithmetic so a reviewer can
+ * see where a number came from without opening the workbook.
+ */
+function rowsOfList(key) {
+  const list = document.querySelector(`[data-rowlist="${key}"]`);
+  return list ? Array.from(list.children) : [];
+}
+function putCell(row, col, value, dp) {
+  const el = row && row.querySelector(`[data-col="${col}"]`);
+  if (!el) return null;
+  el.value = value == null ? "" : (typeof value === "number" ? fmt(value, dp) : String(value));
+  return el;
+}
+function computeSublotVolumetrics() {
+  if (!isPlantBook()) return null;
+
+  // ---- the lot's hand-mixed sample -> Gse -------------------------------
+  // NOT rounded where the sublot determinations are - see handMixedGse().
+  const hmRows = rowsOfList("handmix_msg");
+  const hmDets = hmRows.map((r) => rawDet(r));
+  const hm = PB_VOL.handMixedGse({
+    determinations: hmDets,
+    binderPct: num(fieldValue("lot_handmix_binder_pct")),
+  });
+  hmRows.forEach((r, i) => {
+    const el = putCell(r, "msg", hm.each[i] ? hm.each[i].msg : null, CONFIG.DP.handmix_gmm);
+    if (el) el.title = "Wt of mix / (mix + calibration - final + absorbed) - Superpave row 41, NOT rounded on this pair";
+  });
+  const hmGmmEl = document.querySelector('[data-field="lot_handmix_gmm"]');
+  if (hmGmmEl) hmGmmEl.value = hm.gmm == null ? "" : fmt(hm.gmm, CONFIG.DP.handmix_gmm);
+  const gseEl = document.querySelector('[data-field="lot_gse"]');
+  if (gseEl) {
+    gseEl.value = hm.gse == null ? "" : fmt(hm.gse, CONFIG.DP.gse);
+    gseEl.title = hm.gse == null
+      ? "Needs the hand-mixed %AC and both MSG determinations"
+      : "(100 - hand-mixed %AC) / ((100 / hand-mixed Gmm) - (%AC / 1.03)) - Superpave!J8";
+  }
+
+  // ---- per sublot -------------------------------------------------------
+  const bsgRows = rowsOfList("sublot_bsg");
+  const msgRows = rowsOfList("sublot_msg");
+  const volRows = rowsOfList("sublot_volumetrics");
+  const gsbRow = rowsOfList("blend_gsb")[0] || null;
+  const out = [];
+
+  volRows.forEach((vRow, i) => {
+    const sub = String(i + 1);
+    const ofSublot = (rows) => rows.filter((r) => {
+      const c = r.querySelector('[data-col="sublot"]');
+      return c && String(c.value || "").trim() === sub;
+    });
+    const specimenRows = ofSublot(bsgRows);
+    const detRows = ofSublot(msgRows);
+    const specimens = specimenRows.map((r) => ({
+      air: num(cellValue(r, "wt_air")), water: num(cellValue(r, "wt_water")), ssd: num(cellValue(r, "wt_ssd")),
+    }));
+    const dets = detRows.map((r) => rawDet(r));
+
+    const v = PB_VOL.sublotVolumetrics({
+      specimens, determinations: dets,
+      binderPct: num(cellValue(vRow, "binder_pct")),
+      gsb: gsbRow ? num(cellValue(gsbRow, `gsb_${sub}`)) : null,
+      gse: hm.gse,
+      pctPassing200: num(fieldValue(`sub${sub}_s0_075`)),
+    });
+
+    // per-specimen readouts
+    specimenRows.forEach((r, k) => {
+      const e = v.bsgEach[k] || {};
+      putCell(r, "bulk_volume", e.volume, CONFIG.DP.bulk_volume);
+      const b = putCell(r, "bsg", e.bsg, CONFIG.DP.bsg);
+      if (b) b.title = "ROUND(SSD - water, 1) then ROUND(air / that, 3) - Superpave F and G";
+      const u = putCell(r, "unit_weight", e.unitWeight, CONFIG.DP.unit_weight);
+      if (u) u.title = `BSG x ${PB_VOL.PCF_PER_SG} - Superpave H`;
+    });
+    detRows.forEach((r, k) => {
+      const e = v.msgEach[k] || {};
+      const m = putCell(r, "msg", e.msg, CONFIG.DP.msg);
+      if (m) m.title = "ROUND(Wt of mix / (mix + calibration - final + absorbed), 3) - Superpave row 41";
+    });
+
+    // the volumetric row
+    const gmb = putCell(vRow, "gmb", v.gmb, CONFIG.DP.gmb);
+    if (gmb) gmb.title = "Average of the two specimens' BSG - Superpave G on the Average row";
+    const gmm = putCell(vRow, "gmm", v.gmm, CONFIG.DP.handmix_gmm);
+    if (gmm) gmm.title = "Average of the two MSG determinations - Superpave row 42";
+    const va = putCell(vRow, "va", v.va, CONFIG.DP.va);
+    if (va) va.title = v.va == null
+      ? `Needs ${v.needs.join(", ")}`
+      : "((Gmm - Gmb) / Gmm) x 100 - Superpave J on the Average row";
+    putCell(vRow, "pbe", v.pbe, CONFIG.DP.pbe);
+    putCell(vRow, "vma", v.vma, CONFIG.DP.vma);
+    putCell(vRow, "vfa", v.vfa, CONFIG.DP.vfa);
+    const dr = putCell(vRow, "dust_ratio", v.dustRatio, CONFIG.DP.dust_ratio);
+    if (dr) dr.title = v.dustRatioNote || "(% passing the #200, from the Gradation step) / Pbe - Superpave O";
+    out.push(v);
+  });
+  return out;
+}
+/** A Rice determination read off one row of either MSG table. */
+function rawDet(row) {
+  return {
+    mix: num(cellValue(row, "wt_mix")),
+    // These three column keys match the AMAW mapper's existing INPUTS.gmm
+    // reader (`calibration` / `final_wt` / `absorbed_water`) rather than
+    // being spelled wt_* for symmetry with wt_mix - the mapper is the
+    // verified side and renaming its expectations would be the churn.
+    calibration: num(cellValue(row, "calibration")),
+    finalWeight: num(cellValue(row, "final_wt")),
+    absorbedWater: num(cellValue(row, "absorbed_water")),
+  };
+}
+/** One cell of a repeating row, by column key. */
+function cellValue(row, col) {
+  const el = row && row.querySelector(`[data-col="${col}"]`);
+  return el ? el.value : null;
+}
+
 function computeCoreSolids() {
   if (!isPlantBook()) return;
   ["mat_cores", "joint_cores"].forEach((key) => {

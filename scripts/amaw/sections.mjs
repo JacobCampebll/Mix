@@ -212,6 +212,18 @@ const GRADATION_COLUMNS = [
 // `Gradation`, four rows of pay. Not "up to four".
 const SUBLOT_SEED = [{ sublot: "1" }, { sublot: "2" }, { sublot: "3" }, { sublot: "4" }];
 
+// Two laboratory specimens per sublot, which is what the workbook holds: the
+// BSG block has two rows above each Average row, and the MSG block has two
+// COLUMNS per sublot. Seeded rather than added by hand for the same reason
+// SUBLOT_SEED is - a lot is exactly four sublots of exactly two specimens,
+// not "up to".
+const SPECIMEN_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
+  ["1", "2"].map((specimen) => ({ sublot, specimen })));
+
+// The two Rice determinations of the lot's hand-mixed check sample
+// (`Superpave` columns M and N). One per lot, not per sublot.
+const HANDMIX_SEED = [{ determination: "1" }, { determination: "2" }];
+
 // =====================================================================
 //  PLANTBOOK_SECTIONS
 // =====================================================================
@@ -600,22 +612,97 @@ export const PLANTBOOK_SECTIONS = [
           { key: "technician", label: "Tech (SM ID)", type: "text", req: true, mono: true },
         ],
       },
+      // ---- THE RAW WEIGHTS THE VOLUMETRICS ARE COMPUTED FROM ----------
+      //
+      // Jake, 2026-09-13: "we need it to where contractors can input raw
+      // results for the msg and bsg that computes the numbers and then
+      // computes air voids for each sub lot". Before this, every figure on
+      // the volumetrics table below was TYPED - eight numbers per sublot,
+      // all eight of which the AMAW computes for itself from weights already
+      // on the technician's bench sheet. Typing a derived figure is how a lot
+      // ends up disagreeing with the workbook it will be loaded from, and it
+      // is thirty-two chances to fat-finger a decimal.
+      //
+      // `volumetrics.mjs` does the arithmetic and `check_volumetrics.mjs`
+      // proves it reproduces both real lots cell for cell.
       {
-        key: "sublot_volumetrics", heading: "Sublot volumetrics", fixed: true,
-        grid: ".5fr .8fr 1fr .85fr .8fr .8fr .8fr .8fr .85fr",
+        key: "sublot_bsg", heading: "Bulk specific gravity (BSG) — two specimens per sublot",
+        fixed: true,
+        grid: ".4fr .5fr 1fr 1fr 1fr .85fr .8fr .9fr",
+        seed: SPECIMEN_SEED,
+        columns: [
+          { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+          { key: "specimen", label: "Spec.", type: "text", mono: true, readonly: true },
+          // Superpave C/D/E. KYTC's own column captions are "Weight (g)" over
+          // "(Air) / (Water) / (SSD)"; spelled out here because "(Air)" alone
+          // on a phone is not a weight.
+          { key: "wt_air", label: "Wt in air (g)", type: "number", req: true, mono: true },
+          { key: "wt_water", label: "Wt in water (g)", type: "number", req: true, mono: true },
+          { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: true, mono: true },
+          // F = ROUND(E-D,1), G = ROUND(C/F,3), H = G*62.4. Computed, never
+          // typed - readonly and not `req`, so the rail asks for the three
+          // weights a person actually has rather than for their quotient.
+          { key: "bulk_volume", label: "Bulk vol.", type: "number", req: false, mono: true, readonly: true },
+          { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
+          { key: "unit_weight", label: "Unit wt (pcf)", type: "number", req: false, mono: true, readonly: true },
+        ],
+      },
+      {
+        key: "sublot_msg", heading: "Maximum specific gravity (MSG, Rice) — two determinations per sublot",
+        fixed: true,
+        grid: ".4fr .5fr 1fr 1fr 1fr 1fr .8fr",
+        seed: SPECIMEN_SEED,
+        columns: [
+          { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+          { key: "specimen", label: "Det.", type: "text", mono: true, readonly: true },
+          // Superpave rows 36/37/39/40, in COLUMN pairs per sublot rather
+          // than rows - see SUBLOT.msg in addresses.mjs.
+          { key: "wt_mix", label: "Wt of mix (g)", type: "number", req: true, mono: true },
+          { key: "calibration", label: "Calibration (g)", type: "number", req: true, mono: true },
+          { key: "final_wt", label: "Final wt (g)", type: "number", req: true, mono: true },
+          // Blank in both real lots, and a blank reads as 0 inside the sum -
+          // so optional, and a blank one does not block the MSG.
+          { key: "absorbed_water", label: "Absorbed water (g)", type: "number", req: false, mono: true },
+          { key: "msg", label: "MSG", type: "number", req: false, mono: true, readonly: true },
+        ],
+      },
+      {
+        key: "sublot_volumetrics", heading: "Sublot volumetrics — computed", fixed: true,
+        // Ten columns of short figures. EVEN tracks, deliberately: an earlier
+        // weighting gave unit_weight 73px and va 50px at a 701px window, and
+        // "4.57" in 50px clips while the wider neighbour sat half empty. Every
+        // value here is 2-6 characters, so none has a claim on more room than
+        // the others.
+        grid: ".35fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
         seed: SUBLOT_SEED,
         columns: [
           { key: "sublot", label: "#", type: "text", mono: true, readonly: true },
-          // Superpave!B — the workbook's "% Binder in Mix".
+          // Superpave!B — the workbook's "% Binder in Mix". STILL TYPED, and
+          // the one figure on this table that is: the workbook takes it from
+          // the Gradation tab's as-tested AC less a correction at row 48
+          // (`B14 = Gradation!D33`), which is its own re-plumbing rather than
+          // part of this change. Leaving it typed is honest; computing six of
+          // the eight and silently guessing the seventh would not be.
           { key: "binder_pct", label: "%AC", type: "number", req: true, mono: true },
-          { key: "unit_weight", label: "Unit wt (pcf)", type: "number", req: false, mono: true },
-          { key: "gmm", label: "Gmm", type: "number", req: true, mono: true },
-          { key: "va", label: "Va (%)", type: "number", req: true, mono: true },
-          { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true },
-          { key: "vma", label: "VMA (%)", type: "number", req: true, mono: true },
-          { key: "vfa", label: "VFA (%)", type: "number", req: true, mono: true },
+          // Everything from here is computed by volumetrics.mjs and painted
+          // by the page. None carries `req`: the rail asks for the raw
+          // weights above, because those are what a person can supply.
+          { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
+          // NO unit weight on this row. It is BSG x 62.4 - a restatement of the
+          // column beside it - it is already shown per specimen on the BSG table
+          // above, and nothing in pay.mjs, the mapper or payview reads it. Ten
+          // columns of figures clipped at 700-800px and this was the one with no
+          // claim to the room.
+          { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
+          { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
+          { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
+          { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true, readonly: true },
+          { key: "vfa", label: "VFA (%)", type: "number", req: false, mono: true, readonly: true },
           // KYTC writes it "D/A"; pay.mjs and the loader call it dustRatio.
-          { key: "dust_ratio", label: "D/A ratio", type: "number", req: true, mono: true },
+          // = (% passing the #200, off the Gradation step) / Pbe, and it can
+          // legitimately read ">1.6" or "<0.6" rather than a number - the
+          // workbook prints a spec note beside it when it does.
+          { key: "dust_ratio", label: "D/A ratio", type: "text", req: false, mono: true, readonly: true },
         ],
       },
     ],
@@ -635,9 +722,35 @@ export const PLANTBOOK_SECTIONS = [
     type: "grid",
     cites: ["accept403"],
     fields: [
+      // N43, typed - the whole point of a hand-mixed sample is that somebody
+      // weighed the binder in, so this is known rather than measured.
       { key: "lot_handmix_binder_pct", label: "Hand-mixed %AC", type: "number", req: false, mono: true },
-      { key: "lot_handmix_gmm", label: "Hand-mixed Gmm", type: "number", req: false, mono: true },
+      // N42 = AVERAGE of the two determinations below, so it is computed now
+      // rather than typed.
+      { key: "lot_handmix_gmm", label: "Hand-mixed Gmm", type: "number", req: false, mono: true, readonly: true },
+      // J8 = (100-N43)/((100/N42)-(N43/1.03)). Not a cell a person fills, but
+      // shown because every sublot's VMA and Pbe are measured against it, and
+      // a blank one explains why those columns are blank.
+      { key: "lot_gse", label: "Gse (effective aggregate)", type: "number", req: false, mono: true, readonly: true },
     ],
+    // The same Rice test as the sublots', on the lot's hand-mixed sample -
+    // `Superpave` columns M and N of the same block. WATCH THE ROUNDING: this
+    // pair is NOT rounded to three decimals where the sublot pairs are, which
+    // is a real difference in the workbook and not a transcription slip. See
+    // handMixedGse() in volumetrics.mjs.
+    rows: {
+      key: "handmix_msg", heading: "Hand-mixed MSG determinations", fixed: true,
+      grid: ".5fr 1fr 1fr 1fr 1fr .8fr",
+      seed: HANDMIX_SEED,
+      columns: [
+        { key: "determination", label: "Det.", type: "text", mono: true, readonly: true },
+        { key: "wt_mix", label: "Wt of mix (g)", type: "number", req: false, mono: true },
+        { key: "calibration", label: "Calibration (g)", type: "number", req: false, mono: true },
+        { key: "final_wt", label: "Final wt (g)", type: "number", req: false, mono: true },
+        { key: "absorbed_water", label: "Absorbed water (g)", type: "number", req: false, mono: true },
+        { key: "msg", label: "MSG", type: "number", req: false, mono: true, readonly: true },
+      ],
+    },
   },
 
   {

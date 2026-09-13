@@ -314,6 +314,41 @@ for (const [, ns] of BANNERS) {
   ok(`${ns} is an object with a surface`, surface && typeof surface === 'object' && Object.keys(surface).length > 0,
      surface && Object.keys(surface).length);
 }
+
+// ---- CONFIG.DP has no duplicate keys --------------------------------
+//
+// Page-wide rather than PlantBook-specific, and here because this is the file
+// that reads the page source on every change to either book.
+//
+// A DUPLICATE KEY IN AN OBJECT LITERAL IS NOT AN OVERRIDE, IT IS A COIN
+// TOSS. `{ pbe: 2, ... pbe: 1 }` is legal JavaScript, throws nothing, warns
+// nothing, and the LAST one wins — so which value applies depends on where
+// somebody happened to paste. It happened on 2026-09-13: PlantBook's
+// volumetrics added `pbe: 2` and `gse: 3` to a CONFIG.DP that already carried
+// DesignBook's `pbe: 1` and `gse: 3`. DesignBook's won by position, so the
+// symptom was PlantBook printing 5.0 where it asked for 5.02 — but a later
+// tidy-up that moved the block would have silently changed DesignBook's Pbe
+// precision instead, on a page whose whole claim is that the computed value
+// is gospel. Both books now share the one entry.
+//
+// Textual on purpose: evaluating the object is exactly what CANNOT see this,
+// because by then the duplicate is gone.
+{
+  const dpStart = html.indexOf('  DP: {');
+  const dpEnd = dpStart >= 0 ? html.indexOf('\n  },\n', dpStart) : -1;
+  if (dpStart < 0 || dpEnd < 0) {
+    ok('CONFIG.DP block located', false, 'could not find `  DP: {` ... `\\n  },` in the page');
+  } else {
+    const body = html.slice(dpStart, dpEnd)
+      .split('\n').map((ln) => ln.replace(/\/\/.*$/, '')).join('\n');
+    const seen = new Map();
+    for (const m of body.matchAll(/([A-Za-z_][A-Za-z_0-9]*)\s*:\s*-?[0-9]+/g))
+      seen.set(m[1], (seen.get(m[1]) || 0) + 1);
+    const dupes = [...seen].filter(([, n]) => n > 1).map(([k, n]) => `${k} x${n}`);
+    ok('CONFIG.DP declares every key exactly once', dupes.length === 0,
+       dupes.join(', ') || `${seen.size} distinct precisions, no duplicates`);
+  }
+}
 if (stubCalls.length) note(`stub touched during construction: ${[...new Set(stubCalls)].join(', ')}`);
 ok('no DOM was needed — document/window/navigator never referenced at construction', stubCalls.length === 0, stubCalls);
 
