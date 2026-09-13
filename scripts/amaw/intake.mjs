@@ -850,15 +850,16 @@ export function lotFromApproval(payload, opts = {}) {
 
   /* ---- the JMF gradation -------------------------------------------
      Gradation!N10:N23, one lot-level target column beside the four sublot
-     columns. Fourteen slots against DesignBook's thirteen sieves: the AMAW
-     keeps a 1/4" row that DesignBook deliberately does not carry (Jake,
-     2026-09-07 - a real MixPack reads "N / A" there), so that slot stays
-     null rather than shifting everything below it up one. */
+     columns. Fourteen WORKBOOK slots against thirteen sieves on either
+     book's form: the AMAW keeps a 1/4" ROW that neither form now carries
+     (a real MixPack reads "N / A" there and `Gradation` row 16 is empty in
+     both real lots), so that slot stays null rather than shifting
+     everything below it up one. */
   const jmf = gradationJmf(v);
   if (jmf.some((x) => x.pct != null)) {
     inherited.push({ key: 'jmf_gradation', value: jmf, from: 'values.<sieve>',
                      to: `${GRADATION.sheet}!${GRADATION.jmfCol}${GRADATION.first}:${GRADATION.jmfCol}${GRADATION.first + GRADATION.sieves.length - 1}`,
-                     note: 'the 1/4" slot is left blank - DesignBook does not carry that sieve' });
+                     note: 'the 1/4" slot is left blank - neither book carries that sieve' });
     sources.jmf_gradation = `${sourceLabel(a)} · values.<sieve>`;
     // One field per sieve, keyed `jmf_<sieve>` - the composite key
     // sections.mjs's RENDERER GAP (3) specifies for its seven gradation
