@@ -881,8 +881,8 @@ export const PLANTBOOK_SECTIONS = [
     rows: [
       {
         key: "mat_cores", heading: "Mat cores (lane density) — 4 per sublot",
-        fixed: true, seed: MAT_CORE_SEED, span: [6, 12],
-        grid: ".7fr 1.1fr 1.5fr .9fr .9fr",
+        fixed: true, seed: MAT_CORE_SEED, span: [12, 12],
+        grid: ".7fr .9fr 1.3fr 1fr 1fr 1fr .8fr .9fr .9fr .8fr",
         columns: [
           // Both derived and both readonly: a core's sublot and its id are
           // "<lot>-<sublot>-<letter>", which the lot already knows. Nobody
@@ -890,28 +890,61 @@ export const PLANTBOOK_SECTIONS = [
           { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
           { key: "core_id", label: "Core #", type: "text", mono: true, readonly: true },
           { key: "station", label: "Station / offset", type: "text", req: false },
-          // NOT `req`. A lot is cored over a week and the Department picks the
-          // locations; an uncored slot is a normal in-progress state, not a
-          // missing field, and pay.mjs already treats a blank as "not tested"
-          // rather than as a zero.
-          { key: "density", label: "Density (pcf)", type: "number", req: false, mono: true },
-          // Cores!I is a formula on the sheet, so it is readonly here and
-          // the page computes it — same pattern as TSR's Gmb / air voids.
-          // Note the workbook's own rule for an untested core: a blank is a
-          // blank, and lotPay() must not turn it into a zero.
-          { key: "pct_solid", label: "% solid", type: "number", mono: true, readonly: true },
+          // Cores D/E/F - the three weighings, and the only things typed on
+          // this table. NOT `req`: a lot is cored over a week and the
+          // Department picks the locations, so an uncored slot is a normal
+          // in-progress state rather than a missing field, and pay.mjs reads
+          // a blank as not-tested rather than as a zero.
+          { key: "wt_air", label: "Wt in air (g)", type: "number", req: false, mono: true },
+          { key: "wt_water", label: "Wt in water (g)", type: "number", req: false, mono: true },
+          { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: false, mono: true },
+          // Cores G = air/(SSD-water), UNROUNDED - unlike a gyratory puck's
+          // BSG on `Superpave`, which rounds to three. See coreDerived().
+          { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
+          // Cores H = BSG x 62.4. The sheet labels it kg/m3 and it is pcf.
+          { key: "density", label: "Density (pcf)", type: "number", req: false, mono: true, readonly: true },
+          // Cores I = (density / (sublot MSG x 62.4)) x 100. The MSG is the
+          // SUBLOT's, off the Sublots step - a core is measured against the
+          // mix it came from.
+          { key: "pct_solid", label: "% density", type: "number", mono: true, readonly: true },
+          // Cores J - the spec's density pay value for that % density.
+          // laneCorePay - Calculations!A22:L34, keyed on the AADTT/ESAL class.
+          // Can read "MCL": that is a real state, not a zero.
+          { key: "pay_value", label: "Pay (%)", type: "text", mono: true, readonly: true },
         ],
       },
       {
         key: "joint_cores", heading: "Joint cores (longitudinal joint density) — 2 per sublot",
-        fixed: true, seed: JOINT_CORE_SEED, span: [6, 12],
-        grid: ".7fr 1.1fr 1.5fr .9fr .9fr",
+        fixed: true, seed: JOINT_CORE_SEED, span: [12, 12],
+        grid: ".7fr .9fr 1.3fr 1fr 1fr 1fr .8fr .9fr .9fr .8fr",
         columns: [
+          // Both derived and both readonly: a core's sublot and its id are
+          // "<lot>-<sublot>-<letter>", which the lot already knows. Nobody
+          // types what the form can spell.
           { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
           { key: "core_id", label: "Core #", type: "text", mono: true, readonly: true },
           { key: "station", label: "Station / offset", type: "text", req: false },
-          { key: "density", label: "Density (pcf)", type: "number", req: false, mono: true },
-          { key: "pct_solid", label: "% solid", type: "number", mono: true, readonly: true },
+          // Cores D/E/F - the three weighings, and the only things typed on
+          // this table. NOT `req`: a lot is cored over a week and the
+          // Department picks the locations, so an uncored slot is a normal
+          // in-progress state rather than a missing field, and pay.mjs reads
+          // a blank as not-tested rather than as a zero.
+          { key: "wt_air", label: "Wt in air (g)", type: "number", req: false, mono: true },
+          { key: "wt_water", label: "Wt in water (g)", type: "number", req: false, mono: true },
+          { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: false, mono: true },
+          // Cores G = air/(SSD-water), UNROUNDED - unlike a gyratory puck's
+          // BSG on `Superpave`, which rounds to three. See coreDerived().
+          { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
+          // Cores H = BSG x 62.4. The sheet labels it kg/m3 and it is pcf.
+          { key: "density", label: "Density (pcf)", type: "number", req: false, mono: true, readonly: true },
+          // Cores I = (density / (sublot MSG x 62.4)) x 100. The MSG is the
+          // SUBLOT's, off the Sublots step - a core is measured against the
+          // mix it came from.
+          { key: "pct_solid", label: "% density", type: "number", mono: true, readonly: true },
+          // Cores J - the spec's density pay value for that % density.
+          // jointCorePay - Calculations!A57:L67. NO ESAL dependence and no MCL
+          // branch: a joint core cannot take the lot out of the pay schedule.
+          { key: "pay_value", label: "Pay (%)", type: "text", mono: true, readonly: true },
         ],
       },
     ],

@@ -208,6 +208,43 @@ export function gseFromHandMix(handMix = {}) {
 }
 
 /**
+ * ONE CORE, from its three weights — the `Cores` sheet, columns D/E/F.
+ *
+ *   bsg       G = air / (SSD - water)
+ *   density   H = G * 62.4          (the sheet labels it kg/m3; it is pcf)
+ *   pctSolid  I = (H / (MSG * 62.4)) * 100
+ *
+ * WATCH THE ROUNDING, WHICH IS NOT THE SAME AS THE SUBLOT'S. `Superpave`
+ * rounds a gyratory puck's BSG to three decimals before using it
+ * (`ROUND(C12/F12,3)`); `Cores!G10` is a bare `D10/(F10-E10)` with no ROUND at
+ * all. Two bulk specific gravities, two rules, one workbook - so this is a
+ * separate function from bsgSpecimen() rather than a call to it, and the
+ * difference is the reason.
+ *
+ * THE MSG IS THE SUBLOT'S, not the core's: `Cores!C10` reads
+ * `Superpave!D42`, the average of that sublot's two Rice bowls, and every
+ * core in the block divides by that same figure (C11, C12, C13 all reference
+ * C10). A core is compared against the mix it came from.
+ *
+ * `Cores!C` is also gated on `Calculations!J1<=5` - the mixture type code -
+ * so on a No. 4 mix the MSG cell is blank and % solid with it. Pass
+ * `paysOnMix: false` to reproduce that; it is why a No. 4 lot shows no core
+ * density rather than showing a wrong one.
+ */
+export function coreDerived({ air, water, ssd, msg, paysOnMix = true } = {}) {
+  const a = num(air), w = num(water), d = num(ssd);
+  const blank = { bsg: null, density: null, pctSolid: null };
+  if (a == null || w == null || d == null) return blank;
+  const volume = d - w;
+  if (volume === 0) return blank;                 // a zero volume is a typo, not a gravity
+  const bsg = a / volume;                         // NO rounding - see above
+  const density = bsg * PCF_PER_SG;
+  const m = paysOnMix ? num(msg) : null;
+  const pctSolid = (m == null || m === 0) ? null : (density / (m * PCF_PER_SG)) * 100;
+  return { bsg, density, pctSolid };
+}
+
+/**
  * Everything the volumetric row shows, from the raw weights plus the two
  * values that come from elsewhere on the form.
  *
@@ -285,4 +322,5 @@ export default {
   PCF_PER_SG, BINDER_SG, DP, DUST_RATIO_NOTE,
   xlRound, bsgSpecimen, msgDetermination, averagePresent,
   bsgAverage, msgAverage, gseFromHandMix, handMixedGse, sublotVolumetrics,
+  coreDerived,
 };
