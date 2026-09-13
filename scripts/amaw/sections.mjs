@@ -614,6 +614,22 @@ export const PLANTBOOK_SECTIONS = [
       },
       // ---- THE RAW WEIGHTS THE VOLUMETRICS ARE COMPUTED FROM ----------
       //
+      // THE SHAPE, CONFIRMED WITH JAKE 2026-09-13 AND NOT TO BE RE-OPENED:
+      // ONE PLANTBOOK IS ONE LOT. Four sublots per lot, two BSG samples and
+      // two MSG bowls per sublot - "Each plant book represents 1 lot, then
+      // once that is finished they would begin the 2nd lot". It matches the
+      // workbook exactly: `Superpave` has four blocks captioned "Sublot # 1"
+      // .. "# 4" at rows 10/16/22/28, each with exactly two "Sample #" rows
+      // before its Average row, and the MSG block has two column pairs per
+      // sublot (C,D / E,F / G,H / I,J). There is no room for a third of
+      // either, and both real accepted lots filled exactly two.
+      //
+      // Holding several lots in one PlantBook was raised and withdrawn the
+      // same day. An AMAW is one lot by construction - one set of Superpave
+      // blocks, one lot number at 'Pay Values'!F3, and Calculations gates the
+      // sublot-1 pay allowance on that lot number being 1 - so a multi-lot
+      // PlantBook would have to generate one workbook per lot anyway.
+      //
       // Jake, 2026-09-13: "we need it to where contractors can input raw
       // results for the msg and bsg that computes the numbers and then
       // computes air voids for each sub lot". Before this, every figure on
@@ -626,13 +642,18 @@ export const PLANTBOOK_SECTIONS = [
       // `volumetrics.mjs` does the arithmetic and `check_volumetrics.mjs`
       // proves it reproduces both real lots cell for cell.
       {
-        key: "sublot_bsg", heading: "Bulk specific gravity (BSG) — two specimens per sublot",
+        key: "sublot_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for each of the 4 sublots",
         fixed: true,
         grid: ".4fr .5fr 1fr 1fr 1fr .9fr .9fr",
         seed: SPECIMEN_SEED,
         columns: [
-          { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
-          { key: "specimen", label: "Spec.", type: "text", mono: true, readonly: true },
+          // "Sublot #" and "Sample #" are the workbook's own captions (Superpave
+          // A10 "Sublot # 1", A11 "Sample #"). They were "Sublot" and "Spec."
+          // until 2026-09-13 and Jake read the pair as lot-and-sublot - two
+          // columns of bare 1..4 and 1..2 side by side do not say which is
+          // which on their own. A PlantBook is ONE lot; see the schema note.
+          { key: "sublot", label: "Sublot #", type: "text", mono: true, readonly: true },
+          { key: "specimen", label: "Sample #", type: "text", mono: true, readonly: true },
           // Superpave C/D/E. KYTC's own column captions are "Weight (g)" over
           // "(Air) / (Water) / (SSD)"; spelled out here because "(Air)" alone
           // on a phone is not a weight.
@@ -652,13 +673,15 @@ export const PLANTBOOK_SECTIONS = [
         ],
       },
       {
-        key: "sublot_msg", heading: "Maximum specific gravity (MSG, Rice) — two determinations per sublot",
+        key: "sublot_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for each of the 4 sublots",
         fixed: true,
         grid: ".4fr .5fr 1fr 1fr 1fr 1fr .8fr",
         seed: SPECIMEN_SEED,
         columns: [
-          { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
-          { key: "specimen", label: "Det.", type: "text", mono: true, readonly: true },
+          { key: "sublot", label: "Sublot #", type: "text", mono: true, readonly: true },
+          // The mapper calls these the Gmm bowls; "Bowl #" keeps them visibly
+          // distinct from the BSG table's pucks on a step that shows both.
+          { key: "specimen", label: "Bowl #", type: "text", mono: true, readonly: true },
           // Superpave rows 36/37/39/40, in COLUMN pairs per sublot rather
           // than rows - see SUBLOT.msg in addresses.mjs.
           { key: "wt_mix", label: "Wt of mix (g)", type: "number", req: true, mono: true },
@@ -747,7 +770,7 @@ export const PLANTBOOK_SECTIONS = [
       grid: ".5fr 1fr 1fr 1fr 1fr .8fr",
       seed: HANDMIX_SEED,
       columns: [
-        { key: "determination", label: "Det.", type: "text", mono: true, readonly: true },
+        { key: "determination", label: "Bowl #", type: "text", mono: true, readonly: true },
         { key: "wt_mix", label: "Wt of mix (g)", type: "number", req: false, mono: true },
         { key: "calibration", label: "Calibration (g)", type: "number", req: false, mono: true },
         { key: "final_wt", label: "Final wt (g)", type: "number", req: false, mono: true },
