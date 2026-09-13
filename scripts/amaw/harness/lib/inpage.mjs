@@ -77,6 +77,16 @@ export function fillForm(overrides) {
     // Bare `CONFIG` for the same reason as `state` above.
     const C = typeof CONFIG !== "undefined" ? CONFIG : null;
     if (!C || !C.SECTIONS) return null;
+    // THE ACTIVE BOOK's schema, not DesignBook's. This read C.SECTIONS
+    // unconditionally, which was correct while the page was one book and a
+    // lie the moment it was two: every PlantBook number column came back
+    // `null` from here, got filled with the junk string a text column gets,
+    // and rowHTML()'s roundTo(v, CONFIG.DP[key]) then turned "H1758" into
+    // "1758.000" on the next render - reported as the page losing a value
+    // when the page was doing exactly what the comment above says it does.
+    // activeSections() is the page's own answer to "which schema"; fall back
+    // to C.SECTIONS so this still works against a build that predates it.
+    const SECTIONS = typeof activeSections === "function" ? activeSections() : C.SECTIONS;
     // Array.isArray guards rather than `|| []`: a schema key is not always
     // the shape its name suggests (CONFIG.LEGACY.TSR.rows is an object of
     // sheet row numbers), and one wrong assumption here throws inside the
@@ -87,14 +97,14 @@ export function fillForm(overrides) {
     // array of three. rowsBlockHTML() copes with both and so must this.
     const rowSpecs = (s) => (Array.isArray(s.rows) ? s.rows : s.rows ? [s.rows] : []);
     if (el.dataset.field) {
-      for (const s of C.SECTIONS) {
+      for (const s of SECTIONS) {
         for (const f of arr(s.fields)) if (f.key === el.dataset.field) return f;
         for (const sv of arr(s.sieves)) if (sv.key === el.dataset.field) return { type: "number" };
       }
       return null;
     }
     if (el.dataset.row && el.dataset.col) {
-      for (const s of C.SECTIONS) {
+      for (const s of SECTIONS) {
         for (const r of rowSpecs(s)) {
           if (r.key !== el.dataset.row) continue;
           for (const c of arr(r.columns)) if (c.key === el.dataset.col) return c;

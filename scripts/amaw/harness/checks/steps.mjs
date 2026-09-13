@@ -113,10 +113,14 @@ export async function run({ browser, results, books }) {
           await page.waitForTimeout(25);
           walked.push(await page.evaluate(stepAudit));
         }
-        return { walked, errs: realErrors(errs) };
+        // Whether THIS book has a Polish-Resistant section at all. Read from
+        // the page's own schema rather than assumed from the book's name.
+        const hasPolish = await page.evaluate(
+          () => activeSections().some((s) => s.id === "polish"));
+        return { walked, hasPolish, errs: realErrors(errs) };
       });
       if (out.skipped) continue;   // already reported once above
-      const { walked, errs } = out.value;
+      const { walked, hasPolish, errs } = out.value;
       const v = walked.map((a) => verdict(a, { wizard: true }));
       const railBad = v.map((x) => x.rail).filter(Boolean);
       const kickBad = v.map((x) => x.kicker).filter(Boolean);
@@ -125,10 +129,23 @@ export async function run({ browser, results, books }) {
                  railBad.slice(0, 2).join(" | ") || `${walked.length} steps, "${a0.barText.trim()}"`);
       results.ok(id, book.label, `${c.name}: section band agrees on every step`, kickBad.length === 0,
                  kickBad.slice(0, 2).join(" | ") || `all ${walked.length} bands match the bar`);
-      const polishHidden = a0.hidden.includes("polish");
-      results.ok(id, book.label, `${c.name}: polish step ${c.expectPolishHidden ? "hidden" : "shown"}`,
-                 polishHidden === c.expectPolishHidden,
-                 `visible ${a0.visible} of ${a0.sections}; hidden: ${a0.hidden.join(",") || "none"}`);
+      // The Polish-Resistant step is DesignBook's: polishApplies() reads the
+      // letter off the mix designation, and a lot has no such section at all.
+      // Asserting it against a book that does not have one does not test the
+      // page, it tests the schema for a section it never declared - and note
+      // the "Type B (polish shows)" case would have PASSED that way, expecting
+      // false and getting false because there is nothing to hide. So it is
+      // skipped with a reason rather than passed by accident: a silent pass is
+      // the one result this harness must never produce.
+      if (!hasPolish) {
+        results.skip(id, book.label, `${c.name}: polish step ${c.expectPolishHidden ? "hidden" : "shown"}`,
+                     "this book has no polish section - the rule is DesignBook's");
+      } else {
+        const polishHidden = a0.hidden.includes("polish");
+        results.ok(id, book.label, `${c.name}: polish step ${c.expectPolishHidden ? "hidden" : "shown"}`,
+                   polishHidden === c.expectPolishHidden,
+                   `visible ${a0.visible} of ${a0.sections}; hidden: ${a0.hidden.join(",") || "none"}`);
+      }
       results.ok(id, book.label, `${c.name}: clean console`, errs.length === 0,
                  errs.slice(0, 2).join(" | ") || "0 errors");
     }

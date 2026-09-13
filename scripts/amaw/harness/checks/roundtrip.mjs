@@ -40,11 +40,23 @@ export const id = "roundtrip";
  * stopped escaping. Parked in a free-text field that has no list behind it. */
 const XSS_PROBE = `A"B'C<D&E>F`;
 
+/* Which field carries it, per book. It has to be a real field of the book on
+ * screen: `rap_note` is DesignBook's and does not exist in a lot, so parking
+ * the probe there against PlantBook read back `null` and the check reported a
+ * mangled string when nothing had been escaped at all. Both are free text with
+ * no reference list behind them, which is the property that matters - a
+ * sourced field would snap the probe to the nearest list entry and prove
+ * nothing. Fail loudly if the field is missing rather than skipping: a book
+ * with nowhere to park this is a book whose escaping is untested. */
+const PROBE_FIELD = { DesignBook: "rap_note", PlantBook: "lot_additive" };
+
 export async function run({ browser, results, books }) {
   const libs = findLibs();
   for (const book of books) {
     const out = await withBook(browser, book, { width: 1440, height: 1000 }, async ({ page, errs }) => {
-      const filled = await page.evaluate(fillForm, { nominal_size: "0.38", mix_type: "B", rap_note: XSS_PROBE });
+      const probeField = PROBE_FIELD[book.label];
+      const filled = await page.evaluate(fillForm,
+        { nominal_size: "0.38", mix_type: "B", [probeField]: XSS_PROBE });
       await page.waitForTimeout(200);
       const r = await page.evaluate(() => {
         const before = collectForm();
@@ -62,10 +74,10 @@ export async function run({ browser, results, books }) {
         return counts;
       });
       const collectedRows = Object.fromEntries(Object.entries(after.rows).map(([k, v]) => [k, v.length]));
-      const probe = await page.evaluate(() => {
-        const el = document.querySelector('[data-field="rap_note"]');
-        return el ? el.value : null;
-      });
+      const probe = await page.evaluate((f) => {
+        const el = document.querySelector(`[data-field="${f}"]`);
+        return el ? el.value : "(no such field on this book)";
+      }, probeField);
       return { before: r.before, after, filled, emptyRows, collectedRows, probe, errs: realErrors(errs) };
     });
 
