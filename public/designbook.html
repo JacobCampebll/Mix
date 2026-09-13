@@ -560,6 +560,18 @@
   /* gradation — vertical sieve / % passing table beside a large 0.45 chart */
   .gradwrap{display:grid; grid-template-columns:280px minmax(0,1fr); gap:22px; align-items:start;}
   @media (max-width:900px){ .gradwrap{grid-template-columns:1fr;} }
+  /* A multi-column sieve table (PlantBook: JMF + four sublots + QA + IQ) is
+     the one thing on this page allowed to be wider than the form, and only
+     inside its own scroller - the page body itself must never scroll
+     sideways. It also takes the full width rather than sharing the row with
+     the chart, which goes underneath. The override sits directly below the
+     rule it overrides, which is this file's convention and not decoration:
+     a @media block is not a tiebreaker, it only gates when the block
+     applies (see CLAUDE.md). */
+  .gradwrap.wide{grid-template-columns:minmax(0,1fr);}
+  .sievescroll{overflow-x:auto; max-width:100%;}
+  table.sievetable th.target{color:var(--accent);}
+  table.sievetable th.dept{color:var(--flag);}
   table.sievetable{width:100%; border-collapse:collapse;}
   table.sievetable th{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);
                       text-align:left; padding:6px 8px; border-bottom:1px solid var(--line);}
@@ -669,6 +681,17 @@
   .dvrow .v{font-family:'Roboto Mono',monospace; font-size:13px; color:var(--accent);
             white-space:nowrap; text-align:right;}
   .dvrow .v.none{color:var(--line);}
+  /* A weighted table (PlantBook's Lot Pay) prints each property's weight
+     beside its value, because the weighted sum IS the calculation. The cell
+     says "x25%" rather than leaning on a column header, since .dvhead is a
+     centred band naming the table rather than a row of column names. */
+  .dvtable.weighted .dvrow{grid-template-columns:minmax(0,1fr) 58px 108px;}
+  .dvtable.weighted .dvhead{display:block;}
+  .dvrow .w{font-family:'Roboto Mono',monospace; font-size:11px; color:var(--muted);
+            white-space:nowrap; text-align:right;}
+  .computed-notes{margin-top:12px; font-size:12px; color:var(--muted); line-height:1.6;}
+  .computed-notes:empty{display:none;}
+  .computed-notes p{margin:0 0 6px;}
   /* The column names are a navy band with gold type, centred across the whole
      width - the same treatment the section heads take, at the size the
      column names already were (Jake, 2026-09-11). The band overrides .dvrow's
@@ -685,6 +708,7 @@
   .dvtable{border-top:0;}
   @media (max-width:700px){
     .dvrow{grid-template-columns:minmax(0,1fr) 76px;}
+    .dvtable.weighted .dvrow{grid-template-columns:minmax(0,1fr) 46px 76px;}
     .dvrow .l{font-size:10px;}
   }
   /* A readout: a computed figure given a grid cell, so it reads as a result
@@ -1000,6 +1024,26 @@ const CONFIG = {
 
   LOGIN_URL: "login.html",
   PORTAL_URL: "portal.html",
+
+  // The two books this page is. Read from ?book= at boot, the same spelling
+  // login.html and portal.html use, so a link carries straight through.
+  // `sections` names the schema; `capability` is the technician_capabilities
+  // column that gates the page on load - a gate applied only to the link
+  // that navigates here is not a gate, because every page is directly
+  // linkable (CLAUDE.md).
+  BOOKS: {
+    designbook: {
+      key: "designbook", label: "DesignBook", noun: "design",
+      capability: "can_access_designbook", sections: "SECTIONS",
+      stages: "STAGES",
+    },
+    plantbook: {
+      key: "plantbook", label: "PlantBook", noun: "lot",
+      capability: "can_access_plantbook", sections: "PLANTBOOK_SECTIONS",
+      stages: "LOT_STAGES",
+    },
+  },
+  DEFAULT_BOOK: "designbook",
 
   // Mix chosen on the Sub Portal. ?mix= carries the kytc-lookup signature
   // ("CL3 ASPH SURF 0.38A PG64-22"); the Portal also parks the full record
@@ -2424,7 +2468,15 @@ const state = {
   downloadedAt: null, // when the last review PDF was taken - the only "saved" there is
   canReview: false,  // technicians.can_review - may move past Internal Review, send back to Draft
   saving: false,
-  step: 0,           // which of CONFIG.SECTIONS is on screen (index, not the visible position)
+  step: 0,           // which of activeSections() is on screen (index, not the visible position)
+  // Which book is on screen, from ?book=. DesignBook and PlantBook are two
+  // VIEWS of this one page (CLAUDE.md), not two pages: they share every
+  // renderer, every computation, the stylesheet and the #valBlock node. What
+  // differs is the schema they render and the handful of branches that name
+  // the book. Set once at boot and never again - switching books is a
+  // navigation, not a state change, because a half-filled lot and a
+  // half-filled design must not share a form.
+  book: "designbook",
 };
 
 // NOTE: this client is named `sb`, not `supabase`, on purpose. The CDN
@@ -2450,8 +2502,20 @@ function toPortal() { location.href = CONFIG.PORTAL_URL; }
 // Legacy importer still calls this with old-style labels; new gradation
 // rows carry an explicit `key` (see CONFIG.SECTIONS).
 function sieveKey(label) { return "sieve_" + String(label).replace(/[^0-9a-z]/gi, ""); }
-function gradSection() { return CONFIG.SECTIONS.find((s) => s.type === "sieves"); }
-function fpSection() { return CONFIG.SECTIONS.find((s) => s.type === "fourpoint"); }
+// THE schema on screen. Every renderer, the validation rail, collectForm()
+// and the step machinery read this rather than CONFIG.SECTIONS directly, so
+// "which book" is answered in exactly one place. Anything still naming
+// CONFIG.SECTIONS is either prose or deliberately DesignBook-only, and the
+// three in buildReviewPDF() are the ones to look at first if a PlantBook
+// document ever comes out looking like a design.
+function activeSections() {
+  return state.book === "plantbook" ? CONFIG.PLANTBOOK_SECTIONS : CONFIG.SECTIONS;
+}
+function activeBook() { return CONFIG.BOOKS[state.book] || CONFIG.BOOKS.designbook; }
+function isPlantBook() { return state.book === "plantbook"; }
+
+function gradSection() { return activeSections().find((s) => s.type === "sieves"); }
+function fpSection() { return activeSections().find((s) => s.type === "fourpoint"); }
 // state.mix.nominal_size is like "0.38A" (trailing letter is a gradation-type
 // suffix, not part of the NMAS — confirmed with Andrew 2026-09-04, unrelated
 // to which control-points column applies). Strip it and match the number;
@@ -2498,7 +2562,7 @@ function num(v) { const n = parseFloat(v); return Number.isFinite(n) ? n : null;
 function fmt(v, d) { return v == null || !Number.isFinite(v) ? "—" : v.toFixed(d); }
 // Row spec by key — `s.rows` is one spec or an array of specs.
 function rowSpec(key) {
-  for (const s of CONFIG.SECTIONS) {
+  for (const s of activeSections()) {
     if (!s.rows) continue;
     for (const r of (Array.isArray(s.rows) ? s.rows : [s.rows])) if (r.key === key) return r;
   }
@@ -2680,20 +2744,53 @@ function rowsBlockHTML(rows) {
   }).join("") + `</div>`;
 }
 
+// A sieve table is one column of "% passing" per SAMPLE. DesignBook has one
+// sample - the design's own gradation - and declares no `columns`, so it gets
+// the single implicit column it has always had and its field keys stay the
+// bare `s50`/`s0_075` that CONFIG.LEGACY, the chart and collectForm() already
+// know. A PlantBook lot has seven of the same fourteen sieves (the JMF
+// target, four measured sublots, and the two Department samples), so it
+// declares `columns` and each input is keyed `<col>_<sieve>`.
+//
+// Two things the column spec decides beyond its label. `department: true`
+// drops `req`: QA01 and IQ01 are sampled by district personnel who come to
+// the lab during the job, so a contractor's lot is not incomplete because
+// the Department has not been yet - it is waiting, which is a different
+// thing and must not read as the technician's omission. And `target: true`
+// marks the JMF column, which is inherited from the approved design rather
+// than measured; it is still editable, per the provisional-value rule.
+//
+// Seven columns of fourteen sieves do not fit a phone, so the table gets its
+// own overflow-x container - the one thing CLAUDE.md allows to be wider than
+// the page, and only ever inside its own scroller.
 function sievesHTML(section) {
+  const cols = section.columns || [{ key: null, label: "% passing" }];
+  const fieldKey = (col, s) => (col.key ? `${col.key}_${s.key}` : s.key);
   const rows = section.sieves.map((s) => {
-    const v = state.extracted ? (state.extracted.scalars[s.key] || "") : "";
+    const cells = cols.map((col) => {
+      const key = fieldKey(col, s);
+      const v = state.extracted ? (state.extracted.scalars[key] || "") : "";
+      const req = col.department ? "" : " req";
+      return `<td><input type="text" inputmode="decimal" class="${req.trim()}" data-field="${key}"
+             data-mm="${s.mm}" value="${esc(v)}" placeholder="—"></td>`;
+    }).join("");
     return `<tr>
       <td class="sz">${s.label}</td>
-      <td><input type="text" inputmode="decimal" class="req" data-field="${s.key}"
-             data-mm="${s.mm}" value="${esc(v)}" placeholder="—"></td>
+      ${cells}
     </tr>`;
   }).join("");
-  return `<div class="gradwrap">
+  const head = cols.map((col) => {
+    const cls = [col.target ? "target" : "", col.department ? "dept" : ""].filter(Boolean).join(" ");
+    return `<th${cls ? ` class="${cls}"` : ""}>${esc(col.label)}</th>`;
+  }).join("");
+  const wide = cols.length > 1;
+  return `<div class="gradwrap${wide ? " wide" : ""}">
+      <div class="sievescroll">
       <table class="sievetable">
-        <thead><tr><th>Sieve</th><th>% passing</th></tr></thead>
+        <thead><tr><th>Sieve</th>${head}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
+      </div>
       <div class="chartwrap">
         <div class="cap">0.45 power chart — target gradation band to follow</div>
         <div id="chart"></div>
@@ -2788,9 +2885,26 @@ function computedHTML(section) {
   const wb = state.legacy && Array.isArray(state.legacy.designValues)
     ? state.legacy.designValues.filter((d) => d.status === "found") : [];
   const used = new Set();
-  const row = (label, dvKey) =>
+  // A section whose outputs carry a `weight` (PlantBook's Lot Pay: joint
+  // density 15, lane density 30, AC 5, air voids 25, VMA 25) prints it beside
+  // the value, because the weighted sum IS the calculation and a value
+  // without its weight is half the answer. The weight is a KEY into
+  // propertyWeights(), not a number - the weights switch on Calculations
+  // H11/H12/H13 - so the cell is data-bound and painted by recompute() the
+  // same way the value is.
+  //
+  // This is NOT the old `.dvtable.two` variant coming back. That one printed
+  // the uploaded MixPack's own stated figure beside the computed one, and
+  // CLAUDE.md is explicit that restoring it for DesignBook would be a
+  // reversion of Andrew's "the calculated value is gospel" decision rather
+  // than a bug fix. A weight is part of the arithmetic, not a second opinion
+  // about the same number, and it has its own variant for exactly that
+  // reason - do not merge the two.
+  const weighted = section.outputs.some((o) => o.weight);
+  const row = (label, dvKey, weightKey) =>
     `<div class="dvrow">
        <span class="l">${esc(label)}</span>
+       ${weighted ? `<span class="w"${weightKey ? ` data-dvw="${weightKey}"` : ""}>—</span>` : ""}
        <span class="v"${dvKey ? ` data-dv="${dvKey}"` : ""}>—</span>
      </div>`;
   // o.wb is still marked used even though its value no longer prints here -
@@ -2799,7 +2913,7 @@ function computedHTML(section) {
   // change removes.
   const paired = section.outputs.map((o) => {
     if (o.wb) used.add(o.wb);
-    return row(o.row || o.label, o.key);
+    return row(o.row || o.label, o.key, o.weight);
   }).join("");
   // Whatever the workbook states that the calculator has no counterpart for.
   const extra = wb.filter((d) => !used.has(d.label))
@@ -2807,9 +2921,13 @@ function computedHTML(section) {
        <span class="l">${esc(d.label)}</span>
        <span class="v wb">${esc(String(d.value))}</span>
      </div>`).join("");
+  // The head band is the TABLE's name, not a row of column names - it is
+  // display:block and centred across the whole width, which is why the weight
+  // column gets no header of its own and renders as "x25%" instead. Self-
+  // describing beats a second band.
   const head = `<div class="dvrow dvhead">
       <span class="l"></span>
-      <span class="v">From Four Points</span>
+      <span class="v">${esc(section.valueHead || "From Four Points")}</span>
     </div>`;
   // What only the workbook states goes in its own table beside the
   // comparison rather than underneath it: it has nothing to compare against,
@@ -2821,12 +2939,13 @@ function computedHTML(section) {
          ${extra}
        </div>`
     : "";
-  const note = "Read-only — derived from the Four Points inputs above.";
+  const note = section.note || "Read-only — derived from the Four Points inputs above.";
   return `<div class="dvsplit${extraPanel ? "" : " one"}">
-      <div class="dvtable">${head}${paired}</div>
+      <div class="dvtable${weighted ? " weighted" : ""}">${head}${paired}</div>
       ${extraPanel}
     </div>
-    <div class="computed-note">${note}</div>`;
+    <div class="computed-note">${note}</div>
+    <div class="computed-notes" id="${esc(section.id)}Notes"></div>`;
 }
 
 function statusHTML() {
@@ -2914,12 +3033,12 @@ function sectionCitesHTML(section) {
 
 // The sections a person steps through: everything that is not drawn inside
 // another one. `state.step` indexes this list, not CONFIG.SECTIONS.
-function topSections() { return CONFIG.SECTIONS.filter((s) => !s.into); }
+function topSections() { return activeSections().filter((s) => !s.into); }
 // A section id resolved to the step it is reached on - "consensus" is filled
 // in on the Aggregate Structure step, so the rail, the numerals and jumpTo()
 // all have to agree that is where it lives.
 function hostSectionId(id) {
-  const s = CONFIG.SECTIONS.find((x) => x.id === id);
+  const s = activeSections().find((x) => x.id === id);
   return (s && s.into) || id;
 }
 
@@ -2945,7 +3064,7 @@ function renderForm() {
     // sub-block rather than as a section of its own. It is not a .section, so
     // recompute()'s sweep counts its required fields under the host - which
     // is right, because that is the step a person fills them on.
-    const child = CONFIG.SECTIONS.filter((c) => c.into === s.id).map((c) =>
+    const child = activeSections().filter((c) => c.into === s.id).map((c) =>
       `<div class="subsection" data-subsection="${c.id}" data-label="${esc(c.label)}">
          <div class="subhead"><h3>${esc(c.label)}</h3><span class="headmeta">${sectionCitesHTML(c)}<span class="section-tag mono">${c.tag}</span></span></div>
          ${sectionBodyHTML(c)}
@@ -3376,9 +3495,24 @@ function rowValuesOf(row) {
 // downstream - the renderer, the validation rail, the searchable dropdown -
 // reads data-source off the element, so swapping the def is the whole
 // mechanism; nothing else needed to learn about RAP.
+// An `alt` swaps the column's reference table per row - a RAP row's
+// "producer" is the plant the millings came off, so it draws from `plants`
+// rather than `aggregates` (CLAUDE.md: AGP and AMP are different registries).
+// `fills` has to travel with it. This used to copy only `source` and `label`,
+// which meant the OUTER fills kept running with a row from the OTHER table
+// in hand: it found no `agp_number` on a `plants` row and CLEARED the cell it
+// had filled a moment earlier. Silent, and the same family as every other
+// gotcha in this file where a value the page already holds never reaches its
+// field. An alt that declares no `fills` of its own keeps the outer one,
+// which is what DesignBook's single alt (the producer column, which has no
+// `fills` at all) has always done.
 function effectiveColDef(col, values) {
   if (!col || !col.alt || !col.alt.when(values || {})) return col;
-  return Object.assign({}, col, { source: col.alt.source, label: col.alt.label || col.label });
+  return Object.assign({}, col, {
+    source: col.alt.source,
+    label: col.alt.label || col.label,
+    fills: col.alt.fills || col.fills,
+  });
 }
 
 function rapPercent() {
@@ -4641,7 +4775,7 @@ function recompute() {
   if (cc) {
     const sec = document.querySelector('[data-subsection="consensus"],[data-section="consensus"]');
     const label = sec ? sec.dataset.label : "Consensus Properties";
-    const fdef = (CONFIG.SECTIONS.find((s) => s.id === "consensus") || {}).fields || [];
+    const fdef = (activeSections().find((s) => s.id === "consensus") || {}).fields || [];
     cc.filter((c) => c.state === "fail").forEach((c) => {
       const fl = (fdef.find((f) => f.key === c.key) || {}).label || c.key;
       outstanding.push({ id: "consensus", label, kind: "warn",
@@ -4991,7 +5125,7 @@ function detectLegacyVersion(S) {
 }
 
 function legacyFieldDef(key) {
-  for (const s of CONFIG.SECTIONS) { const f = (s.fields || []).find((x) => x.key === key); if (f) return f; }
+  for (const s of activeSections()) { const f = (s.fields || []).find((x) => x.key === key); if (f) return f; }
   return null;
 }
 
