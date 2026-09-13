@@ -153,14 +153,28 @@ export function isRapRow(values) {
 //  in the workbook's own order. `mm` drives the 0.45-power x-position, same
 //  as DesignBook's.
 //
-//  NOTE THE DIVERGENCE: this list has a 1/4" (6.3 mm) and DesignBook's does
-//  not. DesignBook dropped it deliberately (Jake, 2026-09-07 — a real
-//  MixPack reads "N / A" there, and an always-blank sieve is a column of
-//  dashes on the chart and in every polish matrix). The AMAW carries it as a
-//  real measured row on all four sublots, so PlantBook keeps it. The two
-//  books' sieve lists are therefore NOT interchangeable — anything shared
-//  between them (the control-point band, trimFlatCoarseEnd) has to key on
-//  `mm`, never on position in the array.
+//  THE 1/4" (6.3 mm) IS NOT HERE, and the note this replaces was wrong about
+//  why. It claimed "the AMAW carries it as a real measured row on all four
+//  sublots, so PlantBook keeps it". Checked against both of Jake's real lots
+//  2026-09-13: `Gradation` row 16 is EMPTY in both — all four sublot columns
+//  (D/G/J/M) and the JMF column (N). It is as dead here as it is on a
+//  MixPack, which reads "N / A" there. DesignBook dropped it on 2026-09-07
+//  for exactly that reason and PlantBook now does too (Jake, 2026-09-13:
+//  "on the gradation tab lets get rid of the 1/4" sieve please") — seven
+//  columns of an always-blank row is seven fields a technician is asked for
+//  and cannot supply, and a column of dashes on the 0.45 chart.
+//
+//  THE WORKBOOK STILL HAS THE ROW, and that is the part to be careful with:
+//  `GRADATION.sieves` in addresses.mjs is the AMAW's own fourteen rows and
+//  keeps the 1/4" at index 6. The mapper walks THAT list and matches this
+//  one by label, so a sieve absent here simply writes blank to row 16 rather
+//  than shifting the seven below it up a row — which is precisely the class
+//  of bug the SheetJS chartsheet note in CLAUDE.md is about. Never renumber
+//  the workbook list to match this one.
+//
+//  The two books' sieve lists now agree, but do not start indexing across
+//  them: anything shared (the control-point band, trimFlatCoarseEnd) still
+//  keys on `mm`, never on position.
 const AMAW_SIEVES = [
   { key: "s50",    label: '2"',     mm: 50.0  },
   { key: "s37_5",  label: '1-1/2"', mm: 37.5  },
@@ -168,7 +182,6 @@ const AMAW_SIEVES = [
   { key: "s19",    label: '3/4"',   mm: 19.0  },
   { key: "s12_5",  label: '1/2"',   mm: 12.5  },
   { key: "s9_5",   label: '3/8"',   mm: 9.5   },
-  { key: "s6_3",   label: '1/4"',   mm: 6.3   },
   { key: "s4_75",  label: "#4",     mm: 4.75  },
   { key: "s2_36",  label: "#8",     mm: 2.36  },
   { key: "s1_18",  label: "#16",    mm: 1.18  },

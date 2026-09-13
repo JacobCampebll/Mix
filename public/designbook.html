@@ -2689,14 +2689,29 @@ const PB_SECTIONS = (() => {
   //  in the workbook's own order. `mm` drives the 0.45-power x-position, same
   //  as DesignBook's.
   //
-  //  NOTE THE DIVERGENCE: this list has a 1/4" (6.3 mm) and DesignBook's does
-  //  not. DesignBook dropped it deliberately (Jake, 2026-09-07 — a real
-  //  MixPack reads "N / A" there, and an always-blank sieve is a column of
-  //  dashes on the chart and in every polish matrix). The AMAW carries it as a
-  //  real measured row on all four sublots, so PlantBook keeps it. The two
-  //  books' sieve lists are therefore NOT interchangeable — anything shared
-  //  between them (the control-point band, trimFlatCoarseEnd) has to key on
-  //  `mm`, never on position in the array.
+  //  THE 1/4" (6.3 mm) IS NOT HERE, and the note this replaces was wrong
+  //  about why. It claimed "the AMAW carries it as a real measured row on all
+  //  four sublots, so PlantBook keeps it". Checked against both of Jake's
+  //  real lots 2026-09-13: `Gradation` row 16 is EMPTY in both — all four
+  //  sublot columns (D/G/J/M) and the JMF column (N). It is as dead here as
+  //  it is on a MixPack, which reads "N / A" there. DesignBook dropped it on
+  //  2026-09-07 for exactly that reason and PlantBook now does too (Jake,
+  //  2026-09-13: "on the gradation tab lets get rid of the 1/4\" sieve
+  //  please") — seven columns of an always-blank row is seven fields a
+  //  technician is asked for and cannot supply, and a column of dashes on the
+  //  0.45 chart.
+  //
+  //  THE WORKBOOK STILL HAS THE ROW, and that is the part to be careful with:
+  //  `GRADATION.sieves` in the AMAW address map is the workbook's own
+  //  fourteen rows and keeps the 1/4" at index 6. The mapper walks THAT list
+  //  and matches this one by label, so a sieve absent here simply writes
+  //  blank to row 16 rather than shifting the seven below it up a row — which
+  //  is precisely the class of bug the SheetJS chartsheet note in CLAUDE.md
+  //  is about. Never renumber the workbook list to match this one.
+  //
+  //  The two books' sieve lists now agree, but do not start indexing across
+  //  them: anything shared (the control-point band, trimFlatCoarseEnd) still
+  //  keys on `mm`, never on position.
   const AMAW_SIEVES = [
     { key: "s50",    label: '2"',     mm: 50.0  },
     { key: "s37_5",  label: '1-1/2"', mm: 37.5  },
@@ -2704,7 +2719,6 @@ const PB_SECTIONS = (() => {
     { key: "s19",    label: '3/4"',   mm: 19.0  },
     { key: "s12_5",  label: '1/2"',   mm: 12.5  },
     { key: "s9_5",   label: '3/8"',   mm: 9.5   },
-    { key: "s6_3",   label: '1/4"',   mm: 6.3   },
     { key: "s4_75",  label: "#4",     mm: 4.75  },
     { key: "s2_36",  label: "#8",     mm: 2.36  },
     { key: "s1_18",  label: "#16",    mm: 1.18  },
@@ -14374,10 +14388,12 @@ const PB_LOT = (() => {
   }
 
   // DesignBook's sieve keys, in the AMAW's own row order. The 1/4" slot is
-  // deliberately `null`: DesignBook does not carry that sieve (a real MixPack
-  // reads "N / A" there), so it stays blank rather than shifting the thirteen
-  // below it up a row — which is precisely the class of bug the SheetJS
-  // chartsheet note in CLAUDE.md is about, one sheet over.
+  // deliberately `null`: NEITHER book carries that sieve — a real MixPack
+  // reads "N / A" there and `Gradation` row 16 is empty in both of Jake's
+  // real lots — so it stays blank rather than shifting the thirteen below it
+  // up a row, which is precisely the class of bug the SheetJS chartsheet note
+  // in CLAUDE.md is about, one sheet over. The WORKBOOK keeps all fourteen
+  // rows; this list is fourteen long to match it, not to match either form.
   const JMF_SIEVE_KEYS = [
     's50', 's37_5', 's25', 's19', 's12_5', 's9_5',
     null,                       // 1/4" — AMAW has the row, DesignBook does not
@@ -14391,11 +14407,12 @@ const PB_LOT = (() => {
       return {
         sieve: label,
         row: GRADATION.first + i,
-        // The DesignBook field this came from, and the PlantBook field it goes
-        // to. `sections.mjs` keys its seven gradation columns `<col>_<sieve>`
-        // (RENDERER GAP (3) there), so the JMF target column is `jmf_s50` and
-        // so on - and its sieve list DOES carry the 1/4" (`s6_3`) that
-        // DesignBook does not, which is exactly the slot that stays null.
+        // The DesignBook field this came from, and the PlantBook field it
+        // goes to. `sections.mjs` keys its seven gradation columns
+        // `<col>_<sieve>` (RENDERER GAP (3) there), so the JMF target column
+        // is `jmf_s50` and so on. PlantBook's list carried a 1/4" (`s6_3`)
+        // until 2026-09-13 and no longer does, so index 6 now has no field at
+        // EITHER end - it is a workbook row and nothing else.
         key,
         schemaKey: key ? `jmf_${key}` : null,
         pct: key ? num(values[key]) : null,

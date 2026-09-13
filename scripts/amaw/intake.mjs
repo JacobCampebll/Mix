@@ -1123,10 +1123,12 @@ function isRapType(typeSize) {
 }
 
 // DesignBook's sieve keys, in the AMAW's own row order. The 1/4" slot is
-// deliberately `null`: DesignBook does not carry that sieve (a real MixPack
-// reads "N / A" there), so it stays blank rather than shifting the thirteen
-// below it up a row — which is precisely the class of bug the SheetJS
-// chartsheet note in CLAUDE.md is about, one sheet over.
+// deliberately `null`: NEITHER book carries that sieve — a real MixPack
+// reads "N / A" there and `Gradation` row 16 is empty in both of Jake's real
+// lots — so it stays blank rather than shifting the thirteen below it up a
+// row, which is precisely the class of bug the SheetJS chartsheet note in
+// CLAUDE.md is about, one sheet over. The WORKBOOK keeps all fourteen rows;
+// this list is fourteen long to match it, not to match either form.
 const JMF_SIEVE_KEYS = [
   's50', 's37_5', 's25', 's19', 's12_5', 's9_5',
   null,                       // 1/4" — AMAW has the row, DesignBook does not
@@ -1142,8 +1144,9 @@ function gradationJmf(values) {
       // The DesignBook field this came from, and the PlantBook field it goes
       // to. `sections.mjs` keys its seven gradation columns `<col>_<sieve>`
       // (RENDERER GAP (3) there), so the JMF target column is `jmf_s50` and
-      // so on - and its sieve list DOES carry the 1/4" (`s6_3`) that
-      // DesignBook does not, which is exactly the slot that stays null.
+      // so on. PlantBook's list carried a 1/4" (`s6_3`) until 2026-09-13 and
+      // no longer does, so index 6 now has no field at EITHER end - it is a
+      // workbook row and nothing else.
       key,
       schemaKey: key ? `jmf_${key}` : null,
       pct: key ? num(values[key]) : null,

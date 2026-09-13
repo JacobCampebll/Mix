@@ -148,8 +148,16 @@ if (!approval) {
        lot.rows.blend_gsb[0].gsb_1 === d.combined_gsb && lot.rows.blend_gsb[0].gsb_4 === d.combined_gsb,
        lot.rows.blend_gsb);
     ok('the JMF gradation is also seeded as jmf_<sieve> form fields',
-       lot.values.jmf_s0_075 === parseFloat(approval.values.s0_075) &&
-       lot.values.jmf_s6_3 === null, { s200: lot.values.jmf_s0_075, quarter: lot.values.jmf_s6_3 });
+       lot.values.jmf_s0_075 === parseFloat(approval.values.s0_075),
+       { s200: lot.values.jmf_s0_075 });
+    // The 1/4" came off PlantBook's sieve list on 2026-09-13 - `Gradation`
+    // row 16 is empty in both real lots, so it was seven columns nobody could
+    // fill. This asserted `jmf_s6_3 === null` while the field existed; now it
+    // must not exist at all, at either end of the mapping. The WORKBOOK row
+    // survives and is checked separately below.
+    ok('no 1/4" field is seeded at all',
+       !('jmf_s6_3' in lot.values) && !Object.keys(lot.values).some((k) => /s6_3$/.test(k)),
+       Object.keys(lot.values).filter((k) => /s6_3/.test(k)));
     ok('nothing was seeded under a key sections.mjs does not have',
        !r.report.warnings.some((w) => w.code === 'schema-drift'),
        r.report.warnings.filter((w) => w.code === 'schema-drift'));
@@ -162,8 +170,13 @@ if (!approval) {
     ok('combined Gsb inherited', d.combined_gsb === parseFloat(approval.values.fourpoint['const:fp_gsb']),
        d.combined_gsb);
     ok('JMF gradation has the AMAW\'s fourteen slots', d.jmf_gradation.length === 14, d.jmf_gradation.length);
+    // The workbook keeps all fourteen rows even though neither book now has a
+    // field for the 1/4". This is the assertion that stops anyone "tidying"
+    // the address map to match the form and shifting #4..#200 up a row.
     ok('the 1/4" slot is blank, not shifted',
-       d.jmf_gradation[6].sieve === '1/4"' && d.jmf_gradation[6].pct === null, d.jmf_gradation[6]);
+       d.jmf_gradation.length === 14 && d.jmf_gradation[6].sieve === '1/4"' &&
+       d.jmf_gradation[6].pct === null && d.jmf_gradation[6].schemaKey === null &&
+       d.jmf_gradation[7].sieve === '#4', d.jmf_gradation[6]);
     ok('#200 lands on the last row against the design\'s own #200',
        d.jmf_gradation[13].pct === parseFloat(approval.values.s0_075), d.jmf_gradation[13]);
 
