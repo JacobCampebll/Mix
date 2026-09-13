@@ -240,6 +240,19 @@ the **approved mix design's MIX ID followed by its signature**. That is the
 join between the two books. A PlantBook lot is a child of a DesignBook
 approval, and the workbook already writes the link down.
 
+**CORRECTION (2026-09-13): D9 is the BID ITEM, and the cell labelled
+"Approved Mix Design:" is D7.** Read the header's own labels rather than
+inferring from the string. `C3` is "Item Code:" over `D3` = `385`; `C7` is
+"Approved Mix Design:" over `D7` = `07640AMD260403`; `B9` is "Matl. Code:"
+over `C9` = `=VLOOKUP(D9,Calculations!BB3:BF349,5,FALSE)` = `25500`, and `D9`
+is a picklist entry from that same catalogue — bid code plus description, so
+its `00385` lead is KYTC's **bid code**, not a mix id. `Calculations` also
+does `MID('Pay Values'!D9,FIND("PG",…),7)` to pull the binder grade out of
+it. Which cell carries the join: **D7** is the one `t_smpl` reads; D9 is read
+only by those two lookups; and **D3 is read by nothing at all** — no formula
+in either completed workbook references it and no `t_*` row sources it, so
+PlantBook neither asks for it nor writes it.
+
 **CORRECTION (2026-09-13): the blend percentages are PER-SUBLOT, not
 lot-level.** Producer, type & size and BOD are lot-level (`Superpave` columns
 N/O/Q, rows 3-8), but the percentage is one column per sublot - **R/S/T/U** -

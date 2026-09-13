@@ -661,6 +661,27 @@ namespace('PB_AMAW', '4. PB_AMAW vs scripts/amaw/addresses.mjs + mapper.mjs + ge
   sweep('amTimeFraction()', P.amTimeFraction, MOD_MAPPER.amTimeFraction,
         [['21:54'], ['09:05'], ['2154'], [0.9125], [0], [1], [''], [null], [undefined], ['nope']]);
 
+  // The seam between the form's field keys and the workbook's own names.
+  // Both copies have to agree about it or a lot built in the browser reaches
+  // a different set of cells from one built in Node - which is precisely the
+  // failure mode this bridge was written to end. The cases carry the two
+  // conversions as well as the plain aliases: the density option's letter,
+  // and joint density's 1/2 against Calculations!M11's boolean.
+  same('LOT_FIELD_ALIASES is identical', P.LOT_FIELD_ALIASES, MOD_MAPPER.LOT_FIELD_ALIASES);
+  const scalarCases = [
+    [{ lot_county: 'Madison', lot_nominal_size: '0.38', lot_tons: 4000, lot_unit_price: 50 }],
+    [{ lot_nominal_size: 'NO.4' }], [{ lot_nominal_size: '0.62' }], [{ lot_nominal_size: '' }],
+    [{ lot_density_option: 'A' }], [{ lot_density_option: 'B' }], [{ lot_density_option: 'b' }],
+    [{ lot_density_option: 1 }], [{ lot_density_option: 'Option A' }],
+    [{ lot_joint_density: '1' }], [{ lot_joint_density: '2' }], [{ lot_joint_density: 2 }],
+    [{ lot_joint_density: '' }], [{ joint_density: true }], [{ joint_density: false }],
+    [{ mix_type_code: 14, lot_nominal_size: '0.38' }],
+    [{ lot_kytc_lab: 'LU00642', lot_ps_lab: 'LU01210', lot_binder_terminal: 'X',
+       lot_binder_grade: 'PG64-22', lot_additive: 'Y', lot_handmix_binder_pct: 5.2 }],
+    [{}], [null], [undefined],
+  ];
+  sweep('lotScalars()', P.lotScalars, MOD_MAPPER.lotScalars, scalarCases);
+
   if (!AMAW_LOTS.length) {
     skip('amawCells() on a real completed lot',
          'no AMAW workbook passed — pass the two completed lots as arguments');

@@ -38,6 +38,7 @@ import {
   PLANTBOOK_SECTIONS, PLANTBOOK_CITES, PLANTBOOK_REFERENCE_KEYS,
   DESIGNBOOK_CITE_KEYS,
 } from "./sections.mjs";
+import { LOT_FIELD_ALIASES } from "./mapper.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PAGE = resolve(HERE, "../../public/designbook.html");
@@ -378,6 +379,51 @@ for (const s of S) {
         if (!colKeys.has(k)) fail("G", `${where} seeds "${k}", which is not one of its columns`);
     }
   }
+}
+
+// =====================================================================
+//  H. The seam to the workbook
+// =====================================================================
+//
+//  mapper.mjs reads the lot's scalars by the WORKBOOK's names, this schema
+//  writes them by the form's, and for a while the two simply never met: a
+//  generated AMAW carried six header cells out of fifteen and, worse, no
+//  Calculations!J1 or !D15, so every property in the pay schedule paid zero.
+//  Silent, because write() skips an absent value by design.
+//
+//  LOT_FIELD_ALIASES is the bridge, and this is what keeps it honest. Both
+//  directions matter: an alias naming a field this schema no longer has is
+//  dead (that is how the removal of a field would go unnoticed), and a
+//  `lot_` scalar with no alias is a value the workbook will never see.
+for (const from of Object.keys(LOT_FIELD_ALIASES)) {
+  if (!scalarKeys.has(from))
+    fail("H", `mapper.mjs aliases "${from}", which this schema has no field for`);
+}
+// The exceptions are listed rather than pattern-matched, so adding a field
+// that genuinely has no workbook cell is a deliberate line here.
+const NO_WORKBOOK_CELL = new Set([
+  // Written from the lot envelope's own identity, not from `values`.
+  "lot_contract_id", "lot_plant", "lot_number",
+  // Half of the mix designation. Calculations!J1 is derived from the SIZE
+  // alone, and the letter reaches the workbook inside the D9 mix line.
+  "lot_mix_type",
+  // Task #36: the mapper still reads the hand-mix and equipment blocks in a
+  // per-record shape, and these three live in flat tables on the form.
+  "lot_handmix_gmm", "lot_gse",
+  "lot_equipment_verified_qa", "lot_equipment_verified_iq",
+]);
+// Only the `lot_`-prefixed scalars: sections.mjs reserves that prefix for the
+// lot header, which is exactly what the mapper's 'Pay Values' block writes.
+// A per-sublot gradation cell and a `pay_` output are neither typed nor
+// written from `values` and have their own paths.
+for (const [key, where] of scalarKeys) {
+  if (!/^lot_/.test(key)) continue;
+  if (LOT_FIELD_ALIASES[key] || NO_WORKBOOK_CELL.has(key)) continue;
+  fail("H", `${where} "${key}" has no LOT_FIELD_ALIASES entry, so it never reaches the AMAW`);
+}
+for (const key of NO_WORKBOOK_CELL) {
+  if (!scalarKeys.has(key))
+    fail("H", `check_sections lists "${key}" as having no workbook cell, but the schema no longer has it`);
 }
 
 // =====================================================================

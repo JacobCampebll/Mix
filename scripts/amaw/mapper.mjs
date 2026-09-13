@@ -85,6 +85,10 @@ import {
   PERFORMANCE, SUBLOT, SUBLOT_OF, VERIFY, HAMBURG, addressOf,
 } from './addresses.mjs';
 import { laneCorePay, jointCorePay, MCL } from './pay.mjs';
+// The Superpave mixture-type table. It lives in intake.mjs because that is
+// where the approval is read, and there is one copy of it for the same
+// reason there is one CONFIG.SECTIONS.
+import { mixTypeFor } from './intake.mjs';
 
 // =====================================================================
 //  Address plumbing
@@ -311,6 +315,93 @@ export function amTimeFraction(v) {
 }
 
 // =====================================================================
+//  THE FORM'S KEYS, IN THE MAPPER'S WORDS
+// =====================================================================
+/**
+ * PlantBook's schema prefixes every lot scalar `lot_` and sections.mjs says
+ * why: both books share `state.extracted.scalars`, so `county`, `unit` and
+ * `binder_grade` would otherwise be one key holding two different records'
+ * values. This mapper was written against the WORKBOOK, where the same
+ * quantities have the names check_mapper.mjs reads back out of a real lot.
+ *
+ * The two vocabularies never met, and the failure was silent in the worst
+ * way (found 2026-09-13): `v.county`, `v.unit_price`, `v.esal_class` and the
+ * rest were plain `undefined` on a lot built from the form, `write()` skips
+ * an absent value by design, and so a generated AMAW carried no county, no
+ * unit price, no lab ids - and no `Calculations!J1` or `!D15`, which is not
+ * cosmetic: every property in the pay schedule gates on those two and pays
+ * ZERO without them. Six cells reached the workbook out of the whole header.
+ *
+ * A table rather than a prefix strip, because five of them say it
+ * differently on the two sides (`lot_kytc_lab` -> `kytc_lab_id`,
+ * `lot_ps_lab` -> `ps_lab_id`, `lot_binder_terminal` -> `binder_producer`,
+ * `lot_handmix_binder_pct` -> `hand_mixed_ac`, `lot_mix_id` ->
+ * `mix_id_line`) and one is spelled the same on both (`lot_tons`). Listing
+ * every key, exceptions included, is what makes this checkable against
+ * sections.mjs - check_sections.mjs asserts both directions.
+ *
+ * A value already under the mapper's own name WINS: check_mapper.mjs builds
+ * its `values` straight off a real workbook, and a form key that is not
+ * there must not overwrite it.
+ */
+export const LOT_FIELD_ALIASES = {
+  lot_county: 'county',
+  lot_nominal_size: 'nominal_size',
+  lot_mix_id: 'mix_id_line',
+  lot_tons: 'lot_tons',
+  lot_unit: 'unit',
+  lot_unit_price: 'unit_price',
+  lot_wedge_tons: 'wedge_tons',
+  lot_esal_class: 'esal_class',
+  lot_acceptance_method: 'acceptance_method',
+  lot_density_option: 'density_option',
+  lot_joint_density: 'joint_density',
+  lot_kytc_lab: 'kytc_lab_id',
+  lot_ps_lab: 'ps_lab_id',
+  lot_sample_id_prefix: 'sample_id_prefix',
+  lot_binder_terminal: 'binder_producer',
+  lot_binder_grade: 'binder_grade_key',
+  lot_additive: 'additive',
+  lot_handmix_binder_pct: 'hand_mixed_ac',
+};
+
+/** The FORM spells the density option the way the proposal writes it
+ *  ("Option A" / "Option B"), which is deliberate - see sections.mjs -
+ *  while `Calculations`!H12 holds 1 or 2. Converted here rather than
+ *  written as a letter into a cell whose own IFs only ever test 1 and 2. */
+const DENSITY_OPTION_CODES = { A: 1, B: 2 };
+
+/** The lot's scalars under the names this file reads them by. */
+export function lotScalars(values) {
+  const v = values || {};
+  const out = {};
+  for (const from of Object.keys(LOT_FIELD_ALIASES)) {
+    const val = v[from];
+    if (val !== undefined && val !== null && val !== '') out[LOT_FIELD_ALIASES[from]] = val;
+  }
+  const d = DENSITY_OPTION_CODES[String(out.density_option == null ? '' : out.density_option).trim().toUpperCase()];
+  if (d) out.density_option = d;
+  // Calculations!M11 is a BOOLEAN and H11 is IF(M11,1,2) on top of it, while
+  // the form spells joint density the way H11 READS: 1 = yes, 2 = no. Left
+  // alone, a "2" writes a truthy 2 into M11 and the workbook reads it back as
+  // YES - a lot that takes no joint cores paid as though it should have had
+  // them, on a 15% weight. Converted here, and only for a value that came off
+  // the form: check_mapper.mjs reads M11 itself and is already in M11's words.
+  if (out.joint_density !== undefined) {
+    const jd = Number(out.joint_density);
+    if (jd === 1 || jd === 2) out.joint_density = jd === 1 ? 1 : 0;
+  }
+  // Calculations!J1 is a TRANSLATION of the nominal size and not a field at
+  // all (sections.mjs), so a lot built on the form carries no code to read.
+  // Derived here, once, where every reader below already looks.
+  if (out.mix_type_code == null && v.mix_type_code == null) {
+    const mt = mixTypeFor(out.nominal_size || '');
+    if (mt) out.mix_type_code = mt.code;
+  }
+  return { ...out, ...v };
+}
+
+// =====================================================================
 //  THE MAPPER
 // =====================================================================
 
@@ -357,7 +448,7 @@ export function amawCells(lot, tpl, ref) {
   const need = (what, why) => missing.push(why ? `${what} - ${why}` : what);
   const note = (s) => { if (notes.indexOf(s) < 0) notes.push(s); };
 
-  const v = lot.values || {};
+  const v = lotScalars(lot.values);
   const rows = lot.rows || {};
   const records = lot.records || {};
   const rec = (block) => records[block] || null;
@@ -389,7 +480,11 @@ export function amawCells(lot, tpl, ref) {
   // ---------------------------------------------------------------
   const L = (key) => A(LOT.sheet, LOT[key]);
   write(L('county'), amStr(v.county));
-  write(L('itemCode'), amNum(v.item_code) ?? amStr(v.item_code));
+  // LOT.itemCode ('Pay Values'!D3) is deliberately NOT written. No formula in
+  // the workbook reads it and no t_* staging row sources it - it is a printed
+  // header cell, and the 385 both real lots carry is the lead of the BID ITEM
+  // at D9, off KYTC's own catalogue at Calculations!BB3:BF349. sections.mjs
+  // carries the whole finding; nobody is asked for it, so nothing writes it.
   write(L('contract'), amStr(lot.contract_id));
   write(L('unit'), amStr(v.unit) || INPUTS.projectItems.UNIT);
   write(L('lotTons'), amNum(v.lot_tons));

@@ -31,6 +31,9 @@ import {
 } from './intake.mjs';
 import { normaliseLot, lotSummary } from './storage.mjs';
 import { lotPay, sublotPay } from './pay.mjs';
+// The seam this file's output has to plug into: the mapper's own words for
+// the same values. lotScalars() is where a schema key becomes a workbook one.
+import { lotScalars } from './mapper.mjs';
 
 const DIR = process.argv[2] ||
   '/tmp/claude-0/-home-user-Mix/c9cd3888-ef57-5ba4-8674-a56236907f1c/scratchpad';
@@ -101,7 +104,19 @@ if (!approval) {
 
     const mt = mixTypeFor(approval.values.nominal_size + approval.values.mix_type);
     ok('mixture type code resolved (Superpave 0.38 -> 5)', mt && mt.code === 5, mt);
-    ok('lot carries the mixture type code', lot.values.lot_mix_type_code === 5, lot.values.lot_mix_type_code);
+    // The lot does NOT carry the code, on purpose (Jake, 2026-09-13: "I don't
+    // know what the mixture type code is"). It is a translation of the
+    // nominal size, so there is nothing stored to drift from the size - and
+    // this asserts BOTH halves, because a removal that quietly loses the
+    // value would pass the first half alone.
+    ok('the lot does NOT store the mixture type code',
+       lot.values.lot_mix_type_code === undefined, lot.values.lot_mix_type_code);
+    ok('...and it is not something a technician is asked for',
+       !r.report.typed.some((x) => x.key === 'lot_mix_type_code'), r.report.typed.map((x) => x.key));
+    ok('the lot carries the nominal size the code is translated from',
+       lot.values.lot_nominal_size === '0.38', lot.values.lot_nominal_size);
+    ok('...and mapper.mjs derives Calculations!J1 back out of it',
+       lotScalars(lot.values).mix_type_code === 5, lotScalars(lot.values).mix_type_code);
 
     ok('target air voids inherited from the design target', d.target_va === 3.5, d.target_va);
     ok('minimum VMA present', d.min_vma === 15, d.min_vma);
@@ -120,7 +135,7 @@ if (!approval) {
     const s = sublotPay({ jmfAC: d.jmf_ac, ac: d.jmf_ac + 0.55,
                           targetAV: d.target_va, av: 3.9,
                           minVMA: d.min_vma, vma: 15.6,
-                          esalClass: 3, mixTypeCode: lot.values.lot_mix_type_code });
+                          esalClass: 3, mixTypeCode: lotScalars(lot.values).mix_type_code });
     ok('the inherited triple computes an AC pay band', s.ac.pay === 95, s.ac);
     ok('...an air-void pay band', s.av.pay != null, s.av);
     ok('...and a VMA pay band', s.vma.pay != null, s.vma);
@@ -529,7 +544,9 @@ if (!approval) {
   ok('the lot still opens - a gap in the design is not a forged approval', r.ok === true);
   const keys = r.report.missing.map((m) => m.key);
   ok('the missing JMF %AC is reported', keys.includes('jmf_ac'), keys);
-  ok('the missing mixture type is reported', keys.includes('lot_mix_type_code'), keys);
+  // Named against the FIELD a person can fix - the nominal size - rather than
+  // against a code they never see and cannot type. Same fact, reachable.
+  ok('the unusable nominal size is reported', keys.includes('lot_nominal_size'), keys);
   ok('the missing VMA minimum is reported', keys.includes('min_vma'), keys);
   ok('report.blocked names pay', Array.isArray(r.report.blocked.pay) && r.report.blocked.pay.length > 0,
      r.report.blocked);
@@ -538,7 +555,7 @@ if (!approval) {
      r.lot.values.design);
   // And prove the consequence rather than asserting it: pay.mjs must refuse.
   const p = lotPay({ sublots: [{ ac: 6.0, av: 3.9, vma: 15.6 }], lotNumber: 1,
-                     esalClass: 3, mixTypeCode: r.lot.values.lot_mix_type_code ?? 0,
+                     esalClass: 3, mixTypeCode: lotScalars(r.lot.values).mix_type_code ?? 0,
                      tonnage: 4000, unitPrice: 80 });
   ok('pay.mjs cannot produce a final pay without them', p.finalPct === null, p.finalPct);
 }

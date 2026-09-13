@@ -2869,16 +2869,27 @@ const PB_SECTIONS = (() => {
         // Supabase's. Exactly the trap mixpackCells() already hit.
         { key: "lot_plant", label: "Plant", type: "text", req: true, source: "plants" },
         { key: "lot_number", label: "Lot number", type: "number", req: true, mono: true },
-        // Pay Values!D3, "385" — the pay item, and the lead of the mix id.
-        { key: "lot_item_code", label: "Item code", type: "text", req: true, mono: true },
-        // Pay Values!D7/D9 — "00385 CL3 ASPH SURF 0.38A PG64-22", the approved
+        // 'Pay Values'!D3 ("Item Code:", 385 in both real lots) is NOT asked
+        // for, and that is a finding rather than a preference (Jake, 2026-09-13:
+        // "do we need the item code part?"). Checked against both completed lots:
+        // no formula anywhere in the workbook reads D3, and no t_* staging row
+        // sources it - it is a printed header cell and nothing else, so MEDL
+        // never sees it. Nor is it ours to derive. The 385 is the lead of the BID
+        // ITEM at D9, which is picked from the workbook's OWN catalogue at
+        // Calculations!BB3:BF349 ("00385 CL3 ASPH SURF 0.38A PG64-22", column BF
+        // the material code C9 looks up) - KYTC's catalogue number for the mix,
+        // not the contract's line, which for 252112 is the supplemental
+        // 22906ES403. A box asking a technician for a number that feeds nothing
+        // is worse than an empty cell. One line here if KYTC ever wants it back.
+        // Pay Values!D9 — "00385 CL3 ASPH SURF 0.38A PG64-22", the approved
         // design's MIX ID followed by its signature. t_smpl carries it as
         // rel_smpl_id. This is the join between the two books, and the
-        // workbook already writes it down.
+        // workbook already writes it down. (D7, "Approved Mix Design:", is a
+        // SECOND cell and a different value — KYTC's own sample id for the
+        // approval, "07640AMD260403" in both real lots — and it is the one
+        // t_smpl actually reads. Nothing on this form supplies it yet;
+        // generate.mjs names it as missing, which is the loud failure.)
         { key: "lot_mix_id", label: "Approved mix design", type: "text", req: true, mono: true },
-        // Pay Values!B5, "Superpave 0.38". `amaw_types` is PlantBook's own
-        // reference table; its sitemanager_code is the mixture type code the
-        // pay tables switch on.
         // ---- THE MIX, IN DESIGNBOOK'S OWN WORDS --------------------------
         //
         // Jake, 2026-09-13: "the way that it is asking for the mix type seems
@@ -2914,21 +2925,22 @@ const PB_SECTIONS = (() => {
         // ---- and the workbook's own translation of them -------------------
         //
         // `Pay Values`!B5 wants the phrase "Superpave 0.38" and
-        // `Calculations`!J1 wants the code 5, both off the workbook's own
-        // Calculations A1:B14 table. They are a TRANSLATION of the two fields
-        // above, not a second question, so they are readonly and derived.
+        // `Calculations`!J1 the code 5, both off the workbook's own
+        // Calculations A1:B14 table. NEITHER IS A FIELD (Jake, 2026-09-13:
+        // "Type of Mix (AMAW) isn't needed. I don't know what the mixture type
+        // code is"). They are a translation of Nominal size and nothing else,
+        // so mixTypeFor() answers for them wherever they are wanted - the pay
+        // tables on this page, and the mapper on the way to the workbook - and
+        // there is no stored copy to drift from the size it was translated
+        // from. A readonly box restating a value in a vocabulary the person
+        // filling the form does not speak is a question they cannot check,
+        // which is the worst kind of question to put on a form.
         //
-        // `lot_type_mix` used to declare `source: "amaw_types"` and that was
-        // the bug behind Jake's complaint: it validated a DERIVED value against
-        // a reference list it was never picked from, so every lot opened with
-        // "Superpave 0.38 (not in KYTC list)" on the field and a warning in the
-        // rail - on a value the approval had supplied correctly. A list belongs
-        // on a field a human chooses from. (This leaves `amaw_types` with no
-        // reader; the table entry stays documented in
-        // PLANTBOOK_REFERENCE_TABLES rather than being deleted out from under
-        // Andrew, but nothing loads it now.)
-        { key: "lot_type_mix", label: "Type of mix (AMAW)", type: "text", req: false, mono: true, readonly: true },
-        { key: "lot_mix_type_code", label: "Mixture type code", type: "number", req: false, mono: true, readonly: true },
+        // B5 needs nothing written to it at all: it is
+        // IF(Calculations!J1=0,"",LOOKUP(...)) in the template, so Excel
+        // recomputes the phrase from the code. (`amaw_types` is left with no
+        // reader; the entry stays documented in PLANTBOOK_REFERENCE_TABLES
+        // rather than being deleted out from under Andrew.)
         { key: "lot_tons",  label: "Lot tonnage",  type: "number", req: true, mono: true },
         { key: "lot_unit",  label: "Unit",         type: "select", req: true,
           options: ["TON"] },
@@ -2939,10 +2951,19 @@ const PB_SECTIONS = (() => {
         // lots, so the subtraction is ported and not proven — hence optional,
         // and a blank means zero rather than missing.
         { key: "lot_wedge_tons", label: "Pavement wedge tons", type: "number", req: false, mono: true },
-        // Calculations!D15, dropdown at Pay Values!I4. Both real lots are
-        // Class 3; every Class 1/2 branch in pay.mjs is transcribed from the
-        // formulas and confirmed by nothing.
-        { key: "lot_esal_class", label: "ESAL Class", type: "select", req: true,
+        // Calculations!D15, the cell the workbook labels "ESAL Class:" at
+        // Pay Values!H4 — and the label on THIS form is "AADTT Class", the
+        // words DesignBook already uses (Jake, 2026-09-13: "esal class should
+        // be AADTT Class like in the design book"). It is the same quantity:
+        // D15 chooses between airVoidPay()'s two branches, and those two
+        // branches are the 2026 Std Spec's two columns, headed "AADTT Class 2"
+        // and "AADTT Class 3 or 4". KYTC renamed the concept away from ESALs
+        // and never relabelled the workbook, the same way `Field Rutting`
+        // still says "Hamburg". The field key stays `lot_esal_class` because
+        // it is the workbook's cell, and the derivation note says which cell.
+        // Both real lots are Class 3; every Class 1/2 branch in pay.mjs is
+        // transcribed from the formulas and confirmed by nothing.
+        { key: "lot_esal_class", label: "AADTT Class", type: "select", req: true,
           options: ["1", "2", "3", "4"] },
         // The three control flags the pay model switches on, as the workbook
         // spells them. These are not preferences — propertyWeights() answers
@@ -12290,6 +12311,96 @@ function amTimeFraction(v) {
 }
 
 // =====================================================================
+//  THE FORM'S KEYS, IN THE MAPPER'S WORDS
+// =====================================================================
+/**
+ * PlantBook's schema prefixes every lot scalar `lot_` and sections.mjs says
+ * why: both books share `state.extracted.scalars`, so `county`, `unit` and
+ * `binder_grade` would otherwise be one key holding two different records'
+ * values. This mapper was written against the WORKBOOK, where the same
+ * quantities have the names check_mapper.mjs reads back out of a real lot.
+ *
+ * The two vocabularies never met, and the failure was silent in the worst
+ * way (found 2026-09-13): `v.county`, `v.unit_price`, `v.esal_class` and the
+ * rest were plain `undefined` on a lot built from the form, `write()` skips
+ * an absent value by design, and so a generated AMAW carried no county, no
+ * unit price, no lab ids - and no `Calculations!J1` or `!D15`, which is not
+ * cosmetic: every property in the pay schedule gates on those two and pays
+ * ZERO without them. Six cells reached the workbook out of the whole header.
+ *
+ * A table rather than a prefix strip, because five of them say it
+ * differently on the two sides (`lot_kytc_lab` -> `kytc_lab_id`,
+ * `lot_ps_lab` -> `ps_lab_id`, `lot_binder_terminal` -> `binder_producer`,
+ * `lot_handmix_binder_pct` -> `hand_mixed_ac`, `lot_mix_id` ->
+ * `mix_id_line`) and one is spelled the same on both (`lot_tons`). Listing
+ * every key, exceptions included, is what makes this checkable against
+ * sections.mjs - check_sections.mjs asserts both directions.
+ *
+ * A value already under the mapper's own name WINS: check_mapper.mjs builds
+ * its `values` straight off a real workbook, and a form key that is not
+ * there must not overwrite it.
+ */
+const LOT_FIELD_ALIASES = {
+  lot_county: 'county',
+  lot_nominal_size: 'nominal_size',
+  lot_mix_id: 'mix_id_line',
+  lot_tons: 'lot_tons',
+  lot_unit: 'unit',
+  lot_unit_price: 'unit_price',
+  lot_wedge_tons: 'wedge_tons',
+  lot_esal_class: 'esal_class',
+  lot_acceptance_method: 'acceptance_method',
+  lot_density_option: 'density_option',
+  lot_joint_density: 'joint_density',
+  lot_kytc_lab: 'kytc_lab_id',
+  lot_ps_lab: 'ps_lab_id',
+  lot_sample_id_prefix: 'sample_id_prefix',
+  lot_binder_terminal: 'binder_producer',
+  lot_binder_grade: 'binder_grade_key',
+  lot_additive: 'additive',
+  lot_handmix_binder_pct: 'hand_mixed_ac',
+};
+
+/** The FORM spells the density option the way the proposal writes it
+ *  ("Option A" / "Option B"), which is deliberate - see sections.mjs -
+ *  while `Calculations`!H12 holds 1 or 2. Converted here rather than
+ *  written as a letter into a cell whose own IFs only ever test 1 and 2. */
+const DENSITY_OPTION_CODES = { A: 1, B: 2 };
+
+/** The lot's scalars under the names this file reads them by. */
+function lotScalars(values) {
+  const v = values || {};
+  const out = {};
+  for (const from of Object.keys(LOT_FIELD_ALIASES)) {
+    const val = v[from];
+    if (val !== undefined && val !== null && val !== '') out[LOT_FIELD_ALIASES[from]] = val;
+  }
+  const d = DENSITY_OPTION_CODES[String(out.density_option == null ? '' : out.density_option).trim().toUpperCase()];
+  if (d) out.density_option = d;
+  // Calculations!M11 is a BOOLEAN and H11 is IF(M11,1,2) on top of it, while
+  // the form spells joint density the way H11 READS: 1 = yes, 2 = no. Left
+  // alone, a "2" writes a truthy 2 into M11 and the workbook reads it back as
+  // YES - a lot that takes no joint cores paid as though it should have had
+  // them, on a 15% weight. Converted here, and only for a value that came off
+  // the form: check_mapper.mjs reads M11 itself and is already in M11's words.
+  if (out.joint_density !== undefined) {
+    const jd = Number(out.joint_density);
+    if (jd === 1 || jd === 2) out.joint_density = jd === 1 ? 1 : 0;
+  }
+  // Calculations!J1 is a TRANSLATION of the nominal size and not a field at
+  // all (sections.mjs), so a lot built on the form carries no code to read.
+  // Derived here, once, where every reader below already looks. PB_LOT is
+  // reached inside the function on purpose: it is a `const` declared AFTER
+  // this namespace, so an eager reference would throw a TDZ error at
+  // construction and kill the whole inline script.
+  if (out.mix_type_code == null && v.mix_type_code == null) {
+    const mt = PB_LOT.mixTypeFor(out.nominal_size || '');
+    if (mt) out.mix_type_code = mt.code;
+  }
+  return { ...out, ...v };
+}
+
+// =====================================================================
 //  THE MAPPER
 // =====================================================================
 
@@ -12336,7 +12447,7 @@ function amawCells(lot, tpl, ref) {
   const need = (what, why) => missing.push(why ? `${what} - ${why}` : what);
   const note = (s) => { if (notes.indexOf(s) < 0) notes.push(s); };
 
-  const v = lot.values || {};
+  const v = lotScalars(lot.values);
   const rows = lot.rows || {};
   const records = lot.records || {};
   const rec = (block) => records[block] || null;
@@ -12368,7 +12479,11 @@ function amawCells(lot, tpl, ref) {
   // ---------------------------------------------------------------
   const L = (key) => A(LOT.sheet, LOT[key]);
   write(L('county'), amStr(v.county));
-  write(L('itemCode'), amNum(v.item_code) ?? amStr(v.item_code));
+  // LOT.itemCode ('Pay Values'!D3) is deliberately NOT written. No formula in
+  // the workbook reads it and no t_* staging row sources it - it is a printed
+  // header cell, and the 385 both real lots carry is the lead of the BID ITEM
+  // at D9, off KYTC's own catalogue at Calculations!BB3:BF349. sections.mjs
+  // carries the whole finding; nobody is asked for it, so nothing writes it.
   write(L('contract'), amStr(lot.contract_id));
   write(L('unit'), amStr(v.unit) || INPUTS.projectItems.UNIT);
   write(L('lotTons'), amNum(v.lot_tons));
@@ -13323,7 +13438,7 @@ return {
   FIELDS, UNCLASSIFIED_FIELDS, bySn, addressOf,
   // mapper.mjs
   A, colShift, INPUTS, FLAGS, UNCLASSIFIED_CELLS,
-  amDateSerial, amTimeFraction, amawCells,
+  amDateSerial, amTimeFraction, amawCells, LOT_FIELD_ALIASES, lotScalars,
   // the browser half of generate.mjs
   STAGING_SHEETS, FIRST_DATA_ROW, DIRECT_READ, REFERENCE_SHEETS,
   LOADER_REQUIRES, splitAddr, amawTemplate, loadAmawTemplate, generateAmaw,
@@ -14656,17 +14771,16 @@ const PB_LOT = (() => {
          't_smpl.rel_smpl_id - the approval this lot is produced under, and the join between the two books');
 
     // THE MIX ID IS EIGHT DIGITS, settled by Jake 2026-09-13. Both of his real
-    // AMAWs carry a FIVE-digit lead ("00385 CL3 ASPH SURF 0.38A PG64-22") whose
-    // last three digits are the pay item code at 'Pay Values'!D3, and
+    // AMAWs carry a FIVE-digit lead ("00385 CL3 ASPH SURF 0.38A PG64-22"), and
     // canonical.mjs issues eight ("00260467" for #467PA) - "00" + the letting
     // year + a four-digit sequence. Asked which shape MEDL expects; the answer
     // is eight, so DesignBook's id is carried through untouched and the two
-    // real lots are read as the older shape rather than as the standard. The
-    // item code stays its own field, because it always was one - the five-digit
-    // form merely happened to end in it.
-    needsTyping('lot_item_code', cell(LOT.sheet, LOT.itemCode),
-      'The pay item ("385"). Its own field: on both real lots it is also the tail of the workbook\'s older five-digit mix id, but the id DesignBook issues is eight digits and does not carry it.',
-      ['medl-load']);
+    // real lots are read as the older shape rather than as the standard.
+    //
+    // That five-digit lead is a BID CODE off the workbook's own catalogue at
+    // Calculations!BB3:BF349, not a mix id, which is why the item code at
+    // 'Pay Values'!D3 is no longer asked for here or on the form: nothing in
+    // the workbook reads D3 and no staging row sources it. See sections.mjs.
 
     /* ---- the mix, in DesignBook's own two fields ----------------------
        Nominal size and Mix type, the same pair Contract Information asks for,
@@ -14682,16 +14796,20 @@ const PB_LOT = (() => {
     }
 
     /* ---- the mixture type code, and what hangs off it -----------------
-       Calculations!J1. Everything in the pay schedule gates on it. A
-       TRANSLATION of the two fields above into the workbook's own words, not
-       a second question - which is why both are derived and readonly. */
+       Calculations!J1. Everything in the pay schedule gates on it, and it is
+       a TRANSLATION of the nominal size above rather than a second question -
+       so it is not seeded, not stored and not on the form. mixTypeFor() is
+       the single answer, called where the code is wanted: the pay tables on
+       the page, and mapper.mjs on the way to the workbook.
+
+       What IS reported is the one case that matters: a nominal size the
+       Superpave table has no row for. The pay schedule then gates on nothing
+       and every property pays zero, so it is named against the field a person
+       can actually fix rather than against a code they never see. */
     const mt = mix ? mixTypeFor(mix.nominal_size) : null;
-    if (mt) {
-      derive('lot_mix_type_code', mt.code, `nominal size "${mix.nominal_size}" -> Calculations A1:B14`, cell(CALC.sheet, 'J1'));
-      derive('lot_type_mix', mt.name, 'Calculations!B1:B14', cell(LOT.sheet, LOT.typeMix));
-    } else {
-      wasMissing('lot_mix_type_code',
-        'The approval carries no nominal size that matches a Superpave mixture type, so the pay tables have nothing to gate on - every property pays zero until it is set.',
+    if (!mt) {
+      wasMissing('lot_nominal_size',
+        'The approval carries no nominal size that matches a Superpave mixture type, so Calculations!J1 has nothing to gate on - every property pays zero until the size is set.',
         ['pay']);
     }
 
@@ -15032,7 +15150,9 @@ const PB_LOT = (() => {
       nominal_size: mix ? mix.nominal_size : null,
       designer: str(v.designer) || null,
       submittal_type: str(v.submittal_type) || null,
-      // Carried for reference, NOT wired to lot_esal_class. See report.typed.
+      // The design's own Class, carried on the envelope as well as being
+      // wired to lot_esal_class - the AMAW's "ESAL Class" box, which this
+      // form labels AADTT Class. See esalClassFor().
       aadtt_class: aadtt || null,
       // The three the pay schedule reads, and what the Lot step's three
       // readouts print. `min_vma` and sometimes `target_va` are OURS, not
@@ -15477,9 +15597,25 @@ function cellValue(row, col) {
  * with the Department. PB_PAY is the only thing that decides it; the page
  * does not form a second opinion about a figure it did not compute.
  */
+/* ---------- the workbook's mixture type code ----------
+ *
+ * Calculations!J1: 1-5 for Superpave 1.5 down to 0.38, 14 for No. 4. Every
+ * pay table in PB_PAY gates on it, and Cores!C stops reporting a density
+ * above 5. It is NOT a field and not stored - it is a translation of Nominal
+ * size, so it is derived at every use rather than kept in a second place
+ * that can disagree with the size it came from (Jake, 2026-09-13: "I don't
+ * know what the mixture type code is"). Null when the size is blank or is
+ * not one the Superpave table carries, which is a real answer: the callers
+ * each say what they do with it.
+ */
+function lotMixTypeCode() {
+  const mt = PB_LOT.mixTypeFor(fieldValue("lot_nominal_size"));
+  return mt ? mt.code : null;
+}
+
 function computeCoreSolids() {
   if (!isPlantBook()) return;
-  const mixTypeCode = num(fieldValue("lot_mix_type_code"));
+  const mixTypeCode = lotMixTypeCode();
   const esalClass = fieldValue("lot_esal_class");
   [["mat_cores", true], ["joint_cores", false]].forEach(([key, isLane]) => {
     rowsOfList(key).forEach((row) => {
@@ -15564,7 +15700,7 @@ function lotPayInputs() {
   const jmfAC = d ? num(d.jmf_ac) : null;
   const targetAV = d ? num(d.target_va) : null;
   const minVMA = d ? num(d.min_vma) : null;
-  const mixTypeCode = f("lot_mix_type_code");
+  const mixTypeCode = lotMixTypeCode();
   const sublots = lotRows("sublot_volumetrics")
     .slice(0, 4)
     .map((r) => ({

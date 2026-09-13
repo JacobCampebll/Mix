@@ -683,17 +683,16 @@ export function lotFromApproval(payload, opts = {}) {
        't_smpl.rel_smpl_id - the approval this lot is produced under, and the join between the two books');
 
   // THE MIX ID IS EIGHT DIGITS, settled by Jake 2026-09-13. Both of his real
-  // AMAWs carry a FIVE-digit lead ("00385 CL3 ASPH SURF 0.38A PG64-22") whose
-  // last three digits are the pay item code at 'Pay Values'!D3, and
+  // AMAWs carry a FIVE-digit lead ("00385 CL3 ASPH SURF 0.38A PG64-22"), and
   // canonical.mjs issues eight ("00260467" for #467PA) - "00" + the letting
   // year + a four-digit sequence. Asked which shape MEDL expects; the answer
   // is eight, so DesignBook's id is carried through untouched and the two
-  // real lots are read as the older shape rather than as the standard. The
-  // item code stays its own field, because it always was one - the five-digit
-  // form merely happened to end in it.
-  needsTyping('lot_item_code', cell(LOT.sheet, LOT.itemCode),
-    'The pay item ("385"). Its own field: on both real lots it is also the tail of the workbook\'s older five-digit mix id, but the id DesignBook issues is eight digits and does not carry it.',
-    ['medl-load']);
+  // real lots are read as the older shape rather than as the standard.
+  //
+  // That five-digit lead is a BID CODE off the workbook's own catalogue at
+  // Calculations!BB3:BF349, not a mix id, which is why the item code at
+  // 'Pay Values'!D3 is no longer asked for here or on the form: nothing in
+  // the workbook reads D3 and no staging row sources it. See sections.mjs.
 
   /* ---- the mix, in DesignBook's own two fields ----------------------
      Nominal size and Mix type, the same pair Contract Information asks for,
@@ -709,16 +708,20 @@ export function lotFromApproval(payload, opts = {}) {
   }
 
   /* ---- the mixture type code, and what hangs off it -----------------
-     Calculations!J1. Everything in the pay schedule gates on it. A
-     TRANSLATION of the two fields above into the workbook's own words, not
-     a second question - which is why both are derived and readonly. */
+     Calculations!J1. Everything in the pay schedule gates on it, and it is
+     a TRANSLATION of the nominal size above rather than a second question -
+     so it is not seeded, not stored and not on the form. mixTypeFor() is
+     the single answer, called where the code is wanted: the pay tables on
+     the page, and mapper.mjs on the way to the workbook.
+
+     What IS reported is the one case that matters: a nominal size the
+     Superpave table has no row for. The pay schedule then gates on nothing
+     and every property pays zero, so it is named against the field a person
+     can actually fix rather than against a code they never see. */
   const mt = mix ? mixTypeFor(mix.nominal_size) : null;
-  if (mt) {
-    derive('lot_mix_type_code', mt.code, `nominal size "${mix.nominal_size}" -> Calculations A1:B14`, cell(CALC.sheet, 'J1'));
-    derive('lot_type_mix', mt.name, 'Calculations!B1:B14', cell(LOT.sheet, LOT.typeMix));
-  } else {
-    wasMissing('lot_mix_type_code',
-      'The approval carries no nominal size that matches a Superpave mixture type, so the pay tables have nothing to gate on - every property pays zero until it is set.',
+  if (!mt) {
+    wasMissing('lot_nominal_size',
+      'The approval carries no nominal size that matches a Superpave mixture type, so Calculations!J1 has nothing to gate on - every property pays zero until the size is set.',
       ['pay']);
   }
 
@@ -1058,7 +1061,9 @@ export function lotFromApproval(payload, opts = {}) {
     nominal_size: mix ? mix.nominal_size : null,
     designer: str(v.designer) || null,
     submittal_type: str(v.submittal_type) || null,
-    // Carried for reference, NOT wired to lot_esal_class. See report.typed.
+    // The design's own Class, carried on the envelope as well as being
+    // wired to lot_esal_class - the AMAW's "ESAL Class" box, which this
+    // form labels AADTT Class. See esalClassFor().
     aadtt_class: aadtt || null,
     // The three the pay schedule reads, and what the Lot step's three
     // readouts print. `min_vma` and sometimes `target_va` are OURS, not

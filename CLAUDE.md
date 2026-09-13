@@ -1631,6 +1631,97 @@ TBD — cite the governing spec section when encoding a limit in code.
   **No browser-built AMAW has ever been loaded into MEDL**, the same debt the
   MixPack still carries.
 
+- **PlantBook's form keys and the AMAW mapper's keys never met, and every
+  generated AMAW paid ZERO because of it** (found 2026-09-13, chasing Jake's
+  question about the mixture type code). `sections.mjs` prefixes every lot
+  scalar `lot_` - it has to, both books share `state.extracted.scalars` and
+  `county`/`unit`/`binder_grade` would otherwise be one key holding two
+  records' values - while `mapper.mjs` was written against the WORKBOOK and
+  reads `v.county`, `v.unit_price`, `v.esal_class`. Nothing translated. On a
+  lot built from the form, **six header cells reached the workbook out of
+  fifteen**: county, unit price, both lab ids, the mix line, the acceptance
+  method and the three flags were plain `undefined`, and `write()` skips an
+  absent value by design, so not one word was said about it. Two of the
+  missing ones are `Calculations!J1` and `!D15` - every property in the pay
+  schedule gates on those, so the AMAW downloaded, opened, and paid nothing.
+  Why no check caught it: `check_mapper.mjs` builds its `values` by reading a
+  real completed workbook, so it speaks the mapper's vocabulary natively and
+  the seam it shares with the form was never on either side of a test. The
+  fix is `LOT_FIELD_ALIASES` + `lotScalars()` in `mapper.mjs`, one table, and
+  `check_sections.mjs` now fails **both** directions - an alias naming a field
+  the schema no longer has (which is how deleting a field would go unnoticed)
+  and a `lot_` scalar with no alias (a value the workbook will never see).
+  The exceptions are a listed set, so a genuinely cell-less field is a
+  deliberate line rather than a silent pass.
+  **A prefix strip would not have done it**, which is the argument for a
+  table: five say it differently on the two sides (`lot_kytc_lab` ->
+  `kytc_lab_id`, `lot_ps_lab` -> `ps_lab_id`, `lot_binder_terminal` ->
+  `binder_producer`, `lot_handmix_binder_pct` -> `hand_mixed_ac`,
+  `lot_mix_id` -> `mix_id_line`) and one is spelled the same (`lot_tons`).
+  **Two of them are conversions, not renames, and both were wrong in the
+  dangerous direction.** `Calculations!H12` is the density option as 1/2
+  while the form spells it "A"/"B" the way the proposal does. And
+  `Calculations!M11` is a **boolean** with `H11 = IF(M11,1,2)` on top of it,
+  while the form spells joint density the way H11 READS - so a "2" (no joint
+  cores) wrote a truthy 2 into M11 and the workbook read it back as YES, on a
+  15% weight. Both convert in `lotScalars()`, and only for a value that came
+  off the form: a value already under the mapper's own name wins, because
+  `check_mapper` reads M11 itself.
+  General lesson worth more than the bug: **two vocabularies for one fact
+  need a checked table between them, not a convention** - a convention is
+  invisible when it stops holding, and `undefined` is the quietest failure
+  this codebase has.
+
+- **'Pay Values'!D3 "Item Code:" is not asked for and not written - it feeds
+  NOTHING** (Jake, 2026-09-13: "do we need the item code part?"). Answered by
+  reading the real files rather than by opinion: no formula anywhere in
+  either completed lot references `'Pay Values'!D3`, and no `t_*` staging row
+  sources it. It is a printed header cell; MEDL never sees it.
+  **And it was never ours to derive.** The 385 both lots carry is the lead of
+  the **bid item** at D9, which is picked from the workbook's own catalogue
+  at `Calculations!BB3:BF349` ("00385 CL3 ASPH SURF 0.38A PG64-22", and C9
+  VLOOKUPs column BF for the material code 25500). That is KYTC's catalogue
+  number for the mix, not the contract's line: contract 252112 bids the same
+  mix as the supplemental `22906ES403`, and `00385` appears in no contract in
+  the JMF corpus at all, while `00388` (the 0.38B) appears on five. So a box
+  asking a technician for it was asking for a number they could not source
+  and nothing would read. One line in `sections.mjs` if KYTC ever wants it
+  printed; `check_mapper.mjs` carries the reason as an expected difference,
+  so the cell being absent stays explained rather than becoming noise.
+  **CORRECTION to this file, found the same way: D9 is not "the approved mix
+  design" and D7 is.** The note above under PlantBook's intake called D9 the
+  MIX ID + signature and the join between the two books. Its printed label is
+  "Matl. Code:" / the bid item, and the cell the workbook labels **"Approved
+  Mix Design:" is D7**, which in both real lots reads `07640AMD260403` - and
+  D7 is the one `t_smpl` actually reads. Nothing on the form supplies D7 yet;
+  `generate.mjs` already names it as missing, so that gap fails loud.
+
+- **"ESAL Class" is labelled AADTT Class on the form, and the mixture type
+  code and Type of Mix are gone** (Jake, 2026-09-13: "Type of Mix (AMAW)
+  isn't needed. I don't know what the mixture type code is and esal class
+  should be AADTT Class like in the design book"). Three small changes with
+  one idea behind them: **a form asks in the words of the person filling it,
+  and translates on the way out.**
+  The field key stays `lot_esal_class` because it is the workbook's cell
+  (`Calculations!D15`); only the label moves to DesignBook's words. Already
+  established above that the two are the same quantity - `airVoidPay()`'s two
+  branches reproduce the spec table whose own columns are headed "AADTT Class
+  2" and "AADTT Class 3 or 4" - so this is the label catching up with the
+  finding.
+  `lot_mix_type_code` and `lot_type_mix` are **deleted, not hidden**.
+  `Calculations!J1` is a translation of Nominal size and nothing else, so
+  `mixTypeFor()` answers for it at each use - `lotMixTypeCode()` on the page
+  for the pay tables and `Cores!C`, `lotScalars()` in the mapper on the way
+  to the workbook - and there is no stored copy to drift from the size it
+  came from. `'Pay Values'!B5` needs nothing written at all: the template has
+  it as `IF(Calculations!J1=0,"",LOOKUP(...))`, so Excel recomputes the
+  phrase. The intake stopped seeding both and now reports the one case that
+  matters against the field a person can actually fix - a nominal size the
+  Superpave table has no row for, which zeroes the pay schedule.
+  `check_intake.mjs` asserts BOTH halves (the lot does not store the code,
+  AND `lotScalars()` derives 5 back out of the size it does store), because a
+  removal that quietly lost the value would pass the first half alone.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by

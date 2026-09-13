@@ -287,16 +287,27 @@ export const PLANTBOOK_SECTIONS = [
       // Supabase's. Exactly the trap mixpackCells() already hit.
       { key: "lot_plant", label: "Plant", type: "text", req: true, source: "plants" },
       { key: "lot_number", label: "Lot number", type: "number", req: true, mono: true },
-      // Pay Values!D3, "385" — the pay item, and the lead of the mix id.
-      { key: "lot_item_code", label: "Item code", type: "text", req: true, mono: true },
-      // Pay Values!D7/D9 — "00385 CL3 ASPH SURF 0.38A PG64-22", the approved
+      // 'Pay Values'!D3 ("Item Code:", 385 in both real lots) is NOT asked
+      // for, and that is a finding rather than a preference (Jake, 2026-09-13:
+      // "do we need the item code part?"). Checked against both completed lots:
+      // no formula anywhere in the workbook reads D3, and no t_* staging row
+      // sources it - it is a printed header cell and nothing else, so MEDL
+      // never sees it. Nor is it ours to derive. The 385 is the lead of the BID
+      // ITEM at D9, which is picked from the workbook's OWN catalogue at
+      // Calculations!BB3:BF349 ("00385 CL3 ASPH SURF 0.38A PG64-22", column BF
+      // the material code C9 looks up) - KYTC's catalogue number for the mix,
+      // not the contract's line, which for 252112 is the supplemental
+      // 22906ES403. A box asking a technician for a number that feeds nothing
+      // is worse than an empty cell. One line here if KYTC ever wants it back.
+      // Pay Values!D9 — "00385 CL3 ASPH SURF 0.38A PG64-22", the approved
       // design's MIX ID followed by its signature. t_smpl carries it as
       // rel_smpl_id. This is the join between the two books, and the
-      // workbook already writes it down.
+      // workbook already writes it down. (D7, "Approved Mix Design:", is a
+      // SECOND cell and a different value — KYTC's own sample id for the
+      // approval, "07640AMD260403" in both real lots — and it is the one
+      // t_smpl actually reads. Nothing on this form supplies it yet;
+      // generate.mjs names it as missing, which is the loud failure.)
       { key: "lot_mix_id", label: "Approved mix design", type: "text", req: true, mono: true },
-      // Pay Values!B5, "Superpave 0.38". `amaw_types` is PlantBook's own
-      // reference table; its sitemanager_code is the mixture type code the
-      // pay tables switch on.
       // ---- THE MIX, IN DESIGNBOOK'S OWN WORDS --------------------------
       //
       // Jake, 2026-09-13: "the way that it is asking for the mix type seems
@@ -332,21 +343,22 @@ export const PLANTBOOK_SECTIONS = [
       // ---- and the workbook's own translation of them -------------------
       //
       // `Pay Values`!B5 wants the phrase "Superpave 0.38" and
-      // `Calculations`!J1 wants the code 5, both off the workbook's own
-      // Calculations A1:B14 table. They are a TRANSLATION of the two fields
-      // above, not a second question, so they are readonly and derived.
+      // `Calculations`!J1 the code 5, both off the workbook's own
+      // Calculations A1:B14 table. NEITHER IS A FIELD (Jake, 2026-09-13:
+      // "Type of Mix (AMAW) isn't needed. I don't know what the mixture type
+      // code is"). They are a translation of Nominal size and nothing else,
+      // so mixTypeFor() answers for them wherever they are wanted - the pay
+      // tables on this page, and the mapper on the way to the workbook - and
+      // there is no stored copy to drift from the size it was translated
+      // from. A readonly box restating a value in a vocabulary the person
+      // filling the form does not speak is a question they cannot check,
+      // which is the worst kind of question to put on a form.
       //
-      // `lot_type_mix` used to declare `source: "amaw_types"` and that was
-      // the bug behind Jake's complaint: it validated a DERIVED value against
-      // a reference list it was never picked from, so every lot opened with
-      // "Superpave 0.38 (not in KYTC list)" on the field and a warning in the
-      // rail - on a value the approval had supplied correctly. A list belongs
-      // on a field a human chooses from. (This leaves `amaw_types` with no
-      // reader; the table entry stays documented in
-      // PLANTBOOK_REFERENCE_TABLES rather than being deleted out from under
-      // Andrew, but nothing loads it now.)
-      { key: "lot_type_mix", label: "Type of mix (AMAW)", type: "text", req: false, mono: true, readonly: true },
-      { key: "lot_mix_type_code", label: "Mixture type code", type: "number", req: false, mono: true, readonly: true },
+      // B5 needs nothing written to it at all: it is
+      // IF(Calculations!J1=0,"",LOOKUP(...)) in the template, so Excel
+      // recomputes the phrase from the code. (`amaw_types` is left with no
+      // reader; the entry stays documented in PLANTBOOK_REFERENCE_TABLES
+      // rather than being deleted out from under Andrew.)
       { key: "lot_tons",  label: "Lot tonnage",  type: "number", req: true, mono: true },
       { key: "lot_unit",  label: "Unit",         type: "select", req: true,
         options: ["TON"] },
@@ -357,10 +369,19 @@ export const PLANTBOOK_SECTIONS = [
       // lots, so the subtraction is ported and not proven — hence optional,
       // and a blank means zero rather than missing.
       { key: "lot_wedge_tons", label: "Pavement wedge tons", type: "number", req: false, mono: true },
-      // Calculations!D15, dropdown at Pay Values!I4. Both real lots are
-      // Class 3; every Class 1/2 branch in pay.mjs is transcribed from the
-      // formulas and confirmed by nothing.
-      { key: "lot_esal_class", label: "ESAL Class", type: "select", req: true,
+      // Calculations!D15, the cell the workbook labels "ESAL Class:" at
+      // Pay Values!H4 — and the label on THIS form is "AADTT Class", the
+      // words DesignBook already uses (Jake, 2026-09-13: "esal class should
+      // be AADTT Class like in the design book"). It is the same quantity:
+      // D15 chooses between airVoidPay()'s two branches, and those two
+      // branches are the 2026 Std Spec's two columns, headed "AADTT Class 2"
+      // and "AADTT Class 3 or 4". KYTC renamed the concept away from ESALs
+      // and never relabelled the workbook, the same way `Field Rutting`
+      // still says "Hamburg". The field key stays `lot_esal_class` because
+      // it is the workbook's cell, and the derivation note says which cell.
+      // Both real lots are Class 3; every Class 1/2 branch in pay.mjs is
+      // transcribed from the formulas and confirmed by nothing.
+      { key: "lot_esal_class", label: "AADTT Class", type: "select", req: true,
         options: ["1", "2", "3", "4"] },
       // The three control flags the pay model switches on, as the workbook
       // spells them. These are not preferences — propertyWeights() answers

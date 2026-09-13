@@ -516,6 +516,14 @@ function main() {
       // marker on a 14.01 workbook would be a lie (docs/amaw-map.md: K1 is
       // the only reliable version marker, so it matters that it is right).
       if (addr === A(LOT.sheet, LOT.version)) return "the workbook's own version marker; the template supplies its own";
+      // 'Pay Values'!D3, "Item Code:". Deliberately not written and
+      // deliberately not asked for (Jake, 2026-09-13): no formula in the
+      // workbook reads it and no t_* staging row sources it, so it is a
+      // printed header cell MEDL never sees. The 385 both real lots carry is
+      // the lead of the BID ITEM at D9, off KYTC's own catalogue at
+      // Calculations!BB3:BF349 - not something a lot can derive. sections.mjs
+      // has the whole finding.
+      if (addr === A(LOT.sheet, LOT.itemCode)) return "'Item Code:' - a printed cell no formula and no staging row reads; not asked for, so not written";
       // A printed caption. 13.3 and 14.01 word several of them differently
       // ("As Tested % AC:"), which makes them differ from the template
       // without being lot data. The loader never sees them.
