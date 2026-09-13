@@ -307,6 +307,59 @@ production blocks, which shifts that series one place. Both are reproduced
 verbatim rather than corrected, on the same rule as the TSR absorbed-water
 oddity: it is what the workbooks on file were judged by.
 
+## The generator, and what it is measured at
+
+`scripts/amaw/generate.mjs` turns a lot payload plus the blank template into a
+real `.xlsm`. `check_generate.mjs` regenerates a real lot from the BLANK
+template through the shipped entry point and diffs everything. Both real lots,
+against blank 14.01 and 13.04:
+
+| | lot 1 | lot 2 |
+|---|---|---|
+| staging cells matching | 6,747 | 6,747 |
+| archive cells matching | 16,101 | 16,146 |
+| **unexplained, either** | **0** | **0** |
+| banked cells re-read off the packed file | 6,719 / 6,719 | 6,719 / 6,719 |
+
+336 of 336 entries, `unzip -t` clean, `vbaProject.bin` and `xl/xmlMaps.xml`
+byte-identical, 15 parts rewritten and all 15 well formed. About five seconds a
+lot. **A generated AMAW round-trips a real lot exactly.**
+
+Three things worth knowing about how it gets there.
+
+**Sheets resolve by NAME through the workbook's own manifest.** `xlsx.mjs`'s
+fixed MixPack sheet-number tables would misfile everything after AMAW's
+chartsheet and its `Dialog1` dialogsheet - the same trap as the SheetJS one,
+one layer down.
+
+**The formula rule is executable, not a convention.** A cell is `evalOnly` (fed
+to the evaluator, never written - what the mapper uses for every cell KYTC's
+template computes), *dropped* (value written plain), or *kept with its cache*.
+Where the caller does not say, `decideKeep()` evaluates the template's own
+formula against the post-write state and keeps it only if it reproduces the
+value. That turns "a formula is kept only where it would produce the same
+answer from cells we also wrote" from a rule someone has to remember into a
+check the code runs.
+
+**The three archive-difference classes are each a stated rule**, not noise: a
+formula outside the evaluator's grammar that Excel recomputes on open (1,237),
+KYTC's own `Producer supplier` list deliberately left at the template's
+version (239), and 12 cells where the lot's *own* cached value is stale against
+its *own* formula - all on `AMAMAW`, the sheet this document already says not
+to read.
+
+### What it still cannot carry
+
+- **No MEDL load.** Staging parity with an accepted workbook is strong
+  evidence, not a receipt. Same debt the MixPack carries.
+- **A fully identified workbook is untested end to end.** Both real lots leave
+  the sample id blank, so both generate as `AMAW-no-sample-id.xlsm` with
+  `smpl_id` empty on all seven records. That is KYTC's own "not ready to hand
+  off" state, correctly reported as the one thing the lot lacks.
+- **28 `INDIRECT` cells are declined**, because both lots leave
+  `'Super Verify'!B5`/`B12` empty; the generated file reproduces the lot's own
+  `#VALUE!` there rather than inventing a reference.
+
 ## Also on that page, unmapped
 
 `RAP Stockpile Management Workbook.xlsm` — noted, not looked at.
