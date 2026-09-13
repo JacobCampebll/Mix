@@ -22,7 +22,10 @@ import { stubScript, LOGO_DIR } from "./stub.mjs";
 
 const require_ = createRequire(import.meta.url);
 
-export const PAGE = "/home/user/Mix/public/designbook.html";
+/* HARNESS_PAGE exists so the suite can be pointed at a scratch copy — which
+ * is how you prove a check still FAILS when it should. A harness nobody has
+ * watched fail is a harness nobody knows works. */
+export const PAGE = process.env.HARNESS_PAGE || "/home/user/Mix/public/designbook.html";
 
 /* Identical to verify.mjs's launch path, on purpose — one browser build for
  * every measurement in this project, so a number in a check can be compared

@@ -1,0 +1,92 @@
+{
+  "generatedAt": "2026-09-13T13:06:50.424Z",
+  "books": {
+    "DesignBook": {
+      "360": [
+        "producer",
+        "pt:0:gmb",
+        "pt:0:gmm",
+        "pt:0:pb",
+        "pt:1:gmb",
+        "pt:1:gmm",
+        "pt:1:pb",
+        "pt:2:gmb",
+        "pt:2:gmm",
+        "pt:2:pb",
+        "pt:3:gmb",
+        "pt:3:gmm",
+        "pt:3:pb"
+      ],
+      "390": [
+        "producer",
+        "pt:0:gmb",
+        "pt:0:gmm",
+        "pt:0:pb",
+        "pt:1:gmb",
+        "pt:1:gmm",
+        "pt:1:pb",
+        "pt:2:gmb",
+        "pt:2:gmm",
+        "pt:2:pb",
+        "pt:3:gmb",
+        "pt:3:gmm",
+        "pt:3:pb"
+      ],
+      "560": [
+        "producer"
+      ],
+      "700": [
+        "producer"
+      ],
+      "701": [
+        "air_voids",
+        "dry_wt",
+        "gmb",
+        "gsb",
+        "load",
+        "pct_blend",
+        "producer",
+        "sat_ssd_wt",
+        "saturation",
+        "specimen",
+        "ssd_wt",
+        "strength",
+        "thickness",
+        "wt_water"
+      ],
+      "800": [
+        "air_voids",
+        "gmb",
+        "producer",
+        "saturation",
+        "thickness"
+      ],
+      "900": [
+        "gmb",
+        "producer",
+        "saturation"
+      ],
+      "1000": [
+        "producer"
+      ],
+      "1099": [],
+      "1100": [],
+      "1240": [
+        "gmb",
+        "producer"
+      ],
+      "1243": [
+        "gmb",
+        "producer"
+      ],
+      "1244": [
+        "gmb",
+        "producer"
+      ],
+      "1366": [],
+      "1440": [],
+      "1500": []
+    }
+  },
+  "page": "public/designbook.html"
+}

@@ -42,7 +42,13 @@ import * as bookswitch from "./checks/bookswitch.mjs";
 const CHECKS = [ids, steps, shapes, roundtrip, viewports, bookswitch];
 
 async function main() {
-  const want = process.argv.slice(2).filter((a) => !a.startsWith("-"));
+  const argv = process.argv.slice(2);
+  // --bless re-records baseline/clipping.json instead of asserting against it.
+  // See lib/baseline.mjs: a blessing is a decision, so it is a flag you have
+  // to type and a diff you have to read, never something a failing run does
+  // for itself.
+  const bless = argv.includes("--bless");
+  const want = argv.filter((a) => !a.startsWith("-"));
   const run = want.length ? CHECKS.filter((c) => want.includes(c.id)) : CHECKS;
   if (!run.length) {
     console.error(`No such check. Available: ${CHECKS.map((c) => c.id).join(", ")}`);
@@ -79,7 +85,7 @@ async function main() {
   try {
     for (const check of run) {
       try {
-        await check.run({ browser, results, books: BOOKS });
+        await check.run({ browser, results, books: BOOKS, bless });
       } catch (err) {
         // A check that throws is a failed check, not a failed run: the rest
         // still has something to say.

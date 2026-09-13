@@ -77,6 +77,11 @@ export async function run({ browser, results, books }) {
                  kept.present ? (kept.tagged ? `parked in #${kept.parent}` : "present but REBUILT — the park was lost")
                               : "destroyed by renderForm()");
       results.ok(id, book.label, `${c.name} exactly one .valblock`, after.valBlocks === 1, `${after.valBlocks} found`);
+      // Identity is not enough: an empty #valBlock still answers
+      // getElementById while msg($("saveMsg"), ...) writes into nothing.
+      results.ok(id, book.label, `${c.name} #valBlock still holds #vallist/#saveMsg`, after.valBlockIntact,
+                 after.valBlockIntact ? "list, subtitle and message line all inside it"
+                                      : `hollow — #vallist:${after.hasVallist} #saveMsg:${after.hasSaveMsg}`);
       results.ok(id, book.label, `${c.name} clean console`, errs.length === 0,
                  errs.slice(0, 2).join(" | ") || "0 errors");
     }

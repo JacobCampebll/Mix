@@ -140,6 +140,21 @@ const LOADER_REQUIRES = [
 
 const NUMRE = /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/;
 const q = (s) => JSON.stringify(s);
+
+/* "'Pay Values'!B3" -> ["Pay Values", "B3"].
+ *
+ * The mapper writes its addresses the way Excel spells them, so a sheet name
+ * with a space arrives quoted. Splitting on "!" alone leaves the quotes on
+ * the sheet name, which then matches nothing in the manifest and the cell is
+ * silently dropped into report.unknownSheet - a whole tab's worth of lot
+ * data missing from a file that still generates. */
+export const splitAddr = (addr) => {
+  const i = addr.lastIndexOf("!");
+  if (i < 0) return [null, addr];
+  let sheet = addr.slice(0, i);
+  if (sheet.startsWith("'") && sheet.endsWith("'")) sheet = sheet.slice(1, -1).replace(/''/g, "'");
+  return [sheet, addr.slice(i + 1)];
+};
 const dec = (s) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
                     .replace(/&apos;/g, "'").replace(/&amp;/g, "&");
 
@@ -221,6 +236,47 @@ export function openWorkbook(file) {
            has: isSheet, strings };
 }
 
+/**
+ * What the mapper is handed as `tpl`: { formulaAt, plants, version }.
+ *
+ * `formulaAt` is the whole reason the mapper gets the two write modes right
+ * on a workbook wired as inconsistently as this one - it asks the template
+ * whether a cell is computed instead of deciding from a list. `plants` is
+ * the template's own 'Producer supplier' list, and it is here because the
+ * keys are PADDED ("AMP070302      ") and the workbook's VLOOKUP matches
+ * exactly, the same trap the MixPack's plant list has: the value has to be
+ * spelled the template's way, not Supabase's.
+ */
+export function templateFacade(book) {
+  let plants = null;
+  return {
+    book,
+    formulaAt(addr) {
+      const [sheet, ref] = splitAddr(addr);
+      if (!sheet || !book.has(sheet)) return null;
+      const c = book.cellsOf(sheet).get(ref);
+      return c && c.f ? c.f : null;
+    },
+    valueAt(addr) { const [sheet, ref] = splitAddr(addr); return sheet && book.has(sheet) ? book.value(sheet, ref) : null; },
+    get plants() {
+      if (plants) return plants;
+      plants = [];
+      if (!book.has("Producer supplier")) return plants;
+      const cells = book.cellsOf("Producer supplier");
+      for (const [ref, c] of cells) {
+        if (!/^B\d+$/.test(ref) || c.v == null || String(c.v).trim() === "") continue;
+        const name = cells.get("C" + rowNum(ref));
+        plants.push({ key: String(c.v), name: name && name.v != null ? String(name.v) : null });
+      }
+      return plants;
+    },
+    // 'Pay Values'!K1 - "Version 13.3" / "Version 14.1". The only reliable
+    // marker: the Workbook Edits changelog stopped in 2007 and `discipline`
+    // carries the loader contract, not the build.
+    get version() { return book.has(AMAW.LOT.sheet) ? book.value(AMAW.LOT.sheet, AMAW.LOT.version) : null; },
+  };
+}
+
 // ---------------------------------------------------------------------
 //  Filling one
 // ---------------------------------------------------------------------
@@ -264,16 +320,25 @@ export function fillWorkbook({ book, values = {}, evalOnly = {}, now = new Date(
   const overrides = new Map();
   const wanted = [];
   for (const [k, spec] of Object.entries(values)) {
-    const [sheet, ref] = k.split("!");
+    const [sheet, ref] = splitAddr(k);
     if (!open(sheet)) { report.unknownSheet.push(k); continue; }
     const v = spec && typeof spec === "object" && "v" in spec ? spec.v : spec;
     const keep = spec && typeof spec === "object" && "keepFormula" in spec ? !!spec.keepFormula : null;
     wanted.push({ sheet, ref, v, keep });
+    // Keyed on the UNQUOTED name, because that is what valueOf() looks up:
+    // the evaluator hands us the sheet name a formula spells, quotes already
+    // stripped, so an override stored under "'Pay Values'!B3" would never be
+    // found again.
     // '' and null are how a caller says "this cell is blank" - it resolves to
     // a blank cell, not to the empty STRING the evaluator would read as text.
-    overrides.set(k, v === "" || v == null ? null : v);
+    overrides.set(`${sheet}!${ref}`, v === "" || v == null ? null : v);
   }
-  for (const [k, v] of Object.entries(evalOnly)) if (!overrides.has(k)) overrides.set(k, v);
+  for (const [k, v] of Object.entries(evalOnly)) {
+    const [sheet, ref] = splitAddr(k);
+    if (!book.has(sheet)) { report.unknownSheet.push(k); continue; }
+    const kk = `${sheet}!${ref}`;
+    if (!overrides.has(kk)) overrides.set(kk, v);
+  }
 
   // 2. Resolving a cell: an override wins, then the template's own cached
   //    value, then - for a template formula with nothing cached - that
@@ -360,7 +425,7 @@ export function fillWorkbook({ book, values = {}, evalOnly = {}, now = new Date(
     if (!changed) break;
   }
   for (const [k, out] of staged) {
-    const [name, ref] = k.split("!");
+    const [name, ref] = splitAddr(k);
     xml.set(name, setCell(xml.get(name), ref, out, false));
     report.staged++;
   }
@@ -401,18 +466,19 @@ async function loadMapper() {
  * @param mapper    amawCells implementation; defaults to ./mapper.mjs
  * @param values    written cells, instead of (or as well as) a lot
  * @param evalOnly  cells fed to the evaluator but not written
+ * @param book      an openWorkbook() over the template, if you already have one
  * @param out       optional path to write the .xlsm to
  * @returns {{ bytes, filename, parts, staged, report }}
  */
-export async function generateAmaw({ template, lot, ref, mapper, values, evalOnly,
+export async function generateAmaw({ template, lot, ref, mapper, values, evalOnly, book: given,
                                      out, now = new Date(), keepTmp = false } = {}) {
   if (!template) throw new Error("generateAmaw: a blank AMAW template path is required");
-  const book = openWorkbook(template);
+  const book = given || openWorkbook(template);
 
   let mapped = { values: values || {}, evalOnly: evalOnly || {}, report: {} };
   if (lot) {
     const amawCells = mapper || (await loadMapper());
-    const m = amawCells(lot, book, ref) || {};
+    const m = amawCells(lot, templateFacade(book), ref) || {};
     mapped = {
       values: { ...(m.values || {}), ...(values || {}) },
       evalOnly: { ...(m.evalOnly || {}), ...(evalOnly || {}) },
@@ -443,8 +509,12 @@ export async function generateAmaw({ template, lot, ref, mapper, values, evalOnl
   // The sample id is the filename, same as the MixPack's. An empty one is
   // KYTC's own "not ready to hand off" state rather than a fault here, so it
   // falls back to a name that says so instead of writing "undefined.xlsm".
-  const sampleId = String(filled.staged.get("discipline!E2") ?? "").trim();
-  const filename = (sampleId && sampleId !== "0" ? sampleId : "AMAW-no-sample-id") + ".xlsm";
+  // discipline!E2 is ='Pay Values'!B3, and a bare reference to a blank cell
+  // reads as 0 in Excel as well as here - so "0" is an EMPTY sample id, not
+  // a sample id of zero.
+  const raw = String(filled.staged.get("discipline!E2") ?? "").trim();
+  const sampleId = raw === "0" ? "" : raw;
+  const filename = (sampleId || "AMAW-no-sample-id") + ".xlsm";
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "amaw-"));
   const target = out || path.join(tmp, filename);

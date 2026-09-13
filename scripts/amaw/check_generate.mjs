@@ -38,9 +38,9 @@ import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 import { cellsOf, rowNum } from "../mixpack/xlsx.mjs";
 import { evaluate } from "../mixpack/formula.mjs";
-import { openWorkbook, fillWorkbook,
+import { openWorkbook, generateAmaw, templateFacade, splitAddr,
          STAGING, FIRST_DATA_ROW, DIRECT_READ, REFERENCE_SHEETS } from "./generate.mjs";
-import { packWorkbook } from "../mixpack/write.mjs";
+import { AMAW } from "./addresses.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -176,10 +176,12 @@ for (const k of inputs) {
 }
 
 // ---------------------------------------------------------------------
-//  2. generate
+//  2. generate - through the shipped entry point, not a private half of it
 // ---------------------------------------------------------------------
+const out = OUT || path.join(fs.mkdtempSync("/tmp/amaw-check-"), "generated.xlsm");
 const t0 = Date.now();
-const { parts, staged, report, valueOf } = fillWorkbook({ book: tpl, values });
+const { parts, staged, report, bytes, filename } =
+  await generateAmaw({ template: TEMPLATE, book: tpl, values, out });
 const ms = Date.now() - t0;
 
 console.log(`lot                   : ${SRC}`);
@@ -195,6 +197,9 @@ if (report.failed.length) {
   console.log(`could not evaluate    : ${report.failed.length}  (left as formulas - the evalOnly path)`);
   for (const [w, f, e] of report.failed.slice(0, 5)) console.log(`   ${w}  ${String(f).slice(0, 70)}  ${e}`);
 }
+console.log(`sample id / filename  : ${report.sampleId ? report.sampleId : "(none - see below)"}  -> ${filename}  ${bytes.length} bytes`);
+console.log(`what the lot lacks    : ${report.missing.length}`);
+for (const m of report.missing) console.log(`   ${m}`);
 
 // Read the generated workbook back the same way we read any other: by name,
 // off the parts we rewrote, falling back to the template for the rest.
@@ -353,9 +358,6 @@ for (const [w, f, got, want] of archiveRest.slice(0, 20))
 // ---------------------------------------------------------------------
 //  5. is it still an AMAW?
 // ---------------------------------------------------------------------
-const out = OUT || path.join(fs.mkdtempSync("/tmp/amaw-check-"), "generated.xlsm");
-packWorkbook({ template: TEMPLATE, parts, out, tmp: fs.mkdtempSync("/tmp/amaw-pack-") });
-
 const entries = (f) => execSync(`unzip -Z1 ${q(f)}`).toString().trim().split("\n").sort();
 // unzip(1) reads [ ] in a member name as a GLOB, so "[Content_Types].xml"
 // matches nothing and comes back empty - which would compare equal to the
@@ -381,6 +383,24 @@ for (const p of tplEntries) {
 }
 const zipOk = /No errors detected/.test(execSync(`unzip -t ${q(out)} | tail -1`).toString());
 
+// Every cell we set is a regex splice into XML, so a part can come out of
+// the generator zipping perfectly and still be malformed - Excel would then
+// refuse the file outright, which no cell-level diff above would notice.
+// Tag-balance is enough to catch a bad splice and needs no dependency.
+const wellFormed = (xml) => {
+  const stack = [];
+  const re = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<(\/?)([A-Za-z_][\w.:-]*)((?:"[^"]*"|'[^']*'|[^>"'])*?)(\/?)>/g;
+  let m;
+  while ((m = re.exec(xml))) {
+    if (m[2] === undefined) continue;                 // comment, CDATA, PI
+    if (m[4] === "/") continue;                       // self-closing
+    if (m[1] === "/") { if (stack.pop() !== m[2]) return `</${m[2]}> closes nothing`; }
+    else stack.push(m[2]);
+  }
+  return stack.length ? `unclosed <${stack[stack.length - 1]}>` : null;
+};
+const malformed = [...parts].map(([p, x]) => [p, wellFormed(x)]).filter(([, e]) => e);
+
 console.log(`\n--- the workbook itself ---`);
 console.log(`output                : ${out}  ${fs.statSync(out).size} bytes`);
 console.log(`zip integrity         : ${zipOk ? "ok (unzip -t clean)" : "FAILED"}`);
@@ -390,8 +410,143 @@ console.log(`entries               : ${outEntries.length} of the template's ${tp
 for (const [p, good] of intact) console.log(`${p.padEnd(22)}: ${good ? "byte-identical" : "CHANGED - the workbook is no longer loadable"}`);
 console.log(`parts rewritten       : ${changedParts}, all of them sheets we filled` +
             (unexpectedlyChanged.length ? `  NO: ${unexpectedlyChanged.join(", ")}` : ""));
+console.log(`rewritten XML         : ${parts.size - malformed.length} of ${parts.size} well formed` +
+            (malformed.length ? `  BROKEN: ${malformed.map(([p, e]) => `${p} (${e})`).join(", ")}` : ""));
+
+// Everything above reads the XML we produced in memory. Read the FILE back
+// instead - through the same manifest-resolved reader anything else would
+// use - so the zip layer is in the loop too. A pack that dropped or
+// truncated a part passes every comparison until somebody opens the file.
+const back = openWorkbook(out);
+let reread = 0;
+const rereadBad = [];
+for (const [k, want] of staged) {
+  const [sheet, ref] = splitAddr(k);
+  const got = back.value(sheet, ref);
+  if (same(got === null ? "" : got, want === null ? "" : want)) reread++;
+  else rereadBad.push(`${k}: on disk ${JSON.stringify(got)}, banked ${JSON.stringify(want)}`);
+}
+console.log(`re-read from the file : ${reread} of ${staged.size} banked staging cells` +
+            (rereadBad.length ? `  ${rereadBad.length} WRONG` : ""));
+for (const b of rereadBad.slice(0, 10)) console.log(`   ${b}`);
+
+// ---------------------------------------------------------------------
+//  6. the mapper, wired through the generator
+// ---------------------------------------------------------------------
+//
+// Everything above drives the engine from a workbook's own cells, which is
+// deliberate - it measures the generator without the mapper in the way, the
+// same separation regenerate.mjs keeps for the MixPack. But the two have to
+// MEET somewhere, and the seam has a trap in it: the mapper spells its
+// addresses the way Excel does, so a sheet name with a space arrives quoted
+// ("'Pay Values'!B3"). A generator that splits on "!" and keeps the quotes
+// drops every one of those cells into "unknown sheet" and still produces a
+// file - a whole tab of lot data missing from a workbook that looks fine.
+//
+// So this builds a small lot out of the identity of the one being checked,
+// runs it through the real amawCells() and the real generateAmaw(), and
+// asserts the plumbing rather than the mapping: every address resolves, no
+// address lands on a staging sheet, written cells read back, evalOnly cells
+// are NOT written, and what the mapper could not fill is reported. Field-by-
+// field mapping fidelity is check_mapper.mjs's job, not this one's.
+const mapperProblems = [];
+let mapperRan = false;
+try {
+  const { blankLot } = await import("./storage.mjs");
+  const { amawCells } = await import("./mapper.mjs");
+  mapperRan = true;
+
+  const lotVal = (key) => src.value(AMAW.LOT.sheet, AMAW.LOT[key]);
+  const identity = {
+    contract_id: lotVal("contract") || "252112",
+    amp_number: String(lotVal("plantCode") || "AMP070302").trim(),
+    mix_id: String(lotVal("mixId") || "00385").split(/\s+/)[0],
+    lot_number: lotVal("lotNumber") || 1,
+  };
+  const lot = blankLot(identity, { mix_signature: "CL3 ASPH SURF 0.38A PG64-22" });
+  lot.values = {
+    county: lotVal("county"), item_code: lotVal("itemCode"), lot_tons: lotVal("lotTons"),
+    material_code: lotVal("materialCode"), approver_id: lotVal("approverId"),
+    approver_name: lotVal("approverName"), approved_mix_design: lotVal("approvedMixDesign"),
+    acceptance_method: "Volumetrics", density_option: 1, esal_class: 3, mix_type_code: 5,
+  };
+  lot.records = {
+    QC01: {
+      values: { truck: "T-1", tons: 4955, temperature: 325, tested_by: "jwheatl2" },
+      rows: { specimens: [{ wt_air: 4800.1, wt_water: 2750.2, wt_ssd: 4805.3 }] },
+    },
+  };
+
+  // The SAME facade the generator hands it. Handing the mapper a stub here
+  // instead splits values/evalOnly differently from the run being checked,
+  // and the diff then reports the harness's own inconsistency as a fault in
+  // the workbook - which it did, on 'Pay Values'!C9, before this line said
+  // templateFacade.
+  const mapped = amawCells(lot, templateFacade(tpl), {});
+  const gen2 = await generateAmaw({ template: TEMPLATE, book: tpl, lot,
+                                    out: path.join(fs.mkdtempSync("/tmp/amaw-mapper-"), "mapped.xlsm") });
+  const g2 = (name) => {
+    const p = tpl.partOf(name);
+    return gen2.parts.has(p) ? cellsOf(gen2.parts.get(p).replace(/<v\/>/g, "<v></v>"), tpl.strings())
+                             : tpl.cellsOf(name);
+  };
+
+  const all = { ...mapped.values, ...mapped.evalOnly };
+  let unresolvable = 0, ontoStaging = 0, landed = 0, wrong = 0, keptEvalOnly = 0, overwritten = 0;
+  for (const addr of Object.keys(all)) {
+    const [sheet, ref] = splitAddr(addr);
+    if (!sheet || !tpl.has(sheet) || !/^[A-Z]{1,3}\d+$/.test(ref)) { unresolvable++; mapperProblems.push(`address does not resolve: ${addr}`); continue; }
+    if (STAGING.includes(sheet)) { ontoStaging++; mapperProblems.push(`the mapper writes onto a staging sheet: ${addr}`); }
+  }
+  for (const [addr, spec] of Object.entries(mapped.values)) {
+    const [sheet, ref] = splitAddr(addr);
+    if (!tpl.has(sheet)) continue;
+    const want = spec && typeof spec === "object" && "v" in spec ? spec.v : spec;
+    const c = g2(sheet).get(ref);
+    const got = !c || c.v == null ? null
+      : (c.t === "s" || c.t === "str" || c.t === "inlineStr") ? c.v : (NUMRE.test(c.v) ? +c.v : c.v);
+    if (same(got, want)) landed++;
+    else { wrong++; mapperProblems.push(`${addr}: mapper said ${JSON.stringify(want)}, the workbook reads ${JSON.stringify(got)}`); }
+  }
+  for (const addr of Object.keys(mapped.evalOnly)) {
+    const [sheet, ref] = splitAddr(addr);
+    if (!tpl.has(sheet)) continue;
+    const t = tpl.cellsOf(sheet).get(ref), c = g2(sheet).get(ref);
+    if (t && t.f && (!c || !c.f)) { overwritten++; mapperProblems.push(`evalOnly cell was written over: ${addr}`); }
+    else keptEvalOnly++;
+  }
+  if (gen2.report.unknownSheet.length)
+    mapperProblems.push(`generator could not place: ${[...new Set(gen2.report.unknownSheet)].slice(0, 5).join(", ")}`);
+  // A lot this thin should be loudly incomplete. A silent report here would
+  // mean the "what is missing" half is not working, which is the half a
+  // technician actually reads.
+  if (!gen2.report.missing.length) mapperProblems.push("the report names nothing missing on a deliberately thin lot");
+
+  console.log(`\n--- the mapper, through the generator ---`);
+  console.log(`lot built from        : this workbook's identity + one QC01 sublot`);
+  console.log(`mapper produced       : ${Object.keys(mapped.values).length} cells to write, ${Object.keys(mapped.evalOnly).length} evalOnly`);
+  console.log(`addresses resolved    : ${Object.keys(all).length - unresolvable} of ${Object.keys(all).length}` +
+              (ontoStaging ? `  ${ontoStaging} ONTO A STAGING SHEET` : ""));
+  console.log(`written cells read back: ${landed} correct, ${wrong} wrong`);
+  console.log(`evalOnly left computed : ${keptEvalOnly} kept their formula, ${overwritten} overwritten`);
+  console.log(`the lot lacks          : ${gen2.report.missing.length} cells named`);
+} catch (e) {
+  if (/Cannot find module|ERR_MODULE_NOT_FOUND/.test(String(e && e.message))) {
+    console.log(`\n--- the mapper, through the generator ---`);
+    console.log(`skipped: scripts/amaw/mapper.mjs is not here yet. The generator takes`);
+    console.log(`{ values } directly, which is what every section above exercises.`);
+  } else {
+    mapperProblems.push(`threw: ${e && e.message}`);
+    console.log(`\n--- the mapper, through the generator ---\nthrew: ${e && e.stack}`);
+  }
+}
+if (mapperProblems.length) {
+  console.log(`PROBLEMS              : ${mapperProblems.length}`);
+  for (const p of mapperProblems.slice(0, 20)) console.log(`   ${p}`);
+}
 
 const hardFail = stagingRest.length || archiveRest.length || missing.length || extra.length ||
-                 unexpectedlyChanged.length || !zipOk || intact.some(([, g]) => !g);
+                 unexpectedlyChanged.length || !zipOk || intact.some(([, g]) => !g) ||
+                 malformed.length || rereadBad.length || mapperProblems.length;
 console.log(`\n${hardFail ? "FAIL" : "PASS"}`);
 process.exit(hardFail ? 1 : 0);

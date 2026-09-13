@@ -82,7 +82,7 @@
 
 import {
   AGGREGATE, BLOCKS, CALC, CORES, GRADATION, KYCT, LOT, PAY,
-  PERFORMANCE, SUBLOT, SUBLOT_OF, VERIFY, HAMBURG, addressOf, bySn,
+  PERFORMANCE, SUBLOT, SUBLOT_OF, VERIFY, HAMBURG, addressOf,
 } from './addresses.mjs';
 import { laneCorePay, jointCorePay, MCL } from './pay.mjs';
 
@@ -201,11 +201,15 @@ export const INPUTS = {
   corePay: { sheet: CALC.sheet, lane: { row: 34, first: 'E' }, joint: { row: 67, first: 'E' } },
 
   // The blend's contribution to the combined Gsb: pct / BOD per component
-  // per sublot. Row 133 (the first component) is wired in the template and
-  // 134-138 are typed — the same first-column-only wiring again. They matter
-  // more than they look: `Superpave!R9` is 100/SUM(D133:D138), so the
-  // combined Gsb, and through it every VMA on the sheet, comes off this
-  // block.
+  // per sublot. `Superpave!R9` is 100/SUM(D133:D138), so the combined Gsb —
+  // and through it every VMA on the sheet — comes off this block.
+  //
+  // VER 14.01 wires the whole block (`D133` is C133/B133, and B/C are
+  // pass-throughs of `Superpave!Q3`/`R3`), so on that template every one of
+  // these lands in `evalOnly` and Excel recomputes it. The 13.3 lots on file
+  // type rows 134-138 as literals, which is why they show up as typed cells
+  // there. Carried either way rather than assuming a version: `write()` asks
+  // the template, so the same code is right on both.
   gsbContribution: { sheet: CALC.sheet, first: 133, cols: ['D', 'G', 'J', 'M'] },
 
   // `Super Verify` — QA01 and IQ01. The same shapes as the QC side with its
@@ -360,13 +364,23 @@ export function amawCells(lot, tpl, ref) {
   const recVals = (block) => (rec(block) || {}).values || {};
   const recRows = (block) => (rec(block) || {}).rows || {};
 
+  // A record under a name that is not one of the seven blocks has nowhere to
+  // go. Named rather than dropped — a typo'd "QC5" would otherwise cost a
+  // whole sublot silently.
+  for (const key of Object.keys(records)) {
+    if (BLOCKS.indexOf(key) < 0) unmapped.push(`record "${key}" is not one of ${BLOCKS.join('/')}`);
+  }
+
   // Which of the seven are actually present. A block with nothing in it is
   // not written and not complained about individually: PlantBook opens a lot
   // with one sublot and fills the rest over a week.
   const present = BLOCKS.filter((b) => {
     const r = rec(b);
     if (!r) return false;
-    const has = (o) => o && Object.keys(o).some((k) => amHas(o[k]) || (Array.isArray(o[k]) && o[k].length));
+    // An empty array is not content. `amHas([])` is true (it is neither null
+    // nor ""), so the length test has to come FIRST or every block reads as
+    // present and a lot with no QA sample reports a missing sublot index.
+    const has = (o) => o && Object.keys(o).some((k) => (Array.isArray(o[k]) ? o[k].length > 0 : amHas(o[k])));
     return has(r.values) || has(r.rows);
   });
 
@@ -380,9 +394,13 @@ export function amawCells(lot, tpl, ref) {
   write(L('unit'), amStr(v.unit) || INPUTS.projectItems.UNIT);
   write(L('lotTons'), amNum(v.lot_tons));
   write(L('unitPrice'), amNum(v.unit_price));
-  write(L('esalClass'), amNum(v.esal_class));
   write(L('kytcLabId'), amStr(v.kytc_lab_id));
   write(L('psLabId'), amStr(v.ps_lab_id));
+  // LOT.esalClass ('Pay Values'!I4) is deliberately NOT written: that cell is
+  // the anchor of a drop-down whose FmlaLink is `Calculations!D15`, so the
+  // class is a value THERE and the cell itself stays empty in both real lots
+  // (addresses.mjs, CALC.esalClass). Writing it would put a number on the
+  // printed sheet that nothing reads.
   write(L('approverName'), amStr(v.approver_name));
   write(L('approverId'), amStr(v.approver_id));
   write(L('materialCode'), amNum(v.material_code) ?? amStr(v.material_code));
@@ -412,6 +430,14 @@ export function amawCells(lot, tpl, ref) {
     write(L('plantCode'), tplPlant ? tplPlant.key : amp);
     if (!tplPlant && (T.plants || []).length) {
       note(`${amp} is not in the template's 'Producer supplier' list; written unpadded, so 'Pay Values'!C6 will not resolve a name`);
+    } else if (tplPlant && tplPlant.row > 106) {
+      // KYTC's own lookup range is stale: 'Pay Values'!C6 is
+      // VLOOKUP(D6,'Producer supplier'!B3:C106,2,FALSE) and the list now runs
+      // past row 140, so every plant added after row 106 reads #N/A on the
+      // printed sheet however correctly the code is spelled. Both completed
+      // lots show exactly that for AMP070302 at row 130. Nothing to fix here
+      // - the range is KYTC's - but it is worth not re-discovering.
+      note(`${amp} is row ${tplPlant.row} of the template's plant list and 'Pay Values'!C6 only looks up B3:C106, so the plant NAME will read #N/A - KYTC's range, not ours; both completed lots do the same`);
     }
   } else need(L('plantCode'), 'the AMP number of the plant that produced the lot');
 
@@ -568,8 +594,9 @@ export function amawCells(lot, tpl, ref) {
 
     // -- the two gyratory pucks.
     const SP = INPUTS.specimens;
-    (rr.specimens || []).slice(0, SP.count).forEach((sp, i) => {
-      const row = SP.first + (s - 1) * SP.stride + i;
+    (rr.specimens || []).forEach((sp, i) => {
+      const slot = slotOf(sp, i); if (slot >= SP.count) return;
+      const row = SP.first + (s - 1) * SP.stride + slot;
       write(A(SP.sheet, `${SP.cols.wtAir}${row}`), amNum(sp.wt_air));
       write(A(SP.sheet, `${SP.cols.wtWater}${row}`), amNum(sp.wt_water));
       write(A(SP.sheet, `${SP.cols.wtSsd}${row}`), amNum(sp.wt_ssd));
@@ -583,8 +610,8 @@ export function amawCells(lot, tpl, ref) {
     //    the MSG formula; `msg` is only written where the template does not
     //    compute it (F41:J41 - see the header).
     const GM = INPUTS.gmm, gcols = GM.cols[s - 1];
-    (rr.gmm || []).slice(0, gcols.length).forEach((b, i) => {
-      const col = gcols[i];
+    (rr.gmm || []).forEach((b, i) => {
+      const col = gcols[slotOf(b, i)]; if (!col) return;
       write(A(GM.sheet, `${col}${GM.rows.mix}`), amNum(b.wt_mix));
       write(A(GM.sheet, `${col}${GM.rows.calibration}`), amNum(b.calibration));
       write(A(GM.sheet, `${col}${GM.rows.total}`), amNum(b.total) ?? sumOf(b.wt_mix, b.calibration));
@@ -648,12 +675,9 @@ export function amawCells(lot, tpl, ref) {
       const bank = amNum(c.bank) ?? 0, slot = amNum(c.slot);
       const spec = CORES.banks[bank];
       if (!spec || slot == null || slot >= spec.count) { unmapped.push(`${block} core bank ${c.bank}/slot ${c.slot}`); return; }
-      const key = bank === 0 ? 'id' : 'id';
-      const addr = (part) => addressOf({ at: { family: 'cores', bank, slot, key: part } }, block);
-      // The id itself is CONCATENATE('Pay Values'!F3,"-2-A") in the template
-      // - built from the lot number, never typed - so it is deliberately not
-      // written here even though addressOf() will resolve it.
-      void key; void addr;
+      // The core id itself is CONCATENATE('Pay Values'!F3,"-2-A") in the
+      // template - built from the lot number, never typed - so it is
+      // deliberately not written even though addressOf() resolves it.
       const row = spec.first + slot + (s - 1) * spec.stride;
       write(A(CO.sheet, `${CO.cols.wtAir}${row}`), amNum(c.wt_air));
       write(A(CO.sheet, `${CO.cols.wtWater}${row}`), amNum(c.wt_water));
@@ -669,10 +693,9 @@ export function amawCells(lot, tpl, ref) {
           ? laneCorePay(pctSolid, { esalClass: amNum(v.esal_class), mixTypeCode: amNum(v.mix_type_code) ?? 5 })
           : jointCorePay(pctSolid, { mixTypeCode: amNum(v.mix_type_code) ?? 5 });
         const P = INPUTS.corePay[bank === 0 ? 'lane' : 'joint'];
-        const per = spec.count;
-        const col = colShift(P.first, (s - 1) * per + slot);
+        const col = colShift(P.first, (s - 1) * spec.count + slot);
         if (pv === MCL) note(`${block} ${bank === 0 ? 'lane' : 'joint'} core ${slot + 1} is MCL - the lot leaves the pay schedule`);
-        write(A(P.sheet, `${col}${P.row}`), pv);
+        write(A(INPUTS.corePay.sheet, `${col}${P.row}`), pv);
       }
     });
 
@@ -681,7 +704,8 @@ export function amawCells(lot, tpl, ref) {
     //    same call Jake made for DesignBook), so they are writeOver: drop
     //    the formula, write the number, or Excel blanks them on open.
     const ct = rr.kyct || [];
-    ct.slice(0, KYCT.specimens).forEach((spec, i) => {
+    ct.forEach((spec, n) => {
+      const i = slotOf(spec, n); if (i >= KYCT.specimens) return;
       const sheet = KYCT.sheetFor(s), col = KYCT.specimenCols[i];
       const H = INPUTS.kyct.header, labelCol = colShift(col, -1);
       write(A(sheet, `${labelCol}${H.sampleId}`), amStr(spec.sample_id));
@@ -725,7 +749,8 @@ export function amawCells(lot, tpl, ref) {
   const RU = INPUTS.rutting;
   [['idt', rut.idt_ht || []], ['ideal', rut.ideal_rt || []]].forEach(([which, list]) => {
     const spec = RU[which];
-    list.slice(0, spec.count).forEach((sp, i) => {
+    list.forEach((sp, n) => {
+      const i = slotOf(sp, n); if (i >= spec.count) return;
       const row = spec.first + i;
       write(A(RU.sheet, `${spec.load}${row}`), amNum(sp.peak_load));
       // Strength / RT index: the template wires row 19 only and leaves
@@ -749,8 +774,8 @@ export function amawCells(lot, tpl, ref) {
   const perf = rows.performance || [];
   perf.slice(0, INPUTS.performance.banks.length).forEach((bank, bi) => {
     const spec = INPUTS.performance.banks[bi];
-    (bank.specimens || []).slice(0, spec.cols.length).forEach((sp, i) => {
-      const col = spec.cols[i];
+    (bank.specimens || []).forEach((sp, n) => {
+      const col = spec.cols[slotOf(sp, n)]; if (!col) return;
       write(A(spec.sheet || INPUTS.performance.sheet, `${col}${spec.rows.thickness}`), amNum(sp.thickness));
       write(A(INPUTS.performance.sheet, `${col}${spec.rows.dry}`), amNum(sp.dry_wt));
       write(A(INPUTS.performance.sheet, `${col}${spec.rows.ssd}`), amNum(sp.ssd_wt));
@@ -776,16 +801,17 @@ export function amawCells(lot, tpl, ref) {
     write(A(V.sheet, V.inspectorId[slot]), amStr(rv.tested_by));
     write(A(V.sheet, V.inspectorName[slot]), amStr(rv.tested_by_name));
 
-    (rr.specimens || []).slice(0, V.specimens.count).forEach((sp, i) => {
-      const row = V.specimens.first + slot * V.specimens.stride + i;
+    (rr.specimens || []).forEach((sp, i) => {
+      const k = slotOf(sp, i); if (k >= V.specimens.count) return;
+      const row = V.specimens.first + slot * V.specimens.stride + k;
       write(A(V.sheet, `${V.specimens.cols.wtAir}${row}`), amNum(sp.wt_air));
       write(A(V.sheet, `${V.specimens.cols.wtWater}${row}`), amNum(sp.wt_water));
       write(A(V.sheet, `${V.specimens.cols.wtSsd}${row}`), amNum(sp.wt_ssd));
     });
 
     const gcols = V.gmm.cols[slot];
-    (rr.gmm || []).slice(0, gcols.length).forEach((b, i) => {
-      const col = gcols[i];
+    (rr.gmm || []).forEach((b, i) => {
+      const col = gcols[slotOf(b, i)]; if (!col) return;
       write(A(V.sheet, `${col}${V.gmm.rows.mix}`), amNum(b.wt_mix));
       write(A(V.sheet, `${col}${V.gmm.rows.calibration}`), amNum(b.calibration));
       write(A(V.sheet, `${col}${V.gmm.rows.total}`), amNum(b.total) ?? sumOf(b.wt_mix, b.calibration));
@@ -814,8 +840,8 @@ export function amawCells(lot, tpl, ref) {
   //  9. The hand-mixed check sample
   // ---------------------------------------------------------------
   const HM = INPUTS.gmm.handMixed;
-  (rows.hand_mixed || []).slice(0, HM.length).forEach((b, i) => {
-    const col = HM[i], r = INPUTS.gmm.rows;
+  (rows.hand_mixed || []).forEach((b, i) => {
+    const col = HM[slotOf(b, i)], r = INPUTS.gmm.rows; if (!col) return;
     write(A(INPUTS.gmm.sheet, `${col}${r.mix}`), amNum(b.wt_mix));
     write(A(INPUTS.gmm.sheet, `${col}${r.calibration}`), amNum(b.calibration));
     write(A(INPUTS.gmm.sheet, `${col}${r.total}`), amNum(b.total) ?? sumOf(b.wt_mix, b.calibration));
@@ -876,6 +902,21 @@ export function amawCells(lot, tpl, ref) {
 // Small enough to inline, but it is used three times and the null handling
 // is the point: two weights and no total is a total we can compute; one
 // weight and no total is not.
+// Which slot of a repeating table a row belongs in. A row that declares its
+// own `slot` is placed there; otherwise it takes its position in the array.
+//
+// This is not decoration. A reader that drops blank slots COMPACTS the array,
+// and the second specimen of a six-slot table then lands in the first slot -
+// which is exactly what happened on `Field Rutting` the first time this was
+// run: the workbook mirrors B28 into C28:G28, the empty first slot was
+// dropped, and the mapper wrote specimen 2's diameter into specimen 1's cell.
+// The cores code has always carried an explicit bank and slot for the same
+// reason; every other repeating table now may too.
+function slotOf(row, i) {
+  const n = amNum(row && row.slot);
+  return n == null || n < 0 ? i : n;
+}
+
 function sumOf(a, b) {
   const x = amNum(a), y = amNum(b);
   return x == null || y == null ? null : x + y;

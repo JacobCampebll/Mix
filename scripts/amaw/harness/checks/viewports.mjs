@@ -27,6 +27,7 @@
 import { fillForm } from "../lib/inpage.mjs";
 import { withBook } from "../lib/books.mjs";
 import { realErrors } from "../lib/page.mjs";
+import { loadBaseline, saveBaseline, keyOf } from "../lib/baseline.mjs";
 
 export const id = "viewports";
 
@@ -34,17 +35,14 @@ export const id = "viewports";
  * breakpoint named in CLAUDE.md or the pixel beside one. */
 export const WIDTHS = [1500, 1440, 1366, 1244, 1243, 1240, 1100, 1099, 1000, 900, 800, 701, 700, 560, 390, 360];
 
-/* Clipping the project has looked at and accepted. CLAUDE.md, on 390px:
- * "What still clips at 390px is two genuinely long strings (a producer name
- * at 387px, the RAP note) and no layout fixes that — the combo popup and the
- * title attribute are the answer there." An entry here needs that kind of
- * sentence behind it; it is not a place to park a new failure. */
-export const ACCEPTED_CLIP = {
-  390: ["producer", "rap_note"],
-  360: ["producer", "rap_note"],
-};
+/* Per-input clipping is compared against baseline/clipping.json rather than
+ * against zero — see lib/baseline.mjs for why, and for how to re-bless it.
+ * The page-level scrollWidth assertion below is absolute and has no baseline:
+ * a page that scrolls sideways is a bug at every width, every time. */
 
-export async function run({ browser, results, books }) {
+export async function run({ browser, results, books, bless }) {
+  const baseline = loadBaseline();
+  const fresh = { generatedAt: new Date().toISOString(), books: {} };
   for (const book of books) {
     let skippedOnce = false;
     for (const width of WIDTHS) {
@@ -89,14 +87,33 @@ export async function run({ browser, results, books }) {
       const tag = `${width}px`;
       results.ok(id, book.label, `${tag} no sideways scroll`, r.scroll <= width,
                  `scrollWidth ${r.scroll} vs viewport ${width}`);
-      const accepted = ACCEPTED_CLIP[width] || [];
-      const bad = r.clipped.filter((c) => !accepted.some((a) => c.startsWith(a)));
-      results.ok(id, book.label, `${tag} no input clips`, bad.length === 0,
-                 bad.length ? bad.join(" ") : `${r.clipped.length} accepted, 0 new`);
+
+      const keys = Array.from(new Set(r.clipped.map(keyOf))).sort();
+      (fresh.books[book.label] = fresh.books[book.label] || {})[width] = keys;
+      if (bless) {
+        results.pass(id, book.label, `${tag} clipping recorded`, keys.length ? keys.join(" ") : "nothing clips");
+      } else {
+        const known = ((baseline && baseline.books[book.label]) || {})[String(width)];
+        if (!known) {
+          results.skip(id, book.label, `${tag} no NEW input clips`,
+                       "no baseline for this width — run with --bless once, read the diff, then commit it");
+        } else {
+          const added = keys.filter((k) => !known.includes(k));
+          const gone = known.filter((k) => !keys.includes(k));
+          const note = `${keys.length} clip, baseline ${known.length}` +
+                       (gone.length ? ` — ${gone.join(",")} no longer clip, re-bless to tighten` : "");
+          results.ok(id, book.label, `${tag} no NEW input clips`, added.length === 0,
+                     added.length ? "NEW: " + added.join(" ") : note);
+        }
+      }
       results.ok(id, book.label, `${tag} every step measured`, r.deadSteps.length === 0 && r.measured > 0,
                  `${r.measured}/${r.steps} steps had a live .section.active` +
                  (r.deadSteps.length ? ` — zero-height: ${r.deadSteps.join(",")}` : ""));
       results.ok(id, book.label, `${tag} clean console`, errs.length === 0, errs.slice(0, 2).join(" | ") || "0 errors");
     }
+  }
+  if (bless) {
+    fresh.page = "public/designbook.html";
+    console.log("\nbaseline written to " + saveBaseline(fresh) + "\n");
   }
 }

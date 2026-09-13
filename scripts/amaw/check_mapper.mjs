@@ -27,25 +27,23 @@
 // worse than the MixPack's and `wb.Sheets["t_smpl"]` comes back as
 // `t_cont_smpl`. Sheets are resolved through xl/workbook.xml -> the rels ->
 // the worksheet part, below.
-import fs from 'fs';
-import path from 'path';
 import { execSync } from 'child_process';
-import { fileURLToPath } from 'url';
 import { cellsOf, sharedStrings } from '../mixpack/xlsx.mjs';
-import {
-  AGGREGATE, BLOCKS, CALC, CORES, GRADATION, KYCT, LOT, PAY,
-  SUBLOT, SUBLOT_OF, VERIFY, addressOf,
-} from './addresses.mjs';
+import { CALC, CORES, GRADATION, KYCT, LOT, SUBLOT, SUBLOT_OF, addressOf } from './addresses.mjs';
 import { amawCells, INPUTS, FLAGS, UNCLASSIFIED, A, colShift } from './mapper.mjs';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const tplFlag = argv.indexOf('--template');
-const TEMPLATE = tplFlag >= 0 ? argv[tplFlag + 1]
-  : process.env.AMAW_TEMPLATE
-  || path.join(HERE, '../../../../../tmp/claude-0/scratchpad/AMAW_VER14_01.xlsm');
+// The blank AMAW is a public KYTC download and is deliberately NOT committed
+// (docs/amaw-map.md), so there is no default path worth pretending to: say so
+// rather than failing on a path nobody has.
+const TEMPLATE = tplFlag >= 0 ? argv[tplFlag + 1] : process.env.AMAW_TEMPLATE;
 const LOTS = argv.filter((a, i) => a !== '--template' && i !== tplFlag + 1 && !a.startsWith('--'));
-if (!LOTS.length) { console.error('usage: check_mapper.mjs <lot.xlsm> [...] [--template AMAW_VER14_01.xlsm]'); process.exit(2); }
+if (!LOTS.length || !TEMPLATE) {
+  console.error('usage: check_mapper.mjs <lot.xlsm> [...] --template AMAW_VER14_01.xlsm');
+  console.error('       (or set AMAW_TEMPLATE; get the blank from transportation.ky.gov/Materials/Documents/AMAW_VER14_01.xlsm)');
+  process.exit(2);
+}
 
 // ---- zip / sheet plumbing (identical to check_addresses.mjs) ---------
 const unz = (f, p) => execSync(`unzip -p ${JSON.stringify(f)} ${p}`, { maxBuffer: 1 << 28 }).toString();
@@ -73,6 +71,9 @@ const split = (addr) => {
   return m ? { sheet: m[1] ?? m[2], cell: m[3] } : null;
 };
 const NUMRE = /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/;
+// `slot` is bookkeeping, not data: a row carrying only its own index is an
+// empty slot and must be dropped, or every blank table reads as full.
+const hasMeasurement = (row) => Object.keys(row).some((k) => k !== 'slot' && row[k] != null);
 const cellValue = (c) => {
   if (!c) return null;
   const raw = c.value ?? c.v;
@@ -198,6 +199,7 @@ function readLot(wb) {
     for (let i = 0; i < SP.count; i++) {
       const row = SP.first + (s - 1) * SP.stride + i;
       const sp = {
+        slot: i,
         wt_air: at(A(SP.sheet, `${SP.cols.wtAir}${row}`)),
         wt_water: at(A(SP.sheet, `${SP.cols.wtWater}${row}`)),
         wt_ssd: at(A(SP.sheet, `${SP.cols.wtSsd}${row}`)),
@@ -206,14 +208,15 @@ function readLot(wb) {
     }
 
     const GM = INPUTS.gmm, gcols = GM.cols[s - 1];
-    rr.gmm = gcols.map((col) => ({
+    rr.gmm = gcols.map((col, gi) => ({
+      slot: gi,
       wt_mix: at(A(GM.sheet, `${col}${GM.rows.mix}`)),
       calibration: at(A(GM.sheet, `${col}${GM.rows.calibration}`)),
       total: at(A(GM.sheet, `${col}${GM.rows.total}`)),
       final_wt: at(A(GM.sheet, `${col}${GM.rows.final}`)),
       absorbed_water: at(A(GM.sheet, `${col}${GM.rows.absorbed}`)),
       msg: at(A(GM.sheet, `${col}${GM.rows.msg}`)),
-    })).filter((b) => Object.values(b).some((x) => x != null));
+    })).filter(hasMeasurement);
 
     const GR = INPUTS.gradation, gcol = GR.cols[s - 1];
     rr.gradation = [];
@@ -254,6 +257,7 @@ function readLot(wb) {
     rr.kyct = [];
     KYCT.specimenCols.forEach((col, i) => {
       const spec = {
+        slot: i,
         sample_id: at(A(kyctSheet, `${colShift(col, -1)}${H.sampleId}`)),
         temp_c: at(A(kyctSheet, `${col}${H.tempC}`)),
         air_voids: at(A(kyctSheet, `${col}${H.airVoids}`)),
@@ -267,7 +271,7 @@ function readLot(wb) {
         peak_flow: at(addressOf({ at: { family: 'kyct', i: i * 2, peak: true } }, block)),
         peak_stability: at(addressOf({ at: { family: 'kyct', i: i * 2 + 1, peak: true } }, block)),
       };
-      if (Object.values(spec).some((x) => x != null)) rr.kyct.push(spec);
+      if (hasMeasurement(spec)) rr.kyct.push(spec);
     });
 
     // The per-sublot blend percentages, kept as an override so a plant that
@@ -294,16 +298,17 @@ function readLot(wb) {
         wt_water: at(A(V.sheet, `${V.specimens.cols.wtWater}${row}`)),
         wt_ssd: at(A(V.sheet, `${V.specimens.cols.wtSsd}${row}`)),
       };
-      if (Object.values(sp).some((x) => x != null)) rr.specimens.push(sp);
+      if (hasMeasurement(sp)) rr.specimens.push(sp);
     }
-    rr.gmm = V.gmm.cols[slot].map((col) => ({
+    rr.gmm = V.gmm.cols[slot].map((col, gi) => ({
+      slot: gi,
       wt_mix: at(A(V.sheet, `${col}${V.gmm.rows.mix}`)),
       calibration: at(A(V.sheet, `${col}${V.gmm.rows.calibration}`)),
       total: at(A(V.sheet, `${col}${V.gmm.rows.total}`)),
       final_wt: at(A(V.sheet, `${col}${V.gmm.rows.final}`)),
       absorbed_water: at(A(V.sheet, `${col}${V.gmm.rows.absorbed}`)),
       msg: at(A(V.sheet, `${col}${V.gmm.rows.msg}`)),
-    })).filter((b) => Object.values(b).some((x) => x != null));
+    })).filter(hasMeasurement);
     rr.gradation = [];
     GRADATION.sieves.forEach((sieve, i) => {
       const g = at(A(V.sheet, `${V.gradation.cols[slot]}${V.gradation.first + i}`));
@@ -323,14 +328,15 @@ function readLot(wb) {
 
   // ---- the hand-mixed check sample ----------------------------------
   const GM = INPUTS.gmm;
-  rows.hand_mixed = GM.handMixed.map((col) => ({
+  rows.hand_mixed = GM.handMixed.map((col, gi) => ({
+    slot: gi,
     wt_mix: at(A(GM.sheet, `${col}${GM.rows.mix}`)),
     calibration: at(A(GM.sheet, `${col}${GM.rows.calibration}`)),
     total: at(A(GM.sheet, `${col}${GM.rows.total}`)),
     final_wt: at(A(GM.sheet, `${col}${GM.rows.final}`)),
     absorbed_water: at(A(GM.sheet, `${col}${GM.rows.absorbed}`)),
     msg: at(A(GM.sheet, `${col}${GM.rows.msg}`)),
-  })).filter((b) => Object.values(b).some((x) => x != null));
+  })).filter(hasMeasurement);
 
   // ---- Field Rutting ------------------------------------------------
   const RU = INPUTS.rutting;
@@ -338,6 +344,7 @@ function readLot(wb) {
   for (let i = 0; i < RU.idt.count; i++) {
     const row = RU.idt.first + i, dcol = colShift(RU.idt.dims.first, i);
     const sp = {
+      slot: i,
       peak_load: at(A(RU.sheet, `${RU.idt.load}${row}`)),
       strength: at(A(RU.sheet, `${RU.idt.strength}${row}`)),
       diameter: at(A(RU.sheet, `${dcol}${RU.idt.dims.diameter}`)),
@@ -348,6 +355,7 @@ function readLot(wb) {
   for (let i = 0; i < RU.ideal.count; i++) {
     const row = RU.ideal.first + i, dcol = colShift(RU.ideal.dims.first, i);
     const sp = {
+      slot: i,
       peak_load: at(A(RU.sheet, `${RU.ideal.load}${row}`)),
       rt_index: at(A(RU.sheet, `${RU.ideal.index}${row}`)),
       diameter: at(A(RU.sheet, `${dcol}${RU.ideal.dims.diameter}`)),
@@ -359,14 +367,15 @@ function readLot(wb) {
 
   // ---- performance specimens ----------------------------------------
   rows.performance = INPUTS.performance.banks.map((spec) => ({
-    specimens: spec.cols.map((col) => ({
+    specimens: spec.cols.map((col, ci) => ({
+      slot: ci,
       thickness: at(A(INPUTS.performance.sheet, `${col}${spec.rows.thickness}`)),
       dry_wt: at(A(INPUTS.performance.sheet, `${col}${spec.rows.dry}`)),
       ssd_wt: at(A(INPUTS.performance.sheet, `${col}${spec.rows.ssd}`)),
       wt_water: at(A(INPUTS.performance.sheet, `${col}${spec.rows.water}`)),
       gmm: at(A(INPUTS.performance.sheet, `${col}${spec.rows.gmm}`)),
       air_voids: at(A(INPUTS.performance.sheet, `${col}${spec.rows.airVoids}`)),
-    })).filter((sp) => Object.values(sp).some((x) => x != null)),
+    })).filter(hasMeasurement),
   })).filter((b) => b.specimens.length);
 
   // ---- the two flat tabs --------------------------------------------
@@ -425,10 +434,14 @@ function main() {
     const c = tplWb.sheet(s.sheet).get(s.cell);
     return (c && c.formula) || (c && c.f) || null;
   };
+  // The template's own plant list. It runs to row 140 in VER 14.01 even
+  // though 'Pay Values'!C6 looks it up over B3:C106 - KYTC's range never grew
+  // with the list, which is why both completed lots show #N/A there for
+  // AMP070302 (row 130). Read the whole list; the mapper reports the gap.
   const plants = [];
-  for (let r = 2; r <= 120; r++) {
+  for (let r = 2; r <= 200; r++) {
     const key = cellValue(tplWb.sheet('Producer supplier').get(`B${r}`));
-    if (key != null) plants.push({ key: String(key), name: cellValue(tplWb.sheet('Producer supplier').get(`C${r}`)) });
+    if (key != null) plants.push({ key: String(key), name: cellValue(tplWb.sheet('Producer supplier').get(`C${r}`)), row: r });
   }
   const tpl = { formulaAt: tplFormula, plants };
   // No Supabase here: the check is about addresses, and every lot on file
@@ -441,8 +454,6 @@ function main() {
     console.log(`\n${'='.repeat(74)}\n${file}\n${'='.repeat(74)}`);
     const wb = openWorkbook(file);
     const at = (addr) => { const s = split(addr); return s ? cellValue(wb.sheet(s.sheet).get(s.cell)) : null; };
-    const cellOf = (addr) => { const s = split(addr); return s ? wb.sheet(s.sheet).get(s.cell) : null; };
-
     const lot = readLot(wb);
     const { values, evalOnly, report } = amawCells(lot, tpl, ref);
 
@@ -492,16 +503,27 @@ function main() {
 
     // ---- 3. classify ------------------------------------------------
     const known = new Set(UNCLASSIFIED.map((u) => u.cell));
-    const explainNotCarried = ([addr]) => {
+    const explainNotCarried = ([addr, v]) => {
       if (known.has(addr)) return 'named in mapper.mjs UNCLASSIFIED';
       // A 13.3 literal where 14.01 has a formula never reaches this list
       // (the coverage pass already skips template-formula cells), so what is
       // left here is genuinely a cell nothing in the mapper reaches.
       const s = split(addr);
       if (s && s.sheet === CALC.sheet) return 'Calculations scratch: a cached lookup row the workbook fills by hand';
+      // The version marker. 'Pay Values'!K1 says which BUILD of the workbook
+      // this is ("Version 13.3"); the file we generate is whatever template
+      // we generated into, so the mapper must not carry it forward - a 13.3
+      // marker on a 14.01 workbook would be a lie (docs/amaw-map.md: K1 is
+      // the only reliable version marker, so it matters that it is right).
+      if (addr === A(LOT.sheet, LOT.version)) return "the workbook's own version marker; the template supplies its own";
+      // A printed caption. 13.3 and 14.01 word several of them differently
+      // ("As Tested % AC:"), which makes them differ from the template
+      // without being lot data. The loader never sees them.
+      if (typeof v === 'string' && /[:?]$/.test(v.trim())) return 'a printed caption, worded differently in 13.3 than in 14.01';
       return null;
     };
     const unexplainedNotCarried = notCarried.filter((r) => !explainNotCarried(r));
+    const explainedNotCarried = notCarried.filter((r) => explainNotCarried(r));
 
     const explainBlank = ([addr, v, mode]) => {
       // We computed a value for a cell the real lot simply left empty. The
@@ -544,6 +566,10 @@ function main() {
     }
 
     // ---- 4. the mapper's own report, which is the point of it -------
+    if (explainedNotCarried.length) {
+      console.log(`\nexpected differences, one line each:`);
+      for (const r of explainedNotCarried) console.log(`   - ${r[0].padEnd(24)} ${explainNotCarried(r)}`);
+    }
     if (report.missing.length) {
       console.log(`\nthe mapper reports ${report.missing.length} thing(s) this lot should carry and does not:`);
       for (const m of report.missing) console.log(`   - ${m}`);
@@ -555,7 +581,6 @@ function main() {
     if (report.unmapped.length) console.log(`\nunmapped payload entries: ${report.unmapped.join(', ')}`);
 
     if (unexplained) failed++;
-    void cellOf; void PAY; void AGGREGATE; void BLOCKS; void VERIFY;
   }
   process.exit(failed ? 1 : 0);
 }

@@ -104,7 +104,7 @@ export async function run({ browser, results, books }) {
           const v = document.getElementById("valBlock");
           return { present: !!v, kept: !!(v && v.dataset.harnessTag === "kept") };
         });
-        seen.push({ w, ...p, dup: d.dup, orphans: d.orphans, tag });
+        seen.push({ w, ...p, dup: d.dup, orphans: d.orphans, valBlockIntact: d.valBlockIntact, tag });
       }
       return { seen, errs: realErrors(errs) };
     });
@@ -113,6 +113,9 @@ export async function run({ browser, results, books }) {
     const lostNode = seen.filter((s) => !s.tag.present || !s.tag.kept).map((s) => s.w);
     results.ok(id, book.label, "crossing the breakpoint keeps the same #valBlock", lostNode.length === 0,
                lostNode.length ? `rebuilt at ${lostNode.join(",")}px` : "same node at all 7 widths");
+    const hollow = seen.filter((s) => !s.valBlockIntact).map((s) => s.w);
+    results.ok(id, book.label, "crossing keeps #vallist/#saveMsg inside it", hollow.length === 0,
+               hollow.length ? `hollow at ${hollow.join(",")}px` : "intact at all 7 widths");
     const many = seen.filter((s) => s.valBlocks !== 1).map((s) => `${s.w}:${s.valBlocks}`);
     results.ok(id, book.label, "crossing never leaves two .valblock", many.length === 0,
                many.join(",") || "exactly one at all 7 widths");

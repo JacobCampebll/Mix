@@ -64,6 +64,7 @@ export async function run({ browser, results }) {
     if (!entered.ok) {
       for (const kase of [
         "switching preserves the #valBlock node",
+        "switching keeps #vallist/#saveMsg inside it",
         "switching leaves no duplicate ids",
         "switching leaves no orphan controls",
         "DesignBook's values survive a round trip through PlantBook",
@@ -93,6 +94,8 @@ export async function run({ browser, results }) {
     results.ok(id, BOOK, "switching preserves the #valBlock node", kept.present && kept.tagged,
                kept.present ? (kept.tagged ? "same node, parked" : "REBUILT — every later msg() writes to nothing")
                             : "destroyed by the switch");
+    results.ok(id, BOOK, "switching keeps #vallist/#saveMsg inside it", mid.valBlockIntact,
+               mid.valBlockIntact ? "intact" : "hollow — the switch emptied it");
     results.ok(id, BOOK, "switching leaves no duplicate ids", mid.dup.length === 0,
                mid.dup.slice(0, 6).join(",") || "0 duplicates");
     results.ok(id, BOOK, "switching leaves no orphan controls", mid.orphans.length === 0,

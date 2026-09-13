@@ -36,11 +36,16 @@ const CASES = [
   { name: "Type D (polish hides)", set: { nominal_size: "0.38", mix_type: "D" }, expectPolishHidden: true },
 ];
 
-/* Read one audit and say what is wrong with it, or "". Split out so the same
- * rules apply to the first paint, to every step of every case, and to the
- * phone shape where there is no action bar to compare against. */
+/* Read one audit and say what is wrong with it. Returns two lists, kept
+ * apart deliberately: the rail-and-bar pair is ONE thing paintStepChrome()
+ * owns, while the kicker in the section's navy band is a third readout that
+ * has already been wrong once on its own (commit bc10e99, 2026-09-13: the
+ * band said "Step 5 of 9" over a bar saying "Step 4 of 8" on every Type D
+ * mix and on every untouched new design, because renderForm() wrote it from
+ * the CONFIG.SECTIONS index). Reported on one line, a regression in either
+ * would hide behind the other. */
 function verdict(a, { wizard }) {
-  const problems = [];
+  const problems = [], kicker = [];
   // 1. The rail's numerals are 1..V over the visible sections, in order, and
   //    a hidden section has no numeral at all.
   let n = 0;
@@ -55,7 +60,7 @@ function verdict(a, { wizard }) {
     }
   }
   if (n !== a.visible) problems.push(`rail numbered ${n} steps, ${a.visible} sections visible`);
-  if (!wizard) return problems.join("; ");
+  if (!wizard) return { rail: problems.join("; "), kicker: "" };
 
   // 2. The action bar agrees with the rail, on both numbers.
   if (a.barTotal !== a.visible) problems.push(`bar says "of ${a.barTotal}", ${a.visible} visible`);
@@ -66,10 +71,10 @@ function verdict(a, { wizard }) {
   // 3. The kicker in the active section's navy band is the third place a
   //    person reads this number, and it has to say the same thing.
   if (a.kickerVisible && a.kickerPos != null) {
-    if (a.kickerPos !== a.barPos) problems.push(`kicker "Step ${a.kickerPos}" vs bar "Step ${a.barPos}"`);
-    if (a.kickerTotal !== a.barTotal) problems.push(`kicker "of ${a.kickerTotal}" vs bar "of ${a.barTotal}"`);
+    if (a.kickerPos !== a.barPos) kicker.push(`${a.activeSection}: band "Step ${a.kickerPos}" vs bar "Step ${a.barPos}"`);
+    if (a.kickerTotal !== a.barTotal) kicker.push(`${a.activeSection}: band "of ${a.kickerTotal}" vs bar "of ${a.barTotal}"`);
   }
-  return problems.join("; ");
+  return { rail: problems.join("; "), kicker: kicker.join("; ") };
 }
 
 export async function run({ browser, results, books }) {
@@ -85,8 +90,11 @@ export async function run({ browser, results, books }) {
     }
     {
       const { a } = first.value;
-      const bad = verdict(a, { wizard: true });
-      results.ok(id, book.label, "first paint numerals agree", bad === "", bad || `${a.barText.trim()} / ${a.visible} visible`);
+      const v = verdict(a, { wizard: true });
+      results.ok(id, book.label, "first paint: rail and bar agree", v.rail === "",
+                 v.rail || `${a.barText.trim()} / ${a.visible} visible`);
+      results.ok(id, book.label, "first paint: section band agrees", v.kicker === "",
+                 v.kicker || a.kickerText || "no kicker on screen");
     }
 
     // ---- the three mix states, every step of each -------------------------
@@ -109,10 +117,14 @@ export async function run({ browser, results, books }) {
       });
       if (out.skipped) continue;   // already reported once above
       const { walked, errs } = out.value;
-      const bad = walked.map((a) => verdict(a, { wizard: true })).filter(Boolean);
+      const v = walked.map((a) => verdict(a, { wizard: true }));
+      const railBad = v.map((x) => x.rail).filter(Boolean);
+      const kickBad = v.map((x) => x.kicker).filter(Boolean);
       const a0 = walked[0];
-      results.ok(id, book.label, `${c.name}: numerals agree on every step`, bad.length === 0,
-                 bad.slice(0, 2).join(" | ") || `${walked.length} steps, "${a0.barText.trim()}"`);
+      results.ok(id, book.label, `${c.name}: rail and bar agree on every step`, railBad.length === 0,
+                 railBad.slice(0, 2).join(" | ") || `${walked.length} steps, "${a0.barText.trim()}"`);
+      results.ok(id, book.label, `${c.name}: section band agrees on every step`, kickBad.length === 0,
+                 kickBad.slice(0, 2).join(" | ") || `all ${walked.length} bands match the bar`);
       const polishHidden = a0.hidden.includes("polish");
       results.ok(id, book.label, `${c.name}: polish step ${c.expectPolishHidden ? "hidden" : "shown"}`,
                  polishHidden === c.expectPolishHidden,
@@ -130,9 +142,9 @@ export async function run({ browser, results, books }) {
     });
     if (!phone.skipped) {
       const { a } = phone.value;
-      const bad = verdict(a, { wizard: false });
-      results.ok(id, book.label, "390px rail numerals are visible positions", bad === "",
-                 bad || `${a.visible} visible, ${a.hidden.length} hidden`);
+      const v = verdict(a, { wizard: false });
+      results.ok(id, book.label, "390px rail numerals are visible positions", v.rail === "",
+                 v.rail || `${a.visible} visible, ${a.hidden.length} hidden`);
     }
   }
 }

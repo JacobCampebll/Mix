@@ -143,6 +143,19 @@ export function fillForm(overrides) {
     const el = document.querySelector(`[data-field="${k}"]`);
     if (el) setVal(el, v);
   });
+
+  /* Put the combo popup away.
+   *
+   * Typing into a sourced field opens comboOpen()'s popup, and the last field
+   * filled leaves it on screen. That is not a hypothetical tidiness problem:
+   * #comboPop is a real element that intercepts pointer events (a click on the
+   * book switch timed out behind it) and occupies real width (the viewport
+   * sweep would be measuring a page nobody is looking at). A person who has
+   * finished typing has moved on; so does the harness. */
+  if (typeof comboClose === "function") comboClose();
+  const pop = document.getElementById("comboPop");
+  if (pop) pop.remove();
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   return filled;
 }
 
@@ -199,6 +212,18 @@ export function domAudit() {
     rowlistStrays: Array.from(new Set(rowlistStrays)),
     valBlocks: document.querySelectorAll("#valBlock, .valblock").length,
     hasValBlock: !!document.getElementById("valBlock"),
+    // Not just "does #valBlock exist" but "is it still the one with the
+    // outstanding list and the message line inside it". CLAUDE.md's reason
+    // for parking the node is that without it "every later
+    // msg($('saveMsg'), ...) writes to nothing" — and an EMPTY #valBlock
+    // answers getElementById perfectly well while doing exactly that. The
+    // identity check alone was proved insufficient against a scratch copy
+    // that cleared #valPark: the harness happily tagged the wrong node.
+    valBlockIntact: (() => {
+      const v = document.getElementById("valBlock");
+      if (!v) return false;
+      return !!(v.querySelector("#saveMsg") && v.querySelector("#vallist") && v.querySelector("#valsub"));
+    })(),
     hasSaveMsg: !!document.getElementById("saveMsg"),
     hasVallist: !!document.getElementById("vallist"),
   };
