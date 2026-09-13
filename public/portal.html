@@ -246,6 +246,12 @@
   <div class="wordmark">Design<span>Book</span></div>
   <div class="crumb" id="crumb">Portal</div>
   <a class="navlink hidden" id="navSubmit">Submit a design →</a>
+  <!-- The way to the other book. The badges under the name say which
+       certifications this account holds; they are not navigation, and while
+       PlantBook had no door at all a technician holding both saw a green
+       PLANTBOOK badge and no way whatsoever to reach it. Rendered only when
+       the account can actually open the other one. -->
+  <a class="navlink hidden" id="navOtherBook"></a>
   <div class="spacer"></div>
   <div class="who">
     <div id="whoName"></div>
@@ -659,6 +665,20 @@
     $("whoBadges").appendChild(badge("DesignBook", c.can_access_designbook, CONFIG.BOOKS.designbook.built));
     $("whoBadges").appendChild(badge("PlantBook", c.can_access_plantbook, CONFIG.BOOKS.plantbook.built));
     if (t.can_review) $("whoBadges").appendChild(Object.assign(document.createElement("span"), { className: "badge granted", textContent: "Reviewer" }));
+
+    // The other book, when this account holds it. One link, named, rather
+    // than a switch - the two Portals are different flows (DesignBook asks
+    // for a contract, a plant and a mix; PlantBook takes an approval), so
+    // there is nothing to toggle between.
+    const other = bookKey === "plantbook" ? "designbook" : "plantbook";
+    const ob = CONFIG.BOOKS[other];
+    const allowed = ob && ob.built && c[other === "plantbook" ? "can_access_plantbook" : "can_access_designbook"];
+    const link = $("navOtherBook");
+    link.classList.toggle("hidden", !allowed);
+    if (allowed) {
+      link.textContent = `${ob.label} →`;
+      link.onclick = () => { location.href = `portal.html?book=${other}`; };
+    }
     $("signOutLink").classList.remove("hidden");
   }
   function renderPlants() {

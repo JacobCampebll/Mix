@@ -148,6 +148,12 @@
   .badge.soon{background:var(--flag-soft); color:var(--ink); border-color:var(--gold);}
   .badge.denied{background:transparent; color:var(--muted); border-color:var(--line); text-decoration:line-through;}
   .badge-hint{color:var(--muted); font-size:12.5px; text-align:center; margin:0 0 6px;}
+  /* One door per book. They stack, and each is the full-width primary button
+     the single "Open the Portal" used to be - so a technician who holds one
+     certification sees exactly what they saw before, and one who holds both
+     sees both ways in rather than being sent to whichever we guessed. */
+  #bookDoors{display:flex; flex-direction:column; gap:10px;}
+  #bookDoors:empty{display:none;}
 
   .foot{padding:0 28px 22px; font-size:12px; color:var(--muted); text-align:center;}
 </style>
@@ -160,7 +166,7 @@
     <div class="rule"></div>
     <div class="wordmark">Asphalt Mixtures</div>
     <div class="booknames">Design<span>Book</span> · Plant<span>Book</span></div>
-    <div class="books">PlantBook to follow</div>
+    <div class="books">Mix designs and plant lots</div>
   </div>
 
   <!-- Sign in -->
@@ -232,7 +238,13 @@
     </div>
     <div class="badges" id="sessionAccess"></div>
     <p class="badge-hint" id="sessionHint" hidden></p>
-    <button class="primary hidden" id="continueBtn">Open the Portal →</button>
+    <!-- One button per book this account can open, rendered by refreshView().
+         There used to be a single "Open the Portal" here, which was right
+         while DesignBook was the only book and became a dead end the moment
+         it was not: a Plant Tech saw a green PLANTBOOK badge and had no way
+         to reach it. The badges above say what you hold; these say where you
+         can go, and the two must not be confused for each other. -->
+    <div id="bookDoors"></div>
     <button class="secondary" id="signOutBtn">Sign out</button>
   </div>
 </div>
@@ -302,11 +314,6 @@
   // now: a technician who holds only Plant Tech would land on a Portal that
   // immediately bounces them, which reads as a broken sign-in rather than as
   // a certification they do not have.
-  // The certifications the last refreshView() resolved. continueBtn is bound
-  // once, outside that function, so it has no `caps` of its own - and a
-  // button that sends someone to a Portal they cannot open is the same dead
-  // end destination() exists to avoid.
-  let lastCaps = null;
   function destination(caps) {
     const next = new URLSearchParams(location.search).get("next") || "";
     const page = next.split("?")[0];
@@ -338,7 +345,7 @@
   const sessionMeta = document.getElementById("sessionMeta");
   const sessionAccess = document.getElementById("sessionAccess");
   const sessionHint = document.getElementById("sessionHint");
-  const continueBtn = document.getElementById("continueBtn");
+  const bookDoors = document.getElementById("bookDoors");
   const form = document.getElementById("authForm");
   const loginIdInput = document.getElementById("loginId");
   const passwordInput = document.getElementById("password");
@@ -449,11 +456,17 @@
         .eq("user_id", session.user.id)
         .maybeSingle();
 
-      lastCaps = capsError ? null : caps;
-      const canOpen = !capsError && Object.values(CONFIG.BOOKS)
-        .some((b) => b.built && caps && caps[b.capability]);
+      const openable = capsError ? [] : Object.entries(CONFIG.BOOKS)
+        .filter(([, b]) => b.built && caps && caps[b.capability]);
+      const canOpen = openable.length > 0;
 
-      if (forwardOnReady && canOpen) {
+      // Forward straight through ONLY when there is nothing to choose. A
+      // technician who holds both certifications gets the door screen and
+      // picks; skipping it sent every one of them to DesignBook, which was
+      // right while it was the only book and is a wrong guess now.
+      // A `next=` in the query is an explicit destination, so it still wins.
+      const asked = new URLSearchParams(location.search).get("next");
+      if (forwardOnReady && canOpen && (openable.length === 1 || asked)) {
         forwardOnReady = false;
         location.replace(destination(caps));
         return;
@@ -464,7 +477,18 @@
       sessionWho.textContent = `${tech.first_name} ${tech.last_name}`;
       sessionMeta.textContent = `${tech.company} · SM ID ${tech.sm_id}`;
       sessionAccess.innerHTML = "";
-      continueBtn.classList.toggle("hidden", !canOpen);
+      // A door per book, in CONFIG.BOOKS order, and only for a book this
+      // account actually holds a current certification for. One book means
+      // one button, which reads exactly as the old single button did.
+      bookDoors.innerHTML = "";
+      Object.entries(CONFIG.BOOKS).forEach(([key, b]) => {
+        if (!b.built || !caps || !caps[b.capability]) return;
+        const btn = document.createElement("button");
+        btn.className = "primary";
+        btn.textContent = `Open ${b.label} →`;
+        btn.addEventListener("click", () => location.assign(`${CONFIG.PORTAL_URL}?book=${key}`));
+        bookDoors.appendChild(btn);
+      });
       sessionHint.hidden = false;
 
       if (capsError) {
@@ -521,8 +545,6 @@
         submitBtn.disabled = false;
       }
     });
-
-    continueBtn.addEventListener("click", () => location.assign(destination(lastCaps)));
 
     onboardEmailForm.addEventListener("submit", async (e) => {
       e.preventDefault();
