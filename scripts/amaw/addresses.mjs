@@ -182,12 +182,68 @@ export const SUBLOT = {
     },
   },
 
+  // ---- THE RAW WEIGHTS THE VOLUMETRIC BLOCK IS COMPUTED FROM ----------
+  //
+  // Everything in `volumetric` above except binderPct is a FORMULA in the
+  // workbook, and these are its inputs. Read off Jake's real lots
+  // 2026-09-13 rather than inferred; `volumetrics.mjs` reproduces the
+  // arithmetic and `check_volumetrics.mjs` proves it against both files.
+  //
+  // BSG (bulk specific gravity — KYTC's name for Gmb; CLAUDE.md records the
+  // MixPack calling it "BSG" too). TWO specimens per sublot, on the two rows
+  // directly above the Average row: 12/13, 18/19, 24/25, 30/31. Same stride
+  // 6 as the volumetric block, starting two rows earlier.
+  //
+  //   C  Weight (Air)    — the dry specimen, g          INPUT
+  //   D  Weight (Water)  — submerged, g                 INPUT
+  //   E  Weight (SSD)    — saturated surface-dry, g     INPUT
+  //   F  Bulk Vol.       = ROUND(E-D, 1)
+  //   G  BSG             = ROUND(C/F, 3)
+  //   H  Unit Wt.        = G * 62.4
+  //
+  // The AVERAGE row's G and H are AVERAGE() over the two specimens — note
+  // the workbook ROUNDS each specimen before averaging, so averaging the
+  // unrounded values gives a different number in the last digits.
+  bsg: {
+    first: 12, stride: 6, specimens: 2,
+    cols: { air: "C", water: "D", ssd: "E", volume: "F", bsg: "G", unitWeight: "H" },
+  },
+
+  // MSG (maximum specific gravity — the Rice test, `I` on the average row).
+  // Laid out in COLUMNS rather than rows, two determinations per sublot:
+  // sublot 1 -> C,D   sublot 2 -> E,F   sublot 3 -> G,H   sublot 4 -> I,J
+  // and the lot's hand-mixed check sample in M,N.
+  //
+  //   row 36  Wt. of Mix               INPUT
+  //   row 37  Calibration              INPUT  (the flask/bowl calibration wt)
+  //   row 38  Wt. of Mix + Calibrat.   = 36 + 37
+  //   row 39  Final Wt.                INPUT
+  //   row 40  Absorbed Water           INPUT  (blank in both real lots; a
+  //                                            blank reads as 0 in the sum)
+  //   row 41  MSG                      = ROUND(36 / (38 - 39 + 40), 3)
+  //   row 42  Avg. =                   = AVERAGE of the pair, written in the
+  //                                      SECOND column of each pair (D/F/H/J,
+  //                                      and N for the hand-mix)
+  //
+  // The volumetric block's `gmm` reads row 42 of its own pair, which is why
+  // `I14 = IF(D42="","",D42)`.
+  msg: {
+    rows: { mix: 36, calibration: 37, sum: 38, finalWeight: 39, absorbedWater: 40, msg: 41, average: 42 },
+    // [first determination, second determination]; the average lands in the second.
+    cols: [["C", "D"], ["E", "F"], ["G", "H"], ["I", "J"]],
+    handMix: ["M", "N"],
+  },
+
   // Certified technician per sublot — a 2x2 block, NOT a stride. Read off
   // t_smpl.smpld_by / t_smpl_tstr.tst_id row by row.
   technician: ["B6", "E6", "B8", "E8"],
 
   // Hand-mixed check sample. Lot-level: one per lot, same cell in all blocks.
-  handMixed: { binderPct: "N43", gmm: "N42" },
+  // `gmm` (N42) is the AVERAGE of the two determinations in `msg.handMix`,
+  // not a typed cell; `binderPct` (N43) IS typed. Together they give Gse at
+  // J8 = (100-N43)/((100/N42)-(N43/1.03)), which every sublot's VMA and Pbe
+  // are measured against.
+  handMixed: { binderPct: "N43", gmm: "N42", gse: "J8" },
 };
 
 // ---------------------------------------------------------------------
