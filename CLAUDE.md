@@ -1292,6 +1292,14 @@ TBD — cite the governing spec section when encoding a limit in code.
   carrying no project at all, and `generate.mjs` names exactly that gap.
   Inherited provisionally, because a change order re-numbers items - which is
   the whole reason the lookup button exists beside it.
+  **Two more things about the inherited Project Items rows, found 2026-09-13
+  and NOT yet acted on.** The rows carry the CONTRACT's quantity (7,525 on
+  262120), but both real AMAWs write `Project Items` column C = **4000** -
+  the lot tonnage - so `repr_qty` there looks like what this lot represents
+  rather than what the contract holds. Two files is not a rule, and MEDL is
+  the one that would reject it, so it is written down rather than changed.
+  And the **item code genuinely cannot be derived**: the lots carry `385`
+  where the contract line's item number is `22906ES403`. It stays typed.
   **A lot IS 4,000 tons.** That is the definition rather than a default anyone
   picked, and both real lots carry exactly 4000 at `'Pay Values'!F4`, so
   `lot_tons` is seeded (`LOT_TONS`) instead of asked for. Still editable: the
@@ -1314,13 +1322,24 @@ TBD — cite the governing spec section when encoding a limit in code.
   that stops short of the money columns is still a line item and a missing
   price comes back null rather than dropping the row.
   **The price is NOT a column on the Project Items table** - it belongs to the
-  lot, not to each row, and that table is already tight at 390px. PlantBook's
-  lookup fills the `lot_unit_price` FIELD from the matched line instead,
-  tinted and editable, never over a price somebody typed. Where the matched
-  lines disagree it says so and fills nothing: two prices for one lot is a
-  question rather than an answer. DesignBook ignores it - a design is not
-  paid. Verified end to end on contract 262120, whose 0.38B is line 0165 on
-  `MP07606272601` at **$117.45/TON**.
+  lot, not to each row, and that table is already tight at 390px. DesignBook
+  ignores it - a design is not paid. Verified end to end on contract 262120,
+  whose 0.38B is line 0165 on `MP07606272601` at **$117.45/TON**.
+  **CORRECTION, same day, to the sentence this replaces: the lookup FILLED
+  `lot_unit_price` for about an hour and that was wrong.** A lot's unit price
+  is not the contract's bid price. Contract 252112's line 0160 IS the mix both
+  of Jake's real lots were produced under (`CL3 ASPH SURF 0.38A PG64-22`, item
+  `22906ES403`) and the contract bids it at **$119.80/TON** - but both AMAWs
+  carry a unit price of **$50**, and 50 is the figure their pay actually used:
+  lot 2's +26.25 tons came to +$1,312.50, which is 26.25 x 50. Filling the bid
+  price in put a number more than twice too large into every dollar
+  adjustment, silently, and tinted as though the page knew it. The lookup now
+  REPORTS the bid price in its note and leaves the field alone. What $50 is
+  has not been established - the Lot Pay Adjustment Schedule at 2026 Std Spec
+  p.186 is literally `Lot Pay Adjustment = ($50.00)(Quantity){...}`, which
+  makes it a spec CONSTANT rather than a price at all, and if that is right
+  the field is misnamed rather than unfilled. **Open for Tate**; do not wire
+  it either way on the strength of that alone.
 
 - **Still NOT auto-filled on the Lot step, and both are open questions rather
   than settled answers** (2026-09-13):
@@ -1339,6 +1358,77 @@ TBD — cite the governing spec section when encoding a limit in code.
   is defensible - but `propertyWeights()` answers for exactly three
   combinations and weighs EVERY property at zero for the rest, so a wrong one
   is a silent 0% lot. Left blank pending Tate.
+  **Two of those three moved the same day - see the entry below.** Joint
+  density is derived from the mix now, and the density option turns out to be
+  on the proposal rather than being anybody's decision. Acceptance method is
+  the one that genuinely stays blank pending Tate.
+
+- **Joint density is settled by the MIX, and the density option is on the
+  PROPOSAL - neither is a per-lot preference** (Jake, 2026-09-13: "Joint
+  cores is just if it's surface 0.38 or 0.50, which we already know", and
+  "the options should Option A or Option B. That could be auto found off the
+  proposal which we already tie to the approval").
+  **Joint density is derived and no longer asked for.** 2026 Std Spec
+  402.03.02 D) 6) Option A reads "Joint - For surface mixtures placed on
+  driving lanes and ramps, furnish 2 cores per sublot" (PDF p.178), and every
+  proposal's OPTION A special note says it again in its own words: "The
+  Department will require joint cores as described in Section 402.03.02 for
+  surface mixtures only." So `jointDensityFor(mix)` is SURF + 0.38/0.50 ->
+  yes, anything else -> no, and it inherits tinted and editable like every
+  other provisional value. Two things about it are load-bearing. **A NO.4
+  surface is NOT on the list** - the note's scope is "at 1 inch (25mm) or
+  greater" and a No. 4 is a thin lift, which is why Jake named the two sizes
+  rather than saying "surface". And **an unknown course returns `null`, never
+  "no"** - a design that reached PlantBook with neither a signature nor a
+  Portal mix lookup has no layer to read, and collapsing that into "no" would
+  silently drop a surface lot's 15% joint-density weight to no deduction at
+  all. The field stays a field rather than becoming a readout, because the
+  proposal's OPTION note is what finally says so and a lot may have to
+  disagree with the derivation. The label lost the word "counts".
+  **The density option is stated in the Contract** - 402.03.02 D) 6) opens
+  "The Contract will state the compaction option to be used" - so it is a
+  lookup rather than a question, and the dropdown now reads "Option A" /
+  "Option B" as the proposal writes them. It is NOT yet fetched, and the
+  reason is worth knowing before anyone tries: **the note is written PER
+  ROUTE, so one contract can be both.** 262120 - the contract Jake is testing
+  against - carries "OPTION A (KY 627)" and "OPTION B (US 25)" on facing
+  pages of its own proposal, and the design's project number is what picks
+  between them (#467PA is on `MP07606272601`, the KY 627 one). Closing it
+  means `kytc-lookup` returning the OPTION notes WITH their route qualifier;
+  it returns the proposal header and the mix items and no notes at all today.
+  That is Andrew's function, and it already downloads and parses that exact
+  PDF - `required_mix_designs` comes out of it.
+
+- **The producer/supplier lab belongs to the PLANT, and
+  `supabase/plants_lab_id.sql` is the DDL for it - written, NOT applied**
+  (Jake, 2026-09-13: "The producer lab id should be somewhere in supabase,
+  given the approval is tied to this plant this should be in there somewhere
+  and auto populated"). He is right about where it belongs: an AMAW's
+  `'Pay Values'!I6` names the lab that ran the contractor's acceptance tests,
+  every lot a plant produces has the same one, and this project's standing
+  rule is that a value belonging to a plant goes in `plants` rather than into
+  a page. `loadPlantLabId()` reads it and `applyPlantLabId()` fills the field,
+  tinted, on the same terms as every other provisional value.
+  **It is its OWN query, deliberately** - not another column on the plant-name
+  select and not on `CONFIG.REFERENCE.TABLES.plants`. PostgREST answers a
+  select naming a column that does not exist with a 400 for the WHOLE row, so
+  folded into either of those a not-yet-applied migration would take the plant
+  NAME down with it here, and the entire RAP producer list down with it there.
+  As written it degrades to the empty field it already was.
+  **Nobody has seeded a value and there is no worked example of one** - both
+  real AMAWs leave I5 and I6 blank - so the seed is Andrew's, from what KYTC
+  actually holds, not from a pattern inferred here. **Open for Jake: what is
+  Allen's P/S lab id?**
+  **The Department's lab (I5) is deliberately NOT derived.** KYTC's lab-unit
+  list turns out to be in the MixPack template all along, at
+  `Chart Data`!AV2:AV14 - `LU00642` then `LU01210` ... `LU12210`, which reads
+  as Central plus one per district 1-12. That is worth knowing beside
+  `CONFIG.MIXPACK.DISTRICTS`, whose only entry is `07 -> LU00642` taken off a
+  real approved MixPack. Note those two DISAGREE if the list is read as
+  district-keyed, and the likely reason is that they are different questions:
+  a design is approved centrally (LU00642) while a lot is accepted in its
+  district. Do not derive an AMAW's KYTC lab from that list until somebody
+  confirms it.
 
 - **A row table key may now be shared between the books, but only out loud.**
   `check_sections.mjs` fails a PlantBook row table whose key collides with a
