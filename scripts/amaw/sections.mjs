@@ -223,6 +223,26 @@ const SPECIMEN_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
 // The two Rice determinations of the lot's hand-mixed check sample
 // (`Superpave` columns M and N). One per lot, not per sublot.
 const HANDMIX_SEED = [{ determination: "1" }, { determination: "2" }];
+// Every core slot the workbook holds, blank and waiting. Jake, 2026-09-13:
+// "the cores tab needs to show all 4 sub lots worth of blank cores when
+// loaded". `Cores` has room for exactly these and no more - four mat cores
+// per sublot on rows 10-13 stride 5, two joint cores on 33-34 stride 3 - and
+// that is also what the spec asks for under Option A: "Mainline - Furnish 4
+// cores per sublot", "Joint - ... furnish 2 cores per sublot" (2026 Std Spec
+// 402.03.02 D) 6), PDF p.178).
+//
+// Sixteen and eight is not a guess at a maximum: lot 1 on file carries 24
+// core IDS and only 18 densities, because sublot 1's were labelled and never
+// measured. The slots exist whether or not anyone cores them, so they are
+// seeded the same way - the id is printed, the density is blank.
+//
+// The `core_id` here is the SUFFIX only. paintLotIds() expands it to
+// "<lot>-<sublot>-<suffix>", which is KYTC's own convention in both real
+// lots ("1-2-A", "1-2-J1").
+const MAT_CORE_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
+  ["A", "B", "C", "D"].map((suffix) => ({ sublot, core_id: suffix })));
+const JOINT_CORE_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
+  ["J1", "J2"].map((suffix) => ({ sublot, core_id: suffix })));
 
 // =====================================================================
 //  PLANTBOOK_SECTIONS
@@ -860,17 +880,21 @@ export const PLANTBOOK_SECTIONS = [
     cites: ["density403"],
     rows: [
       {
-        key: "mat_cores", heading: "Mat cores (lane density)",
-        max: 16, start: 4, span: [6, 12],
-        addLabel: "+ add mat core",
-        grid: ".5fr 1.1fr 1.5fr .9fr .9fr auto",
+        key: "mat_cores", heading: "Mat cores (lane density) — 4 per sublot",
+        fixed: true, seed: MAT_CORE_SEED, span: [6, 12],
+        grid: ".7fr 1.1fr 1.5fr .9fr .9fr",
         columns: [
-          { key: "sublot", label: "Sublot", type: "select", req: true, mono: true,
-            options: ["1", "2", "3", "4"] },
-          // "1-2-A" … "1-2-D" in both real lots.
-          { key: "core_id", label: "Core #", type: "text", req: true, mono: true },
-          { key: "station", label: "Station / offset", type: "text", req: true },
-          { key: "density", label: "Density (pcf)", type: "number", req: true, mono: true },
+          // Both derived and both readonly: a core's sublot and its id are
+          // "<lot>-<sublot>-<letter>", which the lot already knows. Nobody
+          // types what the form can spell.
+          { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+          { key: "core_id", label: "Core #", type: "text", mono: true, readonly: true },
+          { key: "station", label: "Station / offset", type: "text", req: false },
+          // NOT `req`. A lot is cored over a week and the Department picks the
+          // locations; an uncored slot is a normal in-progress state, not a
+          // missing field, and pay.mjs already treats a blank as "not tested"
+          // rather than as a zero.
+          { key: "density", label: "Density (pcf)", type: "number", req: false, mono: true },
           // Cores!I is a formula on the sheet, so it is readonly here and
           // the page computes it — same pattern as TSR's Gmb / air voids.
           // Note the workbook's own rule for an untested core: a blank is a
@@ -879,17 +903,14 @@ export const PLANTBOOK_SECTIONS = [
         ],
       },
       {
-        key: "joint_cores", heading: "Joint cores (longitudinal joint density)",
-        max: 8, start: 2, span: [6, 12],
-        addLabel: "+ add joint core",
-        grid: ".5fr 1.1fr 1.5fr .9fr .9fr auto",
+        key: "joint_cores", heading: "Joint cores (longitudinal joint density) — 2 per sublot",
+        fixed: true, seed: JOINT_CORE_SEED, span: [6, 12],
+        grid: ".7fr 1.1fr 1.5fr .9fr .9fr",
         columns: [
-          { key: "sublot", label: "Sublot", type: "select", req: true, mono: true,
-            options: ["1", "2", "3", "4"] },
-          // "1-2-J1", "1-2-J2".
-          { key: "core_id", label: "Core #", type: "text", req: true, mono: true },
-          { key: "station", label: "Station / offset", type: "text", req: true },
-          { key: "density", label: "Density (pcf)", type: "number", req: true, mono: true },
+          { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+          { key: "core_id", label: "Core #", type: "text", mono: true, readonly: true },
+          { key: "station", label: "Station / offset", type: "text", req: false },
+          { key: "density", label: "Density (pcf)", type: "number", req: false, mono: true },
           { key: "pct_solid", label: "% solid", type: "number", mono: true, readonly: true },
         ],
       },

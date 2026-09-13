@@ -2805,6 +2805,26 @@ const PB_SECTIONS = (() => {
   // The two Rice determinations of the lot's hand-mixed check sample
   // (`Superpave` columns M and N). One per lot, not per sublot.
   const HANDMIX_SEED = [{ determination: "1" }, { determination: "2" }];
+  // Every core slot the workbook holds, blank and waiting. Jake, 2026-09-13:
+  // "the cores tab needs to show all 4 sub lots worth of blank cores when
+  // loaded". `Cores` has room for exactly these and no more - four mat cores
+  // per sublot on rows 10-13 stride 5, two joint cores on 33-34 stride 3 - and
+  // that is also what the spec asks for under Option A: "Mainline - Furnish 4
+  // cores per sublot", "Joint - ... furnish 2 cores per sublot" (2026 Std Spec
+  // 402.03.02 D) 6), PDF p.178).
+  //
+  // Sixteen and eight is not a guess at a maximum: lot 1 on file carries 24
+  // core IDS and only 18 densities, because sublot 1's were labelled and never
+  // measured. The slots exist whether or not anyone cores them, so they are
+  // seeded the same way - the id is printed, the density is blank.
+  //
+  // The `core_id` here is the SUFFIX only. paintLotIds() expands it to
+  // "<lot>-<sublot>-<suffix>", which is KYTC's own convention in both real
+  // lots ("1-2-A", "1-2-J1").
+  const MAT_CORE_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
+    ["A", "B", "C", "D"].map((suffix) => ({ sublot, core_id: suffix })));
+  const JOINT_CORE_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
+    ["J1", "J2"].map((suffix) => ({ sublot, core_id: suffix })));
 
   // =====================================================================
   //  PLANTBOOK_SECTIONS
@@ -3442,17 +3462,21 @@ const PB_SECTIONS = (() => {
       cites: ["density403"],
       rows: [
         {
-          key: "mat_cores", heading: "Mat cores (lane density)",
-          max: 16, start: 4, span: [6, 12],
-          addLabel: "+ add mat core",
-          grid: ".5fr 1.1fr 1.5fr .9fr .9fr auto",
+          key: "mat_cores", heading: "Mat cores (lane density) — 4 per sublot",
+          fixed: true, seed: MAT_CORE_SEED, span: [6, 12],
+          grid: ".7fr 1.1fr 1.5fr .9fr .9fr",
           columns: [
-            { key: "sublot", label: "Sublot", type: "select", req: true, mono: true,
-              options: ["1", "2", "3", "4"] },
-            // "1-2-A" … "1-2-D" in both real lots.
-            { key: "core_id", label: "Core #", type: "text", req: true, mono: true },
-            { key: "station", label: "Station / offset", type: "text", req: true },
-            { key: "density", label: "Density (pcf)", type: "number", req: true, mono: true },
+            // Both derived and both readonly: a core's sublot and its id are
+            // "<lot>-<sublot>-<letter>", which the lot already knows. Nobody
+            // types what the form can spell.
+            { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+            { key: "core_id", label: "Core #", type: "text", mono: true, readonly: true },
+            { key: "station", label: "Station / offset", type: "text", req: false },
+            // NOT `req`. A lot is cored over a week and the Department picks the
+            // locations; an uncored slot is a normal in-progress state, not a
+            // missing field, and pay.mjs already treats a blank as "not tested"
+            // rather than as a zero.
+            { key: "density", label: "Density (pcf)", type: "number", req: false, mono: true },
             // Cores!I is a formula on the sheet, so it is readonly here and
             // the page computes it — same pattern as TSR's Gmb / air voids.
             // Note the workbook's own rule for an untested core: a blank is a
@@ -3461,17 +3485,14 @@ const PB_SECTIONS = (() => {
           ],
         },
         {
-          key: "joint_cores", heading: "Joint cores (longitudinal joint density)",
-          max: 8, start: 2, span: [6, 12],
-          addLabel: "+ add joint core",
-          grid: ".5fr 1.1fr 1.5fr .9fr .9fr auto",
+          key: "joint_cores", heading: "Joint cores (longitudinal joint density) — 2 per sublot",
+          fixed: true, seed: JOINT_CORE_SEED, span: [6, 12],
+          grid: ".7fr 1.1fr 1.5fr .9fr .9fr",
           columns: [
-            { key: "sublot", label: "Sublot", type: "select", req: true, mono: true,
-              options: ["1", "2", "3", "4"] },
-            // "1-2-J1", "1-2-J2".
-            { key: "core_id", label: "Core #", type: "text", req: true, mono: true },
-            { key: "station", label: "Station / offset", type: "text", req: true },
-            { key: "density", label: "Density (pcf)", type: "number", req: true, mono: true },
+            { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+            { key: "core_id", label: "Core #", type: "text", mono: true, readonly: true },
+            { key: "station", label: "Station / offset", type: "text", req: false },
+            { key: "density", label: "Density (pcf)", type: "number", req: false, mono: true },
             { key: "pct_solid", label: "% solid", type: "number", mono: true, readonly: true },
           ],
         },
@@ -5759,17 +5780,44 @@ function polishApplies() {
   const t = polishMixType(effectiveMix());
   return t.letter === "A" || t.letter === "B";
 }
-function applyPolishVisibility() {
-  const on = polishApplies();
-  const sec = document.querySelector('[data-section="polish"]');
-  // .hidden, not the hidden attribute: .railstep sets display:inline-flex,
-  // which beats the user-agent [hidden] rule, and .hidden carries !important.
-  // All of them rather than the first, so any future second index stays in
-  // step with this one.
+/* Show or hide a whole step, and its rail chip with it.
+ *
+ * .hidden, not the hidden attribute: .railstep sets display:inline-flex,
+ * which beats the user-agent [hidden] rule, and .hidden carries !important.
+ * All matching chips rather than the first, so any future second index stays
+ * in step with this one.
+ *
+ * Hidden, NEVER removed - the same rule Polish has always followed. Anything
+ * already typed stays in the DOM and in the payload, so correcting the value
+ * that hid the step brings the answers straight back. The step machinery
+ * counts visible positions on its own (stepSections / paintStepChrome), so
+ * nothing else has to know a step went away.
+ */
+function setStepVisible(id, on) {
+  const sec = document.querySelector(`[data-section="${id}"]`);
   if (sec) sec.classList.toggle("hidden", !on);
-  document.querySelectorAll('[data-target="polish"]').forEach((n) => n.classList.toggle("hidden", !on));
+  document.querySelectorAll(`[data-target="${id}"]`).forEach((n) => n.classList.toggle("hidden", !on));
   return on;
 }
+function applyPolishVisibility() { return setStepVisible("polish", polishApplies()); }
+
+/* CORES EXIST ONLY ON AN OPTION A JOB (Jake, 2026-09-13: "it only needs to
+ * have a tab on option A jobs"), and the spec says the same in one line:
+ * "Option B. The Department will not require any cores." (2026 Std Spec
+ * 402.03.02 D) 6), PDF p.178). Option B's own pay schedule carries no density
+ * term at all - 0.35 AC + 0.40 AV + 0.25 VMA, p.188 - so there is nothing for
+ * a core to feed.
+ *
+ * UNSET is not Option B. The density option is blank until somebody sets it
+ * (it is on the proposal, per route, and is not fetched yet), and hiding the
+ * step on a blank would hide it on every freshly opened lot. So the step shows
+ * unless the answer is explicitly "B", which is the same way round as every
+ * other "not proven" state on this page.
+ */
+function coresApply() {
+  return String(fieldValue("lot_density_option") || "").trim().toUpperCase() !== "B";
+}
+function applyCoresVisibility() { return setStepVisible("cores", coresApply()); }
 
 
 function drawFpChart(pbs, vas, vaFit, vaTgt, designPb) {
@@ -6191,6 +6239,7 @@ function recompute() {
   // missing field - the design is complete, it just would not qualify. An
   // unproven check says so in its own words rather than crying wolf.
   const pr = applyPolishVisibility() ? renderPolish() : null;
+  applyCoresVisibility();
   // Where an uploaded workbook's own YES/NO disagrees with KYTC's approved
   // aggregate types, say so. The list wins - a MixPack's Polish-Resistant
   // row 17 holds plain literals with no formula behind them, so that YES is
@@ -15080,27 +15129,69 @@ function sublotIndexOf(value) {
   const m = /(\d+)\s*$/.exec(t);          // "1-3" -> 3, "3" -> 3
   return m ? Number(m[1]) : null;
 }
-/** Paint "<lot>-<sublot>" into every fixed sublot table's id column. */
+/** Paint the identity columns of every fixed PlantBook table.
+ *
+ *  "<lot>-<sublot>" on the four sublot tables, and
+ *  "<lot>-<sublot>-<suffix>" on the two core tables - KYTC's own convention
+ *  in both real lots ("1-2-A", "1-2-J1"), so a lot 2's twenty-four core ids
+ *  spell themselves.
+ *
+ *  THE SUFFIX COMES FROM THE SCHEMA'S SEED, NOT FROM THE CELL. An earlier
+ *  version parsed it back out of whatever was already there with a
+ *  /^\d+-\d+-(.+)$/ and claimed to be re-entrant. It was not: any value that
+ *  did not match - the harness fills every input with junk before it
+ *  re-renders - fell through to "the whole string is the suffix", so each
+ *  repaint prepended another prefix and the cell grew without bound
+ *  ("80.8-1-80.8-1-80.8-1-..."). Reading position out of the seed cannot do
+ *  that, because nothing it writes is ever an input to the next paint.
+ *
+ *  Both tables are `fixed: true` with a declared seed, so row position IS the
+ *  row's identity and the schema is the only place that says what it means.
+ */
 const SUBLOT_ID_TABLES = ["sublot_tickets", "sublot_bsg", "sublot_msg", "sublot_volumetrics"];
-function paintSublotIds() {
+const CORE_ID_TABLES = ["mat_cores", "joint_cores"];
+/** The row spec for a table key on the ACTIVE book, or null. */
+function rowSpecOf(key) {
+  for (const sec of activeSections()) {
+    const specs = !sec.rows ? [] : (Array.isArray(sec.rows) ? sec.rows : [sec.rows]);
+    const hit = specs.find((r) => r && r.key === key);
+    if (hit) return hit;
+  }
+  return null;
+}
+function paintLotIds() {
   if (!isPlantBook()) return;
-  SUBLOT_ID_TABLES.forEach((key) => {
-    rowsOfList(key).forEach((row) => {
-      const el = row.querySelector('[data-col="sublot"]');
-      if (!el) return;
-      const i = sublotIndexOf(el.value);
-      if (i != null) el.value = sublotIdOf(i);
+  const put = (row, col, value) => {
+    const el = row.querySelector(`[data-col="${col}"]`);
+    if (el && value != null) el.value = String(value);
+  };
+  SUBLOT_ID_TABLES.concat(CORE_ID_TABLES).forEach((key) => {
+    const spec = rowSpecOf(key);
+    const seed = (spec && spec.seed) || [];
+    rowsOfList(key).forEach((row, i) => {
+      const s = seed[i];
+      if (!s || s.sublot == null) return;
+      put(row, "sublot", sublotIdOf(s.sublot));
+      // Only the core tables seed a suffix; the sublot tables have no
+      // core_id column and `put` no-ops on a column that is not there.
+      if (s.core_id != null) put(row, "core_id", `${sublotIdOf(s.sublot)}-${s.core_id}`);
     });
   });
 }
 function sublotGmm(n) {
   const list = document.querySelector('[data-rowlist="sublot_volumetrics"]');
   if (!list) return null;
+  // BOTH SIDES go through sublotIndexOf(). The argument used to be a bare
+  // "3" off the cores' sublot dropdown and is now the painted "1-3", and
+  // `Number("1-3")` is NaN - which would have matched nothing, blanked every
+  // core's % solid and taken lane and joint density pay with it, silently,
+  // because a missing pay value is a legitimate state. Normalising one side
+  // only is what makes that class of bug possible; this normalises both.
+  const want = sublotIndexOf(n);
+  if (want == null) return null;
   const row = Array.from(list.children).find((r) => {
     const el = r.querySelector('[data-col="sublot"]');
-    // Parsed, not compared: this cell reads "1-3" and the cores' select
-    // reads "3". See sublotIndexOf().
-    return el && sublotIndexOf(el.value) === Number(n);
+    return el && sublotIndexOf(el.value) === want;
   });
   return row ? num(row.querySelector('[data-col="gmm"]') ? row.querySelector('[data-col="gmm"]').value : null) : null;
 }
@@ -15134,7 +15225,7 @@ function putCell(row, col, value, dp) {
 }
 function computeSublotVolumetrics() {
   if (!isPlantBook()) return null;
-  paintSublotIds();
+  paintLotIds();
 
   // ---- the lot's hand-mixed sample -> Gse -------------------------------
   // NOT rounded where the sublot determinations are - see handMixedGse().
@@ -15282,7 +15373,12 @@ function lotRows(key) {
 function coresBySublot(key) {
   const out = [[], [], [], []];
   lotRows(key).forEach((r) => {
-    const i = Number(r.sublot) - 1;
+    // sublotIndexOf, not Number(): the cell reads "<lot>-<sublot>" and
+    // Number("1-3") is NaN. The SECOND place that bit when the id gained its
+    // lot prefix, after sublotGmm() - and the one that decides which sublot a
+    // core's density is credited to, so getting it wrong would have paid the
+    // whole lot on empty density banks.
+    const i = (sublotIndexOf(r.sublot) || 0) - 1;
     if (!(i >= 0 && i < 4)) return;
     const v = num(r.pct_solid);
     if (v != null) out[i].push(v);
