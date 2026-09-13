@@ -7185,9 +7185,24 @@ const MP = (() => {
       if (NUM.test(String(a)) && NUM.test(String(b))) return +a === +b;
       return String(a) === String(b);
     }
+    // Excel's logical test. A BLANK cell is FALSE - JS says an object is
+    // truthy, so `IF(Calculations!M1,"Yes","No")` over an empty M1 used to read
+    // "Yes" on a workbook whose own answer is "No" (AMAW's 'Pay Values'!D50 and
+    // F50, found 2026-09-13). Text is #VALUE! in Excel, so it throws and the
+    // cell falls back to Excel rather than banking a guess.
+    function truth(v) {
+      if (isEmpty(v) && v !== '') return false;
+      if (typeof v === 'boolean') return v;
+      if (typeof v === 'number') return v !== 0;
+      const s = String(v).trim().toUpperCase();
+      if (s === 'TRUE') return true;
+      if (s === 'FALSE') return false;
+      if (NUM.test(s)) return +s !== 0;
+      throw new Error('#VALUE! - a logical test on ' + JSON.stringify(String(v)) + ' in ' + formula);
+    }
     function call(name, a) {
       switch (name) {
-        case 'IF':      return a[0] ? a[1] : (a.length > 2 ? a[2] : false);
+        case 'IF':      return truth(a[0]) ? a[1] : (a.length > 2 ? a[2] : false);
         // A non-numeric argument is #VALUE! in Excel. KYTC's own template hits this
         // (its formula tests "N /A" against a cell holding "N / A") and the resulting
         // #VALUE! uploaded fine - but the discipline's rule is "if not used, 0", so

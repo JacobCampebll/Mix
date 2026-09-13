@@ -40,7 +40,13 @@ export function fillForm(overrides) {
   };
   const pickRef = (el, key) => {
     const src = el.dataset.source;
-    const list = (window.state && window.state.ref && window.state.ref[src]) || [];
+    // Bare `state`, not `window.state`: designbook.html declares it with a
+    // top-level `const`, which lands in the global LEXICAL record and never
+    // on `window`. window.state reads undefined and every reference field
+    // would silently go unfilled — which is the same silent-nothing failure
+    // this harness exists to catch, so it must not commit it itself.
+    const st = typeof state !== "undefined" ? state : null;
+    const list = (st && st.ref && st.ref[src]) || [];
     if (!list.length) return null;
     return list[hash(key) % list.length].value;
   };
@@ -60,11 +66,49 @@ export function fillForm(overrides) {
     setVal(el, v); filled++;
   });
 
+  /* The schema, not the markup, says whether a control is a number.
+   *
+   * A row cell renders as a plain <input type="text"> with no inputmode — the
+   * numeric-ness lives in CONFIG.SECTIONS, and rowHTML() re-applies
+   * roundTo(v, CONFIG.DP[key]) on every re-render. So typing "H4725" into a
+   * number column and then re-rendering gives back "4725.00", which is the
+   * page behaving correctly and the harness lying. Ask the schema. */
+  const colDef = (el) => {
+    // Bare `CONFIG` for the same reason as `state` above.
+    const C = typeof CONFIG !== "undefined" ? CONFIG : null;
+    if (!C || !C.SECTIONS) return null;
+    // Array.isArray guards rather than `|| []`: a schema key is not always
+    // the shape its name suggests (CONFIG.LEGACY.TSR.rows is an object of
+    // sheet row numbers), and one wrong assumption here throws inside the
+    // fill and takes the whole check with it.
+    const arr = (x) => (Array.isArray(x) ? x : []);
+    // A section's `rows` is EITHER one row spec or an array of them —
+    // Aggregate Structure declares a bare object, Performance Testing an
+    // array of three. rowsBlockHTML() copes with both and so must this.
+    const rowSpecs = (s) => (Array.isArray(s.rows) ? s.rows : s.rows ? [s.rows] : []);
+    if (el.dataset.field) {
+      for (const s of C.SECTIONS) {
+        for (const f of arr(s.fields)) if (f.key === el.dataset.field) return f;
+        for (const sv of arr(s.sieves)) if (sv.key === el.dataset.field) return { type: "number" };
+      }
+      return null;
+    }
+    if (el.dataset.row && el.dataset.col) {
+      for (const s of C.SECTIONS) {
+        for (const r of rowSpecs(s)) {
+          if (r.key !== el.dataset.row) continue;
+          for (const c of arr(r.columns)) if (c.key === el.dataset.col) return c;
+        }
+      }
+    }
+    return null;
+  };
+
   // ---- Scalars, row cells and the polish matrix ---------------------------
   document.querySelectorAll("[data-field], [data-col], [data-pr]").forEach((el) => {
     if (el.readOnly || el.disabled) return;
     const key = el.dataset.field || el.dataset.pr ||
-                `${el.dataset.row || ""}.${el.dataset.col || ""}.${el.dataset.rowidx || ""}`;
+                `${el.dataset.row || ""}.${el.dataset.col || ""}`;
     const seed = key + ":" + Array.prototype.indexOf.call(el.parentElement ? el.parentElement.children : [], el);
     if (el.type === "checkbox") { el.checked = true; fire(el); filled++; return; }
     if (el.tagName === "SELECT") {
@@ -78,8 +122,19 @@ export function fillForm(overrides) {
       return;
     }
     if (el.type === "date") { setVal(el, "2026-02-19"); filled++; return; }
-    const decimal = el.getAttribute("inputmode") === "decimal";
-    setVal(el, decimal ? String(((hash(seed) % 900) / 10 + 1).toFixed(1)) : "H" + (hash(seed) % 9973));
+    const def = colDef(el);
+    const numeric = (def && def.type === "number") || el.getAttribute("inputmode") === "decimal";
+    // CONFIG.DP is the page's claim about precision, and rowHTML() re-applies
+    // roundTo(v, CONFIG.DP[key]) on EVERY render — so a fill that ignores it
+    // reports a round-trip failure that is really the page obeying its own
+    // rule. CLAUDE.md: "a precision constant is a claim about the whole page,
+    // and it takes one hand-rolled line anywhere to make it false silently."
+    // Type to the same precision the page would store.
+    const C = typeof CONFIG !== "undefined" ? CONFIG : null;
+    // CONFIG.DP is keyed by the FIELD/COLUMN key, not by the composite seed.
+    const dpKey = el.dataset.field || el.dataset.col || "";
+    const dp = C && C.DP && C.DP[dpKey] != null ? C.DP[dpKey] : 1;
+    setVal(el, numeric ? ((hash(seed) % 900) / 10 + 1).toFixed(dp) : "H" + (hash(seed) % 9973));
     filled++;
   });
 
@@ -111,7 +166,7 @@ export function bookProbe() {
     current: [d, p].filter((b) => b && b.getAttribute("aria-current") === "page").length,
     // A second view will need somewhere to say which book is live. Read it if
     // it is there; its absence is not a failure today.
-    stateBook: (window.state && window.state.book) || null,
+    stateBook: (typeof state !== "undefined" && state && state.book) || null,
   };
 }
 

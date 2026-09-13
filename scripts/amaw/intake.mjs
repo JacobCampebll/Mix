@@ -67,6 +67,45 @@
 import { blankLot } from './storage.mjs';
 import { LOT, AGGREGATE, SUBLOT, VERIFY as AVERIFY, GRADATION, CORES, PAY, CALC } from './addresses.mjs';
 import { vmaMinimumFor, airVoidTargetFor } from './pay.mjs';
+import PLANTBOOK_SECTIONS from './sections.mjs';
+
+// ---------------------------------------------------------------------
+// The schema's own key list
+// ---------------------------------------------------------------------
+// `sections.mjs` landed while this was being written, so the lot is seeded
+// with ITS field keys rather than a second set of names — a seeded value
+// under a key the form does not have is invisible, and invisible is this
+// codebase's most expensive failure mode (CLAUDE.md: a value already sitting
+// parsed and never wired to its field "fails silent - the form just keeps
+// asking a human to type something the page already knows").
+//
+// So every seed goes through `put()`, which checks the key against the schema
+// and raises a `schema-drift` warning when it does not find it. Rename a
+// field in sections.mjs and the intake SAYS SO on the next run instead of
+// quietly filling nothing.
+//
+// Note the two families of key. Scalars are prefixed `lot_` (sections.mjs:
+// they share `state.extracted.scalars` with DesignBook's, and `county` /
+// `total_tons` / `binder_grade` would otherwise be one key holding two
+// different records' values). Row COLUMN keys are deliberately not prefixed.
+// And the gradation's seven columns key as `${col}_${sieve}` — `jmf_s50` —
+// which is RENDERER GAP (3) in sections.mjs and is carried here in the shape
+// that gap will fill.
+const SCHEMA = (() => {
+  const fields = new Set(), rows = new Map(), readouts = new Set();
+  for (const s2 of PLANTBOOK_SECTIONS) {
+    for (const f of s2.fields || []) {
+      if (f.key) fields.add(f.key);
+      if (f.type === 'readout' && f.out) readouts.add(f.out);
+    }
+    for (const sv of s2.sieves || [])
+      for (const c of s2.columns || [{ key: null }])
+        fields.add(c.key ? `${c.key}_${sv.key}` : sv.key);
+    const rs = Array.isArray(s2.rows) ? s2.rows : s2.rows ? [s2.rows] : [];
+    for (const r of rs) rows.set(r.key, new Set((r.columns || []).map((c) => c.key)));
+  }
+  return { fields, rows, readouts };
+})();
 
 // ---------------------------------------------------------------------
 // What a DesignBook payload is
@@ -449,7 +488,13 @@ export function lotFromApproval(payload, opts = {}) {
   const checks = approvalChecks(payload);
   if (!checks.ok) return { ok: false, lot: null, report: null, checks };
 
-  const lotNumber = opts.lotNumber == null ? 1 : Number(opts.lotNumber);
+  // Which lot of the contract this is. The approval cannot know - it is a
+  // design, and a design runs for many lots - so the caller supplies it and a
+  // defaulted 1 is reported as something still to confirm rather than as a
+  // fact. It matters more than it looks: lot 1 sublot 1 carries the
+  // "*For Sublot # 1 Only" allowance and nothing else on the job ever does.
+  const lotNumberGiven = opts.lotNumber != null;
+  const lotNumber = lotNumberGiven ? Number(opts.lotNumber) : 1;
   const verification = opts.verification || notChecked();
 
   const v = payload.values || {};
@@ -467,16 +512,29 @@ export function lotFromApproval(payload, opts = {}) {
   // A field the approval supplied. `to` is the AMAW cell it will fill, from
   // addresses.mjs, so the report is checkable against the workbook rather
   // than being a list of our own names for things.
-  const take = (key, value, from, to, note) => {
+  // `key` is the schema's own field key wherever the value lands on a form
+  // field; `checkKey` false for the handful that live in `values.design`
+  // instead (the three readouts and the structures under them), which are
+  // read by recompute() rather than typed into a box.
+  const seeded = {};
+  const put = (key, value, checkKey) => {
+    if (checkKey !== false && !SCHEMA.fields.has(key) && !SCHEMA.readouts.has(key))
+      warnings.push({ code: 'schema-drift',
+        message: `The intake seeds "${key}", which sections.mjs no longer has. That value will not reach the form.` });
+    if (SCHEMA.fields.has(key)) seeded[key] = value;
+  };
+  const take = (key, value, from, to, note, checkKey) => {
     if (value == null || value === '') return null;
     inherited.push({ key, value, from, to: to || null, ...(note ? { note } : {}) });
     sources[key] = `${sourceLabel(a)} · ${from}`;
+    put(key, value, checkKey);
     return value;
   };
-  const derive = (key, value, how, to) => {
+  const derive = (key, value, how, to, checkKey) => {
     if (value == null || value === '') return null;
     derived.push({ key, value, how, to: to || null });
     sources[key] = `${sourceLabel(a)} · derived: ${how}`;
+    put(key, value, checkKey);
     return value;
   };
   const needsTyping = (key, to, why, blocks) =>
@@ -698,8 +756,9 @@ export function lotFromApproval(payload, opts = {}) {
     'Gradation, Volumetrics or Visual. It decides which pay schedule runs at all.', ['pay']);
   needsTyping('density_option', cell(CALC.sheet, CALC.densityOption), 'A or B. Option B pays no lane density.', ['pay']);
   needsTyping('joint_density', cell(CALC.sheet, 'H11'), 'Whether joint density counts on this lot.', ['pay']);
-  needsTyping('lot_number', cell(LOT.sheet, LOT.lotNumber),
-    'Which lot of this contract this is. Lot 1 sublot 1 carries the "*For Sublot # 1 Only" allowance and nothing else ever does.', ['pay']);
+  if (!lotNumberGiven)
+    needsTyping('lot_number', cell(LOT.sheet, LOT.lotNumber),
+      'Defaulted to 1. Lot 1 sublot 1 carries the "*For Sublot # 1 Only" allowance and nothing else on the job ever does, so confirm it.', ['pay']);
   needsTyping('lot_tons', cell(LOT.sheet, LOT.lotTons),
     `The approval's Tonnage${v.total_tons ? ` (${v.total_tons})` : ''} is the whole CONTRACT quantity, not this lot's.`, ['pay']);
   needsTyping('unit_price', cell(LOT.sheet, LOT.unitPrice), 'The bid price this lot is paid at.', ['pay']);

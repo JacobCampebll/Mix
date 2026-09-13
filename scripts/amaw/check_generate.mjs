@@ -258,39 +258,92 @@ for (const [w, f, got, want] of stagingRest.slice(0, 20))
 //  4. archive parity - every other cell a person filled in
 // ---------------------------------------------------------------------
 //
-// A generated workbook is a record as well as a payload. For a cell the
-// template holds as a FORMULA the question is not "did we cache the value"
-// but "will Excel recompute it to the same thing", so that is what this
-// evaluates - against the generated workbook's own state.
-let aOk = 0, aFormulaOk = 0;
+// A generated workbook is a record as well as a payload: the Applet archives
+// it, and a reviewer opens it. So the question for a cell here is not "did we
+// cache a value" but "what does EXCEL show when it opens this file", which is
+// a different thing for every cell that still carries a formula.
+//
+// excelValue() answers it by modelling exactly that. A generated cell with no
+// <f> is a literal and stands; a cell that kept one is recomputed from it,
+// through the same rule recursively. That also re-checks every keepFormula
+// decision the generator made: a formula kept over inputs we did not write
+// shows up here as a cell that comes back wrong, which is the failure mode
+// this whole exercise exists to prevent.
+//
+// A formula the evaluator cannot compute - VALUE(), AND(), ISNUMBER(), and
+// anything reading one - is NOT a failure: Excel computes it. But it has to
+// be tracked rather than assumed, because a declined dependency reads as
+// blank and yields a plausible wrong answer three formulas later (that is how
+// `Pay Values!E18` comes out empty off a VALUE() in F3). So `unresolved`
+// propagates up through every reference.
+const excelMemo = new Map(), excelBusy = new Set();
+const excelValue = (sheet, ref) => {
+  const k = `${sheet}!${ref}`;
+  if (excelMemo.has(k)) return excelMemo.get(k);
+  if (excelBusy.has(k)) return { v: null, unresolved: true };   // a cycle: decline it
+  const c = genCells(sheet).get(ref);
+  if (!c) return { v: null, unresolved: false };
+  if (!c.f) return { v: genValue(sheet, ref), unresolved: false };
+  excelBusy.add(k);
+  let out;
+  try {
+    let dep = false;
+    const v = evaluate(c.f, (sh, cell) => {
+      const d = excelValue(sh || sheet, cell);
+      if (d.unresolved) dep = true;
+      return d.v;
+    });
+    out = { v, unresolved: dep };
+  } catch { out = { v: null, unresolved: true }; }
+  finally { excelBusy.delete(k); }
+  excelMemo.set(k, out);
+  return out;
+};
+
+let aOk = 0, aRecomputed = 0;
 const aDiffs = [];
 for (const name of src.names) {
   if (STAGING.includes(name) || !src.has(name)) continue;
   for (const [ref, c] of src.cellsOf(name)) {
     if (blank(c.v)) continue;
     const want = src.value(name, ref);
-    const t = tpl.cellsOf(name).get(ref);
-    let got = genValue(name, ref), how = "written";
-    if (t && t.f && !(`${name}!${ref}` in values)) {
-      how = "recalculates";
-      try { got = evaluate(t.f, (sh, cell) => valueOf(sh || name, cell)); }
-      catch { got = null; }
+    const got = excelValue(name, ref);
+    const gc = genCells(name).get(ref);
+    if (same(got.v, want)) { aOk++; if (gc && gc.f) aRecomputed++; }
+    else {
+      // What does the LOT's own formula come to, in the lot's own workbook?
+      // Where that disagrees with the value cached beside it, the cache is
+      // stale and Excel will change it the next time anybody opens the real
+      // file - so our answer is not a difference from Excel, only from a
+      // number nobody has recalculated since KYTC last saved.
+      let lotRecompute;
+      if (c.f) { try { lotRecompute = evaluate(c.f, (sh, cell) => valueOfSrc(sh || name, cell)); } catch {} }
+      aDiffs.push([`${name}!${ref}`, gc && gc.f ? gc.f : "(a literal)", got.v, want,
+                   got.unresolved, c.f || null, lotRecompute]);
     }
-    if (same(got, want)) { aOk++; if (how === "recalculates") aFormulaOk++; }
-    else aDiffs.push([`${name}!${ref}`, t && t.f ? t.f : how, got, want]);
   }
 }
 
 const EXPECTED_ARCHIVE = {
   "a KYTC reference list, deliberately kept at the template's own version (see REFERENCE_SHEETS)":
     (d) => REFERENCE_SHEETS.includes(d[0].split("!")[0]),
-  "a template formula the evaluator declines (outside the grammar); Excel recomputes it on open":
-    (d) => d[2] === null && typeof d[1] === "string" && /[A-Z]+\(/.test(d[1]),
+  "a formula outside this evaluator's grammar, or reading one - Excel recomputes it on open":
+    (d) => d[4],
+  "the lot itself holds an Excel error there":
+    (d) => String(d[3]).startsWith("#"),
+  // The lot is a Version 13.3 workbook and the template is 14.01. Where KYTC
+  // changed a formula between them the template's answer is the current one,
+  // and it is not ours to reproduce - every instance so far is on `AMAMAW`,
+  // the stale dictionary sheet docs/amaw-map.md says not to read.
+  "KYTC changed the formula between the lot's template version and this one":
+    (d) => d[5] && typeof d[1] === "string" && d[5] !== d[1],
+  "the lot's own cached value is stale - its own formula recomputes to what we produce (AMAMAW, the stale dictionary sheet)":
+    (d) => d[6] !== undefined && !same(d[6], d[3]) && same(d[2], d[6]),
 };
 const [archiveBy, archiveRest] = classify(aDiffs, EXPECTED_ARCHIVE);
 
-console.log(`\n--- archive parity (the copy the Applet keeps) ---`);
-console.log(`matching              : ${aOk}   (${aFormulaOk} of them a template formula that recomputes to it)`);
+console.log(`\n--- archive parity (the copy the Applet keeps, as Excel will open it) ---`);
+console.log(`matching              : ${aOk}   (${aRecomputed} of them a formula the generated file recomputes to it)`);
 console.log(`expected differences  : ${aDiffs.length - archiveRest.length}`);
 for (const [why, list] of Object.entries(archiveBy)) console.log(`   ${String(list.length).padStart(4)}  ${why}`);
 console.log(`UNEXPLAINED           : ${archiveRest.length}`);
@@ -304,7 +357,11 @@ const out = OUT || path.join(fs.mkdtempSync("/tmp/amaw-check-"), "generated.xlsm
 packWorkbook({ template: TEMPLATE, parts, out, tmp: fs.mkdtempSync("/tmp/amaw-pack-") });
 
 const entries = (f) => execSync(`unzip -Z1 ${q(f)}`).toString().trim().split("\n").sort();
-const sha = (f, p) => execSync(`unzip -p ${q(f)} ${q(p)} | sha256sum`, { maxBuffer: 1 << 28 })
+// unzip(1) reads [ ] in a member name as a GLOB, so "[Content_Types].xml"
+// matches nothing and comes back empty - which would compare equal to the
+// other empty and quietly pass. Escape them.
+const member = (p) => q(p.replace(/([[\]])/g, "\\$1"));
+const sha = (f, p) => execSync(`unzip -p ${q(f)} ${member(p)} | sha256sum`, { maxBuffer: 1 << 28 })
   .toString().slice(0, 16);
 const tplEntries = entries(TEMPLATE), outEntries = entries(out);
 const missing = tplEntries.filter((p) => !outEntries.includes(p));
