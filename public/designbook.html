@@ -342,6 +342,14 @@
   .section-head a.cite{color:var(--sky); border-color:var(--sky);}
   .section-head a.cite:hover{background:var(--sky); color:var(--navy);}
   .section-head a.cite:focus-visible{outline-color:var(--gold);}
+  /* A citation with no verified page is a chip, not a link - same shape, muted,
+     and with a dashed border so the difference is visible rather than only in
+     the title. PlantBook's three governing sections (403.03.04, 403.03.05,
+     403.05) are the only ones like this; see CLAUDE.md. */
+  span.cite{font-size:10px; font-family:'Roboto Mono',monospace; color:var(--muted);
+            border:1px dashed var(--line); border-radius:3px; padding:2px 7px;
+            letter-spacing:.03em; white-space:nowrap; cursor:help;}
+  .section-head span.cite{color:var(--navy-dim); border-color:var(--navy-hairline);}
   /* Inline in a note or a check result there is no chip - just a link. */
   /* What the type name settles, stated on the column instead of as two rows
      of Yes/No across the whole matrix. */
@@ -383,8 +391,8 @@
        the text. flex-wrap and white-space:normal stay as the fallback: a
        longer citation in a future spec edition wraps rather than overflowing
        the card and pushing the page sideways. */
-    a.cite, .seclookup{font-size:9px; padding:3px 5px;}
-    a.cite{white-space:normal; max-width:100%;}
+    a.cite, span.cite, .seclookup{font-size:9px; padding:3px 5px;}
+    a.cite, span.cite{white-space:normal; max-width:100%;}
     .wide-only{display:none;}
   }
 
@@ -2836,10 +2844,45 @@ const PB_SECTIONS = (() => {
           sub: "from the approved design" },
         { type: "readout", label: "Target air voids (%)", out: "target_va",
           sub: "from the approved design" },
-        { type: "readout", label: "Minimum VMA (%)", out: "min_vma",
-          sub: "from the approved design" },
-      ],
-    },
+          { type: "readout", label: "Minimum VMA (%)", out: "min_vma",
+            sub: "from the approved design" },
+        ],
+        // The AMAW's `Project Items` sheet, A6:C99 - the same sheet, the same
+        // three columns and the same ListObject the MixPack has, so the
+        // pay-estimate lookup transfers whole and this table is DesignBook's
+        // verbatim. It is not decoration: the Spreadsheet Applet expands one
+        // t_cont_smpl row per row on that tab, so a lot with none loads
+        // carrying no project at all, and generate.mjs names exactly that.
+        //
+        // It belongs to the LOT rather than to the approval, because a
+        // contractor fills it from the proposal they bid and a change order
+        // then adds, deletes or re-numbers an item - which is the whole
+        // reason the lookup exists (Jake: "contractors use the proposal and
+        // most of the time it gets outdated and medl and sitemanger wont
+        // accept it"). The button is on the table here and again beside the
+        // stage button on the Status step, because a stale sheet bites at
+        // hand-off rather than back on step 1.
+        rows: {
+          key: "project_items", heading: "Project Items", max: 20, start: 1,
+          sharesKey: "the same sheet, the same ListObject (A6:C99) and the same "
+            + "three columns in the MixPack and in the AMAW - one fact, one name",
+          addLabel: "+ add project item",
+          action: { id: "itemsLookupBtn", note: "itemsLookupNote", key: "items",
+                label: "Look up<span class=\"wide-only\"> project</span> items" },
+          grid: "1.1fr .62fr 2fr .8fr .55fr auto",
+          columns: [
+            // Column A of the sheet. A contract with two routes has a PCN each,
+            // so this is per row.
+            { key: "project",     label: "Project number",  type: "text",   req: true,  mono: true },
+            { key: "line",        label: "Line item",       type: "text",   req: true,  mono: true },
+            // Not written to the workbook - it is how a reviewer sees at a
+            // glance that the line really is this mix.
+            { key: "description", label: "Item description", type: "text",  req: false },
+            { key: "quantity",    label: "Represented qty", type: "number", req: true,  mono: true },
+            { key: "unit",        label: "Unit",            type: "text",   req: false, mono: true },
+          ],
+        },
+      },
 
     {
       // ---------------------------------------------------------------
@@ -3420,6 +3463,17 @@ const PB_SECTIONS = (() => {
  */
 CONFIG.PLANTBOOK_SECTIONS = PB_SECTIONS.SECTIONS;
 Object.assign(CONFIG.REFERENCE.TABLES, PB_SECTIONS.REFERENCE_TABLES);
+// PlantBook's three governing sections join CONFIG.SPECS.CITES so specLink()
+// can find them - a `cites` key it cannot resolve renders the KEY as the chip
+// ("accept403"), which is worse than no chip at all. They carry
+// `verified: false` and no page number on purpose: acceptance, in-place
+// density and the pay schedule have not been opened and read in the real
+// document the way every DesignBook citation was, and a cite chip is a LINK -
+// a link to a guessed page is worse than a chip that says plainly it has not
+// been checked yet. specHref() returns null for them, so they print as plain
+// text. check_sections.mjs prints every one on every run; see "PlantBook
+// shipped with two debts open" in CLAUDE.md for how to close this.
+Object.assign(CONFIG.SPECS.CITES, PB_SECTIONS.CITES);
 
 /* ==================================================================
    LOGIC
@@ -3562,6 +3616,16 @@ function effectiveMix() {
   const size = fieldValue("nominal_size"), letter = fieldValue("mix_type");
   if (size || letter) return { nominal_size: size + letter };
   return state.mix;
+}
+
+// The binder grade, whichever book is asking. Same one-resolver rule as
+// effectiveMix(): PlantBook's scalar keys are prefixed `lot_` (they share
+// state.extracted.scalars with DesignBook's, and `binder_grade` would
+// otherwise be one key holding two different records' values), so a function
+// that reads the bare key answers "" on a lot and the project-items lookup
+// would quietly pick the wrong lines.
+function effectiveBinderGrade() {
+  return fieldValue(isPlantBook() ? "lot_binder_grade" : "binder_grade");
 }
 
 // Current on-screen value of a scalar field, by CONFIG.SECTIONS key.
@@ -4013,6 +4077,9 @@ function specHref(key) {
   const c = CONFIG.SPECS.CITES[key];
   const d = c && CONFIG.SPECS.DOCS[c.doc];
   if (!d) return null;
+  // No page and no named destination is an unverified citation, not a link to
+  // the front of a 703-page PDF.
+  if (c.page == null && !c.dest) return null;
   // A named destination survives a re-issue; a page number does not, so it
   // is the fallback rather than the default. See the CONFIG.SPECS comment.
   return d.url + (c.dest ? `#nameddest=${c.dest}` : `#page=${c.page}`);
@@ -4022,6 +4089,11 @@ function specTitle(key) {
   const c = CONFIG.SPECS.CITES[key];
   const d = c && CONFIG.SPECS.DOCS[c.doc];
   if (!d) return "";
+  // A citation with no page has not been opened and read in the real document
+  // yet. Say that, rather than printing "PDF page null" - the whole reason
+  // these carry no page is that a link to a guessed one is worse than none.
+  if (c.page == null)
+    return `${c.what} · ${d.short} · section not yet page-verified, so this does not link`;
   const where = c.footer ? `page ${c.footer} (PDF page ${c.page})` : `PDF page ${c.page}`;
   return `${c.what} · ${d.short}, ${where} · opens the PDF, ${d.size}`;
 }
@@ -4030,7 +4102,13 @@ function specLink(key, text) {
   const c = CONFIG.SPECS.CITES[key];
   const href = specHref(key);
   const label = text || (c && c.label) || key;
-  if (!href) return esc(label);
+  // Unresolvable but known: print the citation's name as a plain chip with the
+  // reason in its title. Unresolvable and UNKNOWN means the schema names a
+  // cite key that does not exist, and printing the bare key is the loudest way
+  // to say so - it is a typo, not a citation.
+  if (!href) return c
+    ? `<span class="cite unverified" title="${esc(specTitle(key))}">${esc(label)}</span>`
+    : esc(label);
   return `<a class="cite" href="${esc(href)}" target="_blank" rel="noopener noreferrer"
      title="${esc(specTitle(key))}">${esc(label)}</a>`;
 }
@@ -14476,6 +14554,26 @@ async function openApprovalForLot(payload, label) {
 // UNPROVEN IN A BROWSER, and worth saying out loud rather than discovering:
 // no browser-built AMAW has ever been loaded into MEDL, which is the same
 // debt the MixPack still carries.
+// What the AMAW mapper calls `ref`: three lookup FUNCTIONS, not the three
+// lists. It resolves a component's producer to an AGP (or, on a RAP row, an
+// AMP - different registries, see CLAUDE.md) and a type name to its MAT code,
+// and it swallows a throw from any of them, so handing it `state.ref`
+// directly would have produced a workbook missing every producer number with
+// nothing said about it. Built on refMatch(), which is the page's single
+// definition of "this value is that entry" - so a producer spelled the way a
+// real MixPack spells it resolves here exactly as it does in the form.
+function amawRef() {
+  const pick = (source, col) => (v) => {
+    const hit = refMatch(source, v);
+    return hit && hit.row ? hit.row[col] : null;
+  };
+  return {
+    agpFor: pick("aggregates", "agp_number"),
+    ampFor: pick("plants", "amp_number"),
+    matCodeFor: pick("aggregate_types", "mat_code"),
+  };
+}
+
 async function downloadAmaw() {
   const btn = $("amawBtn");
   if (!btn || btn.disabled) return;
@@ -14486,7 +14584,7 @@ async function downloadAmaw() {
   try {
     const lot = lotSnapshot();
     const { bytes, filename, report } = await PB_AMAW.generateAmaw({
-      lot, templateUrl: CONFIG.AMAW_TEMPLATE, ref: state.ref,
+      lot, templateUrl: CONFIG.AMAW_TEMPLATE, ref: amawRef(),
     });
     const name = String(filename || `${lot.mix_id || "AMAW"}.xlsm`).replace(/[^A-Za-z0-9_.-]/g, "");
     saveBytes(bytes, name, "application/vnd.ms-excel.sheet.macroEnabled.12");
@@ -15579,10 +15677,9 @@ function pickProjectItems(items, want) {
 // dropped - the provisional-values rule under "Pages downstream of login".
 function applyProjectItems(data) {
   const spec = rowSpec("project_items");
-  const values = collectForm().values;
   const { rows, mixes, why } = pickProjectItems(data.items, {
     nominal_size: (effectiveMix() || {}).nominal_size,
-    binder_grade: values.binder_grade,
+    binder_grade: effectiveBinderGrade(),
   });
   const src = data.source === "estimate"
     ? `pay estimate ${data.estimate ? data.estimate.number : ""}${data.estimate && data.estimate.final ? " (final)" : ""}`

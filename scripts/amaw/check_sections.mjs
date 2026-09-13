@@ -294,7 +294,22 @@ for (const s of S) {
     // A row spec key is the data-rowlist attribute and the payload's table
     // name - both global on the page, both global in the envelope.
     claim(rowKeys, spec.key, at, "E", "row table key");
-    if (DB_ROW_KEYS.has(spec.key)) fail("E", `${where} collides with a DesignBook row table key`);
+    // Colliding with a DesignBook row table is an error UNLESS the spec says
+    // in so many words that the collision is the point. `sharesKey` is that
+    // sentence, and it takes a reason rather than a `true`: the only case it
+    // exists for is `Project Items`, which is literally the same sheet with
+    // the same ListObject and the same three columns in the MixPack and in
+    // the AMAW, so one name for it is right and two would be the drift this
+    // whole file is about. Nothing is waived quietly - every declared share
+    // is printed on every run, the same way an unverified citation is, and
+    // the two books never render at once so the data-rowlist attribute is
+    // still unique in the document.
+    if (DB_ROW_KEYS.has(spec.key)) {
+      if (typeof spec.sharesKey === "string" && spec.sharesKey.trim())
+        notes.push(`${where} deliberately shares DesignBook's key - ${spec.sharesKey}`);
+      else
+        fail("E", `${where} collides with a DesignBook row table key`);
+    }
     if (!Array.isArray(spec.columns) || !spec.columns.length) { fail("G", `${where} has no columns`); continue; }
 
     // D. The renderer writes `grid-template-columns:${spec.grid}` inline on

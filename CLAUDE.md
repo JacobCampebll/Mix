@@ -1116,24 +1116,193 @@ TBD — cite the governing spec section when encoding a limit in code.
   Also: both real lots leave `'Pay Values'!B3` blank, so `t_smpl.smpl_id` is
   empty in both - read that as "not ready to hand off", not as a read failure.
 
-- **PlantBook's parts are built and verified; nothing is wired into the page
-  yet** (2026-09-13). Every piece lives in `scripts/amaw/` and each has a
-  checker beside it that runs against Jake's two real lots. What passes today:
-  `pay.mjs` 127/127 workbook cells, `mapper.mjs` 455 and 480 matching with 0
-  unexplained, `generate.mjs` producing a valid 819 KB .xlsm with
-  `vbaProject.bin` and `xl/xmlMaps.xml` byte-identical, the AMAW evaluator
-  6712/0, `addresses.mjs`, `sections.mjs`, `payview.mjs` and `intake.mjs`. The
-  book switch is still `disabled` and both `built: false` flags are still
-  false, so none of it can reach a person.
-  **`scripts/amaw/harness/run.mjs` is the regression suite for the splice** -
-  136 passing, 12 skipped, and every skip is gated on one fact
-  (`#bookPlant.disabled`), so nothing needs editing when PlantBook lands. It
-  defends the traps this file already records: measuring inside a hidden step,
-  `documentElement.scrollWidth` at 390px, the `#valBlock` park, one-id-one-
-  element, visible-position numerals, `collectForm()` round-trip. Per-input
-  clipping compares against `harness/baseline/clipping.json` rather than zero,
-  because this file is explicit that some clipping is accepted and unfixable -
-  a check that failed on the RAP note would simply get turned off.
+- **PlantBook is spliced in and live as of 2026-09-13** - the book switch in
+  DesignBook's appbar works, `built: false` is gone from `portal.html` and
+  `login.html`, and `designbook.html?book=plantbook` opens a lot. What follows
+  is what a second reader needs to know about it; the note it replaces
+  described the parts before they were wired.
+  **The page carries four namespaces, `PB_SECTIONS` / `PB_PAY` / `PB_AMAW` /
+  `PB_LOT`, each a verbatim port of modules under `scripts/amaw/`, and each
+  defining exactly ONE top-level name.** That is not tidiness. Half a dozen of
+  those modules export the same bare names as each other and as this page -
+  `BLOCKS`, `STAGING`, `UNCLASSIFIED`, `MCL`, `A`, `escapeHTML` - and a
+  top-level `const` collision is not a runtime error anyone can see: it is a
+  `SyntaxError` at script-instantiation time, so not one line of the inline
+  script runs and the page sits on its static markup forever. That is the
+  `supabase`/`sb` gotcha above, and a namespace is what keeps every later
+  splice clear of it. **Add the next module as its own `PB_*` namespace; never
+  hoist a name out of one.** Cross-namespace references bind LAZILY (inside
+  the function that uses them, or at the use site) because the four are
+  `const`s and an eager reference to a later one throws a TDZ error at
+  construction - which the drift checker asserts stays true.
+  **`scripts/amaw/check_page_plantbook.mjs` is what stops the page and the
+  modules drifting**, the same job `scripts/mixpack/check_page_engine.mjs`
+  does for the MixPack engine, and it reads like it. It lifts each block out
+  of the page by its banner comment, evaluates all four in one `vm` context
+  with no DOM, and runs the real assertions against the modules rather than
+  diffing text: 152 pass / 0 fail / 1 skip against Jake's two real lots. The
+  one skip is `generateAmaw()` end to end, which needs `MP`, `fflate` and the
+  blank template; its pure parts are checked and the output says which part is
+  not. **Run it after touching either copy.** It has been watched failing -
+  perturbing one number inside `PLANTBOOK PAY` reports two drifts and exits 1;
+  a missing banner is a fatal saying "Nothing was checked". One divergence is
+  asserted as INTENDED rather than reported as drift: the page's copy of
+  `sections.mjs` has `isRapRow` deleted, because it calls the page's own.
+  **The schema lives in `scripts/amaw/sections.mjs` AND in the page, and an
+  edit owes both.** `check_sections.mjs` runs against the module;
+  `check_page_plantbook.mjs` proves the page matches it.
+  **`scripts/amaw/harness/run.mjs` is the regression suite** - 275 passing, 0
+  failing, 3 skipped (the Polish-Resistant cases, which are DesignBook's
+  rule), with `HARNESS_LIBS` pointed at a `node_modules` carrying pdf-lib so
+  both books' review-PDF round trip runs. It was 136/12 with everything
+  PlantBook skipped. It defends the traps this file already records:
+  measuring inside a hidden step, `documentElement.scrollWidth` at 390px, the
+  `#valBlock` park, one-id-one-element, visible-position numerals,
+  `collectForm()` round-trip. Per-input clipping compares against
+  `harness/baseline/clipping.json` rather than zero, because this file is
+  explicit that some clipping is accepted and unfixable - a check that failed
+  on the RAP note would simply get turned off.
+  **Three checks in that harness had assumed one book and had to be taught
+  there are two** - worth knowing as a class, because all three failed in the
+  direction that makes the PAGE look wrong: `fillForm()`'s `colDef()` read
+  `CONFIG.SECTIONS` unconditionally, so every PlantBook number column got the
+  junk string a text column gets and `rowHTML()`'s `roundTo()` then turned
+  "H1758" into "1758.000" on the next render; the XSS probe was parked in
+  `rap_note`, which a lot does not have, so it read back `null` and reported a
+  mangled string when nothing had been escaped at all; and the Polish
+  assertion was passing one of its three cases by ACCIDENT, expecting hidden
+  and getting hidden because there was nothing to hide.
+
+- **The book switch is a re-render, not a navigation, and three things about
+  that are load-bearing** (2026-09-13). CLAUDE.md has had DesignBook and
+  PlantBook as two views of one page from the start; this is what that costs.
+  `#valBlock` is ONE node for both books and survives only because the switch
+  goes through `renderForm()`, which already parks it in `#valPark` - do not
+  "optimise" it into an `innerHTML` on `#dbLayout`, or every later
+  `msg($("saveMsg"), ...)` writes to nothing, silently. Every id in the two
+  schemas is distinct, which is why PlantBook's status step is `lot-status`
+  and not `status`. And the off-screen book is held in `state.books` in
+  `renderForm()`'s own seed shape (`{scalars, tables}` - `collectForm()`'s
+  `{values, rows}` under its other name), so a switch away and back is
+  byte-identical rather than approximately so: a person who fills in a lot,
+  looks at the design it was produced under, and comes back to a blank lot
+  does not file a bug, they stop using it. Same rule as the Polish section's -
+  hidden, never removed.
+  **`activeSections()` is the single answer to "which schema is on screen"**,
+  and every renderer, the rail, the step machinery and `collectForm()` read
+  it. The three `CONFIG.SECTIONS` left in `buildReviewPDF()` are deliberate:
+  the review sheet is DesignBook's document.
+  **The cert gate is the ACTIVE book's capability**, not a hardcoded
+  `can_access_designbook`, because every page here is directly linkable and a
+  gate applied only to the link that navigates here is not a gate.
+  `login.html`'s `destination()` now picks a book the account can actually
+  open - defaulting to DesignBook was right while it was the only one built
+  and would now land a Plant-Tech-only technician on a Portal that bounces
+  them, which reads as a broken sign-in rather than as a certification they do
+  not have.
+
+- **PlantBook's front door is the approval upload, and the Portal gives it a
+  door rather than the four-step wizard.** Jake, 2026-09-13: "the start of
+  every plant book will be uploading an approval from design book". The
+  wizard exists to establish a contract, a plant and a mix before the form
+  opens; a lot inherits all three from the approved design, so asking here
+  would be asking twice and letting the two answers disagree. The approval
+  also carries the three figures the pay calculation is measured against -
+  **JMF %AC, the air-void target and the minimum VMA** - which is what makes
+  the pay step computable at all rather than merely convenient. Those three
+  are READOUTS, not fields: a signature that covers a value and a form that
+  lets someone retype it are contradictory, and a typed JMF %AC is a silent
+  four-figure error on one lot. And because the approval is signed,
+  `verify-approval` turns the front door into a real gate - a design KYTC
+  never approved, or one edited after approval, is refused there rather than
+  three steps later. The verification's answer is CARRIED, never assumed: a
+  check that could not be made reads as not-checked, which is a different
+  thing from failed and from passed, and all three print differently.
+  A lot's own working copy is a `.json` rather than a PDF, and reopens through
+  the same door. There is no one-page document a lot IS - its document is the
+  AMAW, and half-finished is exactly when you cannot generate one yet.
+
+- **Two things about painting Lot Pay that will look like bugs if you
+  "fix" them.** A pay value can be the STRING `"MCL"` - material control
+  limit, a real state rather than an error and emphatically not a zero: the
+  lot has left the pay schedule and become a conversation with the Department,
+  and anything that coerces it to a number turns a conversation into a
+  deduction. And a property that has not been tested is `null`, which must
+  never become 0 - an untested joint is not a free deduction, it is not a
+  deduction at all. `PB_PAY.payWarnings()` is the single producer of the
+  rail's pay warnings; the page does not invent a second opinion about a
+  figure it did not compute.
+  **`% solid` is the one computed core column** and is `Cores!I`'s own
+  formula, `density / (sublot Gmm x 62.4) x 100`, written only when both
+  inputs are present. 62.4 is KYTC's number, not a rounding of 62.428 - a lot
+  has to agree with the workbook it will be loaded from. The sublot's Gmm is
+  read off the sublot volumetrics row rather than held twice: `Cores!C10`
+  reads `Superpave!D42` and `Superpave!I14` reads the same cell.
+  **The weight column beside each value is NOT the old `.dvtable.two`
+  variant coming back.** That one printed the uploaded MixPack's own stated
+  figure beside the computed one, and this file is explicit that restoring it
+  for DesignBook would revert Andrew's "the calculated value is gospel"
+  decision. A weight is part of the arithmetic, not a second opinion about the
+  same number, so it has its own variant and its own CSS - do not merge them.
+
+- **`public/AMAW_VER14_01.xlsm` is served now**, beside the MixPack template,
+  and `.gitignore` carries a second `!public/` exception for it - the rule
+  already anticipated this in so many words. 14.01 is KYTC's current public
+  download; Jake's two real lots are 13.3, and all 85 dictionary rows and
+  every staging dimension are identical across 13.3 / 13.04 / 14.01, so the
+  newer template is the right base for a lot checked against the older files.
+  **Still owed, and unchanged by the splice: no browser-built AMAW has ever
+  been loaded into MEDL**, the same debt the MixPack carries.
+
+- **What the splice did NOT wire, stated rather than left to be discovered.**
+  **`PB_LOT.createLotStore()` is in the page and nothing calls it.** Jake asked
+  for persistence built both ways (local and Supabase) until he has talked to
+  Tate and Andrew, and both backends are there behind one factory - but the
+  shipped model is the one DesignBook already uses: the file is the record.
+  A lot's working copy is a `.json` download and reopening it is the same
+  front door. `supabase/amaw_lots.sql` is DDL for Andrew to apply and **has
+  not been applied**; nothing in the page reads or writes those tables, so
+  applying it changes nothing until the store is wired.
+  **Who may generate the AMAW is an open question for Jake.** DesignBook's
+  MixPack button is reviewer-only, because a contractor never loads
+  SiteManager, and `sections.mjs` carried that over to this step by analogy.
+  It is NOT gated that way as built: the AMAW is the contractor's own
+  document - "what contractors fill out during a project of paving", and the
+  lot pay it computes is "a major part of the sheet" for them - so anyone
+  holding the lot can download it. Worth confirming rather than assuming
+  either way.
+  **The `ref` the AMAW mapper takes is three FUNCTIONS, not three lists**
+  (`agpFor`, `ampFor`, `matCodeFor`), and it swallows a throw from any of
+  them - so handing it `state.ref` directly produces a workbook missing every
+  producer number with nothing said about it. `amawRef()` in the page builds
+  them over `refMatch()`, which is the single definition of "this value is
+  that entry", so a producer spelled the way a real MixPack spells it
+  resolves for the workbook exactly as it does in the form.
+
+- **A row table key may now be shared between the books, but only out loud.**
+  `check_sections.mjs` fails a PlantBook row table whose key collides with a
+  DesignBook one - the key is the `data-rowlist` attribute and the payload's
+  table name - unless the spec declares `sharesKey: "<reason>"`, which takes a
+  sentence rather than a `true` and is PRINTED on every run beside the
+  unverified citations. Exactly one table uses it: `project_items` is
+  literally the same sheet with the same ListObject (A6:C99) and the same
+  three columns in the MixPack and in the AMAW, so one name for it is right
+  and two would be the drift the file exists to catch. The two books never
+  render at once, so the attribute is still unique in the document.
+
+- **Two layout findings from the splice, both measured rather than
+  eyeballed.** **Inside an `overflow-x` container, `width:100%` is not a
+  width, it is a squeeze.** `table.sievetable` sets it, which is right for
+  DesignBook's two columns and wrong for a lot's eight: at 360px it gave every
+  sieve input 40px and every value clipped inside a container that was
+  supposed to be scrolling instead. 89 clipped inputs at 390px, 2 after
+  `.gradwrap.wide table.sievetable{width:auto; min-width:100%}`. And **the
+  verification table's Record column holds a 28-character caption that does
+  not fit its track, and widening the track was tried and reverted** - 2.4fr
+  took the width straight out of Gmm, Va, VMA and Pbe, which are figures a
+  person reads rather than a caption they already know. It clips, says the
+  whole thing in its `title`, and is recorded in the baseline: the same
+  conclusion this file reached for the producer name.
 
 - **Three live bugs found while building PlantBook, all in DesignBook or in
   KYTC's own workbook, all now fixed or recorded:**
@@ -1158,12 +1327,17 @@ TBD — cite the governing spec section when encoding a limit in code.
   that list now runs to row 140 and `AMP070302` sits at row 130, so Boonesboro
   can never resolve. The mapper notes it rather than working around it.
 
-- **Two PlantBook questions for Andrew and Tate, neither guessable:**
-  **The two books spell a mix id differently.** Both real AMAWs carry five
-  digits whose tail is the pay item code (`00385`); `canonical.mjs` issues
-  eight (`00260467`). `intake.mjs` carries the value verbatim with a
-  `mix-id-shape` warning rather than inventing a transform, but something has
-  to give before a generated AMAW loads into MEDL.
+- **SETTLED 2026-09-13 (Jake): the mix id is EIGHT digits.** Both real AMAWs
+  carry a five-digit lead whose tail is the pay item code (`00385 CL3 ASPH
+  SURF 0.38A PG64-22`) and `canonical.mjs` issues eight (`00260467` for
+  #467PA); asked which shape MEDL expects, and the answer is eight. So
+  DesignBook's id is carried through untouched, the five-digit form on the two
+  real lots is read as the older shape rather than as the standard, and
+  `intake.mjs`'s `mix-id-shape` warning is gone. **The pay item code stays its
+  own field** (`'Pay Values'!D3`), because it always was one - the five-digit
+  form merely happened to end in it.
+
+- **One PlantBook question still open for Andrew and Tate, not guessable:**
   **An MCL air void or VMA on sublot 1 of lot 1 pays 100%.** `'Pay Values'!G13`
   is `IF(AND(F3=1,AH9>=90),100,AH9)` and in Excel a text value outranks every
   number, so `"MCL" >= 90` is true. Reproduced because it is what every lot
@@ -1175,11 +1349,30 @@ TBD — cite the governing spec section when encoding a limit in code.
   `J23`/`J24` multiply the UNCAPPED figure and both real lots were paid
   uncapped. Lot 2's +$1,312.50 may or may not be what KYTC actually pays.
 
-- **Still owed before PlantBook could ship**, both stated rather than hidden:
-  `sections.mjs` carries **nine spec citations that are UNVERIFIED** - inferred
-  rather than opened and read in the real document, which is not the standard
-  every DesignBook citation was held to - and no browser-built AMAW has ever
-  been loaded into MEDL, the same debt the MixPack still carries.
+- **PlantBook shipped with two debts open, deliberately** (Jake, 2026-09-13:
+  "Let's get it built we can change that after"), and both are stated here
+  rather than hidden in the code.
+  **`sections.mjs` carries three spec citations that are UNVERIFIED** -
+  `accept403` (KYTC 403.03.04), `density403` (403.03.05) and `pay403`
+  (403.05), cited from eight sections between them - inferred rather than
+  opened and read in the real document, which is not the standard every
+  DesignBook citation was held to. They carry `verified: false` and NO page
+  number, because a cite chip is a link and a link to a guessed page is worse
+  than no chip, and `check_sections.mjs` prints every one of them on every
+  run. **They are merged into `CONFIG.SPECS.CITES` all the same**, because a
+  `cites` key `specLink()` cannot resolve renders the KEY as the chip
+  ("accept403"), which is worse than either - so the page draws them as a
+  muted, dashed, non-linking `span.cite` whose title says "section not yet
+  page-verified, so this does not link". A key that resolves to NOTHING still
+  prints bare, deliberately: that is a typo, not a citation, and the loudest
+  way to say so. To close it: open the 2026 Standard
+  Specifications, record each section's PHYSICAL page and its section-relative
+  footer ("403-7"), and move the entry into `CONFIG.SPECS.CITES`. The book has
+  no named destinations and no running page numbers, which is why the footer
+  is recorded too - it is how you re-find the page in one search when the next
+  edition moves it.
+  **No browser-built AMAW has ever been loaded into MEDL**, the same debt the
+  MixPack still carries.
 
 ### Technician login & plant access
 

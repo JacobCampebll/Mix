@@ -321,10 +321,45 @@ export const PLANTBOOK_SECTIONS = [
         sub: "from the approved design" },
       { type: "readout", label: "Target air voids (%)", out: "target_va",
         sub: "from the approved design" },
-      { type: "readout", label: "Minimum VMA (%)", out: "min_vma",
-        sub: "from the approved design" },
-    ],
-  },
+        { type: "readout", label: "Minimum VMA (%)", out: "min_vma",
+          sub: "from the approved design" },
+      ],
+      // The AMAW's `Project Items` sheet, A6:C99 - the same sheet, the same
+      // three columns and the same ListObject the MixPack has, so the
+      // pay-estimate lookup transfers whole and this table is DesignBook's
+      // verbatim. It is not decoration: the Spreadsheet Applet expands one
+      // t_cont_smpl row per row on that tab, so a lot with none loads
+      // carrying no project at all, and generate.mjs names exactly that.
+      //
+      // It belongs to the LOT rather than to the approval, because a
+      // contractor fills it from the proposal they bid and a change order
+      // then adds, deletes or re-numbers an item - which is the whole
+      // reason the lookup exists (Jake: "contractors use the proposal and
+      // most of the time it gets outdated and medl and sitemanger wont
+      // accept it"). The button is on the table here and again beside the
+      // stage button on the Status step, because a stale sheet bites at
+      // hand-off rather than back on step 1.
+      rows: {
+        key: "project_items", heading: "Project Items", max: 20, start: 1,
+        sharesKey: "the same sheet, the same ListObject (A6:C99) and the same "
+          + "three columns in the MixPack and in the AMAW - one fact, one name",
+        addLabel: "+ add project item",
+        action: { id: "itemsLookupBtn", note: "itemsLookupNote", key: "items",
+              label: "Look up<span class=\"wide-only\"> project</span> items" },
+        grid: "1.1fr .62fr 2fr .8fr .55fr auto",
+        columns: [
+          // Column A of the sheet. A contract with two routes has a PCN each,
+          // so this is per row.
+          { key: "project",     label: "Project number",  type: "text",   req: true,  mono: true },
+          { key: "line",        label: "Line item",       type: "text",   req: true,  mono: true },
+          // Not written to the workbook - it is how a reviewer sees at a
+          // glance that the line really is this mix.
+          { key: "description", label: "Item description", type: "text",  req: false },
+          { key: "quantity",    label: "Represented qty", type: "number", req: true,  mono: true },
+          { key: "unit",        label: "Unit",            type: "text",   req: false, mono: true },
+        ],
+      },
+    },
 
   {
     // ---------------------------------------------------------------
