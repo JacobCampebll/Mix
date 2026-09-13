@@ -1218,9 +1218,12 @@ TBD — cite the governing spec section when encoding a limit in code.
   three steps later. The verification's answer is CARRIED, never assumed: a
   check that could not be made reads as not-checked, which is a different
   thing from failed and from passed, and all three print differently.
-  A lot's own working copy is a `.json` rather than a PDF, and reopens through
-  the same door. There is no one-page document a lot IS - its document is the
-  AMAW, and half-finished is exactly when you cannot generate one yet.
+  A lot's own working copy reopens through the same door - as a `.json` or,
+  since 2026-09-13, as a lot PDF. **The sentence this replaces said a lot's
+  working copy "is a `.json` rather than a PDF" because "there is no one-page
+  document a lot IS"; Jake asked for the PDF and the reasoning was half
+  wrong** - see the lot-PDF entry below. The half that stands is the AMAW:
+  half-finished is still exactly when you cannot generate one of those.
 
 - **Two things about painting Lot Pay that will look like bugs if you
   "fix" them.** A pay value can be the STRING `"MCL"` - material control
@@ -1974,6 +1977,91 @@ TBD — cite the governing spec section when encoding a limit in code.
   had no path to a cell until this.
   Not seeded on the two verification records, deliberately: the Department
   states its own method, and inheriting the plant's would be inventing it.
+
+- **A lot saves as a PDF and submits as one, the same way a design does**
+  (Jake, 2026-09-13: "if you want to save you can generate a pdf at any point
+  and save what you have similar to the design book... when you want to submit
+  you make a pdf and you will email it to tate and andrew"). Three buttons on
+  the Submit step now: **Download lot PDF** (the save, at any point),
+  **Download working copy (.json)**, and the AMAW. Closing the lot then
+  pressing Submit stamps it, freezes what was stamped, downloads
+  `PlantBook_submittal_<cid>_lot<n>_<mixid>_<date>.pdf` and names Andrew and
+  Tate - the technician sends it.
+  **The server stays out of the mail path**, the same conclusion this file
+  already records for DesignBook and for the same reason: a provider
+  authenticates by DKIM records in a domain you control, this is KYTC's system
+  rather than a contractor's, and nobody can add DNS records to `gmail.com`, so
+  sending as `@ky.gov` would need the Commonwealth Office of Technology to
+  authorise a third-party sender. **And the same tradeoff: a lot submittal is
+  UNSIGNED.** Whoever is signed in is stamped on it; nothing proves it was not
+  edited afterwards. Only a DesignBook approval is signed, and a lot INHERITS
+  that signature rather than issuing one - which is why the lot PDF's header
+  prints the approval's own verification state (`passed` / `failed` /
+  `not-checked`) rather than a code of its own, and why a lot is **Accepted**
+  and never "Approved".
+  **`buildReviewPDF()` lays out whichever book the PAYLOAD names**, not
+  `state.book` - it is also handed a frozen submittal stamped in an earlier
+  session, and the file is what says what it is. `handoffPayload()` writes
+  `book` for exactly that. A payload from before this change carries none,
+  which reads as DesignBook, which is what all of them are. CLAUDE.md used to
+  say "the three `CONFIG.SECTIONS` left in `buildReviewPDF()` are deliberate";
+  there are none left there now. `buildApprovalPDF()` still names it twice and
+  correctly - only a design is ever approved.
+  **Most of PlantBook prints through the generic path already in that
+  function** (grid pairs + row tables), because PlantBook's section ids are
+  disjoint from DesignBook's by construction. Three needed a bespoke
+  `RENDER` entry and each for a different reason worth knowing:
+  `jmf-figures`, because its three values are READOUTS and are not in
+  `values` at all (they are on the lot's `values.design`); `pay`, because it
+  is computed and is likewise in no field - `handoffPayload()` banks it as
+  `lot_pay` when the file is made, and the renderer goes through the page's
+  own `payText()` so an **MCL** stays the string it is and an untested
+  property stays a dash rather than becoming a zero; and `sublot-gradation`,
+  because a multi-column sieve section composes its keys as
+  `${column.key}_${sieve.key}` and only `sievesHTML()` knew that.
+  **`openLotEnvelope()` is the ONE reader for both doors.** A lot comes back
+  as its `.json` or inside a lot PDF's attachment and both carry the same
+  envelope, so they must land in the same place; two readers would be two
+  answers to "what did I just open" and the second would be wrong the first
+  time anybody added a field. **The door routes on `payload.lot`, not on the
+  file name** - a person renames a download and a payload does not rename
+  itself, and getting it wrong is not a small error: reopening an approval AS
+  a lot would silently start a second lot on a design somebody had already
+  produced four thousand tons under.
+  **`state.submitted` is ONE slot shared by both books** (the book switch is a
+  re-render, not a navigation), so it is gated on `submittedFor(book)` rather
+  than on merely existing - otherwise a lot submitted this session offers
+  itself on DesignBook's Status step and rebuilds as a design. Opening another
+  lot clears it, because a frozen submittal from the previous lot would be the
+  right file under the wrong lot with nothing on screen saying so.
+  Verified end to end in a real browser rather than by reading: a lot PDF
+  built from a real approval round-trips `values`, `rows` AND the whole `lot`
+  envelope byte-identically, reopens through `startLotFromPDF()` with a marker
+  value intact, and the printed sheet carries all eight steps - the pay table
+  included, with its "no weights defined ... pays 0 on every property" note.
+
+- **The approval's three figures are on Lot Pay now, not on Contract & Mix**
+  (Jake, 2026-09-13: "take the jmf ac, target av and minimum vma off the
+  contract and mix tab"). They are not contract facts and not mix facts - they
+  are the three constants the pay schedule is measured against - so they sit
+  beside the pay they produce, as `jmf-figures`, an `into: "pay"` sub-block on
+  the same mechanism Consensus Properties uses inside Aggregate Structure.
+  Still READOUTS, for the reason that has not changed: a signature that covers
+  a value and a form that lets someone retype it are contradictory. When the
+  approval is missing they read "—" and the pay above has nothing to compute,
+  which is now said in the place where the emptiness is explained rather than
+  a step and a half away from it.
+  **`check_sections.mjs` had a rule refusing an `into` host with a bespoke
+  body renderer, and the rule was factually WRONG** - `renderForm()` writes
+  `${sectionBodyHTML(s)} ${child}`, so children are SIBLINGS of the body and
+  are appended whatever the type. It was a guess about the renderer, and a
+  guess in a checker is worse than no rule: it refuses a correct schema and
+  reads like a fact. Checked in a browser before it came out.
+  Also that day: the step's rail name capitalises the M ("Contract & Mix"),
+  and **the book switch golds "Plant" in PlantBook** the way it golds "Book"
+  in DesignBook - `<span>Plant</span>Book`, on the existing `.book.on span`
+  rule, so it is gold only while that book is current.
+
 
 ### Technician login & plant access
 

@@ -335,7 +335,7 @@ export const PLANTBOOK_SECTIONS = [
     //  Seeded values follow the provisional-value rule: tinted, with
     //  `state.sources[key]` saying where they came from, never blanked,
     //  never locked.
-    id: "lot", label: "Contract & Mix", step: "Contract & mix",
+    id: "lot", label: "Contract & Mix", step: "Contract & Mix",
     tag: "AMAW · Pay Values header — from the approved design, or typed",
     type: "grid",
     cites: ["jmf", "accept403"],
@@ -509,29 +509,7 @@ export const PLANTBOOK_SECTIONS = [
       // fills it at submission. Read an empty one as "not ready to hand
       // off", not as a read failure, which is why it is optional here.
       { key: "lot_sample_id_prefix", label: "Sample id prefix", type: "text", req: false, mono: true },
-
-      // ---- The three numbers the pay calculation is measured against ----
-      //
-      //  Readouts, not fields, and that is a decision rather than a
-      //  shortcut. These come off the SIGNED approval (CLAUDE.md: "Pay is
-      //  meaningless without them, so the approval upload is what makes the
-      //  pay step computable at all"). A signature that covers a value and a
-      //  form that lets someone retype it are contradictory; a typed JMF %AC
-      //  is a silent four-figure error on one lot. So the page prints them
-      //  from state.approval / the verified payload and carries them into
-      //  the lot envelope from there — they are never read back out of the
-      //  DOM by collectForm().
-      //
-      //  If the approval is missing or its signature does not verify, these
-      //  read "—" and the pay step has nothing to compute, which is the
-      //  honest answer and exactly what should happen.
-      { type: "readout", label: "JMF %AC", out: "jmf_ac",
-        sub: "from the approved design" },
-      { type: "readout", label: "Target air voids (%)", out: "target_va",
-        sub: "from the approved design" },
-        { type: "readout", label: "Minimum VMA (%)", out: "min_vma",
-          sub: "from the approved design" },
-      ],
+    ],
       // The AMAW's `Project Items` sheet, A6:C99 - the same sheet, the same
       // three columns and the same ListObject the MixPack has, so the
       // pay-estimate lookup transfers whole and this table is DesignBook's
@@ -1398,6 +1376,49 @@ export const PLANTBOOK_SECTIONS = [
       { key: "pay_tons",          label: "Pay tonnage",   row: "Tonnage less wedge" },
       { key: "pay_tonnage_adj",   label: "Tonnage adjustment", row: "Tonnage adjustment" },
       { key: "pay_dollar_adj",    label: "Dollar adjustment ($)", row: "Dollar adjustment" },
+    ],
+  },
+
+  {
+    // ---------------------------------------------------------------
+    //  7a. THE THREE FIGURES THE PAY IS MEASURED AGAINST — inside Lot Pay
+    // ---------------------------------------------------------------
+    //
+    //  Moved here from the Contract & Mix step on 2026-09-13 (Jake: "take
+    //  the jmf ac, target av and minimum vma off the contract and mix
+    //  tab"). They are not contract facts and they are not mix facts — they
+    //  are the three constants the pay schedule is measured against, so they
+    //  belong beside the pay they produce rather than on the step a person
+    //  fills in first. `into` puts them there without making them a step of
+    //  their own, the same mechanism Consensus Properties uses inside
+    //  Aggregate Structure.
+    //
+    //  READOUTS, NOT FIELDS, and that is a decision rather than a shortcut.
+    //  They come off the SIGNED approval (CLAUDE.md: "Pay is meaningless
+    //  without them, so the approval upload is what makes the pay step
+    //  computable at all"). A signature that covers a value and a form that
+    //  lets someone retype it are contradictory; a typed JMF %AC is a silent
+    //  four-figure error on one lot. So the page prints them from
+    //  state.approval / the verified payload and carries them into the lot
+    //  envelope from there — they are never read back out of the DOM by
+    //  collectForm().
+    //
+    //  If the approval is missing or its signature does not verify, these
+    //  read "—" and the pay above has nothing to compute, which is the
+    //  honest answer and exactly what should happen — and it now reads that
+    //  way in the place where the emptiness is explained rather than a step
+    //  and a half away from it.
+    id: "jmf-figures", label: "From the approved design", into: "pay",
+    tag: "AMAW · the approval's JMF — read-only, and signed",
+    type: "grid",
+    cites: ["jmf"],
+    fields: [
+      { type: "readout", label: "JMF %AC", out: "jmf_ac",
+        sub: "from the approved design" },
+      { type: "readout", label: "Target air voids (%)", out: "target_va",
+        sub: "from the approved design" },
+      { type: "readout", label: "Minimum VMA (%)", out: "min_vma",
+        sub: "from the approved design" },
     ],
   },
 

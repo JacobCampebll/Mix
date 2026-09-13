@@ -190,8 +190,15 @@ for (const s of subs) {
   const host = seenIds.get(s.into);
   if (!host) { fail("B", `section "${s.id}" draws into "${s.into}", which is not a PlantBook section`); continue; }
   if (host.into) fail("B", `section "${s.id}" draws into "${s.into}", which is itself a sub-block — renderForm() only nests one deep`);
-  if (!["grid", "rows"].includes(host.type) && !host.fields && !host.rows)
-    fail("B", `section "${s.id}" draws into "${s.into}", whose type "${host.type}" has a bespoke body renderer and appends no children`);
+  // There used to be a third rule here, refusing a host whose `type` has a
+  // bespoke body renderer ("appends no children"). It was WRONG, and worth
+  // recording as wrong rather than deleting quietly: renderForm() writes
+  // `${sectionBodyHTML(s)} ${child}`, so the children are SIBLINGS of the
+  // body and are appended whatever the type. Checked in a real browser
+  // against `jmf-figures` inside the `computed` Lot Pay step (2026-09-13)
+  // before the rule came out - the sub-block renders and its readouts paint.
+  // The rule was a guess about the renderer, and a guess in a checker is
+  // worse than no rule: it refuses a correct schema and reads like a fact.
   if (s.step) fail("B", `section "${s.id}" has \`into\` and a \`step\` name — a sub-block is not a step, so the name is dead`);
 }
 

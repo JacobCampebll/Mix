@@ -455,7 +455,11 @@ namespace('PB_SECTIONS', '2. PB_SECTIONS vs scripts/amaw/sections.mjs');
 
   // Shape facts worth failing on directly, because a schema that still
   // stringifies identically but has lost a step is a different page.
-  ok('SECTIONS carries ten sections', P.SECTIONS.length === 10, P.SECTIONS.length);
+  // Eleven since 2026-09-13: `jmf-figures` moved the approval's three
+  // figures off the Contract & Mix step and into Lot Pay as an `into`
+  // sub-block. A count rather than a list on purpose - a schema that still
+  // stringifies identically but has lost a section is a different page.
+  ok('SECTIONS carries eleven sections', P.SECTIONS.length === 11, P.SECTIONS.length);
   const ids = P.SECTIONS.map((s) => s.id);
   ok('every section id is unique', new Set(ids).size === ids.length, ids);
   ok('the status step is `lot-status`, not `status` — DesignBook owns that id '

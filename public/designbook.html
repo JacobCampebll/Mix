@@ -125,6 +125,12 @@
         padding:5px 15px; border:0; border-radius:18px; background:transparent; color:var(--muted);
         white-space:nowrap; cursor:pointer; font-feature-settings:inherit;}
   .book.on{background:var(--navy); color:#FFFFFF;}
+  /* The gold word in whichever book is current. DesignBook golds "Book" and
+     PlantBook golds "Plant" (Jake, 2026-09-13: "lets put plant in plant book
+     in yellow similar to book in design book") - which word is marked is the
+     markup's business, this rule only says the current book gets the gold.
+     Scoped to .on deliberately: a gold word on the book you are NOT in reads
+     as the live one. */
   .book.on span{color:var(--gold);}
   .book:disabled{cursor:not-allowed;}
   .mixid{font-family:'Roboto Mono',monospace; font-size:12px; color:var(--muted); white-space:nowrap;}
@@ -966,7 +972,7 @@
       <button type="button" class="book on" id="bookDesign" aria-current="page"
               title="DesignBook - the design view of this page">Design<span>Book</span></button>
       <button type="button" class="book" id="bookPlant" disabled
-              title="PlantBook is the second view of this page — it opens once your certifications load.">PlantBook</button>
+              title="PlantBook is the second view of this page — it opens once your certifications load."><span>Plant</span>Book</button>
     </div>
     <div class="mixid" id="mixid">MIX ID · —</div>
     <div class="pill draft" id="statuspill">Draft</div>
@@ -2941,7 +2947,7 @@ const PB_SECTIONS = (() => {
       //  Seeded values follow the provisional-value rule: tinted, with
       //  `state.sources[key]` saying where they came from, never blanked,
       //  never locked.
-      id: "lot", label: "Contract & Mix", step: "Contract & mix",
+      id: "lot", label: "Contract & Mix", step: "Contract & Mix",
       tag: "AMAW · Pay Values header — from the approved design, or typed",
       type: "grid",
       cites: ["jmf", "accept403"],
@@ -3115,29 +3121,7 @@ const PB_SECTIONS = (() => {
         // fills it at submission. Read an empty one as "not ready to hand
         // off", not as a read failure, which is why it is optional here.
         { key: "lot_sample_id_prefix", label: "Sample id prefix", type: "text", req: false, mono: true },
-
-        // ---- The three numbers the pay calculation is measured against ----
-        //
-        //  Readouts, not fields, and that is a decision rather than a
-        //  shortcut. These come off the SIGNED approval (CLAUDE.md: "Pay is
-        //  meaningless without them, so the approval upload is what makes the
-        //  pay step computable at all"). A signature that covers a value and a
-        //  form that lets someone retype it are contradictory; a typed JMF %AC
-        //  is a silent four-figure error on one lot. So the page prints them
-        //  from state.approval / the verified payload and carries them into
-        //  the lot envelope from there — they are never read back out of the
-        //  DOM by collectForm().
-        //
-        //  If the approval is missing or its signature does not verify, these
-        //  read "—" and the pay step has nothing to compute, which is the
-        //  honest answer and exactly what should happen.
-        { type: "readout", label: "JMF %AC", out: "jmf_ac",
-          sub: "from the approved design" },
-        { type: "readout", label: "Target air voids (%)", out: "target_va",
-          sub: "from the approved design" },
-          { type: "readout", label: "Minimum VMA (%)", out: "min_vma",
-            sub: "from the approved design" },
-        ],
+      ],
         // The AMAW's `Project Items` sheet, A6:C99 - the same sheet, the same
         // three columns and the same ListObject the MixPack has, so the
         // pay-estimate lookup transfers whole and this table is DesignBook's
@@ -4009,6 +3993,49 @@ const PB_SECTIONS = (() => {
 
     {
       // ---------------------------------------------------------------
+      //  7a. THE THREE FIGURES THE PAY IS MEASURED AGAINST — inside Lot Pay
+      // ---------------------------------------------------------------
+      //
+      //  Moved here from the Contract & Mix step on 2026-09-13 (Jake: "take
+      //  the jmf ac, target av and minimum vma off the contract and mix
+      //  tab"). They are not contract facts and they are not mix facts — they
+      //  are the three constants the pay schedule is measured against, so they
+      //  belong beside the pay they produce rather than on the step a person
+      //  fills in first. `into` puts them there without making them a step of
+      //  their own, the same mechanism Consensus Properties uses inside
+      //  Aggregate Structure.
+      //
+      //  READOUTS, NOT FIELDS, and that is a decision rather than a shortcut.
+      //  They come off the SIGNED approval (CLAUDE.md: "Pay is meaningless
+      //  without them, so the approval upload is what makes the pay step
+      //  computable at all"). A signature that covers a value and a form that
+      //  lets someone retype it are contradictory; a typed JMF %AC is a silent
+      //  four-figure error on one lot. So the page prints them from
+      //  state.approval / the verified payload and carries them into the lot
+      //  envelope from there — they are never read back out of the DOM by
+      //  collectForm().
+      //
+      //  If the approval is missing or its signature does not verify, these
+      //  read "—" and the pay above has nothing to compute, which is the
+      //  honest answer and exactly what should happen — and it now reads that
+      //  way in the place where the emptiness is explained rather than a step
+      //  and a half away from it.
+      id: "jmf-figures", label: "From the approved design", into: "pay",
+      tag: "AMAW · the approval's JMF — read-only, and signed",
+      type: "grid",
+      cites: ["jmf"],
+      fields: [
+        { type: "readout", label: "JMF %AC", out: "jmf_ac",
+          sub: "from the approved design" },
+        { type: "readout", label: "Target air voids (%)", out: "target_va",
+          sub: "from the approved design" },
+        { type: "readout", label: "Minimum VMA (%)", out: "min_vma",
+          sub: "from the approved design" },
+      ],
+    },
+
+    {
+      // ---------------------------------------------------------------
       //  8. STATUS — submit / approve
       // ---------------------------------------------------------------
       //
@@ -4169,9 +4196,14 @@ function sieveKey(label) { return "sieve_" + String(label).replace(/[^0-9a-z]/gi
 // THE schema on screen. Every renderer, the validation rail, collectForm()
 // and the step machinery read this rather than CONFIG.SECTIONS directly, so
 // "which book" is answered in exactly one place. Anything still naming
-// CONFIG.SECTIONS is either prose or deliberately DesignBook-only, and the
-// three in buildReviewPDF() are the ones to look at first if a PlantBook
-// document ever comes out looking like a design.
+// CONFIG.SECTIONS is either prose or deliberately DesignBook-only.
+//
+// buildReviewPDF() used to be on that list and is not any more (2026-09-13):
+// it lays out whichever book's schema the PAYLOAD names, because a lot saves
+// and submits as a PDF now too. It reads `payload.book` rather than
+// state.book, since it is also handed a frozen submittal stamped in an
+// earlier session - the file says what it is. buildApprovalPDF() still names
+// CONFIG.SECTIONS twice and correctly: only a design is ever approved.
 function activeSections() {
   return state.book === "plantbook" ? CONFIG.PLANTBOOK_SECTIONS : CONFIG.SECTIONS;
 }
@@ -6929,9 +6961,14 @@ function renderStage() {
   const pib = $("itemsLookupBtnStatus");
   if (pib) pib.classList.toggle("hidden", !state.canReview);
   paintItemsNote();
-  // Only a design that has actually been sent has a submittal to print.
+  // Only a design that has actually been sent has a submittal to print - and
+  // only a DESIGN. `state.submitted` is one slot shared by both books (the
+  // book switch is a re-render, not a navigation), so it is gated on what the
+  // frozen payload says it is rather than on merely existing: a lot submitted
+  // in this session must not offer itself for download on DesignBook's Status
+  // step, where it would rebuild and print as a design.
   const spdf = $("submittalPdfBtn");
-  if (spdf) spdf.classList.toggle("hidden", !state.submitted);
+  if (spdf) spdf.classList.toggle("hidden", !submittedFor("designbook"));
   const rpdf = $("pdfBtn");
   if (rpdf) rpdf.textContent = state.approval ? "Download full design sheet" : "Download review PDF";
   back.disabled = state.saving;
@@ -7700,10 +7737,16 @@ function wireForm() {
     if (isPlantBook()) {
       const next = CONFIG.LOT_STAGES[state.stageIdx + 1];
       if (!next) return;
+      // One of the four steps is a real action rather than a relabelled
+      // counter: submitting stamps the lot, freezes what was stamped, builds
+      // the PDF and hands it over to be emailed (Jake, 2026-09-13). The
+      // others simply step - a lot is not signed, and Accepted is KYTC
+      // recording that they took it.
+      if (next.key === "Submitted") return submitLotToKYTC();
       state.stageIdx += 1;
       state.history = (state.history || []).concat([custodyEntry(`Lot ${next.key.toLowerCase()}`)]);
       renderLotStage();
-      msg($("saveMsg"), `Lot is ${next.key}. Download the working copy - the site keeps nothing.`, "ok");
+      msg($("saveMsg"), `Lot is ${next.key}. Download the lot PDF - the site keeps nothing.`, "ok");
       return;
     }
     const s = CONFIG.STAGES[state.stageIdx];
@@ -7903,13 +7946,36 @@ function handoffPayload(action) {
     ? { sm_id: state.tech.sm_id, name: `${state.tech.first_name} ${state.tech.last_name}`, company: state.tech.company }
     : { sm_id: null, name: null, company: null };
   const prior = Array.isArray(state.history) ? state.history : [];
+  // WHICH BOOK MADE THIS FILE, written down rather than inferred. A lot and a
+  // design have the same shape here - values, rows, history, a stage - and
+  // nothing else in the payload distinguishes them, so a reader guessing from
+  // the field names would be guessing. buildReviewPDF() lays the document out
+  // from this, and handleFile() routes an uploaded PDF from it. A payload made
+  // before 2026-09-13 carries no `book`, which reads as DesignBook - which is
+  // what every one of them is.
+  const plant = isPlantBook();
+  const stages = plant ? CONFIG.LOT_STAGES : CONFIG.STAGES;
   return {
     format: CONFIG.HANDOFF.FORMAT,
     version: CONFIG.HANDOFF.VERSION,
     doc_kind: CONFIG.HANDOFF.DOC.review,
+    book: state.book,
     generated_at: new Date().toISOString(),
     generated_by: who,
-    stage: CONFIG.STAGES[state.stageIdx] ? CONFIG.STAGES[state.stageIdx].key : "Draft",
+    stage: (stages[state.stageIdx] || stages[0]).key,
+    // PlantBook only. THE LOT ENVELOPE IS WHAT REOPENING RESTORES - not
+    // `values`/`rows`, which are only the form's half of it. A lot also
+    // carries its identity, the approval it was opened under and that
+    // approval's verification state, and openLotEnvelope() is the one reader
+    // for both this and the .json working copy, so a lot reopened from a PDF
+    // and a lot reopened from its .json cannot land in two different places.
+    lot: plant && state.lot ? lotSnapshot({ values, rows }) : undefined,
+    // The pay AS COMPUTED WHEN THE FILE WAS MADE. It is not in `values` -
+    // nothing on the pay step is a field - so without this the PDF would
+    // print a lot with no pay on it, which is most of what a lot is for.
+    // Recomputed rather than scraped off the DOM: lotPay() is the single
+    // producer and the page does not get a second opinion about it.
+    lot_pay: plant && state.lot ? lotPayForFile() : undefined,
     job: state.job,
     // Resolved from the plants table at page load. Carried in the file so
     // the header still names the plant when the PDF is reopened before
@@ -7959,6 +8025,16 @@ async function buildReviewPDF(payload) {
 
   const values = payload.values || {}, rows = payload.rows || {};
   const fpv = values.fourpoint || {}, dv = values.design_values || {};
+  // WHICH BOOK'S DOCUMENT THIS IS. Read off the payload rather than off
+  // state.book, because this function is also handed a FROZEN submittal that
+  // was stamped in an earlier session - the file says what it is, the page
+  // does not get to decide after the fact. A payload with no `book` predates
+  // 2026-09-13 and is a design, which is what all of them are.
+  const isLot = payload.book === "plantbook";
+  const SECS = isLot ? CONFIG.PLANTBOOK_SECTIONS : CONFIG.SECTIONS;
+  const lot = payload.lot || null;
+  const lotDes = (lot && lot.values && lot.values.design) || null;
+  const lotPay = payload.lot_pay || null;
   const pages = [];
   let page = null, y = 0, colIdx = 0, colX = 0, colW = 0, colTop = 0, inHeader = false;
 
@@ -8304,6 +8380,80 @@ async function buildReviewPDF(payload) {
   }
 
   const RENDER = {
+    /* ---- PlantBook's three. Keyed by section ID like every entry here,
+       and PlantBook's ids are disjoint from DesignBook's by construction
+       (check_sections.mjs fails a collision), so one map serves both books
+       and neither can catch the other's section by accident. ---- */
+
+    // The three figures the pay is measured against. They are READOUTS on
+    // the page - nothing on the form holds them - so they are not in
+    // `values` and the generic grid path would print an empty section. They
+    // live on the lot's `values.design` block, which is the approval's.
+    "jmf-figures"(section) {
+      if (!lotDes) return;
+      const list = [["JMF %AC", lotDes.jmf_ac], ["Target air voids (%)", lotDes.target_va],
+                    ["Minimum VMA (%)", lotDes.min_vma]]
+        .map(([k, v]) => [k, hdNum(v, 2)]).filter((pr) => pr[1] !== "" && pr[1] != null);
+      if (!list.length) return;
+      sectionHead(section.label);
+      pairs(list, { cols: 3 });
+    },
+
+    // The lot pay. Computed rather than typed, so like Design Values it has
+    // no fields to walk - it prints `payload.lot_pay`, which handoffPayload()
+    // banked when the file was made.
+    //
+    // TWO THINGS HERE WILL LOOK LIKE BUGS IF THEY ARE "FIXED" (CLAUDE.md).
+    // A pay value can be the STRING "MCL" - material control limit, a real
+    // state and emphatically not a zero: the lot has left the pay schedule
+    // and become a conversation with the Department. And an untested
+    // property is null, which must never print as 0 - an untested joint is
+    // not a free deduction, it is not a deduction at all. Both go through
+    // payText(), the page's own single answer to that question, rather than
+    // through hdNum().
+    pay(section) {
+      if (!lotPay) return;
+      const W = [["Joint density", "jointDensity"], ["Lane density", "laneDensity"],
+                 ["%AC", "ac"], ["Air voids", "av"], ["VMA", "vma"]];
+      const body = W.map(([label, key]) => {
+        const prop = (lotPay.byProperty || {})[key] || {};
+        const w = (lotPay.weights || {})[key];
+        return [label, payText(prop.value, 2), w == null ? "-" : `x${w}%`];
+      });
+      const totals = [
+        ["Final pay (%)", payText(lotPay.finalPct, 4)],
+        ["Capped at 100% (advisory)", payText(lotPay.finalPctCapped, 4)],
+        ["Pay tonnage", payText(lotPay.payTons, 2)],
+        ["Tonnage adjustment", payText(lotPay.tonnageAdj, 2)],
+        ["Pay adjustment ($)", payText(lotPay.dollarAdj, 2)],
+      ].filter((pr) => pr[1] !== "-" && pr[1] !== "\u2014");
+      sectionHead(section.label, RW.headH + (body.length + 1) * RW.rowH + 24);
+      table({ head: ["Property", "Pay (%)", "Weight"], body, weights: [1.4, 0.8, 0.6] });
+      if (totals.length) pairs(totals, { cols: 3 });
+      // Said once, where the numbers are, rather than left to be discovered:
+      // a weight of x0% means the property does not count on this lot.
+      const notes = (lotPay.notes || []).slice(0, 3);
+      if (notes.length) pairs(notes.map((n) => ["Note", String(n)]), { cols: 1, wrapValues: true });
+    },
+
+    // % passing, one column per sublot plus the JMF target and the two
+    // Department columns. A multi-column sieve section composes its field
+    // keys as `${column.key}_${sieve.key}`, exactly as sievesHTML() does -
+    // one composition rule, not two.
+    "sublot-gradation"(section) {
+      const cols = section.columns || [{ key: null, label: "% passing" }];
+      const kf = (c, sv) => (c.key ? `${c.key}_${sv.key}` : sv.key);
+      const live = section.sieves.filter((sv) =>
+        cols.some((c) => values[kf(c, sv)] != null && String(values[kf(c, sv)]).trim() !== ""));
+      if (!live.length) return;
+      sectionHead(section.label, RW.headH + live.length * RW.rowH + 16);
+      table({
+        head: ["Sieve"].concat(cols.map((c) => c.label)),
+        body: live.map((sv) => [sv.label].concat(cols.map((c) => hdNum(values[kf(c, sv)], 1)))),
+        weights: [0.8].concat(cols.map(() => 1)),
+      });
+    },
+
     // ESAL prints as a class; the RAP note is a sentence, so it wraps.
     contract(section) {
       sectionHead(section.label);
@@ -8486,7 +8636,8 @@ async function buildReviewPDF(payload) {
     const lw = H.LOGO.w, lh = lw / H.LOGO.ratio;
     page.drawImage(logo, { x: P.w - P.mx - lw, y: P.h - P.top - lh + T.title + 2, width: lw, height: lh });
   }
-  page.drawText("KYTC Mix Design", { x: P.mx, y, size: T.title, font: bold, color: col(C.navy) });
+  page.drawText(isLot ? "KYTC Asphalt Plant Lot" : "KYTC Mix Design",
+                { x: P.mx, y, size: T.title, font: bold, color: col(C.navy) });
   y -= T.title + 4;
   // Which document this IS decides the line, not the stage. After a
   // submission the stage is "Submitted", so keying off stage alone made a
@@ -8494,18 +8645,43 @@ async function buildReviewPDF(payload) {
   const D = CONFIG.HANDOFF.DOC;
   const sub_ = (payload.history || []).filter((h) => h.action === CONFIG.SUBMIT.ACTION.submitted).slice(-1)[0];
   const subWhen = sub_ && sub_.at ? new Date(sub_.at).toLocaleDateString() : null;
-  const subtitle =
-      payload.doc_kind === D.submittal
-        ? `Submitted to KYTC${subWhen ? ` on ${subWhen}` : ""}${sub_ && sub_.sm_id ? ` by ${sub_.sm_id}` : ""} - this is the submitted document`
-    : payload.stage === "Approved"
-        ? "Approved by KYTC - this copy carries its own verification code"
-    : payload.stage === "Submitted"
-        ? "Working copy of a submitted design - the submitted document is a separate download"
-    : "Internal review copy - not an approval";
+  const submitted = payload.doc_kind === D.submittal
+    ? `Submitted to KYTC${subWhen ? ` on ${subWhen}` : ""}${sub_ && sub_.sm_id ? ` by ${sub_.sm_id}` : ""} - this is the submitted document`
+    : null;
+  // A LOT IS NEVER "APPROVED" AND NEVER CARRIES A VERIFICATION CODE OF ITS
+  // OWN. Only a design is signed; a lot inherits a signed approval and is
+  // ACCEPTED, which is a different word on purpose (amaw_lots.sql's own four
+  // spellings). Saying "Approved by KYTC" over a lot would be claiming a
+  // signature this page cannot issue and verify.html cannot check.
+  const subtitle = isLot
+    ? (submitted
+        || (payload.stage === "Accepted"  ? "Accepted by KYTC"
+          : payload.stage === "Submitted" ? "Working copy of a submitted lot - the submitted document is a separate download"
+          : "Working copy of a lot in production - not an acceptance"))
+    : (submitted
+        || (payload.stage === "Approved"  ? "Approved by KYTC - this copy carries its own verification code"
+          : payload.stage === "Submitted" ? "Working copy of a submitted design - the submitted document is a separate download"
+          : "Internal review copy - not an approval"));
   page.drawText(subtitle, { x: P.mx, y, size: T.sub, font, color: col(C.muted) });
   y -= T.sub + RW.headerGap;
 
-  const facts = [
+  // The lot's header facts are the APPROVAL's, because that is where a lot
+  // gets its identity - it never types a contract, a plant or a mix. The
+  // verification state of that approval is printed rather than re-derived:
+  // this page cannot re-check a signature it does not have the approval PDF
+  // for, and "not checked" is a different answer from passed and from failed.
+  const lotVer = lotDes && lotDes.approval ? lotDes.approval.verification : null;
+  const facts = (isLot ? [
+    ["Contract", (lot && lot.contract_id) || j.cid],
+    ["Plant", payload.plant_name ? `${(lot && lot.amp_number) || j.plant} - ${payload.plant_name}` : ((lot && lot.amp_number) || j.plant)],
+    ["Lot", lot && lot.lot_number],
+    ["Mix ID num.", lot && lot.mix_id],
+    ["Mix", payload.mix && payload.mix.signature],
+    ["Stage", payload.stage],
+    ["Prepared by", payload.generated_by && payload.generated_by.sm_id],
+    ["Approval", lotDes && lotDes.approval && lotDes.approval.approval_no],
+    ["Approval signature", lotVer && lotVer.state],
+  ] : [
     ["Contract", j.cid],
     ["Letting", j.letting],
     ["Plant", payload.plant_name ? `${j.plant} - ${payload.plant_name}` : j.plant],
@@ -8517,7 +8693,7 @@ async function buildReviewPDF(payload) {
     ["Mix ID num.", payload.approval && payload.approval.mix_id],
     ["Verification code", payload.approval && payload.approval.code],
     ["Approved by", payload.approval && payload.approval.approved_by],
-  ].filter((f) => f[1] != null && String(f[1]).trim() !== "");
+  ]).filter((f) => f[1] != null && String(f[1]).trim() !== "");
   inHeader = true;
   const savedCols = H.COLS;
   colW = P.w - P.mx * 2; colX = P.mx;            // header spans the full width
@@ -8528,7 +8704,7 @@ async function buildReviewPDF(payload) {
   y -= RW.headerGap + 2;
   colTop = y; colIdx = 0; setCol(0);              // columns begin below the header
 
-  CONFIG.SECTIONS.forEach(renderSection);
+  SECS.forEach(renderSection);
 
   const hist = payload.history || [];
   if (hist.length) {
@@ -8541,7 +8717,9 @@ async function buildReviewPDF(payload) {
       weights: [1.3, 0.9, 1.4] });
   }
 
-  const note = "This PDF carries the full design inside it. Upload it to DesignBook to reopen and edit.";
+  const note = isLot
+    ? "This PDF carries the full lot inside it. Upload it to PlantBook to reopen and edit."
+    : "This PDF carries the full design inside it. Upload it to DesignBook to reopen and edit.";
   pages.forEach((pg, i) => {
     pg.drawRectangle({ x: P.mx, y: P.bottom - 13, width: P.w - P.mx * 2, height: 0.4, color: col(C.rule) });
     pg.drawText(fit(note, P.w - P.mx * 2 - 60, font, T.foot), { x: P.mx, y: P.bottom - 24, size: T.foot, font, color: col(C.muted) });
@@ -8552,12 +8730,16 @@ async function buildReviewPDF(payload) {
   const bytes = new TextEncoder().encode(JSON.stringify(payload));
   await doc.attach(bytes, CONFIG.HANDOFF.ATTACHMENT, {
     mimeType: "application/json",
-    description: "DesignBook design data - re-import this PDF to reopen the form",
+    description: isLot
+      ? "PlantBook lot data - re-import this PDF to reopen the form"
+      : "DesignBook design data - re-import this PDF to reopen the form",
   });
   // Second copy. Some editors drop attachments on re-save; metadata
   // survives more often, and a lost payload is a silently empty import.
-  doc.setTitle(wa(`KYTC Mix Design - ${j.cid || ""} ${j.plant || ""}`));
-  doc.setProducer("KYTC DesignBook");
+  doc.setTitle(wa(isLot
+    ? `KYTC Asphalt Plant Lot - ${(lot && lot.contract_id) || j.cid || ""} lot ${(lot && lot.lot_number) || ""}`
+    : `KYTC Mix Design - ${j.cid || ""} ${j.plant || ""}`));
+  doc.setProducer(isLot ? "KYTC PlantBook" : "KYTC DesignBook");
   doc.setKeywords([CONFIG.HANDOFF.MARKER + b64encode(bytes)]);
   return doc.save();
 }
@@ -8634,6 +8816,15 @@ function trimFlatCoarseEnd(sieves, cpts) {
 // sufficient and a guarantee that what we keep is exactly what can be re-read.
 function freezeSubmittal(payload) {
   return { ...JSON.parse(JSON.stringify(payload)), doc_kind: CONFIG.HANDOFF.DOC.submittal };
+}
+
+// The frozen submittal, IF it belongs to the book asked about. One slot,
+// two books: a payload written before 2026-09-13 carries no `book` and is a
+// design, which is what all of them are.
+function submittedFor(book) {
+  const p = state.submitted;
+  if (!p) return null;
+  return (p.book || "designbook") === book ? p : null;
 }
 
 function designParts(payload) {
@@ -9035,12 +9226,12 @@ async function downloadApprovalPDF() {
 async function downloadSubmittalPDF() {
   const btn = $("submittalPdfBtn");
   if (!btn || btn.disabled) return;
-  if (!state.submitted) { msg($("saveMsg"), "This design has not been submitted to KYTC yet.", "error"); return; }
+  if (!submittedFor("designbook")) { msg($("saveMsg"), "This design has not been submitted to KYTC yet.", "error"); return; }
   btn.disabled = true;
   const was = btn.textContent;
   btn.textContent = "Building PDF...";
   try {
-    const payload = state.submitted;
+    const payload = submittedFor("designbook");
     const bytes = await buildReviewPDF(payload);
     const name = handoffFileName(payload);
     saveBytes(bytes, name, "application/pdf");
@@ -16463,10 +16654,15 @@ function lotStatusHTML() {
     <div class="stagewarn hidden" id="stageWarn"></div>
     <div class="handoff">
       <button class="stagebtn" id="amawBtn">Download AMAW for MEDL</button>
-      <button class="stagebtn ghost" id="lotFileBtn">Download working copy</button>
+      <button class="stagebtn hidden" id="lotSubmittalBtn">Download submittal PDF</button>
+      <button class="stagebtn" id="lotPdfBtn">Download lot PDF</button>
+      <button class="stagebtn ghost" id="lotFileBtn">Download working copy (.json)</button>
       <div class="handoffnote">This is how you save. Nothing about this lot is
         kept on the site &mdash; the file is the only copy, and it carries every
-        value inside it.</div>
+        value inside it. Download the <strong>lot PDF</strong> at any point to
+        keep your work; upload it on the way back in to return to exactly this
+        point. The <strong>.json</strong> holds the same lot and is the same
+        door &mdash; take it if you would rather have the raw record.</div>
     </div>
     <div class="refstatus" id="refStatus"></div>
     <div class="auditlog" id="auditlog"></div>`;
@@ -16489,6 +16685,12 @@ function renderLotStage() {
   if (note) note.textContent = s.note || "";
   const pib = $("itemsLookupBtnStatus");
   if (pib) pib.classList.toggle("hidden", !state.job || !state.job.cid);
+  // The submittal is only a document once a submission has happened. It is
+  // the FROZEN copy of what was stamped, so it appears after Submit and
+  // never before - and re-downloading it can never produce a different file
+  // from the one KYTC was given.
+  const sb_ = $("lotSubmittalBtn");
+  if (sb_) sb_.classList.toggle("hidden", !submittedFor("plantbook"));
 }
 
 /* ---------- the front door ----------
@@ -16527,6 +16729,7 @@ async function openApprovalForLot(payload, label) {
     const why = (out.checks.failures || []).map((f) => f.message).join(" ");
     throw new Error(why || "That approval cannot open a lot.");
   }
+  if (submittedFor("plantbook")) state.submitted = null;   // see openLotEnvelope()
   state.lot = out.lot;
   state.lotReport = out.report;
   state.job = {
@@ -16624,8 +16827,12 @@ async function downloadAmaw() {
 // form's current values over it. collectForm() is the single reader of the
 // DOM for both books, so there is no second definition of "what is on the
 // form" to drift from the first.
-function lotSnapshot() {
-  const { values, rows } = collectForm();
+function lotSnapshot(collected) {
+  // `collected` lets a caller that has already read the form hand its answer
+  // in rather than making collectForm() walk the DOM a second time. Same
+  // answer either way - it is a pure read - so this is a cost, not a
+  // correctness, argument.
+  const { values, rows } = collected || collectForm();
   const lot = PB_LOT.normaliseLot({ ...state.lot, values: { ...state.lot.values, ...values }, rows });
   // `values.design` is the approval's block and is NOT a form field - putting
   // the form's values over the envelope would drop it, so it goes back.
@@ -16633,6 +16840,17 @@ function lotSnapshot() {
   lot.status = (CONFIG.LOT_STAGES[state.stageIdx] || CONFIG.LOT_STAGES[0]).key;
   lot.history = state.history || lot.history;
   return lot;
+}
+
+// The lot pay for a file, rather than for the screen. computeLotPay() paints
+// `[data-section="pay"]` and returns nothing useful when that node is absent;
+// this is the same arithmetic with no DOM writing, so a PDF built from a step
+// the person has never visited still carries the pay. lotPayInputs() reads
+// control VALUES rather than measuring anything, which is safe inside a
+// hidden step - it is measurement and focus that silently return zero there.
+function lotPayForFile() {
+  try { return PB_PAY.lotPay(lotPayInputs()); }
+  catch (_) { return null; }
 }
 
 // The working copy. Nothing about this lot is kept on the site, so a file is
@@ -16648,12 +16866,146 @@ function downloadLotFile() {
   msg($("saveMsg"), `${name} downloaded. Open it from the Portal to come back to exactly this point.`, "ok");
 }
 
+// The lot as a PDF, and this is the SAVE. Same rule DesignBook's review PDF
+// follows, and the same argument: nothing about this lot is kept on the site,
+// so a file is the only copy, and a file a person can read is worth more than
+// one only this page can. Jake, 2026-09-13: "if you want to save you can
+// generate a pdf at any point and save what you have similar to the design
+// book".
+//
+// The .json stays, and is not redundant: it is the ENVELOPE, which is what
+// both doors actually read. The PDF carries that same envelope as an
+// attachment (`payload.lot`), so the two reopen through one function and
+// cannot drift - see openLotEnvelope().
+//
+// WHAT THIS SUPERSEDES: an earlier note in CLAUDE.md said a lot's working
+// copy is a .json "because there is no one-page document a lot IS - its
+// document is the AMAW, and half-finished is exactly when you cannot generate
+// one yet". The second half of that is still true and is why the AMAW button
+// is separate. The first half was answered by Jake asking for this.
+async function downloadLotPdf() {
+  if (!state.lot) { msg($("saveMsg"), "There is no lot open.", "error"); return; }
+  const btn = $("lotPdfBtn"), was = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Building..."; }
+  try {
+    const payload = handoffPayload("Lot PDF downloaded");
+    const bytes = await buildReviewPDF(payload);
+    const name = lotFileName(payload);
+    saveBytes(bytes, name, "application/pdf");
+    state.history = payload.history;
+    msg($("saveMsg"),
+        `${name} downloaded. It carries the whole lot inside it - upload it from the ` +
+        `Portal to come back to exactly this point.`, "ok");
+  } catch (err) {
+    msg($("saveMsg"), err.message || "Couldn't build the lot PDF.", "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = was; }
+  }
+}
+
+// The frozen submittal, re-downloaded. Built from what was stamped, never
+// from the form as it stands now, so it cannot drift from what KYTC was sent.
+async function downloadLotSubmittal() {
+  const frozen = submittedFor("plantbook");
+  if (!frozen) { msg($("saveMsg"), "This lot has no submission on record.", "error"); return; }
+  try {
+    const bytes = await buildReviewPDF(frozen);
+    const name = lotFileName(frozen);
+    saveBytes(bytes, name, "application/pdf");
+    msg($("saveMsg"), `${name} downloaded again - the same document that was submitted.`, "ok");
+  } catch (err) {
+    msg($("saveMsg"), err.message || "Couldn't rebuild the submittal.", "error");
+  }
+}
+
+// Named like the .json beside it - contract, lot, mix - rather than like
+// DesignBook's, because the two end up in the same folder and a lot is
+// identified by its lot number where a design is identified by its plant.
+function lotFileName(payload) {
+  const lot = payload.lot || {};
+  const submittal = payload.doc_kind === CONFIG.HANDOFF.DOC.submittal;
+  const sub_ = (payload.history || []).filter((h) => h.action === CONFIG.SUBMIT.ACTION.submitted).slice(-1)[0];
+  const d = (submittal && sub_ && sub_.at ? new Date(sub_.at) : new Date()).toISOString().slice(0, 10);
+  return `PlantBook_${submittal ? "submittal_" : ""}${lot.contract_id || "lot"}_lot${lot.lot_number || ""}_${lot.mix_id || ""}_${d}.pdf`
+    .replace(/[^A-Za-z0-9_.-]/g, "");
+}
+
+/* Submitting a lot to KYTC.
+ *
+ * Jake, 2026-09-13: "when you want to submit you make a pdf and you will
+ * email it to tate and andrew". The same shape as DesignBook's submitToKYTC()
+ * and for the same reason CLAUDE.md already records: THE SERVER IS OUT OF THE
+ * MAIL PATH ENTIRELY. A provider authenticates by DKIM records in a domain
+ * you control, this is KYTC's system rather than a contractor's, and nobody
+ * can add DNS records to gmail.com - so sending as @ky.gov would need the
+ * Commonwealth Office of Technology to authorise a third-party sender. A
+ * technician's own mail already reaches @ky.gov. The page stamps, freezes and
+ * downloads; the person sends.
+ *
+ * Note the tradeoff, the same one the design submittal carries: THIS FILE IS
+ * UNSIGNED. Whoever is signed in is stamped on it, but nothing proves it was
+ * not edited afterwards. Only a DesignBook approval is signed, and the lot
+ * inherits that signature rather than issuing one.
+ */
+async function submitLotToKYTC() {
+  if (!state.lot) { msg($("saveMsg"), "There is no lot open.", "error"); return; }
+  if (!state.tech) { msg($("saveMsg"), "Sign in before submitting.", "error"); return; }
+  const who = state.tech.sm_id;
+  const to = CONFIG.SUBMIT.KYTC_EMAIL;
+  if (!confirm(`Submit this lot to KYTC as ${who}?\n\nThe submittal PDF downloads now. Email it to ${to || "KYTC Central Office Materials"} yourself - the site does not send it, and keeps no copy.`)) return;
+
+  const btn = $("advanceStage"), was = btn ? btn.textContent : "";
+  const prevIdx = state.stageIdx;
+  if (btn) { btn.disabled = true; btn.textContent = "Building..."; }
+  try {
+    // Stage first, so the package itself says Submitted and the history entry
+    // the payload appends IS the submission record.
+    state.stageIdx = CONFIG.LOT_STAGES.findIndex((x) => x.key === "Submitted");
+    const payload = handoffPayload(CONFIG.SUBMIT.ACTION.submitted);
+    const frozen = freezeSubmittal(payload);
+    const bytes = await buildReviewPDF(frozen);
+    const name = lotFileName(frozen);
+    saveBytes(bytes, name, "application/pdf");
+
+    state.history = payload.history;
+    state.submitted = frozen;
+    renderLotStage();
+    audit(`${CONFIG.SUBMIT.ACTION.submitted} - ${who}`);
+    msg($("saveMsg"),
+        `${name} downloaded and stamped as submitted by ${who}. Email it to ` +
+        `${to || "KYTC Central Office Materials"} - that file is the submission, and the ` +
+        `site keeps nothing. You can download it again at any time.`, "ok");
+  } catch (err) {
+    state.stageIdx = prevIdx;          // nothing left the machine, so nothing moved
+    renderLotStage();
+    msg($("saveMsg"), err.message || "Couldn't build the submittal.", "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = was; }
+    renderLotStage();
+  }
+}
+
 // Coming back in. Same shape as a fresh intake, minus the approval check -
 // the verification the lot was opened under travelled inside the file, and
 // re-checking it here would need the approval PDF that is not in front of us.
 // Its state is printed rather than re-derived, which is the honest answer.
-function openLotFile(text, label) {
-  const lot = PB_LOT.normaliseLot(JSON.parse(text));
+function openLotFile(text, label) { return openLotEnvelope(JSON.parse(text), label); }
+
+// ONE reader for both doors. A lot comes back either as its .json working
+// copy or inside a lot PDF's attachment, and both carry the same envelope -
+// so they must land in the same place. Two readers would be two answers to
+// "what did I just open", and the second one would be wrong the first time
+// somebody added a field.
+function openLotEnvelope(raw, label) {
+  const lot = PB_LOT.normaliseLot(raw);
+  // A different lot is a different document. A frozen submittal left over
+  // from the lot that was open a minute ago would offer itself for download
+  // under this one's Submit button, and it would rebuild as that other lot -
+  // right file, wrong lot, and nothing on screen saying so. A reopened lot
+  // that WAS submitted keeps its Submitted stage and simply does not offer
+  // the button: this page does not hold that document, and pretending to
+  // would be worse than saying nothing.
+  if (submittedFor("plantbook")) state.submitted = null;
   state.lot = lot;
   state.lotReport = null;
   // The letting date rides on the lot's design block precisely so a reopened
@@ -16700,8 +17052,11 @@ function paintUploadCard() {
     "The signature is checked on the way in. A design KYTC never approved, or one " +
     "edited after approval, is refused here rather than three steps later." +
     "<br><br>" +
-    "A lot&rsquo;s own <strong>working copy</strong> (.json) comes back in the same way.");
-  set("dropTitle", "Choose the KYTC approval PDF, or a lot working copy");
+    "A lot you have already started comes back in the same way &mdash; its own " +
+    "<strong>lot PDF</strong> or its <strong>.json</strong>. Both carry the whole lot " +
+    "inside them, and this door tells them apart from an approval by what is in the " +
+    "file rather than by its name.");
+  set("dropTitle", "Choose the KYTC approval PDF, or a lot you saved");
   set("dropHint", "or drag it here \u2014 .pdf, .json");
   const fi = $("fileInput");
   if (fi) fi.accept = ".pdf,application/pdf,.json,application/json";
@@ -16972,6 +17327,14 @@ async function resumeFromPDF(file) {
 async function startLotFromPDF(file) {
   try {
     const payload = await readHandoffPDF(await file.arrayBuffer());
+    // TWO PDFs COME THROUGH THIS DOOR and the file says which it is. A lot
+    // PDF carries its own envelope at `payload.lot`; an approval does not.
+    // Routing on that rather than on the file name, because a person renames
+    // a download and a payload does not rename itself - and the two land in
+    // completely different places, so guessing wrong is not a small error:
+    // reopening an approval AS a lot would silently start a second lot on a
+    // design somebody had already produced four thousand tons under.
+    if (payload.lot) return openLotEnvelope(payload.lot, file.name);
     await openApprovalForLot(payload, file.name);
   } catch (err) {
     msg($("uploadMsg"), err.message || "Couldn't open a lot from that PDF.", "error");
@@ -18232,6 +18595,8 @@ document.addEventListener("click", (e) => {
   if (e.target.id === "mixpackBtn") downloadMixPack();
   if (e.target.id === "amawBtn") downloadAmaw();
   if (e.target.id === "lotFileBtn") downloadLotFile();
+  if (e.target.id === "lotPdfBtn") downloadLotPdf();
+  if (e.target.id === "lotSubmittalBtn") downloadLotSubmittal();
   // closest(), not e.target.id: both lookup buttons carry a .wide-only span,
   // so a click that lands on the word "contract" or "project" targets the
   // span and not the button.
