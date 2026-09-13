@@ -37,9 +37,15 @@
 // ---------------------------------------------------------------------
 // WHAT THIS WAS BUILT AGAINST
 // ---------------------------------------------------------------------
-// `scripts/amaw/sections.mjs` did not exist when this was written (another
-// agent has it in hand), so the lot's shape comes from the three files that
-// do exist and from the workbook itself:
+// The lot's shape is not invented here. It comes from four files and from the
+// workbook itself:
+//   * `sections.mjs` — PlantBook's section schema, which landed while this was
+//     being written. It is the authority on FIELD KEYS, and the seeded lot
+//     uses its keys rather than a second set of names: a value seeded under a
+//     key the form does not have is invisible, which is this codebase's most
+//     expensive failure mode. `put()` below checks every key against it and
+//     raises `schema-drift` when one goes missing, so a rename there is loud
+//     here instead of silent.
 //   * `storage.mjs`  — `blankLot()` and the envelope. The lot this returns is
 //     one of those, so it saves, loads and round-trips through either
 //     backend with nothing added. Note `normaliseLot()` keeps only its own
@@ -552,30 +558,49 @@ export function lotFromApproval(payload, opts = {}) {
   const mixId = str(a.mix_id);
   if (!amp) wasMissing('amp_number', 'The approval carries no plant, so the lot cannot say which plant produced it.', ['identity']);
 
-  take('contract_id', contract, 'job.cid', cell(LOT.sheet, LOT.contract));
-  take('amp_number', amp, 'job.plant', cell(LOT.sheet, LOT.plantCode),
+  take('lot_contract_id', contract, 'job.cid', cell(LOT.sheet, LOT.contract));
+  take('lot_plant', amp, 'job.plant', cell(LOT.sheet, LOT.plantCode),
        'the template pads this key ("AMP070302      ") and matches it exactly - spell it the workbook\'s way, not Supabase\'s');
-  take('plant_name', str(payload.plant_name), 'plant_name', null);
-  take('mix_id', mixId, 'approval.mix_id', cell(LOT.sheet, LOT.mixId));
-  take('county', str(v.county), 'values.county', cell(LOT.sheet, LOT.county));
+  take('plant_name', str(payload.plant_name), 'plant_name', null, null, false);
+  take('lot_county', str(v.county), 'values.county', cell(LOT.sheet, LOT.county));
+  take('lot_number', lotNumber, lotNumberGiven ? 'supplied by the caller' : 'defaulted to 1',
+       cell(LOT.sheet, LOT.lotNumber), lotNumberGiven ? null : 'defaulted - see report.typed', false);
+  derive('lot_unit', 'TON', "the AMAW's only unit ('Pay Values'!E4)", cell(LOT.sheet, LOT.unit));
 
   const signature = mix && mix.signature ? mix.signature : null;
   // 'Pay Values'!D9 in both of Jake's real lots is "<mix id> <signature>" —
   // "00385 CL3 ASPH SURF 0.38A PG64-22". Build it the same way rather than
   // making PlantBook re-derive it later from two half-remembered fields.
   const designation = mixId && signature ? `${mixId} ${signature}` : (mixId || signature || null);
-  take('mix_designation', designation, 'approval.mix_id + mix.signature', cell(LOT.sheet, LOT.mixId));
-  take('approved_mix_design', mixId, 'approval.mix_id', cell(LOT.sheet, LOT.approvedMixDesign),
-       't_smpl.rel_smpl_id - the approval this lot is produced under');
+  take('lot_mix_id', designation, 'approval.mix_id + mix.signature',
+       `${cell(LOT.sheet, LOT.approvedMixDesign)} / ${cell(LOT.sheet, LOT.mixId)}`,
+       't_smpl.rel_smpl_id - the approval this lot is produced under, and the join between the two books');
+
+  // THE TWO BOOKS DO NOT AGREE ABOUT THE SHAPE OF A MIX ID, and it is worth
+  // saying out loud rather than papering over. Both of Jake's real AMAWs read
+  // "00385 CL3 ASPH SURF 0.38A PG64-22" - a FIVE-digit lead whose last three
+  // digits are the pay item code at 'Pay Values'!D3 ("385"). canonical.mjs
+  // issues EIGHT digits: "00" + the letting year + a four-digit sequence
+  // ("00260467" for #467PA). Same field, two formats, and nothing here can
+  // tell which KYTC's loader will accept - the answer is a question for
+  // Andrew and Tate, not a transform to guess at. So the approval's own
+  // string is carried verbatim, the item code is left to be typed, and this
+  // says why.
+  if (mixId && !/^\d{5}$/.test(mixId))
+    warnings.push({ code: 'mix-id-shape',
+      message: `The approval's MIX ID is "${mixId}" (${mixId.length} digits). Both real AMAWs on file carry a five-digit id whose last three are the pay item code. Check which form MEDL expects before handing this lot off.` });
+  needsTyping('lot_item_code', cell(LOT.sheet, LOT.itemCode),
+    'The pay item ("385"). On both real lots it is the tail of the workbook\'s own five-digit mix id, which is not the shape DesignBook issues - see the mix-id-shape warning.',
+    ['medl-load']);
 
   /* ---- the mixture type code, and what hangs off it -----------------
      Calculations!J1. Everything in the pay schedule gates on it. */
   const mt = mix ? mixTypeFor(mix.nominal_size) : null;
   if (mt) {
-    derive('mix_type_code', mt.code, `nominal size "${mix.nominal_size}" -> Calculations A1:B14`, cell(CALC.sheet, 'J1'));
-    derive('mix_type_name', mt.name, 'Calculations!B1:B14', cell(LOT.sheet, LOT.typeMix));
+    derive('lot_mix_type_code', mt.code, `nominal size "${mix.nominal_size}" -> Calculations A1:B14`, cell(CALC.sheet, 'J1'));
+    derive('lot_type_mix', mt.name, 'Calculations!B1:B14', cell(LOT.sheet, LOT.typeMix));
   } else {
-    wasMissing('mix_type_code',
+    wasMissing('lot_mix_type_code',
       'The approval carries no nominal size that matches a Superpave mixture type, so the pay tables have nothing to gate on - every property pays zero until it is set.',
       ['pay']);
   }
@@ -609,7 +634,7 @@ export function lotFromApproval(payload, opts = {}) {
   } else {
     take('jmf_ac', jmfAc, 'values.design_values.design_pb',
          cellRange(PAY.sheet, PAY.sublot.cols.jmfAc, PAY.sublot.first, 4),
-         'typed in the workbook today - this is the pay schedule\'s reference point');
+         'typed in the workbook today - this is the pay schedule\'s reference point', false);
   }
 
   const designTarget = num(fp['const:fp_vatgt']);
@@ -617,10 +642,10 @@ export function lotFromApproval(payload, opts = {}) {
   if (designTarget != null)
     take('target_va', designTarget, 'values.fourpoint["const:fp_vatgt"]',
          cell(PAY.sheet, PAY.sublot.cols.targetVa + PAY.sublot.first),
-         'the workbook looks this up for itself; carried so the two can be compared');
+         'the workbook looks this up for itself; carried so the two can be compared', false);
   else if (bookTarget != null)
     derive('target_va', bookTarget, `airVoidTargetFor(${mt.code}) - Calculations F1:F14`,
-           cell(PAY.sheet, PAY.sublot.cols.targetVa + PAY.sublot.first));
+           cell(PAY.sheet, PAY.sublot.cols.targetVa + PAY.sublot.first), false);
   else
     wasMissing('target_va', 'Neither the approval nor the mixture type settles the air-void target.', ['pay']);
 
@@ -631,7 +656,7 @@ export function lotFromApproval(payload, opts = {}) {
   const minVma = mt ? vmaMinimumFor(mt.code) : null;
   if (minVma != null)
     derive('min_vma', minVma, `vmaMinimumFor(${mt.code}) - 'Pay Values'!H13:H16 is typed, and the approval carries the VMA the design ACHIEVED, not the minimum it must beat`,
-           cellRange(PAY.sheet, PAY.sublot.cols.minVma, PAY.sublot.first, 4));
+           cellRange(PAY.sheet, PAY.sublot.cols.minVma, PAY.sublot.first, 4), false);
   else
     wasMissing('min_vma',
       'Without a mixture type there is no VMA minimum, so no VMA pay can be computed.',
@@ -660,25 +685,36 @@ export function lotFromApproval(payload, opts = {}) {
      Seeded into all four sublots as the design's target, and a plant that
      shifts its blend mid-lot overwrites the sublot it shifted. */
   const agg = Array.isArray(rows.aggregate) ? rows.aggregate : [];
-  const blend = agg.map((r, i) => ({
-    slot: i + 1,
-    // NO AGP NUMBER. The approval does not carry one: the legacy importer
-    // resolves the producer by KYTC's own AGP/AMP number and rides it on the
-    // row as `_agp`, which CLAUDE.md records is deliberately not a schema
-    // column and never reaches the payload. So the AMAW's Agg. Prod. Code
-    // has to be resolved from the producer NAME against the `aggregates`
-    // table (or `plants` for a RAP row), or typed. Same lesson as the TSR
-    // thickness, from the other side: the key we needed was dropped at the
-    // boundary, so we carry the label and say the key is owed.
-    producer_code: null,
-    producer_name: str(r.producer) || null,
-    type_size: str(r.type_size) || null,
-    bod: num(r.gsb),
-    pct: num(r.pct_blend),
-    // Detect RAP by Type & size, never by Producer (CLAUDE.md): a RAP row's
-    // "producer" is the AMP plant the millings came off.
-    rap: isRapType(r.type_size),
-  }));
+  // sections.mjs's `blend` columns exactly: producer / agp / type_size / bod
+  // and one percentage per sublot. Four explicit percentage columns rather
+  // than one is that file's own decision and the right one - a plant that
+  // adjusts its blend mid-lot is then representable instead of being quietly
+  // flattened - so the design's figure is seeded into all four and whoever
+  // shifts the blend overwrites the sublot they shifted.
+  const blend = agg.map((r) => {
+    const pct = num(r.pct_blend);
+    const row = {
+      producer: str(r.producer) || null,
+      // NO AGP NUMBER. The approval does not carry one: the legacy importer
+      // resolves the producer by KYTC's own AGP/AMP number and rides it on
+      // the row as `_agp`, which CLAUDE.md records is deliberately not a
+      // schema column and never reaches the payload. sections.mjs makes it a
+      // real column here because the loader reads it, so it has to be
+      // resolved from the producer NAME against `aggregates` (or `plants`
+      // for a RAP row) on load, or typed. Same lesson as the TSR thickness,
+      // from the other side: the key we needed was dropped at the boundary,
+      // so we carry the label and say the key is owed.
+      agp: null,
+      type_size: str(r.type_size) || null,
+      bod: num(r.gsb),
+    };
+    for (let i = 0; i < AGGREGATE.pctCols.length; i++) row[`pct_${i + 1}`] = pct;
+    // Not a schema column - `alt`/isRapRow() re-derives it from Type & size
+    // at render time. Carried on the report only, so the caller can say
+    // "row 6 is the RAP" without re-implementing the test.
+    row._rap = isRapType(r.type_size);
+    return row;
+  });
   if (blend.length) {
     inherited.push({ key: 'blend', value: blend, from: 'rows.aggregate',
                      to: `${AGGREGATE.sheet}!${AGGREGATE.cols.producerCode}${AGGREGATE.first}:${AGGREGATE.cols.bod}${AGGREGATE.first + AGGREGATE.count - 1}`,
@@ -687,7 +723,7 @@ export function lotFromApproval(payload, opts = {}) {
     if (blend.length > AGGREGATE.count)
       warnings.push({ code: 'blend-too-long',
         message: `The design has ${blend.length} aggregate components; the AMAW's blend block holds ${AGGREGATE.count}.` });
-    needsTyping('blend[].producer_code',
+    needsTyping('blend[].agp',
       `${AGGREGATE.sheet}!${AGGREGATE.cols.producerCode}${AGGREGATE.first}:${AGGREGATE.cols.producerCode}${AGGREGATE.first + AGGREGATE.count - 1}`,
       'The approval carries producer NAMES, not AGP/AMP numbers - DesignBook drops the code at the payload boundary. Resolve each name against `aggregates` (or `plants` for a RAP row) on load, or have the technician pick.',
       ['medl-load']);
@@ -696,11 +732,19 @@ export function lotFromApproval(payload, opts = {}) {
   }
 
   const combinedGsb = num(fp['const:fp_gsb']);
+  // sections.mjs keeps combined Gsb as its own one-row readonly table
+  // (`blend_gsb`, gsb_1..gsb_4) because it is DERIVED from the percentages
+  // and the BODs. Seeding the design's figure across all four is the same
+  // "provisional until the page recomputes it" move every other inherited
+  // value makes.
+  const blendGsb = combinedGsb == null ? null
+    : [Object.fromEntries(AGGREGATE.pctCols.map((_, i) => [`gsb_${i + 1}`, combinedGsb]))];
   if (combinedGsb != null)
-    take('combined_gsb', combinedGsb, 'values.fourpoint["const:fp_gsb"]',
-         `${AGGREGATE.sheet}!${AGGREGATE.pctCols.map((c) => c + AGGREGATE.gsbRow).join('/')}`);
+    take('blend_gsb', combinedGsb, 'values.fourpoint["const:fp_gsb"]',
+         `${AGGREGATE.sheet}!${AGGREGATE.pctCols.map((c) => c + AGGREGATE.gsbRow).join('/')}`,
+         'seeded across all four sublots; the page recomputes it from the percentages and BODs', false);
   else
-    wasMissing('combined_gsb', 'The approval carries no combined Gsb, which the sublot VMA is computed from.', ['volumetrics']);
+    wasMissing('blend_gsb', 'The approval carries no combined Gsb, which the sublot VMA is computed from.', ['volumetrics']);
 
   /* ---- the JMF gradation -------------------------------------------
      Gradation!N10:N23, one lot-level target column beside the four sublot
@@ -709,11 +753,17 @@ export function lotFromApproval(payload, opts = {}) {
      2026-09-07 - a real MixPack reads "N / A" there), so that slot stays
      null rather than shifting everything below it up one. */
   const jmf = gradationJmf(v);
-  if (jmf.some((s) => s.pct != null)) {
+  if (jmf.some((x) => x.pct != null)) {
     inherited.push({ key: 'jmf_gradation', value: jmf, from: 'values.<sieve>',
                      to: `${GRADATION.sheet}!${GRADATION.jmfCol}${GRADATION.first}:${GRADATION.jmfCol}${GRADATION.first + GRADATION.sieves.length - 1}`,
                      note: 'the 1/4" slot is left blank - DesignBook does not carry that sieve' });
     sources.jmf_gradation = `${sourceLabel(a)} · values.<sieve>`;
+    // One field per sieve, keyed `jmf_<sieve>` - the composite key
+    // sections.mjs's RENDERER GAP (3) specifies for its seven gradation
+    // columns. Seeded whether or not the renderer can draw them yet: when
+    // sievesHTML() grows its `columns` support these are already there, and
+    // until then put() says loudly if a key is wrong.
+    for (const x of jmf) if (x.pct != null && x.schemaKey) put(x.schemaKey, x.pct);
   } else {
     wasMissing('jmf_gradation',
       'The approval carries no gradation, so a sublot has no JMF to be judged against under Gradation acceptance.',
@@ -721,8 +771,8 @@ export function lotFromApproval(payload, opts = {}) {
   }
 
   /* ---- binder -------------------------------------------------------- */
-  take('binder_grade', str(v.binder_grade) || (mix ? mix.binder_grade : null), 'values.binder_grade', null);
-  take('binder_terminal', str(v.binder_terminal), 'values.binder_terminal', cell(PAY.sheet, PAY.lot.binderProducer),
+  take('lot_binder_grade', str(v.binder_grade) || (mix ? mix.binder_grade : null), 'values.binder_grade', null);
+  take('lot_binder_terminal', str(v.binder_terminal), 'values.binder_terminal', cell(PAY.sheet, PAY.lot.binderProducer),
        'PlantBook should still resolve this against `binder_terminals` rather than trusting the string');
 
   /* ---- what a technician still has to type --------------------------
@@ -741,7 +791,7 @@ export function lotFromApproval(payload, opts = {}) {
   // is carried beside it so whoever does set it has the design's answer in
   // front of them.
   const aadtt = str(v.aadtt_class);
-  needsTyping('esal_class', `${cell(LOT.sheet, LOT.esalClass)} -> ${cell(CALC.sheet, CALC.esalClass)}`,
+  needsTyping('lot_esal_class', `${cell(LOT.sheet, LOT.esalClass)} -> ${cell(CALC.sheet, CALC.esalClass)}`,
     aadtt
       ? `The design's AADTT Class is ${aadtt}, but that is the spec's Class for consensus properties, not the AMAW's ESAL Class (1-4). They are different scales; pick the ESAL Class deliberately.`
       : 'The approval carries no ESAL Class, and it moves three air-void bands and four density constants.',
@@ -752,19 +802,19 @@ export function lotFromApproval(payload, opts = {}) {
     sources.aadtt_class = `${sourceLabel(a)} · values.aadtt_class`;
   }
 
-  needsTyping('acceptance_option', `${cell(CALC.sheet, 'H13')} (from the dropdown at ${cell(CALC.sheet, CALC.acceptanceMethod)})`,
+  needsTyping('lot_acceptance_method', `${cell(CALC.sheet, 'H13')} (from the dropdown at ${cell(CALC.sheet, CALC.acceptanceMethod)})`,
     'Gradation, Volumetrics or Visual. It decides which pay schedule runs at all.', ['pay']);
-  needsTyping('density_option', cell(CALC.sheet, CALC.densityOption), 'A or B. Option B pays no lane density.', ['pay']);
-  needsTyping('joint_density', cell(CALC.sheet, 'H11'), 'Whether joint density counts on this lot.', ['pay']);
+  needsTyping('lot_density_option', cell(CALC.sheet, CALC.densityOption), 'A or B. Option B pays no lane density.', ['pay']);
+  needsTyping('lot_joint_density', cell(CALC.sheet, 'H11'), 'Whether joint density counts on this lot.', ['pay']);
   if (!lotNumberGiven)
     needsTyping('lot_number', cell(LOT.sheet, LOT.lotNumber),
       'Defaulted to 1. Lot 1 sublot 1 carries the "*For Sublot # 1 Only" allowance and nothing else on the job ever does, so confirm it.', ['pay']);
   needsTyping('lot_tons', cell(LOT.sheet, LOT.lotTons),
     `The approval's Tonnage${v.total_tons ? ` (${v.total_tons})` : ''} is the whole CONTRACT quantity, not this lot's.`, ['pay']);
-  needsTyping('unit_price', cell(LOT.sheet, LOT.unitPrice), 'The bid price this lot is paid at.', ['pay']);
-  needsTyping('wedge_tons', cell(PAY.sheet, PAY.lot.wedgeTons),
+  needsTyping('lot_unit_price', cell(LOT.sheet, LOT.unitPrice), 'The bid price this lot is paid at.', ['pay']);
+  needsTyping('lot_wedge_tons', cell(PAY.sheet, PAY.lot.wedgeTons),
     'Pavement wedge tons come off the top of the lot tonnage. Blank in both of Jake\'s real lots.', ['pay']);
-  needsTyping('sample_id', cell(LOT.sheet, LOT.sampleIdPrefix),
+  needsTyping('lot_sample_id_prefix', cell(LOT.sheet, LOT.sampleIdPrefix),
     'Both real lots leave it blank - KYTC fills it at hand-off. Empty means "not ready to hand off", not a read failure.', ['medl-load']);
   needsTyping('binder_lot_numbers', `${PAY.sheet}!${PAY.binderLotCols.join('/')}${PAY.binderLotRow}`,
     'PG binder lot numbers, per sublot, off the delivery tickets.', []);
@@ -796,70 +846,64 @@ export function lotFromApproval(payload, opts = {}) {
 
   const lot = blankLot(identity, { mix_signature: signature, plant_name: str(payload.plant_name) || null });
 
-  lot.values = {
-    county: str(v.county) || null,
-    mix_designation: designation,
-    mix_type_code: mt ? mt.code : null,
-    mix_type_name: mt ? mt.name : null,
-    binder_grade: str(v.binder_grade) || (mix ? mix.binder_grade : null) || null,
-    binder_terminal: str(v.binder_terminal) || null,
-    combined_gsb: combinedGsb,
-    // Typed at the plant. Present and null on purpose: a key that exists and
-    // is empty is a field the form knows about; a key that is absent is a
-    // field somebody forgot.
-    esal_class: null,
-    acceptance_option: null,
-    density_option: null,
-    joint_density: null,
-    lot_tons: null,
-    unit_price: null,
-    wedge_tons: null,
-    sample_id: null,
+  // Every scalar the seeding above accepted, under sections.mjs's own field
+  // keys, plus every field the schema has and this lot has not filled -
+  // present and null on purpose. A key that exists and is empty is a field
+  // the form knows about; a key that is absent is a field somebody forgot,
+  // and the two must not look the same.
+  lot.values = {};
+  for (const k of SCHEMA.fields) lot.values[k] = k in seeded ? seeded[k] : null;
 
-    // Everything inherited from the approval, in one place, so a reviewer
-    // looking at a lot can see what it was produced under without holding the
-    // PDF. Nested under `values` rather than as a top-level key because
-    // storage.mjs's normaliseLot() keeps only its own key list and would drop
-    // it on the first save.
-    design: {
-      source: sourceLabel(a),
-      approval: {
-        mix_id: a.mix_id || null,
-        // The file's claims. When a verification comes back good, the SERVER's
-        // recomputed label is the one to show - it is derived from the signed
-        // mix id, which is why editing "#467" to "#467PA" cannot survive a
-        // check. Both are kept so the disagreement is visible.
-        claimed_approval_no: a.approval_no || null,
-        claimed_pa: a.pa == null ? null : !!a.pa,
-        code: a.code || null,
-        issued_at: a.issued_at || null,
-        approved_by: a.approved_by || null,
-        submitted_by: a.submitted_by || submitterOf(payload),
-        // NEVER absent, NEVER true by default.
-        verification,
-      },
-      signature,
-      nominal_size: mix ? mix.nominal_size : null,
-      designer: str(v.designer) || null,
-      submittal_type: str(v.submittal_type) || null,
-      aadtt_class: aadtt || null,
-      // The three the pay schedule reads. `min_vma` and possibly `target_va`
-      // are ours, not KYTC's - `report.derived` says which.
-      jmf_ac: jmfAc,
-      target_va: designTarget != null ? designTarget : bookTarget,
-      min_vma: minVma,
-      volumetrics: achieved,
-      combined_gsb: combinedGsb,
-      blend,
-      jmf_gradation: jmf,
+  // Everything inherited from the approval, in one place, so a reviewer
+  // looking at a lot can see what it was produced under without holding the
+  // PDF - and so recompute() has somewhere to read the three readouts from
+  // (`out: "jmf_ac"` / `"target_va"` / `"min_vma"` on the Lot step).
+  // Nested under `values` rather than as a new top-level key because
+  // storage.mjs's normaliseLot() keeps only its own key list and would drop
+  // it on the first save.
+  lot.values.design = {
+    source: sourceLabel(a),
+    approval: {
+      mix_id: a.mix_id || null,
+      // The file's claims. When a verification comes back good, the SERVER's
+      // recomputed label is the one to show - it is derived from the signed
+      // mix id, which is why editing "#467" to "#467PA" cannot survive a
+      // check. Both are kept so the disagreement is visible.
+      claimed_approval_no: a.approval_no || null,
+      claimed_pa: a.pa == null ? null : !!a.pa,
+      code: a.code || null,
+      issued_at: a.issued_at || null,
+      approved_by: a.approved_by || null,
+      submitted_by: a.submitted_by || submitterOf(payload),
+      // NEVER absent, NEVER true by default.
+      verification,
     },
+    signature,
+    nominal_size: mix ? mix.nominal_size : null,
+    designer: str(v.designer) || null,
+    submittal_type: str(v.submittal_type) || null,
+    // Carried for reference, NOT wired to lot_esal_class. See report.typed.
+    aadtt_class: aadtt || null,
+    // The three the pay schedule reads, and what the Lot step's three
+    // readouts print. `min_vma` and sometimes `target_va` are OURS, not
+    // KYTC's - `report.derived` is what says which.
+    jmf_ac: jmfAc,
+    target_va: designTarget != null ? designTarget : bookTarget,
+    min_vma: minVma,
+    volumetrics: achieved,
+    combined_gsb: combinedGsb,
+    blend,
+    jmf_gradation: jmf,
   };
 
+  // The lot's own measurements are empty by definition - this is a blank lot,
+  // and sections.mjs seeds the four fixed sublot rows itself. What IS seeded
+  // is the blend, which is the design's, not the lot's.
   lot.rows = {
-    // The lot's own measurements. Empty by definition - this is a blank lot.
-    cores: [],
-    gradation: [],
-    tickets: [],
+    blend,
+    ...(blendGsb ? { blend_gsb: blendGsb } : {}),
+    sublot_tickets: [], sublot_volumetrics: [],
+    mat_cores: [], joint_cores: [], verification: [],
   };
 
   lot.extracted_from = sources;
@@ -934,7 +978,13 @@ function gradationJmf(values) {
     return {
       sieve: label,
       row: GRADATION.first + i,
+      // The DesignBook field this came from, and the PlantBook field it goes
+      // to. `sections.mjs` keys its seven gradation columns `<col>_<sieve>`
+      // (RENDERER GAP (3) there), so the JMF target column is `jmf_s50` and
+      // so on - and its sieve list DOES carry the 1/4" (`s6_3`) that
+      // DesignBook does not, which is exactly the slot that stays null.
       key,
+      schemaKey: key ? `jmf_${key}` : null,
       pct: key ? num(values[key]) : null,
     };
   });

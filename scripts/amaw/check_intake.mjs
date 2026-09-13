@@ -86,10 +86,10 @@ if (!approval) {
     ok('plant inherited', lot.amp_number === approval.job.plant, lot.amp_number);
     ok('mix id is KYTC\'s own, off the approval', lot.mix_id === approval.approval.mix_id, lot.mix_id);
     ok('mix signature inherited', lot.mix_signature === approval.mix.signature, lot.mix_signature);
-    ok('county inherited', lot.values.county === approval.values.county, lot.values.county);
+    ok('county inherited', lot.values.lot_county === approval.values.county, lot.values.lot_county);
     ok("mix designation is \"<mix id> <signature>\" as 'Pay Values'!D9 spells it",
-       lot.values.mix_designation === `${approval.approval.mix_id} ${approval.mix.signature}`,
-       lot.values.mix_designation);
+       lot.values.lot_mix_id === `${approval.approval.mix_id} ${approval.mix.signature}`,
+       lot.values.lot_mix_id);
 
     // --- the three numbers lot pay is measured against ---------------
     const dvPb = parseFloat(approval.values.design_values.design_pb);
@@ -101,7 +101,7 @@ if (!approval) {
 
     const mt = mixTypeFor(approval.values.nominal_size + approval.values.mix_type);
     ok('mixture type code resolved (Superpave 0.38 -> 5)', mt && mt.code === 5, mt);
-    ok('lot carries the mixture type code', lot.values.mix_type_code === 5, lot.values.mix_type_code);
+    ok('lot carries the mixture type code', lot.values.lot_mix_type_code === 5, lot.values.lot_mix_type_code);
 
     ok('target air voids inherited from the design target', d.target_va === 3.5, d.target_va);
     ok('minimum VMA present', d.min_vma === 15, d.min_vma);
@@ -120,7 +120,7 @@ if (!approval) {
     const s = sublotPay({ jmfAC: d.jmf_ac, ac: d.jmf_ac + 0.55,
                           targetAV: d.target_va, av: 3.9,
                           minVMA: d.min_vma, vma: 15.6,
-                          esalClass: 3, mixTypeCode: lot.values.mix_type_code });
+                          esalClass: 3, mixTypeCode: lot.values.lot_mix_type_code });
     ok('the inherited triple computes an AC pay band', s.ac.pay === 95, s.ac);
     ok('...an air-void pay band', s.av.pay != null, s.av);
     ok('...and a VMA pay band', s.vma.pay != null, s.vma);
@@ -131,12 +131,30 @@ if (!approval) {
     ok('blend carries type & size and BOD specific gravity',
        d.blend.every((b) => b.type_size && b.bod != null));
     ok('the RAP row is found by Type & size, not by Producer',
-       d.blend.some((b) => b.rap) === (approval.rows.aggregate || []).some((x) => /RAP/i.test(x.type_size || '')),
-       d.blend.filter((b) => b.rap).map((b) => b.type_size));
+       d.blend.some((b) => b._rap) === (approval.rows.aggregate || []).some((x) => /RAP/i.test(x.type_size || '')),
+       d.blend.filter((b) => b._rap).map((b) => b.type_size));
     ok('NO AGP code came across - the payload does not carry one',
-       d.blend.every((b) => b.producer_code === null));
+       d.blend.every((b) => b.agp === null));
     ok('...and the report says a technician still owes it',
-       r.report.typed.some((t) => t.key === 'blend[].producer_code'));
+       r.report.typed.some((t) => t.key === 'blend[].agp'));
+    // The blend has to land under sections.mjs's own column keys or the form
+    // renders six empty rows and nobody notices.
+    ok('blend rows use the schema\'s column keys',
+       d.blend.every((b) => 'producer' in b && 'agp' in b && 'type_size' in b && 'bod' in b && 'pct_1' in b && 'pct_4' in b),
+       Object.keys(d.blend[0] || {}));
+    ok('the design\'s percentage is seeded into all four sublot columns',
+       d.blend.every((b) => b.pct_1 === b.pct_4), d.blend.map((b) => [b.pct_1, b.pct_4]));
+    ok('combined Gsb is seeded across the blend_gsb row',
+       lot.rows.blend_gsb[0].gsb_1 === d.combined_gsb && lot.rows.blend_gsb[0].gsb_4 === d.combined_gsb,
+       lot.rows.blend_gsb);
+    ok('the JMF gradation is also seeded as jmf_<sieve> form fields',
+       lot.values.jmf_s0_075 === parseFloat(approval.values.s0_075) &&
+       lot.values.jmf_s6_3 === null, { s200: lot.values.jmf_s0_075, quarter: lot.values.jmf_s6_3 });
+    ok('nothing was seeded under a key sections.mjs does not have',
+       !r.report.warnings.some((w) => w.code === 'schema-drift'),
+       r.report.warnings.filter((w) => w.code === 'schema-drift'));
+    ok('every schema field is present on the lot, null where unfilled',
+       'lot_unit_price' in lot.values && lot.values.lot_unit_price === null);
     ok('combined Gsb inherited', d.combined_gsb === parseFloat(approval.values.fourpoint['const:fp_gsb']),
        d.combined_gsb);
     ok('JMF gradation has the AMAW\'s fourteen slots', d.jmf_gradation.length === 14, d.jmf_gradation.length);
@@ -157,8 +175,8 @@ if (!approval) {
 
     // --- what a technician still types --------------------------------
     const typedKeys = r.report.typed.map((t) => t.key);
-    for (const k of ['esal_class', 'acceptance_option', 'density_option', 'joint_density',
-                     'lot_tons', 'unit_price', 'sublot_tests'])
+    for (const k of ['lot_esal_class', 'lot_acceptance_method', 'lot_density_option',
+                     'lot_joint_density', 'lot_tons', 'lot_unit_price', 'sublot_tests'])
       ok(`report.typed names ${k}`, typedKeys.includes(k), typedKeys);
     ok('a lot number the caller supplied is NOT listed as still to type',
        !typedKeys.includes('lot_number'), typedKeys);
@@ -168,10 +186,10 @@ if (!approval) {
     // must NOT be wired to the AMAW's ESAL Class. Two scales that overlap on
     // 2/3/4 is the worst possible shape for a silent mis-mapping.
     ok('ESAL class is NOT taken from the design\'s AADTT class',
-       lot.values.esal_class === null && d.aadtt_class === String(approval.values.aadtt_class),
-       { esal: lot.values.esal_class, aadtt: d.aadtt_class });
+       lot.values.lot_esal_class === null && d.aadtt_class === String(approval.values.aadtt_class),
+       { esal: lot.values.lot_esal_class, aadtt: d.aadtt_class });
     ok('...and the reason is on the typed entry',
-       /AADTT/.test((r.report.typed.find((t) => t.key === 'esal_class') || {}).why || ''));
+       /AADTT/.test((r.report.typed.find((t) => t.key === 'lot_esal_class') || {}).why || ''));
 
     // --- the lot is a real storage.mjs envelope ----------------------
     const round = normaliseLot(JSON.parse(JSON.stringify(lot)));
@@ -282,6 +300,49 @@ const without = (p, mutate) => { const c = JSON.parse(JSON.stringify(p)); mutate
 }
 
 // =====================================================================
+//  3b. Warnings — a file that is genuinely approved and still says something odd
+// =====================================================================
+head('3b. Warnings, not refusals');
+
+if (!approval) {
+  skip('every check in this section', 'no approval payload');
+} else {
+  // The design was built to one air-void target and the workbook looks up
+  // another. Not a refusal - the lot is real - but the pay cells use the
+  // workbook's, so somebody has to look.
+  const t = without(approval, (c) => { c.values.fourpoint['const:fp_vatgt'] = '4.0'; });
+  const r = lotFromApproval(t, { lotNumber: 1 });
+  ok('a disagreeing air-void target warns rather than refusing',
+     r.ok && r.report.warnings.some((w) => w.code === 'target-va-disagrees'),
+     r.report && r.report.warnings);
+
+  // An approval whose stage was edited, and a submittal carrying an approval
+  // block. Both open - the signature is what decides, not the label - and
+  // both say so.
+  const st = approvalChecks(without(approval, (c) => { c.stage = 'Draft'; }));
+  ok('a stage that disagrees with the approval warns, and still passes',
+     st.ok && st.warnings.some((w) => w.code === 'stage-disagrees'), st.warnings);
+  const sb2 = approvalChecks(without(approval, (c) => { c.doc_kind = 'submittal'; }));
+  ok('a submittal label over an approval block warns, and still passes',
+     sb2.ok && sb2.warnings.some((w) => w.code === 'submittal-carrying-approval'), sb2.warnings);
+
+  // The two books do not spell a mix id the same way, and the intake says so
+  // rather than transforming one into the other on a guess.
+  ok('the eight-digit DesignBook mix id raises the mix-id-shape warning',
+     lotFromApproval(approval).report.warnings.some((w) => w.code === 'mix-id-shape'));
+}
+
+// The mixture-type table, read off the blank VER 14.01 template. Every size
+// DesignBook offers has to resolve, including the No. 4 family, whose token
+// broke parseSignature() once already (CLAUDE.md).
+head('3c. Mixture type codes');
+for (const [token, code] of [['1.50A', 1], ['1.00', 2], ['0.75B', 3], ['0.50A', 4],
+                             ['0.38B', 5], ['NO.4B', 14], ['NO.4', 14]])
+  ok(`${token} -> ${code}`, (mixTypeFor(token) || {}).code === code, mixTypeFor(token));
+ok('an unknown size resolves to nothing rather than to a default',
+   mixTypeFor('0.62A') === null && mixTypeFor('') === null);
+
+// =====================================================================
 //  4. The verify-approval request, and reading its answer
 // =====================================================================
 head('4. verify-approval: request shape and answers');
@@ -375,7 +436,7 @@ if (!approval) {
   ok('the lot still opens - a gap in the design is not a forged approval', r.ok === true);
   const keys = r.report.missing.map((m) => m.key);
   ok('the missing JMF %AC is reported', keys.includes('jmf_ac'), keys);
-  ok('the missing mixture type is reported', keys.includes('mix_type_code'), keys);
+  ok('the missing mixture type is reported', keys.includes('lot_mix_type_code'), keys);
   ok('the missing VMA minimum is reported', keys.includes('min_vma'), keys);
   ok('report.blocked names pay', Array.isArray(r.report.blocked.pay) && r.report.blocked.pay.length > 0,
      r.report.blocked);
@@ -384,7 +445,7 @@ if (!approval) {
      r.lot.values.design);
   // And prove the consequence rather than asserting it: pay.mjs must refuse.
   const p = lotPay({ sublots: [{ ac: 6.0, av: 3.9, vma: 15.6 }], lotNumber: 1,
-                     esalClass: 3, mixTypeCode: r.lot.values.mix_type_code ?? 0,
+                     esalClass: 3, mixTypeCode: r.lot.values.lot_mix_type_code ?? 0,
                      tonnage: 4000, unitPrice: 80 });
   ok('pay.mjs cannot produce a final pay without them', p.finalPct === null, p.finalPct);
 }

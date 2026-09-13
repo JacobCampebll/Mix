@@ -6541,6 +6541,16 @@ function designParts(payload) {
 function approvedPayload(action) {
   const p = handoffPayload(action);
   if (state.signedDesign) Object.assign(p, state.signedDesign);
+  // Say what this document is. handoffPayload() hard-codes `review` and
+  // freezeSubmittal() overwrites it with `submittal`, so without this line an
+  // approval PDF carried `doc_kind: "review"` inside it and DOC.approval was
+  // declared in CONFIG and assigned nowhere - every approval KYTC has issued
+  // calls itself a review copy in its own payload.
+  // Safe to add: doc_kind is deliberately outside what the signature covers
+  // (designParts / canonicalDesign list their fields explicitly), so this
+  // cannot invalidate an approval already issued. Both readers test only for
+  // `submittal`, so no rendering moves either.
+  p.doc_kind = CONFIG.HANDOFF.DOC.approval;
   return p;
 }
 
