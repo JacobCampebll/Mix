@@ -628,7 +628,7 @@ export const PLANTBOOK_SECTIONS = [
       {
         key: "sublot_bsg", heading: "Bulk specific gravity (BSG) — two specimens per sublot",
         fixed: true,
-        grid: ".4fr .5fr 1fr 1fr 1fr .85fr .8fr .9fr",
+        grid: ".4fr .5fr 1fr 1fr 1fr .9fr .9fr",
         seed: SPECIMEN_SEED,
         columns: [
           { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
@@ -644,7 +644,11 @@ export const PLANTBOOK_SECTIONS = [
           // weights a person actually has rather than for their quotient.
           { key: "bulk_volume", label: "Bulk vol.", type: "number", req: false, mono: true, readonly: true },
           { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
-          { key: "unit_weight", label: "Unit wt (pcf)", type: "number", req: false, mono: true, readonly: true },
+          // NO unit weight column. It is BSG x 62.4 restated beside itself, it
+          // is read by nothing in pay.mjs, the mapper or payview, and Jake asked
+          // for it off this tab (2026-09-13). PB_VOL still computes it - the
+          // workbook keeps the column and the mapper will want it - it just is
+          // not shown.
         ],
       },
       {
