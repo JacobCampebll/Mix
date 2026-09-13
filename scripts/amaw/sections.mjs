@@ -267,7 +267,7 @@ export const PLANTBOOK_SECTIONS = [
     //  Seeded values follow the provisional-value rule: tinted, with
     //  `state.sources[key]` saying where they came from, never blanked,
     //  never locked.
-    id: "lot", label: "Lot", step: "Lot",
+    id: "lot", label: "Contract & Mix", step: "Contract & mix",
     tag: "AMAW · Pay Values header — from the approved design, or typed",
     type: "grid",
     cites: ["jmf", "accept403"],
@@ -1148,7 +1148,7 @@ export const PLANTBOOK_SECTIONS = [
     //  acceptance (Calculations!H13 = 1), whose pay is a second schedule
     //  over fifteen sieve/AC deviations per sublot that pay.mjs does not
     //  model and says so in `notes`. Those notes belong under this table.
-    id: "pay", label: "Lot Pay", step: "Pay",
+    id: "pay", label: "Lot Pay", step: "Lot Pay",
     tag: "computed from the sublots, cores and the approved JMF",
     type: "computed",
     cites: ["pay403", "density403"],
