@@ -1,0 +1,884 @@
+// =====================================================================
+//  AMAW MAPPER — a PlantBook lot -> the cells of KYTC's AMAW workbook
+// =====================================================================
+//
+//  The PlantBook half of what `mixpackCells()` does for DesignBook: pure,
+//  payload and template in, `{ values, evalOnly, report }` out. Nothing here
+//  touches a DOM, opens a file or knows how a zip works — the engine in
+//  scripts/mixpack/ (and its port in designbook.html) does all of that, and
+//  docs/amaw-map.md records that it ports to AMAW unchanged apart from four
+//  evaluator functions. What does NOT port is this file: the domain is a
+//  production lot rather than a mix design.
+//
+//  ---- THE THREE OUTPUTS, AND WHY THERE ARE THREE ----------------------
+//
+//    values    cells to WRITE. A cell the template holds blank: the loader,
+//              and every formula downstream of it, reads what we put there.
+//    evalOnly  cells to FEED THE EVALUATOR WITHOUT WRITING. The template
+//              already computes these from cells we did write, so Excel will
+//              produce the same number the moment it opens the file; writing
+//              a literal over the formula would break the recalculation and
+//              leave an archived workbook that cannot be re-derived.
+//    report    what the lot does NOT carry, named cell by cell. This is the
+//              honest half. "There will always be not fully filled out
+//              AMAWs" (Jake) — a partial lot is the normal case, not an
+//              error, so this module never throws and never writes a zero
+//              in place of a measurement nobody took. It says what is
+//              missing and lets the page print it.
+//
+//  ---- THE ONE RULE THAT DECIDES WHICH OF THE FIRST TWO ----------------
+//
+//  Ask the TEMPLATE, not this file: `tpl.formulaAt(addr)`. If KYTC's blank
+//  workbook computes that cell, our value is `evalOnly`; if it is blank,
+//  our value is written. This matters because the AMAW is wired
+//  inconsistently and by hand — `Superpave!C38` carries the "weight of mix +
+//  calibration" formula and D38..J38, the identical quantity for the other
+//  seven bowls, are typed; `Superpave!C41:E41` compute MSG and F41:J41 do
+//  not; `Calculations!E67` has the joint-core pay formula and F67:N67 do
+//  not. Hard-coding "this quantity is computed" would be wrong on most
+//  columns of most of those rows. Asking the template is right on all of
+//  them and costs one function.
+//
+//  The third case is `writeOver()`: we hold a value whose INPUTS we do not
+//  hold (a CT index with no load/displacement curve behind it). Excel
+//  recalculates on open, so its formula has to be dropped and the value
+//  written plain, or the archived copy shows an empty cell. Same rule, same
+//  reason, as the MixPack generator — docs/sitemanager-handoff.md, "two
+//  write modes".
+//
+//  ---- WHERE THE ADDRESSES COME FROM -----------------------------------
+//
+//  Two places, and the split is deliberate.
+//
+//  `addresses.mjs` is the LOADER's map: where MEDL reads each field. That is
+//  derived from `t_tst_rslt_dtl` and `check_addresses.mjs` proves it still
+//  reproduces it, so nothing may be added to it that the loader does not
+//  read. But 439 of the 621 addresses it names are cells KYTC's template
+//  COMPUTES — `Superpave!N3` (producer code) is `IF('Pay Values'!D29="","",
+//  'Pay Values'!D29)`, `Superpave!J14` (air voids) is arithmetic over
+//  specimen weights. Writing those directly would produce a workbook Excel
+//  blanks on open.
+//
+//  So the second place is `INPUTS` below: the cells a technician actually
+//  types, which the loader never reads because it reads their results. Those
+//  belong here rather than in addresses.mjs, and every one of them is cited
+//  against the template formula that consumes it. Derived 2026-09-13 against
+//  AMAW_VER14_01 and two completed Version 13.3 lots (contract 252112);
+//  `check_mapper.mjs` beside this file round-trips both.
+//
+//  ---- WHAT THIS DOES NOT DO -------------------------------------------
+//
+//  * Pay arithmetic. `pay.mjs` is the pay model and it is imported, never
+//    re-implemented — the per-core pay row on `Calculations` is filled by
+//    calling `laneCorePay()` / `jointCorePay()`.
+//  * The KYCT load/displacement curve (`KYCT Data Sublot # n` rows 31+).
+//    Same call Jake made for DesignBook: the CT index is enough, the raw
+//    curve is out of scope. The index is therefore a `writeOver()`.
+//  * `Calculations!AD1` and `!C20`. Two literals both real lots carry and
+//    nothing in the workbook explains. Named in UNCLASSIFIED, reported every
+//    run, never guessed at — same rule addresses.mjs follows for sn 253.
+//
+//  Read docs/amaw-map.md first. It is the survey this mapper implements.
+
+import {
+  AGGREGATE, BLOCKS, CALC, CORES, GRADATION, KYCT, LOT, PAY,
+  PERFORMANCE, SUBLOT, SUBLOT_OF, VERIFY, HAMBURG, addressOf, bySn,
+} from './addresses.mjs';
+import { laneCorePay, jointCorePay, MCL } from './pay.mjs';
+
+// =====================================================================
+//  Address plumbing
+// =====================================================================
+// addresses.mjs keeps its quoting helpers private (they are an
+// implementation detail of `addressOf`). Three lines is cheaper than
+// widening that module's surface, and the spelling is asserted identical by
+// check_mapper.mjs — an address built here and one built there have to be
+// the same string or the diff is meaningless.
+const quote = (sheet) => (/[^A-Za-z0-9_.]/.test(sheet) ? `'${sheet}'` : sheet);
+export const A = (sheet, cell) => `${quote(sheet)}!${cell}`;
+
+// A column letter n places right of `col`. "Q" + 1 -> "R", "Z" + 1 -> "AA".
+// The workbook's own INDIRECTs do this with CHAR(81 + index); this is the
+// same arithmetic without the 26-column ceiling that has.
+export function colShift(col, n) {
+  let x = 0;
+  for (const ch of col) x = x * 26 + (ch.charCodeAt(0) - 64);
+  x += n;
+  let out = '';
+  while (x > 0) { const r = (x - 1) % 26; out = String.fromCharCode(65 + r) + out; x = (x - r - 1) / 26; }
+  return out;
+}
+
+// =====================================================================
+//  INPUTS — the typed cells, which the loader's map cannot name
+// =====================================================================
+// Every entry cites the template formula that reads it, so a future KYTC
+// revision can be re-checked one line at a time rather than wholesale.
+export const INPUTS = {
+  // 'Pay Values' rows 29-34: the blend AS TYPED. `Superpave!N3:Q8` are all
+  // IF(x="","",x) pass-throughs of these six rows, which is why the blend is
+  // entered here and read there.
+  blend: {
+    sheet: 'Pay Values', first: 29, count: AGGREGATE.count,
+    cols: { producer: 'B', agpNumber: 'D', typeSize: 'F', matCode: 'H', pct: 'J' },
+  },
+
+  // 'Pay Values'!A13:A16 — the JMF %AC the lot is paid against, one row per
+  // sublot. Its neighbours (E = target %AV, H = minimum %VMA) are formulas
+  // off Calculations!H13/J1, so only column A is typed.
+  jmfAc: { sheet: 'Pay Values', first: PAY.sublot.first, stride: PAY.sublot.stride, col: 'A' },
+
+  // The binder header. B46 (LAP number) is read by `Field Rutting!B15` and by
+  // the loader's sn 112; C46 is the "% and type of additive" free text.
+  binderProducer: A('Pay Values', PAY.lot.binderProducer),
+  additive: A('Pay Values', PAY.lot.additive),
+  sampleIdPrefix: A('Pay Values', LOT.sampleIdPrefix),
+
+  // `Superpave` gyratory pucks: two per sublot, six rows apart, matching
+  // SUBLOT.volumetric's stride. F/G/H (bulk volume, BSG, unit weight) are all
+  // formulas over these three columns.
+  specimens: {
+    sheet: SUBLOT.sheet, first: 12, stride: SUBLOT.volumetric.stride, count: 2,
+    cols: { wtAir: 'C', wtWater: 'D', wtSsd: 'E' },
+  },
+
+  // The Gmm (the sheet calls it MSG) bowls: two per sublot across columns
+  // C..J, plus the hand-mixed check sample in M/N. Row 38 is the sum of 36
+  // and 37 and row 41 the MSG itself — but only in the FIRST column of each
+  // (C38, C41:E41); the rest are typed, which is exactly why `write()` asks
+  // the template per cell instead of assuming.
+  gmm: {
+    sheet: SUBLOT.sheet,
+    cols: [['C', 'D'], ['E', 'F'], ['G', 'H'], ['I', 'J']],
+    handMixed: ['M', 'N'],
+    rows: { mix: 36, calibration: 37, total: 38, final: 39, absorbed: 40, msg: 41 },
+  },
+  handMixedAc: A(SUBLOT.sheet, SUBLOT.handMixed.binderPct),
+
+  // Moisture content of the mixture, one column per sublot. `Superpave!G48`
+  // is the % and it is subtracted from the back-calculated AC in
+  // `Gradation!D33`, so a missing moisture row moves the accepted %AC.
+  moisture: {
+    sheet: SUBLOT.sheet, cols: ['G', 'H', 'I', 'J'],
+    rows: { panAndMixBefore: 45, panAndMixAfter: 46, pan: 47 },
+  },
+
+  // POLISH RESISTANT DATA, `Superpave!Q21:S24`, one row per sublot. Not in
+  // the staging map at all — it is on the printed sheet and KYTC's own
+  // record, and MEDL never receives it. Carried because the workbook is an
+  // archived document as well as a payload.
+  polish: { sheet: SUBLOT.sheet, first: 21, stride: 1, cols: { date: 'Q', coarsePct: 'R', finePct: 'S' } },
+
+  gyrationsNdes: A(SUBLOT.sheet, 'R29'),
+
+  // Recycle. V8 is the lot's %AC in the RAP; R11:U11 is the AC contributed
+  // per sublot, and `Superpave!R12` (virgin binder) and R13 (effective
+  // replacement) are computed from them.
+  recycle: { sheet: SUBLOT.sheet, lotAc: 'V8', acFromRecycle: { row: 11, cols: AGGREGATE.pctCols } },
+
+  // `Gradation`: grams retained per sieve, one column per sublot. C/F/I/L
+  // (percent retained) and D/G/J/M (percent passing, which is what the
+  // loader reads) are all formulas over these.
+  gradation: {
+    sheet: GRADATION.sheet, first: GRADATION.first, cols: ['B', 'E', 'H', 'K'],
+    panRow: 24, totalRow: 25,
+    dateRow: 6, dateCols: ['D', 'G', 'J', 'M'],
+    // Row 32 is "As Tested % AC"; row 33 subtracts the moisture and row 34
+    // back-calculates from the ignition furnace. `Superpave!B14` — the
+    // loader's "% Binder in Mix" — reads row 33, so 32 is the typed one.
+    acRow: 32, acCols: ['D', 'G', 'J', 'M'],
+  },
+
+  // `Cores`: the three weights behind the bulk specific gravity, plus the
+  // core density itself. G (Gsb) and I (% solid) are formulas; H is NOT, in
+  // this template, so a lot types it — another asymmetry `write()` absorbs.
+  cores: { sheet: CORES.sheet, cols: { wtAir: 'D', wtWater: 'E', wtSsd: 'F', density: 'H' } },
+
+  // Per-core pay, the row `Cores!J10:J45` reads. Sixteen lane slots (four
+  // per sublot) from column E, eight joint slots (two per sublot) from
+  // column E on their own row. Filled by calling pay.mjs — never by
+  // reimplementing a band edge here.
+  corePay: { sheet: CALC.sheet, lane: { row: 34, first: 'E' }, joint: { row: 67, first: 'E' } },
+
+  // The blend's contribution to the combined Gsb: pct / BOD per component
+  // per sublot. Row 133 (the first component) is wired in the template and
+  // 134-138 are typed — the same first-column-only wiring again. They matter
+  // more than they look: `Superpave!R9` is 100/SUM(D133:D138), so the
+  // combined Gsb, and through it every VMA on the sheet, comes off this
+  // block.
+  gsbContribution: { sheet: CALC.sheet, first: 133, cols: ['D', 'G', 'J', 'M'] },
+
+  // `Super Verify` — QA01 and IQ01. The same shapes as the QC side with its
+  // own strides; see VERIFY in addresses.mjs for the read side.
+  verify: {
+    sheet: VERIFY.sheet,
+    specimens: { first: 8, stride: VERIFY.stride, count: 2, cols: { wtAir: 'C', wtWater: 'D', wtSsd: 'E' } },
+    gmm: { cols: [['C', 'D'], ['E', 'F']], rows: { mix: 20, calibration: 21, total: 22, final: 23, absorbed: 24, msg: 25 } },
+    gradation: { first: VERIFY.gradation.first, cols: ['B', 'E'], panRow: 47, totalRow: 48 },
+    moisture: { cols: ['M', 'N'], rows: { panAndMixBefore: 36, panAndMixAfter: 37, pan: 38 } },
+    inspectorId: VERIFY.technician,      // E5 / E12
+    inspectorName: ['H5', 'H12'],
+    sublotIndex: CALC.verifySublotIndex, // Calculations!L1 / L2, what every INDIRECT resolves through
+  },
+
+  // `Performance Specimens`: two banks of twelve, each bank split into two
+  // sixes with its own average. Volume, bulk Gsb and % air voids are all
+  // formulas over these four rows.
+  performance: {
+    sheet: PERFORMANCE.sheet,
+    banks: [
+      { cols: ['B', 'C', 'D', 'E', 'F', 'G'], rows: { thickness: 34, dry: 35, ssd: 36, water: 37, gmm: 40, airVoids: 41 } },
+      { cols: ['I', 'J', 'K', 'L', 'M', 'N'], rows: { thickness: 34, dry: 35, ssd: 36, water: 37, gmm: 40, airVoids: 41 } },
+      { cols: ['B', 'C', 'D', 'E', 'F', 'G'], rows: { thickness: 49, dry: 50, ssd: 51, water: 52, gmm: 55, airVoids: 56 } },
+      { cols: ['I', 'J', 'K', 'L', 'M', 'N'], rows: { thickness: 49, dry: 50, ssd: 51, water: 52, gmm: 55, airVoids: 56 } },
+    ],
+  },
+
+  // `Field Rutting`, which is IDT-HT and IDEAL-RT rather than Hamburg
+  // whatever the loader's field labels say (HAMBURG in addresses.mjs, and
+  // docs/amaw-map.md). Six specimens each. Diameter and thickness are read
+  // from rows 28/29 by the table above them, so those are the typed cells.
+  rutting: {
+    sheet: HAMBURG.sheet,
+    idt: { load: 'D', strength: 'E', first: 19, count: 6, dims: { diameter: 28, thickness: 29, first: 'B' } },
+    ideal: { load: 'L', index: 'M', first: 19, count: 6, dims: { diameter: 28, thickness: 29, first: 'I' } },
+  },
+
+  // `KYCT Data Sublot # n`: the per-specimen header. The raw curve at rows
+  // 31+ is deliberately out of scope (see the header).
+  kyct: { header: { sampleId: 22, tempC: 23, airVoids: 24, diameter: 25, thickness: 26 } },
+
+  // The two flat tabs. `Project Items` is the sheet the pay-estimate lookup
+  // already fills for DesignBook, identical columns — that work transfers
+  // whole (docs/amaw-map.md).
+  projectItems: { sheet: 'Project Items', firstRow: 6, lastRow: 99, cols: { project: 'A', line: 'B', qty: 'C', unit: 'D' }, UNIT: 'TON' },
+  certTechs: { sheet: 'Cert. Techs', firstRow: 2, lastRow: 31, cols: { smId: 'B', name: 'C' } },
+};
+
+// The control flags. All four drive pay.mjs as well, so the names match its
+// argument names rather than the cells'.
+export const FLAGS = {
+  mixTypeCode: A(CALC.sheet, 'J1'),            // 1-5,14 are the Superpave family
+  jointDensity: A(CALC.sheet, 'M11'),          // the checkbox; H11 = IF(M11,1,2)
+  densityOption: A(CALC.sheet, CALC.densityOption),   // 1 = A, 2 = B
+  acceptanceMethod: A(CALC.sheet, CALC.acceptanceMethod), // "Volumetrics" / "Gradation" / "Visual"
+  esalClass: A(CALC.sheet, CALC.esalClass),
+  binderGradeKey: A(CALC.sheet, CALC.binderGradeKey),
+  perfSpecMadeWith: A(CALC.sheet, CALC.perfSpecMadeWith),
+  lotNumber: A(CALC.sheet, 'BK1'),             // 'Pay Values'!F3 = VALUE(this)
+  sublotAcceptanceCode: { first: 35, stride: 1, col: 'AP', sheet: CALC.sheet },
+  sublotAcceptanceLabel: CALC.sublotAcceptanceMethod, // AU35.. / AU33,AU34
+};
+
+// Two literals both completed lots carry that nothing in the workbook
+// explains. Reported every run rather than guessed at — the same treatment
+// addresses.mjs gives sn 253.
+export const UNCLASSIFIED = [
+  { cell: A(CALC.sheet, 'AD1'), why: 'both real lots hold 1; the template is blank and no formula reads it' },
+  { cell: A(CALC.sheet, 'C20'), why: 'template holds 1, both real lots hold 0; no formula reads it' },
+];
+
+// =====================================================================
+//  Coercion
+// =====================================================================
+// Same three helpers mixpackCells uses, same names, so the two mappers read
+// alike. `amNum` returns null rather than NaN — a lot is mostly empty and a
+// NaN written into a workbook is a #VALUE! nobody can trace back.
+const amNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+const amStr = (v) => (v == null ? '' : String(v).trim());
+const amHas = (v) => v !== null && v !== undefined && v !== '';
+
+/** Excel serial date (days since 1899-12-30) from an ISO date, or a number
+ *  already in serial form. Both real lots store dates as serials. */
+export function amDateSerial(v) {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
+  if (!m) return amNum(v);
+  return Math.round((Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(1899, 11, 30)) / 86400000);
+}
+
+/** Excel time fraction from "HH:MM", or a fraction already. docs/amaw-map.md:
+ *  0.9125 is 21:54, NOT the HHMM the stale AMAMAW sheet claims. */
+export function amTimeFraction(v) {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(String(v || '').trim());
+  if (!m) return amNum(v);
+  return (+m[1] * 3600 + +m[2] * 60 + (+m[3] || 0)) / 86400;
+}
+
+// =====================================================================
+//  THE MAPPER
+// =====================================================================
+
+/**
+ * @param {object} lot  a PlantBook lot envelope — scripts/amaw/storage.mjs.
+ *        Identity at the top, `values` for the lot, `rows` for the blend and
+ *        the two flat tabs, `records[block]` for each of the seven test
+ *        records. Everything is optional: a lot mid-production has four of
+ *        the seven and half of one of those.
+ * @param {object} tpl  what KYTC's blank template knows about itself:
+ *        { formulaAt(addr) -> string|null,  plants?: [{key,name}],  version? }
+ *        `formulaAt` is the only required member and it is the whole reason
+ *        this mapper gets the two write modes right on a workbook wired as
+ *        inconsistently as this one.
+ * @param {object} ref  the Supabase reference lists the template does not
+ *        carry: { agpFor(name), ampFor(name), lapFor(terminal),
+ *        matCodeFor(typeName), plantNameFor(amp) }. Every one optional.
+ * @returns {{values: object, evalOnly: object, report: object}}
+ */
+export function amawCells(lot, tpl, ref) {
+  lot = lot || {};
+  const T = tpl || {};
+  const R = ref || {};
+  const formulaAt = typeof T.formulaAt === 'function' ? T.formulaAt : () => null;
+  const call = (fn, arg) => { try { return typeof fn === 'function' ? fn(arg) : null; } catch { return null; } };
+
+  const values = {}, evalOnly = {};
+  const missing = [], notes = [], unmapped = [];
+  const coverage = { lot: 0, blocks: {} };
+
+  /** We hold the value; the template decides whether it is ours to write. */
+  const write = (addr, v) => {
+    if (!amHas(v) || !addr) return false;
+    if (formulaAt(addr)) evalOnly[addr] = v; else values[addr] = v;
+    return true;
+  };
+  /** We hold the value and NOT its inputs: the formula has to go, or Excel
+   *  recalculates the cell to blank the moment the archived copy is opened. */
+  const writeOver = (addr, v) => {
+    if (!amHas(v) || !addr) return false;
+    values[addr] = v;
+    return true;
+  };
+  const need = (what, why) => missing.push(why ? `${what} - ${why}` : what);
+  const note = (s) => { if (notes.indexOf(s) < 0) notes.push(s); };
+
+  const v = lot.values || {};
+  const rows = lot.rows || {};
+  const records = lot.records || {};
+  const rec = (block) => records[block] || null;
+  const recVals = (block) => (rec(block) || {}).values || {};
+  const recRows = (block) => (rec(block) || {}).rows || {};
+
+  // Which of the seven are actually present. A block with nothing in it is
+  // not written and not complained about individually: PlantBook opens a lot
+  // with one sublot and fills the rest over a week.
+  const present = BLOCKS.filter((b) => {
+    const r = rec(b);
+    if (!r) return false;
+    const has = (o) => o && Object.keys(o).some((k) => amHas(o[k]) || (Array.isArray(o[k]) && o[k].length));
+    return has(r.values) || has(r.rows);
+  });
+
+  // ---------------------------------------------------------------
+  //  1. Lot identity — the 'Pay Values' header
+  // ---------------------------------------------------------------
+  const L = (key) => A(LOT.sheet, LOT[key]);
+  write(L('county'), amStr(v.county));
+  write(L('itemCode'), amNum(v.item_code) ?? amStr(v.item_code));
+  write(L('contract'), amStr(lot.contract_id));
+  write(L('unit'), amStr(v.unit) || INPUTS.projectItems.UNIT);
+  write(L('lotTons'), amNum(v.lot_tons));
+  write(L('unitPrice'), amNum(v.unit_price));
+  write(L('esalClass'), amNum(v.esal_class));
+  write(L('kytcLabId'), amStr(v.kytc_lab_id));
+  write(L('psLabId'), amStr(v.ps_lab_id));
+  write(L('approverName'), amStr(v.approver_name));
+  write(L('approverId'), amStr(v.approver_id));
+  write(L('materialCode'), amNum(v.material_code) ?? amStr(v.material_code));
+  write(L('approvedMixDesign'), amStr(v.approved_mix_design));
+
+  // The lot number reaches 'Pay Values'!F3 through VALUE(Calculations!BK1),
+  // and from there into every core id (Cores!A10 = CONCATENATE(F3,"-1-A")),
+  // so writing F3 itself would be writing over the formula that makes those
+  // ids. Write the source.
+  write(FLAGS.lotNumber, amNum(lot.lot_number));
+  if (!amHas(lot.lot_number)) need(FLAGS.lotNumber, 'the lot number; every core id is built from it');
+
+  // `Pay Values`!D9 — "<MIX ID> <signature>". The join back to the approved
+  // DesignBook design (docs/amaw-map.md); `t_smpl.rel_smpl_id` carries it.
+  const mixLine = amStr(v.mix_id_line)
+    || [amStr(lot.mix_id), amStr(lot.mix_signature)].filter(Boolean).join(' ');
+  write(L('mixId'), mixLine);
+  if (!mixLine) need(L('mixId'), 'MIX ID + signature - the join to the approved design');
+  if (!amStr(v.approved_mix_design)) need(L('approvedMixDesign'), "the approval's sample id");
+
+  // The plant code is PADDED in the template's own list ("AMP070302      ")
+  // and the VLOOKUP at 'Pay Values'!C6 matches exactly, the same trap the
+  // MixPack's plant list has. Take the template's spelling when we can.
+  const amp = amStr(lot.amp_number) || amStr(v.plant_code);
+  const tplPlant = (T.plants || []).find((p) => amStr(p.key) === amp);
+  if (amp) {
+    write(L('plantCode'), tplPlant ? tplPlant.key : amp);
+    if (!tplPlant && (T.plants || []).length) {
+      note(`${amp} is not in the template's 'Producer supplier' list; written unpadded, so 'Pay Values'!C6 will not resolve a name`);
+    }
+  } else need(L('plantCode'), 'the AMP number of the plant that produced the lot');
+
+  // B3 is blank in BOTH completed lots — KYTC fills the sample id at
+  // submission. An empty one is "not ready to hand off", not a read failure,
+  // so it is reported rather than invented.
+  if (amHas(v.sample_id_prefix)) write(INPUTS.sampleIdPrefix, amStr(v.sample_id_prefix));
+  else need(INPUTS.sampleIdPrefix, 't_smpl.smpl_id is this prefix + the block name; both real lots leave it blank');
+
+  write(INPUTS.binderProducer, amStr(v.binder_producer));
+  write(INPUTS.additive, amStr(v.additive));
+  write(INPUTS.gyrationsNdes, amNum(v.gyrations_ndes));
+  write(INPUTS.handMixedAc, amNum(v.hand_mixed_ac));
+  write(A(SUBLOT.sheet, INPUTS.recycle.lotAc), amNum(v.recycle_ac_pct));
+  coverage.lot = Object.keys(values).length + Object.keys(evalOnly).length;
+
+  // ---------------------------------------------------------------
+  //  2. The control flags
+  // ---------------------------------------------------------------
+  // Everything on the sheet switches on these five, pay.mjs included, and
+  // three of them are the difference between a paid lot and a zero one. A
+  // lot that does not carry them is reported loudly.
+  write(FLAGS.mixTypeCode, amNum(v.mix_type_code));
+  write(FLAGS.esalClass, amNum(v.esal_class));
+  write(FLAGS.densityOption, amNum(v.density_option));
+  write(FLAGS.jointDensity, amNum(v.joint_density) ?? (v.joint_density === false ? 0 : null));
+  write(FLAGS.acceptanceMethod, amStr(v.acceptance_method));
+  write(FLAGS.binderGradeKey, amNum(v.binder_grade_key) ?? amStr(v.binder_grade_key));
+  write(FLAGS.perfSpecMadeWith, amStr(v.perf_spec_made_with));
+  for (const [key, addr, what] of [
+    ['mix_type_code', FLAGS.mixTypeCode, 'mixture type code; the density and VMA pay tables pay nothing without it'],
+    ['esal_class', FLAGS.esalClass, 'ESAL class; every pay band edge moves with it'],
+    ['acceptance_method', FLAGS.acceptanceMethod, 'acceptance method (Volumetrics / Gradation / Visual)'],
+    ['density_option', FLAGS.densityOption, 'density option A or B'],
+  ]) if (!amHas(v[key])) need(addr, what);
+
+  // Per-sublot acceptance method: AP is the code, AU the label it looks up —
+  // and AU is only wired for the two verification rows, so the four QC rows
+  // need the label written as well as the code.
+  const acc = FLAGS.sublotAcceptanceCode, accL = FLAGS.sublotAcceptanceLabel;
+  [1, 2, 3, 4].forEach((s) => {
+    const r = recVals(`QC0${s}`);
+    write(A(acc.sheet, `${acc.col}${acc.first + (s - 1) * acc.stride}`), amNum(r.acceptance_code));
+    write(A(accL.sheet, `${accL.col}${accL.first + (s - 1) * accL.stride}`), amStr(r.acceptance_label));
+  });
+  ['QA01', 'IQ01'].forEach((b, i) => {
+    write(A(accL.sheet, accL.verify[i]), amStr(recVals(b).acceptance_label));
+  });
+
+  // Which sublot each verification verifies. A value, not a constant — it
+  // drives every INDIRECT in the workbook, so nothing QA/IQ carries resolves
+  // without it (addresses.mjs, VERIFY.sublotIndex).
+  ['QA01', 'IQ01'].forEach((b, i) => {
+    const idx = amNum(recVals(b).sublot_verified);
+    write(A(CALC.sheet, INPUTS.verify.sublotIndex[i]), idx);
+    if (present.indexOf(b) >= 0 && idx == null) {
+      need(A(CALC.sheet, INPUTS.verify.sublotIndex[i]),
+        `${b} has data but does not say which sublot it verifies; every INDIRECT on that block resolves to nothing`);
+    }
+  });
+
+  // ---------------------------------------------------------------
+  //  3. The blend
+  // ---------------------------------------------------------------
+  // Producer, type & size and BOD are lot-level. The PERCENTAGE is not — one
+  // column per sublot (docs/amaw-map.md's correction of 2026-09-13). Both
+  // real lots repeat the same five figures across R..U, which is exactly why
+  // it reads as lot-level until you check; a plant that shifts its blend
+  // mid-lot is recorded here and nowhere else.
+  const blend = (rows.aggregate || []).slice(0, AGGREGATE.count);
+  const B = INPUTS.blend;
+  blend.forEach((c, i) => {
+    const row = B.first + i;
+    const isRap = /(^|[\s#])rap\b/i.test(amStr(c.type_size));
+    const producer = amStr(c.producer);
+    // Same two registries the DesignBook aggregate rows switch between: an
+    // AGP for an aggregate, an AMP for RAP, because RAP's "producer" is the
+    // plant the millings came off (CLAUDE.md).
+    const num = amStr(c.agp_number)
+      || (isRap ? (call(R.ampFor, producer) || '') : (call(R.agpFor, producer) || ''));
+    write(A(B.sheet, `${B.cols.producer}${row}`), producer);
+    write(A(B.sheet, `${B.cols.agpNumber}${row}`), num);
+    write(A(B.sheet, `${B.cols.typeSize}${row}`), amStr(c.type_size));
+    write(A(B.sheet, `${B.cols.matCode}${row}`),
+      amNum(c.mat_code) ?? amNum(call(R.matCodeFor, amStr(c.type_size))));
+    if (!num && producer) {
+      need(A(B.sheet, `${B.cols.agpNumber}${row}`),
+        `"${producer}" has no ${isRap ? 'AMP' : 'AGP'} number on file`);
+    }
+    // BOD specific gravity: lot-level, on `Superpave` column Q.
+    write(addressOf({ at: { family: 'agg', part: 'bod', i } }, 'QC01'), amNum(c.bod));
+  });
+  if (!blend.length) need(`${A(B.sheet, `${B.cols.typeSize}${B.first}`)}:${B.cols.pct}${B.first + B.count - 1}`, 'the lot has no blend');
+
+  // The percentage and the combined-Gsb contribution, per sublot. A sublot
+  // that carries its own `blend_pct` overrides; otherwise every sublot gets
+  // the lot's blend, which is what both real lots do.
+  const G = INPUTS.gsbContribution;
+  [1, 2, 3, 4].forEach((s) => {
+    const block = `QC0${s}`;
+    const over = recRows(block).blend || null;
+    blend.forEach((c, i) => {
+      const pct = amNum((over && over[i] && over[i].pct)) ?? amNum(c.pct);
+      // 'Pay Values'!J29:J34 is the typed lot blend; the per-sublot columns
+      // are Superpave R..U and addressOf() resolves them for us.
+      if (s === 1) write(A(B.sheet, `${B.cols.pct}${B.first + i}`), pct);
+      write(addressOf({ at: { family: 'agg', part: 'pct', i } }, block), pct);
+      // pct / BOD — the term `Superpave!R9` divides 100 by. Without these
+      // the combined Gsb is blank and every VMA on the sheet goes with it.
+      const bod = amNum(c.bod);
+      if (pct != null && bod) write(A(G.sheet, `${G.cols[s - 1]}${G.first + i}`), pct / bod);
+    });
+    // AC contributed by the RAP, per sublot.
+    write(A(SUBLOT.sheet, `${INPUTS.recycle.acFromRecycle.cols[s - 1]}${INPUTS.recycle.acFromRecycle.row}`),
+      amNum(recVals(block).ac_from_recycle) ?? amNum(v.ac_from_recycle));
+  });
+  const pctSum = blend.reduce((a, c) => a + (amNum(c.pct) || 0), 0);
+  if (blend.length && Math.abs(pctSum - 100) > 0.05) {
+    note(`the blend sums to ${pctSum.toFixed(2)}%, not 100 - the combined Gsb at ${addressOf({ at: { family: 'agg', part: 'gsb', i: 0 } }, 'QC01')} will be wrong`);
+  }
+
+  // ---------------------------------------------------------------
+  //  4. The four QC sublots
+  // ---------------------------------------------------------------
+  const sieveCount = GRADATION.sieves.length;
+
+  // The JMF target gradation is a lot-level column, `Gradation!N10:N23`.
+  const jmf = v.jmf || {};
+  GRADATION.sieves.forEach((sieve, i) => {
+    write(addressOf({ at: { family: 'gradJmf', i } }, 'QC01'), amNum(jmf[sieve]));
+  });
+  if (!Object.keys(jmf).length) {
+    need(`${A(GRADATION.sheet, `${GRADATION.jmfCol}${GRADATION.first}`)}:${GRADATION.jmfCol}${GRADATION.first + sieveCount - 1}`,
+      'the JMF target gradation - every gradation pay value is a deviation from it');
+  }
+
+  for (const block of ['QC01', 'QC02', 'QC03', 'QC04']) {
+    const s = SUBLOT_OF[block];
+    const rv = recVals(block), rr = recRows(block);
+    const before = Object.keys(values).length + Object.keys(evalOnly).length;
+
+    // -- the truck ticket. `tons` is CUMULATIVE ticket tonnage (lot 2 runs
+    //    4955 -> 5390 -> 6693 -> 7530), not the sublot's own; `temperature`
+    //    is on the sheet and never reaches MEDL.
+    const tk = SUBLOT.ticket, tRow = tk.first + (s - 1) * tk.stride;
+    write(A(SUBLOT.sheet, `${tk.cols.date}${tRow}`), amDateSerial(rv.date));
+    write(A(SUBLOT.sheet, `${tk.cols.time}${tRow}`), amTimeFraction(rv.time));
+    write(A(SUBLOT.sheet, `${tk.cols.truck}${tRow}`), amStr(rv.truck));
+    write(A(SUBLOT.sheet, `${tk.cols.tons}${tRow}`), amNum(rv.tons));
+    write(A(SUBLOT.sheet, `${tk.cols.temperature}${tRow}`), amNum(rv.temperature));
+
+    // -- who tested it. A 2x2 block on `Superpave`, NOT a stride.
+    write(A(SUBLOT.sheet, SUBLOT.technician[s - 1]), amStr(rv.tested_by));
+
+    // -- the two gyratory pucks.
+    const SP = INPUTS.specimens;
+    (rr.specimens || []).slice(0, SP.count).forEach((sp, i) => {
+      const row = SP.first + (s - 1) * SP.stride + i;
+      write(A(SP.sheet, `${SP.cols.wtAir}${row}`), amNum(sp.wt_air));
+      write(A(SP.sheet, `${SP.cols.wtWater}${row}`), amNum(sp.wt_water));
+      write(A(SP.sheet, `${SP.cols.wtSsd}${row}`), amNum(sp.wt_ssd));
+    });
+    if (!(rr.specimens || []).length) {
+      need(A(SP.sheet, `${SP.cols.wtAir}${SP.first + (s - 1) * SP.stride}`),
+        `${block} has no gyratory specimen weights, so its bulk Gsb, air voids, VMA and VFA are all blank`);
+    }
+
+    // -- the two Gmm bowls. `absorbed` is a correction the sheet applies in
+    //    the MSG formula; `msg` is only written where the template does not
+    //    compute it (F41:J41 - see the header).
+    const GM = INPUTS.gmm, gcols = GM.cols[s - 1];
+    (rr.gmm || []).slice(0, gcols.length).forEach((b, i) => {
+      const col = gcols[i];
+      write(A(GM.sheet, `${col}${GM.rows.mix}`), amNum(b.wt_mix));
+      write(A(GM.sheet, `${col}${GM.rows.calibration}`), amNum(b.calibration));
+      write(A(GM.sheet, `${col}${GM.rows.total}`), amNum(b.total) ?? sumOf(b.wt_mix, b.calibration));
+      write(A(GM.sheet, `${col}${GM.rows.final}`), amNum(b.final_wt));
+      write(A(GM.sheet, `${col}${GM.rows.absorbed}`), amNum(b.absorbed_water));
+      write(A(GM.sheet, `${col}${GM.rows.msg}`), amNum(b.msg));
+    });
+    if (!(rr.gmm || []).length) {
+      need(A(GM.sheet, `${gcols[0]}${GM.rows.mix}`), `${block} has no Gmm bowl weights, so its maximum specific gravity is blank`);
+    }
+
+    // -- moisture. Small, and it moves the accepted %AC: `Gradation!D33`
+    //    subtracts `Superpave!G48` from the back-calculated figure.
+    const MO = INPUTS.moisture, mcol = MO.cols[s - 1];
+    write(A(MO.sheet, `${mcol}${MO.rows.panAndMixBefore}`), amNum(rv.moisture_before));
+    write(A(MO.sheet, `${mcol}${MO.rows.panAndMixAfter}`), amNum(rv.moisture_after));
+    write(A(MO.sheet, `${mcol}${MO.rows.pan}`), amNum(rv.moisture_pan));
+
+    // -- gradation: grams retained per sieve, plus the pan and the total.
+    const GR = INPUTS.gradation, gcol = GR.cols[s - 1];
+    const grad = rr.gradation || [];
+    GRADATION.sieves.forEach((sieve, i) => {
+      const g = grad.find((x) => amStr(x.sieve) === sieve) || {};
+      write(A(GR.sheet, `${gcol}${GR.first + i}`), amNum(g.grams_retained));
+    });
+    write(A(GR.sheet, `${gcol}${GR.panRow}`), amNum(rv.grams_pan));
+    write(A(GR.sheet, `${gcol}${GR.totalRow}`), amNum(rv.grams_total));
+    write(A(GR.sheet, `${GR.dateCols[s - 1]}${GR.dateRow}`), amDateSerial(rv.gradation_date ?? rv.date));
+    write(A(GR.sheet, `${GR.acCols[s - 1]}${GR.acRow}`), amNum(rv.ac_pct));
+    if (!amHas(rv.ac_pct)) {
+      need(A(GR.sheet, `${GR.acCols[s - 1]}${GR.acRow}`),
+        `${block} has no as-tested %AC, so 'Superpave'!${SUBLOT.volumetric.cols.binderPct}${SUBLOT.volumetric.first + (s - 1) * SUBLOT.volumetric.stride} and its AC pay value are blank`);
+    }
+    if (!grad.length) need(A(GR.sheet, `${gcol}${GR.first}`), `${block} has no gradation`);
+
+    // -- the binder and tack lot numbers, one column per sublot on row 43/44.
+    write(addressOf({ at: { family: 'payLotNo' } }, block), amStr(rv.binder_lot));
+    write(addressOf({ at: { family: 'payLotNo', tack: true } }, block), amStr(rv.tack_lot));
+
+    // -- the JMF %AC this sublot is paid against.
+    const J = INPUTS.jmfAc;
+    write(A(J.sheet, `${J.col}${J.first + (s - 1) * J.stride}`), amNum(rv.jmf_ac) ?? amNum(v.jmf_ac));
+    if (!amHas(rv.jmf_ac) && !amHas(v.jmf_ac)) {
+      need(A(J.sheet, `${J.col}${J.first + (s - 1) * J.stride}`), 'the JMF %AC - the AC pay value is a deviation from it');
+    }
+
+    // -- polish-resistant data, on the sheet and on KYTC's record but never
+    //    in the staging map.
+    const PO = INPUTS.polish, prow = PO.first + (s - 1) * PO.stride;
+    write(A(PO.sheet, `${PO.cols.date}${prow}`), amDateSerial(rv.polish_date ?? rv.date));
+    write(A(PO.sheet, `${PO.cols.coarsePct}${prow}`), amNum(rv.polish_coarse_pct));
+    write(A(PO.sheet, `${PO.cols.finePct}${prow}`), amNum(rv.polish_fine_pct));
+
+    // -- cores. TWO banks with different strides, and the count is fixed
+    //    neither per lot nor per sublot (lot 1 has 24 ids and 18 densities;
+    //    sublot 1's six were labelled and never measured). Read every slot,
+    //    drop the blanks - so a core row is placed by its declared bank and
+    //    slot, never by its position in the array.
+    const CO = INPUTS.cores;
+    (rr.cores || []).forEach((c) => {
+      const bank = amNum(c.bank) ?? 0, slot = amNum(c.slot);
+      const spec = CORES.banks[bank];
+      if (!spec || slot == null || slot >= spec.count) { unmapped.push(`${block} core bank ${c.bank}/slot ${c.slot}`); return; }
+      const key = bank === 0 ? 'id' : 'id';
+      const addr = (part) => addressOf({ at: { family: 'cores', bank, slot, key: part } }, block);
+      // The id itself is CONCATENATE('Pay Values'!F3,"-2-A") in the template
+      // - built from the lot number, never typed - so it is deliberately not
+      // written here even though addressOf() will resolve it.
+      void key; void addr;
+      const row = spec.first + slot + (s - 1) * spec.stride;
+      write(A(CO.sheet, `${CO.cols.wtAir}${row}`), amNum(c.wt_air));
+      write(A(CO.sheet, `${CO.cols.wtWater}${row}`), amNum(c.wt_water));
+      write(A(CO.sheet, `${CO.cols.wtSsd}${row}`), amNum(c.wt_ssd));
+      write(A(CO.sheet, `${CO.cols.density}${row}`), amNum(c.density));
+      write(addressOf({ at: { family: 'cores', bank, slot, key: 'station' } }, block), amStr(c.station));
+      // The per-core pay value. `Cores!J15` reads Calculations!I34, so the
+      // pay row is where the number has to land - and pay.mjs is where it
+      // has to come from. Never a band edge in this file.
+      const pctSolid = amNum(c.pct_solid);
+      if (pctSolid != null) {
+        const pv = bank === 0
+          ? laneCorePay(pctSolid, { esalClass: amNum(v.esal_class), mixTypeCode: amNum(v.mix_type_code) ?? 5 })
+          : jointCorePay(pctSolid, { mixTypeCode: amNum(v.mix_type_code) ?? 5 });
+        const P = INPUTS.corePay[bank === 0 ? 'lane' : 'joint'];
+        const per = spec.count;
+        const col = colShift(P.first, (s - 1) * per + slot);
+        if (pv === MCL) note(`${block} ${bank === 0 ? 'lane' : 'joint'} core ${slot + 1} is MCL - the lot leaves the pay schedule`);
+        write(A(P.sheet, `${col}${P.row}`), pv);
+      }
+    });
+
+    // -- KYCT. The CT index and the four quantities behind it are formulas
+    //    over a raw load/displacement curve PlantBook does not store (the
+    //    same call Jake made for DesignBook), so they are writeOver: drop
+    //    the formula, write the number, or Excel blanks them on open.
+    const ct = rr.kyct || [];
+    ct.slice(0, KYCT.specimens).forEach((spec, i) => {
+      const sheet = KYCT.sheetFor(s), col = KYCT.specimenCols[i];
+      const H = INPUTS.kyct.header, labelCol = colShift(col, -1);
+      write(A(sheet, `${labelCol}${H.sampleId}`), amStr(spec.sample_id));
+      write(A(sheet, `${col}${H.tempC}`), amNum(spec.temp_c));
+      write(A(sheet, `${col}${H.airVoids}`), amNum(spec.air_voids));
+      write(A(sheet, `${col}${H.diameter}`), amNum(spec.diameter));
+      write(A(sheet, `${col}${H.thickness}`), amNum(spec.thickness));
+      for (const key of ['l75', 'm75', 'wf', 'gf', 'index']) {
+        writeOver(addressOf({ at: { family: 'kyct', i, key } }, block), amNum(spec[key]));
+      }
+      writeOver(addressOf({ at: { family: 'kyct', i: i * 2, peak: true } }, block), amNum(spec.peak_flow));
+      writeOver(addressOf({ at: { family: 'kyct', i: i * 2 + 1, peak: true } }, block), amNum(spec.peak_stability));
+    });
+    if (ct.length) note('KYCT indices are written over their formulas: PlantBook holds the CT summary, not the raw load/displacement curve (docs/sitemanager-handoff.md)');
+
+    coverage.blocks[block] = Object.keys(values).length + Object.keys(evalOnly).length - before;
+  }
+
+  // ---------------------------------------------------------------
+  //  5. VI01 — the verification/initial record
+  // ---------------------------------------------------------------
+  // VI01 reads sublot 1's cells for almost everything (addresses.mjs), so it
+  // has no storage of its own. Its one distinct surface is `Field Rutting`,
+  // where it takes the DERIVED columns E/M while the production blocks take
+  // the raw peak loads in D/L. If a lot ever carries VI01 values that are
+  // not sublot 1's, they cannot be written and this says so rather than
+  // quietly filing them under QC01.
+  const vi = recVals('VI01');
+  const viOwn = Object.keys(vi).filter((k) => amHas(vi[k]) && ['tested_by', 'date'].indexOf(k) < 0);
+  if (viOwn.length) {
+    note(`VI01 reads sublot 1's cells for every field but Field Rutting, so ${viOwn.length} value(s) on it have nowhere of their own to go: ${viOwn.slice(0, 6).join(', ')}`);
+  }
+
+  // ---------------------------------------------------------------
+  //  6. Field Rutting — IDT-HT and IDEAL-RT, not Hamburg
+  // ---------------------------------------------------------------
+  // The loader's labels still say "Hamburg Pass 100 Left Max". The sheet
+  // underneath is two six-specimen tables and there is no wheel tracker in
+  // the building. Reproduced, not corrected - docs/amaw-map.md.
+  const rut = rows.rutting || v.rutting || {};
+  const RU = INPUTS.rutting;
+  [['idt', rut.idt_ht || []], ['ideal', rut.ideal_rt || []]].forEach(([which, list]) => {
+    const spec = RU[which];
+    list.slice(0, spec.count).forEach((sp, i) => {
+      const row = spec.first + i;
+      write(A(RU.sheet, `${spec.load}${row}`), amNum(sp.peak_load));
+      // Strength / RT index: the template wires row 19 only and leaves
+      // 20..24 typed, so `write()` does the right thing on both.
+      write(A(RU.sheet, `${which === 'idt' ? spec.strength : spec.index}${row}`),
+        amNum(which === 'idt' ? sp.strength : sp.rt_index));
+      const d = spec.dims, dcol = colShift(d.first, i);
+      write(A(RU.sheet, `${dcol}${d.diameter}`), amNum(sp.diameter));
+      write(A(RU.sheet, `${dcol}${d.thickness}`), amNum(sp.thickness));
+    });
+  });
+
+  // ---------------------------------------------------------------
+  //  7. Performance specimens
+  // ---------------------------------------------------------------
+  // Four averaged air-void figures reach the loader (PERFORMANCE), each the
+  // average of one six-specimen half-bank. Note the loader reads H57/O57 for
+  // the second bank where VER 14.01 puts the average on row 56 - a KYTC
+  // off-by-one we reproduce on the read side and step around on the write
+  // side by writing the inputs, which are unambiguous.
+  const perf = rows.performance || [];
+  perf.slice(0, INPUTS.performance.banks.length).forEach((bank, bi) => {
+    const spec = INPUTS.performance.banks[bi];
+    (bank.specimens || []).slice(0, spec.cols.length).forEach((sp, i) => {
+      const col = spec.cols[i];
+      write(A(spec.sheet || INPUTS.performance.sheet, `${col}${spec.rows.thickness}`), amNum(sp.thickness));
+      write(A(INPUTS.performance.sheet, `${col}${spec.rows.dry}`), amNum(sp.dry_wt));
+      write(A(INPUTS.performance.sheet, `${col}${spec.rows.ssd}`), amNum(sp.ssd_wt));
+      write(A(INPUTS.performance.sheet, `${col}${spec.rows.water}`), amNum(sp.wt_water));
+      write(A(INPUTS.performance.sheet, `${col}${spec.rows.gmm}`), amNum(sp.gmm));
+      // Air voids is a formula over the four above; only written over when
+      // the lot carries the result and not the weights.
+      if (!amHas(sp.dry_wt) && amHas(sp.air_voids)) writeOver(A(INPUTS.performance.sheet, `${col}${spec.rows.airVoids}`), amNum(sp.air_voids));
+    });
+  });
+
+  // ---------------------------------------------------------------
+  //  8. QA01 / IQ01 — `Super Verify`
+  // ---------------------------------------------------------------
+  // The Department's two samples. Filled by KYTC district personnel rather
+  // than the plant, which is the whole reason storage.mjs has a department
+  // path - see docs/plantbook-storage.md.
+  ['QA01', 'IQ01'].forEach((block, slot) => {
+    const rv = recVals(block), rr = recRows(block);
+    const before = Object.keys(values).length + Object.keys(evalOnly).length;
+    const V = INPUTS.verify;
+
+    write(A(V.sheet, V.inspectorId[slot]), amStr(rv.tested_by));
+    write(A(V.sheet, V.inspectorName[slot]), amStr(rv.tested_by_name));
+
+    (rr.specimens || []).slice(0, V.specimens.count).forEach((sp, i) => {
+      const row = V.specimens.first + slot * V.specimens.stride + i;
+      write(A(V.sheet, `${V.specimens.cols.wtAir}${row}`), amNum(sp.wt_air));
+      write(A(V.sheet, `${V.specimens.cols.wtWater}${row}`), amNum(sp.wt_water));
+      write(A(V.sheet, `${V.specimens.cols.wtSsd}${row}`), amNum(sp.wt_ssd));
+    });
+
+    const gcols = V.gmm.cols[slot];
+    (rr.gmm || []).slice(0, gcols.length).forEach((b, i) => {
+      const col = gcols[i];
+      write(A(V.sheet, `${col}${V.gmm.rows.mix}`), amNum(b.wt_mix));
+      write(A(V.sheet, `${col}${V.gmm.rows.calibration}`), amNum(b.calibration));
+      write(A(V.sheet, `${col}${V.gmm.rows.total}`), amNum(b.total) ?? sumOf(b.wt_mix, b.calibration));
+      write(A(V.sheet, `${col}${V.gmm.rows.final}`), amNum(b.final_wt));
+      write(A(V.sheet, `${col}${V.gmm.rows.absorbed}`), amNum(b.absorbed_water));
+      write(A(V.sheet, `${col}${V.gmm.rows.msg}`), amNum(b.msg));
+    });
+
+    const gcol = V.gradation.cols[slot], grad = rr.gradation || [];
+    GRADATION.sieves.forEach((sieve, i) => {
+      const g = grad.find((x) => amStr(x.sieve) === sieve) || {};
+      write(A(V.sheet, `${gcol}${V.gradation.first + i}`), amNum(g.grams_retained));
+    });
+    write(A(V.sheet, `${gcol}${V.gradation.panRow}`), amNum(rv.grams_pan));
+    write(A(V.sheet, `${gcol}${V.gradation.totalRow}`), amNum(rv.grams_total));
+
+    const mcol = V.moisture.cols[slot];
+    write(A(V.sheet, `${mcol}${V.moisture.rows.panAndMixBefore}`), amNum(rv.moisture_before));
+    write(A(V.sheet, `${mcol}${V.moisture.rows.panAndMixAfter}`), amNum(rv.moisture_after));
+    write(A(V.sheet, `${mcol}${V.moisture.rows.pan}`), amNum(rv.moisture_pan));
+
+    coverage.blocks[block] = Object.keys(values).length + Object.keys(evalOnly).length - before;
+  });
+
+  // ---------------------------------------------------------------
+  //  9. The hand-mixed check sample
+  // ---------------------------------------------------------------
+  const HM = INPUTS.gmm.handMixed;
+  (rows.hand_mixed || []).slice(0, HM.length).forEach((b, i) => {
+    const col = HM[i], r = INPUTS.gmm.rows;
+    write(A(INPUTS.gmm.sheet, `${col}${r.mix}`), amNum(b.wt_mix));
+    write(A(INPUTS.gmm.sheet, `${col}${r.calibration}`), amNum(b.calibration));
+    write(A(INPUTS.gmm.sheet, `${col}${r.total}`), amNum(b.total) ?? sumOf(b.wt_mix, b.calibration));
+    write(A(INPUTS.gmm.sheet, `${col}${r.final}`), amNum(b.final_wt));
+    write(A(INPUTS.gmm.sheet, `${col}${r.absorbed}`), amNum(b.absorbed_water));
+    write(A(INPUTS.gmm.sheet, `${col}${r.msg}`), amNum(b.msg));
+  });
+
+  // ---------------------------------------------------------------
+  //  10. Project Items and Cert. Techs
+  // ---------------------------------------------------------------
+  // `Project Items` is the same sheet, same three columns, the DesignBook
+  // pay-estimate lookup already fills (docs/amaw-map.md), and the same trap
+  // applies: no staging formula reads this tab, so a generated workbook with
+  // the headers and no rows LOADS, silently, without its project items.
+  const PI = INPUTS.projectItems;
+  const items = (rows.project_items || []).filter((r) => amHas(r.project) && amHas(r.line));
+  const room = PI.lastRow - PI.firstRow + 1;
+  items.slice(0, room).forEach((r, i) => {
+    const row = PI.firstRow + i;
+    write(A(PI.sheet, `${PI.cols.project}${row}`), amStr(r.project));
+    write(A(PI.sheet, `${PI.cols.line}${row}`), amStr(r.line));
+    write(A(PI.sheet, `${PI.cols.qty}${row}`), amNum(r.quantity));
+    write(A(PI.sheet, `${PI.cols.unit}${row}`), amStr(r.unit) || PI.UNIT);
+  });
+  if (!items.length) need(A(PI.sheet, `${PI.cols.project}${PI.firstRow}`), 'no project items - MEDL loads the lot without them rather than refusing it');
+  else if (items.length > room) need(A(PI.sheet, PI.cols.project), `${items.length} project items and the sheet holds ${room}`);
+
+  const CT = INPUTS.certTechs;
+  (rows.technicians || []).slice(0, CT.lastRow - CT.firstRow + 1).forEach((t, i) => {
+    const row = CT.firstRow + i;
+    write(A(CT.sheet, `${CT.cols.smId}${row}`), amStr(t.sm_id));
+    write(A(CT.sheet, `${CT.cols.name}${row}`), amStr(t.name));
+  });
+
+  // ---------------------------------------------------------------
+  //  11. What is left over
+  // ---------------------------------------------------------------
+  for (const u of UNCLASSIFIED) note(`${u.cell} not written: ${u.why}`);
+  const absent = BLOCKS.filter((b) => present.indexOf(b) < 0);
+  if (absent.length) note(`no data for ${absent.join(', ')} - a part-filled AMAW is the normal case, not an error`);
+
+  return {
+    values,
+    evalOnly,
+    report: {
+      missing,
+      notes,
+      unmapped,
+      blocks: present,
+      coverage,
+      cells: Object.keys(values).length,
+      supplied: Object.keys(evalOnly).length,
+    },
+  };
+}
+
+// Small enough to inline, but it is used three times and the null handling
+// is the point: two weights and no total is a total we can compute; one
+// weight and no total is not.
+function sumOf(a, b) {
+  const x = amNum(a), y = amNum(b);
+  return x == null || y == null ? null : x + y;
+}
+
+export default amawCells;
