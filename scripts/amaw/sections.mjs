@@ -297,18 +297,56 @@ export const PLANTBOOK_SECTIONS = [
       // Pay Values!B5, "Superpave 0.38". `amaw_types` is PlantBook's own
       // reference table; its sitemanager_code is the mixture type code the
       // pay tables switch on.
-      { key: "lot_type_mix", label: "Type of mix", type: "text", req: true, source: "amaw_types" },
-      // RENDERER GAP (1) — SILENT. `fills` is applied by autofillFrom(),
-      // which returns early unless the element has `data-col` and sits in a
-      // `.rowitem`. A `fills` on a GRID FIELD is accepted by the schema and
-      // then quietly does nothing, so this code cannot be auto-filled from
-      // the row above the way `mat_code` is from `type_size`. Until
-      // autofillFrom() learns the field case, recompute() has to resolve it
-      // with refMatch("amaw_types", ...). Left as a plain field rather than
-      // declaring a `fills` that would look wired and not be — the same
-      // class of bug as `aadtt_class` sitting parsed in state.mix and never
-      // reaching its field.
-      { key: "lot_mix_type_code", label: "Mixture type code", type: "number", req: true, mono: true },
+      // ---- THE MIX, IN DESIGNBOOK'S OWN WORDS --------------------------
+      //
+      // Jake, 2026-09-13: "the way that it is asking for the mix type seems
+      // so much more tedious than the design book, could they not be more
+      // similar so that when uploading an approval it is easier to match?"
+      //
+      // They can, and these two are how. DesignBook's Contract Information
+      // asks Nominal size + Mix type; the approval carries both; so the lot
+      // shows THE SAME TWO FIELDS with the same option lists and the same
+      // labels rather than a second vocabulary for one fact. Reading
+      // "0.38 (3/8\")" and "A — polish-resistant" on both books is the whole
+      // point - a person moving between them is looking at the same thing.
+      //
+      // Inherited and tinted but EDITABLE, the same as Contract, County and
+      // Plant beside them - one convention per step. Not readonly, and the
+      // word is avoided deliberately: `readonly` is inert on a <select> in
+      // HTML (it only applies to inputs and textareas), so declaring it here
+      // would have looked like a lock and been nothing at all. A field that
+      // genuinely must not be retyped is a READOUT on this page - which is
+      // what JMF %AC, the air-void target and the minimum VMA already are.
+      { key: "lot_nominal_size", label: "Nominal size", type: "select", req: true, mono: true,
+        options: [
+          { value: "1.50", label: "1.50 (1-1/2\")" }, { value: "1.00", label: "1.00 (1\")" },
+          { value: "0.75", label: "0.75 (3/4\")" },   { value: "0.50", label: "0.50 (1/2\")" },
+          { value: "0.38", label: "0.38 (3/8\")" },   { value: "NO.4", label: "NO.4 (4.75 mm)" },
+        ] },
+      { key: "lot_mix_type", label: "Mix type", type: "select", req: true,
+        options: [
+          { value: "A", label: "A \u2014 polish-resistant" },
+          { value: "B", label: "B \u2014 polish-resistant" },
+          { value: "D", label: "D \u2014 no polish requirement" },
+        ] },
+      // ---- and the workbook's own translation of them -------------------
+      //
+      // `Pay Values`!B5 wants the phrase "Superpave 0.38" and
+      // `Calculations`!J1 wants the code 5, both off the workbook's own
+      // Calculations A1:B14 table. They are a TRANSLATION of the two fields
+      // above, not a second question, so they are readonly and derived.
+      //
+      // `lot_type_mix` used to declare `source: "amaw_types"` and that was
+      // the bug behind Jake's complaint: it validated a DERIVED value against
+      // a reference list it was never picked from, so every lot opened with
+      // "Superpave 0.38 (not in KYTC list)" on the field and a warning in the
+      // rail - on a value the approval had supplied correctly. A list belongs
+      // on a field a human chooses from. (This leaves `amaw_types` with no
+      // reader; the table entry stays documented in
+      // PLANTBOOK_REFERENCE_TABLES rather than being deleted out from under
+      // Andrew, but nothing loads it now.)
+      { key: "lot_type_mix", label: "Type of mix (AMAW)", type: "text", req: false, mono: true, readonly: true },
+      { key: "lot_mix_type_code", label: "Mixture type code", type: "number", req: false, mono: true, readonly: true },
       { key: "lot_tons",  label: "Lot tonnage",  type: "number", req: true, mono: true },
       { key: "lot_unit",  label: "Unit",         type: "select", req: true,
         options: ["TON"] },

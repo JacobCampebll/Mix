@@ -695,8 +695,23 @@ export function lotFromApproval(payload, opts = {}) {
     'The pay item ("385"). Its own field: on both real lots it is also the tail of the workbook\'s older five-digit mix id, but the id DesignBook issues is eight digits and does not carry it.',
     ['medl-load']);
 
+  /* ---- the mix, in DesignBook's own two fields ----------------------
+     Nominal size and Mix type, the same pair Contract Information asks for,
+     carried across so a person moving between the books is reading one
+     vocabulary rather than two. Both are covered by the approval's
+     signature, so PlantBook shows them readonly rather than asking again. */
+  if (mix && mix.nominal_size) {
+    const split = splitDesignation(mix.nominal_size);
+    take('lot_nominal_size', split.size || null, 'mix.nominal_size', cell(LOT.sheet, LOT.typeMix));
+    // The letter can be absent on a design that never had one typed; that is
+    // a gap in the approval rather than something to invent here.
+    if (split.letter) take('lot_mix_type', split.letter, 'mix.nominal_size (the trailing letter)', null);
+  }
+
   /* ---- the mixture type code, and what hangs off it -----------------
-     Calculations!J1. Everything in the pay schedule gates on it. */
+     Calculations!J1. Everything in the pay schedule gates on it. A
+     TRANSLATION of the two fields above into the workbook's own words, not
+     a second question - which is why both are derived and readonly. */
   const mt = mix ? mixTypeFor(mix.nominal_size) : null;
   if (mt) {
     derive('lot_mix_type_code', mt.code, `nominal size "${mix.nominal_size}" -> Calculations A1:B14`, cell(CALC.sheet, 'J1'));
