@@ -1373,27 +1373,54 @@ TBD — cite the governing spec section when encoding a limit in code.
 
 - **Still NOT auto-filled on the Lot step, and both are open questions rather
   than settled answers** (2026-09-13):
-  **ESAL Class** is refused deliberately and the refusal is worth keeping in
-  front of whoever revisits it. The design carries an AADTT Class; the AMAW
-  wants an ESAL Class (`Calculations!C14`, 1-4). CLAUDE.md is already explicit
-  that the spec's Class 2/3/4 is "*not* ESAL or depth" - two different scales
-  that overlap on three of their values, which is the worst possible shape for
-  a silent mis-mapping. The design's AADTT Class is carried beside it for
-  reference (`values.design.aadtt_class`) so whoever sets it has the answer in
-  front of them. If Jake or Andrew confirms a mapping, it is a one-line
-  change.
+  **ESAL Class** was refused deliberately, and **that refusal was WRONG -
+  corrected the same day, see the entry below.** It is the design's own Class.
   **Acceptance method / density option / joint density counts** are KYTC's
   per-lot decisions about how this lot is accepted and paid, and the approval
   is a design. Both real lots are Volumetrics / A / Yes, so a tinted default
   is defensible - but `propertyWeights()` answers for exactly three
   combinations and weighs EVERY property at zero for the rest, so a wrong one
   is a silent 0% lot. Left blank pending Tate.
-  **Two of those three moved the same day - see the entry below.** Joint
-  density is derived from the mix now, and the density option turns out to be
-  on the proposal rather than being anybody's decision. **Acceptance method is
-  now the ONLY field on the Lot step still waiting on a person** other than
-  ESAL Class: unit price became a spec constant and joint density a derivation
-  in the same round.
+  **All of this moved the same day - see the entries below.** Joint density is
+  derived from the mix, the density option turns out to be on the proposal
+  rather than being anybody's decision, ESAL Class is the design's own Class,
+  and the unit price is a spec constant. **Acceptance method is now the ONLY
+  field on the Lot step still waiting on a person.**
+
+- **CORRECTED 2026-09-13: the AMAW's "ESAL Class" IS the design's Class, and
+  refusing to map it was this file's own mistake.** Jake: "esal class is easy,
+  its what ever class the aproval is such as CL3 or CL2 or CL4". He is right,
+  and the note above was wrong in a way worth understanding, because the same
+  error is easy to repeat.
+  **What the refusal got right and what it got wrong.** It is true that the
+  2026 spec's Class 2/3/4 is not an ESAL count and not a depth - the
+  Department renamed the concept away from ESALs. What does not follow, and
+  what the note assumed, is that the AMAW's box labelled "ESAL Class" is
+  therefore a *different quantity*. **KYTC never relabelled the workbook.**
+  This is the same family as `Field Rutting` still saying "Hamburg Pass 100
+  Left Max" when the sheet is IDT-HT, and the MixPack's `P52:P55` Criteria
+  formulas still branching on the old ESAL-era table: an old label over a
+  renamed thing. The general lesson is that **a stale label is evidence about
+  the workbook's age, not about the quantity** - resolve it by asking what the
+  cell DRIVES, not what it is called.
+  **Doing that settles it decisively.** `Calculations!D15` feeds
+  `airVoidPay()`, whose two branches are `cls === 1 || cls === 2` and
+  `cls === 3 || cls === 4`. Those branches reproduce the 2026 Std Spec AV
+  table verbatim - and that table's own two columns are headed **"AADTT Class
+  2"** and **"AADTT Class 3 or 4"** (pp.185/186/188). The low branch pays
+  `1.00+0.1(AV-3.0)` over 1.5-3.1 and 0.75 over 6.1-6.5; the high branch
+  starts at 2.0 and has no 0.75 band at all - exactly the spec's two columns.
+  A field that selects the AADTT Class table is the AADTT Class.
+  Corroborated by both real lots: CL3 ASPH SURF 0.38A, `D15` = 3.
+  `esalClassFor(mix, aadttClass)` takes the design's `aadtt_class` field first
+  and the signature's CL prefix second, accepts a "CL2" spelling, and returns
+  **null rather than a default** for anything outside 1-4 - an out-of-range
+  class pays ZERO everywhere except the 3.0-4.0 air-void band, so a guess
+  there is far worse than a blank. The workbook's picklist also offers 1,
+  which no mix signature can produce; `airVoidPay()` treats 1 and 2 alike and
+  it stays hand-pickable.
+  `check_intake.mjs`'s assertion was INVERTED rather than deleted, so the file
+  records that it once claimed the opposite.
 
 - **Joint density is settled by the MIX, and the density option is on the
   PROPOSAL - neither is a per-lot preference** (Jake, 2026-09-13: "Joint
