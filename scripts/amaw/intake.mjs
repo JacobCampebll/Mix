@@ -1,0 +1,884 @@
+// APPROVAL INTAKE — the front door of PlantBook.
+//
+// "the start of every plant book will be uploading an approval from design
+// book" (Jake, 2026-09-13). This module is that decision, as code.
+//
+// Two things fall out of it, and they are the two exports here.
+//
+// INHERITANCE. A DesignBook approval PDF carries the whole design as a JSON
+// attachment (`buildApprovalPDF` attaches it, `readHandoffPDF` reads it back,
+// both in public/designbook.html). So a lot does not TYPE its contract, its
+// plant, its mix, its blend or its combined Gsb — it inherits them. More to
+// the point it inherits the numbers lot pay is measured against: pay is a
+// deviation from the JMF, and without the JMF there is nothing to deviate
+// from. `lotFromApproval()` seeds a storage.mjs lot envelope from a payload
+// and reports, field by field, what came across and what a technician is
+// still going to have to type.
+//
+// A GATE. The approval is signed — `netlify/functions/verify-approval` is
+// live and public/verify.html already calls it. So the front door can refuse
+// to open a lot on a design KYTC never approved, or on one edited after
+// approval. `approvalChecks()` is those decisions AS DATA: which document
+// this is, what is missing, what to POST to verify-approval, and what each
+// failure means. No DOM, no fetch, no messages formatted for a screen — the
+// page owns all three.
+//
+// THE ONE RULE THAT IS NOT NEGOTIABLE. "Verified" and "we did not check" are
+// different states and a lot must never confuse them. Every lot this module
+// builds carries `values.design.approval.verification`, and it is
+// `not-checked` unless a caller hands over a verify-approval response that
+// actually came back `{ valid: true }`. There is no default of convenience:
+// a page that forgets to verify produces a lot that SAYS it was never
+// verified, rather than one that quietly looks fine.
+//
+// PURE MODULE. No DOM, no I/O, no network. The caller does the fetch; this
+// shapes the request and reads the answer.
+//
+// ---------------------------------------------------------------------
+// WHAT THIS WAS BUILT AGAINST
+// ---------------------------------------------------------------------
+// `scripts/amaw/sections.mjs` did not exist when this was written (another
+// agent has it in hand), so the lot's shape comes from the three files that
+// do exist and from the workbook itself:
+//   * `storage.mjs`  — `blankLot()` and the envelope. The lot this returns is
+//     one of those, so it saves, loads and round-trips through either
+//     backend with nothing added. Note `normaliseLot()` keeps only its own
+//     key list, so everything inherited lives INSIDE `values` / `rows` /
+//     `extracted_from` rather than as a new top-level key, which would be
+//     silently dropped on the first save.
+//   * `addresses.mjs` — the AMAW cell for every field, so `report.to` names a
+//     real cell rather than a guess.
+//   * `pay.mjs`      — what `lotPay()` needs, which is what makes the three
+//     inherited numbers the important ones.
+//   * `docs/amaw-map.md` and the blank VER 14.01 template, read directly for
+//     the two facts below.
+//
+// TWO FACTS READ OFF THE TEMPLATE, because they decide what is worth
+// inheriting at all ('Pay Values' row 13, the first sublot):
+//   A13  JMF %AC    — TYPED. Empty in the blank template, no formula.
+//   E13  Target %AV — a LOOKUP on the mixture type code; 3.5 for every
+//                     Superpave size (Calculations C1:C5 / F1:F14).
+//   H13  Min. %VMA  — TYPED. Empty in the blank template, no formula.
+//   I13  Sublot %VMA — computed, `Superpave!M14`.
+// So two of the three are cells a human fills in today and this fills for
+// them; the third the workbook derives for itself and we carry only as a
+// cross-check. Do not "simplify" by treating all three the same.
+
+import { blankLot } from './storage.mjs';
+import { LOT, AGGREGATE, SUBLOT, VERIFY as AVERIFY, GRADATION, CORES, PAY, CALC } from './addresses.mjs';
+import { vmaMinimumFor, airVoidTargetFor } from './pay.mjs';
+
+// ---------------------------------------------------------------------
+// What a DesignBook payload is
+// ---------------------------------------------------------------------
+// These four constants are DUPLICATED from designbook.html's CONFIG.HANDOFF
+// and netlify/lib/canonical.mjs on purpose — same rule as SUPABASE_URL in
+// every page: self-contained means no shared import. If any of them ever
+// changes there, it changes here too, and a payload that no longer matches
+// is refused rather than half-read.
+export const APPROVAL_FORMAT = 'kytc-designbook';
+export const APPROVAL_MAX_VERSION = 1;
+export const DOC_KIND = { review: 'review', submittal: 'submittal', approval: 'approval' };
+// canonical.mjs owns this string on the server; sign-approval finds the
+// submitter by it. Read-only here.
+export const SUBMITTED_ACTION = 'Submitted to KYTC';
+export const APPROVED_ACTION = 'Approved by KYTC';
+
+// ---------------------------------------------------------------------
+// Verification states
+// ---------------------------------------------------------------------
+// Exactly one of these means the signature was checked and passed. Callers
+// switch on the string; never on the human sentence beside it.
+export const VERIFICATION = {
+  VERIFIED: 'verified',        // verify-approval returned { valid: true }
+  INVALID: 'invalid',          // it returned { valid: false } — changed, or not genuine
+  NOT_CHECKED: 'not-checked',  // nobody asked. The DEFAULT.
+  UNAVAILABLE: 'unavailable',  // the Function is not configured or unreachable
+  REFUSED: 'refused',          // the Function refused the request (400) — our shaping is wrong
+};
+
+// Only one value is ever safe to read as "this approval is real".
+export const isVerified = (v) => !!v && v.state === VERIFICATION.VERIFIED;
+
+export const VERIFY_FN = '/.netlify/functions/verify-approval';
+
+// ---------------------------------------------------------------------
+// Failure codes
+// ---------------------------------------------------------------------
+// The page picks its own wording; what it must not do is invent its own
+// taxonomy. `message` here is a plain sentence a technician could read, kept
+// close to the wording verify.html and readHandoffPDF() already use so the
+// three doors do not describe the same file three different ways.
+export const FAILURE = {
+  NOT_A_PAYLOAD: 'not-a-payload',
+  NOT_DESIGNBOOK: 'not-designbook',
+  NEWER_VERSION: 'newer-version',
+  NO_CONTRACT: 'no-contract',
+  NO_APPROVAL: 'no-approval',
+  APPROVAL_INCOMPLETE: 'approval-incomplete',
+};
+
+// ---------------------------------------------------------------------
+// Mixture type code — Calculations!J1
+// ---------------------------------------------------------------------
+// The one control flag the approval CAN settle on its own, and everything
+// downstream hangs off it: the VMA minimum, the air-void target, and whether
+// the density and VMA tables pay anything at all (`paysOn()` in pay.mjs).
+//
+// Read out of the blank VER 14.01 template, Calculations A1:B14 — the code in
+// column A, KYTC's own name for it in column B. Not inferred:
+//   1 Superpave 1.5   2 Superpave 1.0   3 Superpave 0.75
+//   4 Superpave 0.50  5 Superpave 0.38  14 Superpave No.4
+// which is the same six sizes DesignBook's `nominal_size` field offers, in
+// the same order. `5` is independently confirmed — both of Jake's real lots
+// are Superpave 0.38 and read J1 = 5 (pay.mjs).
+export const MIX_TYPE_CODES = [
+  { size: '1.50', code: 1, name: 'Superpave 1.5' },
+  { size: '1.00', code: 2, name: 'Superpave 1.0' },
+  { size: '0.75', code: 3, name: 'Superpave 0.75' },
+  { size: '0.50', code: 4, name: 'Superpave 0.50' },
+  { size: '0.38', code: 5, name: 'Superpave 0.38' },
+  { size: 'NO.4', code: 14, name: 'Superpave No.4' },
+];
+
+/** "0.38B" / "0.38" / "no.4 a" -> { size, letter }. Same split
+ *  designbook.html's splitMixDesignation() does, and for the same reason:
+ *  the trailing letter is the mix TYPE (A/B/D) and says nothing about NMAS
+ *  (CLAUDE.md, confirmed with Andrew 2026-09-04). */
+export function splitDesignation(raw) {
+  const t = String(raw == null ? '' : raw).trim();
+  if (!t) return { size: '', letter: '' };
+  const m = /^(.*[^A-Za-z])([A-Za-z])$/.exec(t);
+  return m ? { size: m[1].trim(), letter: m[2].toUpperCase() } : { size: t, letter: '' };
+}
+
+/** Nominal size token -> the workbook's mixture type code, or null. */
+export function mixTypeFor(nominalSize) {
+  const size = splitDesignation(nominalSize).size.toUpperCase().replace(/\s+/g, '');
+  const hit = MIX_TYPE_CODES.find((m) => m.size === size);
+  return hit ? { code: hit.code, name: hit.name } : null;
+}
+
+/** What mix this design is actually for.
+ *
+ *  Contract Information's own two fields win, then the Portal's lookup —
+ *  the same order designbook.html's effectiveMix() uses. CLAUDE.md records
+ *  what happens when two places answer this question differently: the review
+ *  PDF drew no gradation band for any design that did not start from the
+ *  Portal, because it read `payload.mix` where the page read the fields.
+ *  One fact, one resolver. */
+export function effectiveMixOf(payload) {
+  const v = (payload && payload.values) || {};
+  const size = str(v.nominal_size), letter = str(v.mix_type);
+  const mix = (payload && payload.mix) || null;
+  if (size || letter) {
+    return {
+      nominal_size: size + letter,
+      signature: mix ? mix.signature || null : null,
+      binder_grade: str(v.binder_grade) || (mix ? mix.binder_grade : null) || null,
+      layer: mix ? mix.layer || null : null,
+      mix_class: mix ? (mix.mix_class == null ? null : mix.mix_class) : null,
+      from: 'contract-information',
+    };
+  }
+  if (!mix) return null;
+  return {
+    nominal_size: mix.nominal_size || null,
+    signature: mix.signature || null,
+    binder_grade: mix.binder_grade || null,
+    layer: mix.layer || null,
+    mix_class: mix.mix_class == null ? null : mix.mix_class,
+    from: 'mix-lookup',
+  };
+}
+
+// ---------------------------------------------------------------------
+// approvalChecks — the gate, as data
+// ---------------------------------------------------------------------
+/**
+ * Decide what an uploaded payload IS and whether PlantBook may open a lot on
+ * it. Returns data only; nothing here fetches and nothing here is worded for
+ * a particular screen.
+ *
+ *   { ok, doc, approval, failures[], warnings[], verify }
+ *
+ * `doc.kind_declared` is the file's own `doc_kind`. `doc.kind_effective` is
+ * what it actually is. READ THE NEXT PARAGRAPH BEFORE USING EITHER.
+ *
+ * `doc_kind` DOES NOT IDENTIFY AN APPROVAL, and it looks like it should.
+ * designbook.html's `handoffPayload()` hard-codes `doc_kind: "review"`;
+ * `freezeSubmittal()` overwrites it with "submittal"; and `approvedPayload()`
+ * — the one the approval PDF is built from — does neither, so a real,
+ * correctly signed approval PDF comes off the live page reading
+ * `doc_kind: "review"`. Verified 2026-09-13 by building one with the page's
+ * own buildApprovalPDF() and reading it back with its own readHandoffPDF()
+ * (scripts/amaw/check_intake.mjs proves it every run). `DOC.approval` is
+ * declared in CONFIG.HANDOFF and never assigned anywhere in the file.
+ *
+ * So the AUTHORITY is the approval block, not the label: a payload carrying
+ * `approval.code` is an approval whatever `doc_kind` says, and a payload
+ * without one is not, whatever it says. That is also the only reading that
+ * cannot be spoofed by editing one string in a JSON attachment. `doc_kind`
+ * is still carried, because it is the difference between "this is a review
+ * copy" and "this is the document KYTC received" when telling someone which
+ * wrong file they uploaded. This is designbook.html's bug to fix if anyone
+ * wants it fixed; PlantBook must work against the files that exist today,
+ * including every approval already issued.
+ */
+export function approvalChecks(payload) {
+  const failures = [], warnings = [];
+  const fail = (code, message, detail) => failures.push({ code, message, ...(detail || {}) });
+
+  if (!payload || typeof payload !== 'object') {
+    fail(FAILURE.NOT_A_PAYLOAD, 'There is no design data in that file.');
+    return { ok: false, doc: null, approval: null, failures, warnings, verify: null };
+  }
+
+  // Same three refusals readHandoffPDF() makes, in the same order, so the two
+  // doors agree about what is readable at all.
+  if (payload.format !== APPROVAL_FORMAT)
+    fail(FAILURE.NOT_DESIGNBOOK,
+      'That file was not made by DesignBook. Upload the approval PDF KYTC issued.',
+      { got: payload.format == null ? null : String(payload.format) });
+
+  const version = Number(payload.version || 1);
+  if (version > APPROVAL_MAX_VERSION)
+    fail(FAILURE.NEWER_VERSION,
+      `That approval was made by a newer version of DesignBook (v${version}). Reload this page and try again.`,
+      { got: version, supported: APPROVAL_MAX_VERSION });
+
+  const job = payload.job || null;
+  if (!job || !str(job.cid))
+    fail(FAILURE.NO_CONTRACT, "That design data is incomplete - it carries no contract.");
+
+  const a = payload.approval || null;
+  const history = Array.isArray(payload.history) ? payload.history : [];
+  const declared = payload.doc_kind == null ? null : String(payload.doc_kind);
+
+  if (!a || !str(a.code)) {
+    // Worded off which document they actually picked, because "this is not an
+    // approval" is unhelpful when the answer is "you uploaded the submittal".
+    const what = declared === DOC_KIND.submittal
+      ? 'That is the submittal - the document KYTC received, before it was reviewed.'
+      : history.some((h) => h && h.action === SUBMITTED_ACTION)
+        ? 'That is a working copy of a submitted design, not the approval.'
+        : 'That is an internal review copy, not an approval.';
+    fail(FAILURE.NO_APPROVAL,
+      `${what} A lot starts from the approval PDF KYTC issued - the one with a verification code on it.`,
+      { doc_kind: declared, stage: payload.stage || null });
+  } else {
+    // verify-approval 400s unless all four are present, and a 400 reads as
+    // "bad request" rather than as anything a technician can act on. Catch it
+    // here so the message names the file instead of the API.
+    const need = ['code', 'issued_at', 'approved_by', 'mix_id'].filter((k) => !str(a[k]));
+    if (need.length)
+      fail(FAILURE.APPROVAL_INCOMPLETE,
+        'That file carries an approval, but not a complete one - it cannot be checked against KYTC.',
+        { missing: need });
+  }
+
+  // Not failures. A design can be genuinely approved and still say something
+  // odd about itself; refusing the lot over any of these would put a
+  // technician in front of a file KYTC signed and a door that will not open.
+  if (a && str(a.code) && payload.stage && payload.stage !== 'Approved')
+    warnings.push({ code: 'stage-disagrees',
+      message: `The file carries a KYTC approval but its stage reads "${payload.stage}". The approval is what counts; the stage is only a claim.` });
+  if (a && str(a.code) && declared === DOC_KIND.submittal)
+    warnings.push({ code: 'submittal-carrying-approval',
+      message: 'This is labelled a submittal but carries an approval block. Check it is the approval PDF KYTC sent.' });
+
+  const kindEffective = a && str(a.code)
+    ? DOC_KIND.approval
+    : declared === DOC_KIND.submittal ? DOC_KIND.submittal : DOC_KIND.review;
+
+  const ok = failures.length === 0;
+  return {
+    ok,
+    doc: {
+      kind_declared: declared,
+      // The derived answer. See the long note above: on every approval the
+      // live page produces, these two disagree, and the derived one is right.
+      kind_effective: kindEffective,
+      kind_is_reliable: declared === kindEffective,
+      stage: payload.stage || null,
+      format: payload.format || null,
+      version,
+      submitted_by: submitterOf(payload),
+      approved_by: a ? a.approved_by || null : null,
+    },
+    approval: a && str(a.code) ? { ...a } : null,
+    failures,
+    warnings,
+    // Only shaped when there is something to check. A caller that finds
+    // `verify: null` has nothing to send and must not treat that as a pass.
+    verify: ok ? verifyRequest(payload) : null,
+  };
+}
+
+/** The last SUBMITTED_ACTION entry's sm_id — canonical.mjs's submitterOf(),
+ *  reproduced because that file is server-side and this runs in a page. */
+export function submitterOf(payload) {
+  const h = Array.isArray(payload && payload.history) ? payload.history : [];
+  const e = h.filter((x) => x && x.action === SUBMITTED_ACTION).slice(-1)[0];
+  return e && e.sm_id ? e.sm_id : null;
+}
+
+// ---------------------------------------------------------------------
+// Talking to verify-approval
+// ---------------------------------------------------------------------
+/**
+ * Exactly what public/verify.html POSTs, and it has to stay exactly that:
+ * `{ payload, approval }`, with `approval` being the file's own block.
+ *
+ * The Function recomputes the HMAC over `signingMaterial()` — the canonical
+ * design plus approved_by, submitted_by, issued_at and the eight-digit mix
+ * id — so the payload must go across UNTOUCHED. Do not normalise it, do not
+ * strip keys you think are noise, do not reorder anything: `canonicalDesign()`
+ * sorts keys itself, but it reads `values` and `rows` verbatim, and one
+ * coerced number is a signature that no longer matches with no visible cause.
+ * That is why this takes the payload as it came out of the PDF and hands it
+ * straight on.
+ *
+ * No Authorization header, deliberately: verify-approval is open so a district
+ * office that was emailed an approval can check it without an account.
+ */
+export function verifyRequest(payload) {
+  return {
+    url: VERIFY_FN,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: { payload, approval: (payload && payload.approval) || null },
+  };
+}
+
+/**
+ * Turn a verify-approval answer into a verification state.
+ *
+ *   readVerifyResponse({ status, body })            — an HTTP answer
+ *   readVerifyResponse({ networkError: err })       — the fetch never landed
+ *
+ * The shape of the answers is fixed by the Function:
+ *   200 { valid: true, mix_id, approval_no, pa, approved_by, submitted_by, issued_at }
+ *   200 { valid: false, error }   the design changed after approval, or it is not genuine
+ *   400 { error }                 the request did not carry a complete approval
+ *   405 { error }                 not a POST
+ *   500 { error }                 APPROVAL_SIGNING_SECRET is not set on the site
+ *
+ * Note what is taken from a successful answer and what is not. verify-approval
+ * recomputes `approval_no` and `pa` from the SIGNED mix id rather than echoing
+ * the file's copy, precisely so that editing "#467" to read "#467PA" cannot
+ * survive a check. So when the answer is good, the server's label wins and the
+ * file's is recorded beside it as `claimed`. Anything else and we keep the
+ * file's, clearly marked as unchecked.
+ */
+export function readVerifyResponse(res) {
+  const at = new Date().toISOString();
+  if (!res || res.networkError)
+    return { state: VERIFICATION.UNAVAILABLE, checked_at: at,
+             reason: 'The approval could not be checked - the verification service did not answer.',
+             detail: res && res.networkError ? String(res.networkError.message || res.networkError) : null };
+
+  const status = Number(res.status);
+  const body = res.body || {};
+
+  if (status === 200 && body.valid === true) {
+    return {
+      state: VERIFICATION.VERIFIED,
+      checked_at: at,
+      reason: 'KYTC signed this approval and the design has not changed since.',
+      // The server's own recomputation. Prefer these to the file's copies.
+      mix_id: body.mix_id || null,
+      approval_no: body.approval_no || null,
+      pa: body.pa == null ? null : !!body.pa,
+      approved_by: body.approved_by || null,
+      submitted_by: body.submitted_by || null,
+      issued_at: body.issued_at || null,
+    };
+  }
+  if (status === 200 && body.valid === false)
+    return { state: VERIFICATION.INVALID, checked_at: at,
+             reason: body.error || 'This does not match an approval issued by KYTC. Either the design was changed after it was approved, or the code is not genuine.' };
+  if (status === 400)
+    return { state: VERIFICATION.REFUSED, checked_at: at,
+             reason: body.error || 'That file does not carry a complete approval.' };
+  if (status === 500)
+    return { state: VERIFICATION.UNAVAILABLE, checked_at: at,
+             reason: body.error || 'Verification is not configured on this site, so this approval could not be checked.' };
+  return { state: VERIFICATION.UNAVAILABLE, checked_at: at,
+           reason: body.error || `The verification service answered ${status}.` };
+}
+
+/** The state a lot gets when nobody checked. Explicit, and the default, so
+ *  "we did not look" can never be mistaken for "we looked and it was fine". */
+export function notChecked(reason) {
+  return { state: VERIFICATION.NOT_CHECKED, checked_at: null,
+           reason: reason || 'This approval has not been checked against KYTC.' };
+}
+
+// ---------------------------------------------------------------------
+// lotFromApproval — the inheritance
+// ---------------------------------------------------------------------
+/**
+ * Seed a blank PlantBook lot from an approval payload.
+ *
+ *   lotFromApproval(payload, { lotNumber = 1, verification = null })
+ *     -> { ok, lot, report, checks }
+ *
+ * `ok: false` means the gate refused it and `lot` is null; `checks.failures`
+ * says why. Nothing half-builds — an intake that silently produces an empty
+ * lot is the same failure mode readHandoffPDF() refuses to have.
+ *
+ * `verification` is whatever `readVerifyResponse()` returned. Leave it out
+ * and the lot is stamped `not-checked` — see the rule at the top of this
+ * file. It is NOT an error to open a lot unverified (the Function may be
+ * down, the site may be new), it just has to be written down.
+ *
+ * The lot is a `storage.mjs` envelope and nothing more: everything inherited
+ * lives under `values`, `rows` and `extracted_from`, which is what
+ * `normaliseLot()` preserves.
+ *
+ * `report` is data, for whatever the page wants to draw:
+ *   inherited[] { key, value, from, to, note }  — came across, with the AMAW cell it fills
+ *   derived[]   { key, value, how, to }         — computed here, not on the approval
+ *   typed[]     { key, to, why, blocks[] }      — a technician still has to enter this
+ *   missing[]   { key, why, blocks[] }          — the approval should have carried it and did not
+ *   warnings[]  { code, message }
+ * `blocks` names what cannot be computed without it: 'pay' above all.
+ */
+export function lotFromApproval(payload, opts = {}) {
+  const checks = approvalChecks(payload);
+  if (!checks.ok) return { ok: false, lot: null, report: null, checks };
+
+  const lotNumber = opts.lotNumber == null ? 1 : Number(opts.lotNumber);
+  const verification = opts.verification || notChecked();
+
+  const v = payload.values || {};
+  const rows = payload.rows || {};
+  const dv = v.design_values || {};
+  const fp = v.fourpoint || {};
+  const job = payload.job || {};
+  const a = checks.approval;
+  const mix = effectiveMixOf(payload);
+
+  const inherited = [], derived = [], typed = [], missing = [];
+  const warnings = checks.warnings.slice();
+  const sources = {};
+
+  // A field the approval supplied. `to` is the AMAW cell it will fill, from
+  // addresses.mjs, so the report is checkable against the workbook rather
+  // than being a list of our own names for things.
+  const take = (key, value, from, to, note) => {
+    if (value == null || value === '') return null;
+    inherited.push({ key, value, from, to: to || null, ...(note ? { note } : {}) });
+    sources[key] = `${sourceLabel(a)} · ${from}`;
+    return value;
+  };
+  const derive = (key, value, how, to) => {
+    if (value == null || value === '') return null;
+    derived.push({ key, value, how, to: to || null });
+    sources[key] = `${sourceLabel(a)} · derived: ${how}`;
+    return value;
+  };
+  const needsTyping = (key, to, why, blocks) =>
+    typed.push({ key, to: to || null, why, blocks: blocks || [] });
+  const wasMissing = (key, why, blocks) =>
+    missing.push({ key, why, blocks: blocks || [] });
+
+  /* ---- identity -----------------------------------------------------
+     The four columns storage.mjs keys a lot on. `mix_id` is KYTC's own
+     eight-digit MIX ID NUM. off the approval, which is also the lead of the
+     AMAW's 'Pay Values'!D9 — the join between the two books, already written
+     down in the workbook (docs/amaw-map.md). */
+  const contract = str(job.cid);
+  const amp = str(job.plant);
+  const mixId = str(a.mix_id);
+  if (!amp) wasMissing('amp_number', 'The approval carries no plant, so the lot cannot say which plant produced it.', ['identity']);
+
+  take('contract_id', contract, 'job.cid', cell(LOT.sheet, LOT.contract));
+  take('amp_number', amp, 'job.plant', cell(LOT.sheet, LOT.plantCode),
+       'the template pads this key ("AMP070302      ") and matches it exactly - spell it the workbook\'s way, not Supabase\'s');
+  take('plant_name', str(payload.plant_name), 'plant_name', null);
+  take('mix_id', mixId, 'approval.mix_id', cell(LOT.sheet, LOT.mixId));
+  take('county', str(v.county), 'values.county', cell(LOT.sheet, LOT.county));
+
+  const signature = mix && mix.signature ? mix.signature : null;
+  // 'Pay Values'!D9 in both of Jake's real lots is "<mix id> <signature>" —
+  // "00385 CL3 ASPH SURF 0.38A PG64-22". Build it the same way rather than
+  // making PlantBook re-derive it later from two half-remembered fields.
+  const designation = mixId && signature ? `${mixId} ${signature}` : (mixId || signature || null);
+  take('mix_designation', designation, 'approval.mix_id + mix.signature', cell(LOT.sheet, LOT.mixId));
+  take('approved_mix_design', mixId, 'approval.mix_id', cell(LOT.sheet, LOT.approvedMixDesign),
+       't_smpl.rel_smpl_id - the approval this lot is produced under');
+
+  /* ---- the mixture type code, and what hangs off it -----------------
+     Calculations!J1. Everything in the pay schedule gates on it. */
+  const mt = mix ? mixTypeFor(mix.nominal_size) : null;
+  if (mt) {
+    derive('mix_type_code', mt.code, `nominal size "${mix.nominal_size}" -> Calculations A1:B14`, cell(CALC.sheet, 'J1'));
+    derive('mix_type_name', mt.name, 'Calculations!B1:B14', cell(LOT.sheet, LOT.typeMix));
+  } else {
+    wasMissing('mix_type_code',
+      'The approval carries no nominal size that matches a Superpave mixture type, so the pay tables have nothing to gate on - every property pays zero until it is set.',
+      ['pay']);
+  }
+
+  /* ---- THE THREE NUMBERS LOT PAY IS MEASURED AGAINST ----------------
+     This is the whole argument for starting PlantBook here. Without them
+     `lotPay()` has nothing to deviate from and pay is not merely wrong, it
+     is uncomputable.
+
+     They are NOT all of a kind, and the difference is worth keeping:
+       jmf_ac    is COPIED   - 'Pay Values'!A13:A16 is a typed cell today.
+       min_vma   is DERIVED  - the approval has no spec minimum on it at all
+                               (DesignBook computes the VMA the design
+                               ACHIEVES, 16.1 on #467PA, which is a different
+                               quantity from the minimum it must beat).
+                               'Pay Values'!H13:H16 is also a typed cell, so
+                               this still saves the typing - it just has to be
+                               labelled derived, because a technician
+                               correcting it is correcting our lookup, not
+                               KYTC's approval.
+       target_va is CARRIED as a cross-check - 'Pay Values'!E13 is a LOOKUP
+                               the workbook does for itself (3.5 for every
+                               Superpave size), so the design's own target is
+                               not an input. If the two ever disagree, that
+                               disagreement is the finding. */
+  const jmfAc = num(dv.design_pb);
+  if (jmfAc == null) {
+    wasMissing('jmf_ac',
+      'The approval carries no design Pb, so there is no JMF to measure a sublot\'s %AC against and no AC pay can be computed.',
+      ['pay']);
+  } else {
+    take('jmf_ac', jmfAc, 'values.design_values.design_pb',
+         cellRange(PAY.sheet, PAY.sublot.cols.jmfAc, PAY.sublot.first, 4),
+         'typed in the workbook today - this is the pay schedule\'s reference point');
+  }
+
+  const designTarget = num(fp['const:fp_vatgt']);
+  const bookTarget = mt ? airVoidTargetFor(mt.code) : null;
+  if (designTarget != null)
+    take('target_va', designTarget, 'values.fourpoint["const:fp_vatgt"]',
+         cell(PAY.sheet, PAY.sublot.cols.targetVa + PAY.sublot.first),
+         'the workbook looks this up for itself; carried so the two can be compared');
+  else if (bookTarget != null)
+    derive('target_va', bookTarget, `airVoidTargetFor(${mt.code}) - Calculations F1:F14`,
+           cell(PAY.sheet, PAY.sublot.cols.targetVa + PAY.sublot.first));
+  else
+    wasMissing('target_va', 'Neither the approval nor the mixture type settles the air-void target.', ['pay']);
+
+  if (designTarget != null && bookTarget != null && Math.abs(designTarget - bookTarget) > 0.001)
+    warnings.push({ code: 'target-va-disagrees',
+      message: `The design was built to ${designTarget}% air voids but the workbook's own table gives ${bookTarget}% for a ${mt.name}. The workbook wins in the pay cells; check which is right before running the lot.` });
+
+  const minVma = mt ? vmaMinimumFor(mt.code) : null;
+  if (minVma != null)
+    derive('min_vma', minVma, `vmaMinimumFor(${mt.code}) - 'Pay Values'!H13:H16 is typed, and the approval carries the VMA the design ACHIEVED, not the minimum it must beat`,
+           cellRange(PAY.sheet, PAY.sublot.cols.minVma, PAY.sublot.first, 4));
+  else
+    wasMissing('min_vma',
+      'Without a mixture type there is no VMA minimum, so no VMA pay can be computed.',
+      ['pay']);
+
+  // The design's own achieved volumetrics. Not pay inputs — they are the
+  // yardstick a technician eyeballs a sublot against, and the reason the lot
+  // can show "VMA 15.6 against a design of 16.1" without anyone typing it.
+  const achieved = {};
+  for (const [k, src] of [['va', 'va_design'], ['vma', 'vma_design'], ['vfa', 'vfa_design'],
+                          ['gmm', 'gmm_design'], ['gmb', 'gmb_design'], ['pbe', 'pbe'],
+                          ['dust_pbe', 'dust_pbe'], ['gse', 'gse'], ['density', 'density']]) {
+    const n = num(dv[src]);
+    if (n != null) achieved[k] = n;
+  }
+  if (Object.keys(achieved).length)
+    inherited.push({ key: 'design_volumetrics', value: achieved,
+                     from: 'values.design_values', to: null,
+                     note: 'what the design achieved - the reference a sublot is read against, not a pay input' });
+
+  /* ---- the blend ----------------------------------------------------
+     Superpave N/O/Q rows 3-8 are lot-level; the percentages are per-sublot
+     (R/S/T/U) and combined Gsb likewise at row 9. Both real lots repeat the
+     same percentages across all four columns, which is exactly why this
+     reads as lot-level until you check the addresses (docs/amaw-map.md).
+     Seeded into all four sublots as the design's target, and a plant that
+     shifts its blend mid-lot overwrites the sublot it shifted. */
+  const agg = Array.isArray(rows.aggregate) ? rows.aggregate : [];
+  const blend = agg.map((r, i) => ({
+    slot: i + 1,
+    // NO AGP NUMBER. The approval does not carry one: the legacy importer
+    // resolves the producer by KYTC's own AGP/AMP number and rides it on the
+    // row as `_agp`, which CLAUDE.md records is deliberately not a schema
+    // column and never reaches the payload. So the AMAW's Agg. Prod. Code
+    // has to be resolved from the producer NAME against the `aggregates`
+    // table (or `plants` for a RAP row), or typed. Same lesson as the TSR
+    // thickness, from the other side: the key we needed was dropped at the
+    // boundary, so we carry the label and say the key is owed.
+    producer_code: null,
+    producer_name: str(r.producer) || null,
+    type_size: str(r.type_size) || null,
+    bod: num(r.gsb),
+    pct: num(r.pct_blend),
+    // Detect RAP by Type & size, never by Producer (CLAUDE.md): a RAP row's
+    // "producer" is the AMP plant the millings came off.
+    rap: isRapType(r.type_size),
+  }));
+  if (blend.length) {
+    inherited.push({ key: 'blend', value: blend, from: 'rows.aggregate',
+                     to: `${AGGREGATE.sheet}!${AGGREGATE.cols.producerCode}${AGGREGATE.first}:${AGGREGATE.cols.bod}${AGGREGATE.first + AGGREGATE.count - 1}`,
+                     note: `percentages seeded into all four sublot columns ${AGGREGATE.pctCols.join('/')}` });
+    sources.blend = `${sourceLabel(a)} · rows.aggregate`;
+    if (blend.length > AGGREGATE.count)
+      warnings.push({ code: 'blend-too-long',
+        message: `The design has ${blend.length} aggregate components; the AMAW's blend block holds ${AGGREGATE.count}.` });
+    needsTyping('blend[].producer_code',
+      `${AGGREGATE.sheet}!${AGGREGATE.cols.producerCode}${AGGREGATE.first}:${AGGREGATE.cols.producerCode}${AGGREGATE.first + AGGREGATE.count - 1}`,
+      'The approval carries producer NAMES, not AGP/AMP numbers - DesignBook drops the code at the payload boundary. Resolve each name against `aggregates` (or `plants` for a RAP row) on load, or have the technician pick.',
+      ['medl-load']);
+  } else {
+    wasMissing('blend', 'The approval carries no aggregate structure.', ['medl-load']);
+  }
+
+  const combinedGsb = num(fp['const:fp_gsb']);
+  if (combinedGsb != null)
+    take('combined_gsb', combinedGsb, 'values.fourpoint["const:fp_gsb"]',
+         `${AGGREGATE.sheet}!${AGGREGATE.pctCols.map((c) => c + AGGREGATE.gsbRow).join('/')}`);
+  else
+    wasMissing('combined_gsb', 'The approval carries no combined Gsb, which the sublot VMA is computed from.', ['volumetrics']);
+
+  /* ---- the JMF gradation -------------------------------------------
+     Gradation!N10:N23, one lot-level target column beside the four sublot
+     columns. Fourteen slots against DesignBook's thirteen sieves: the AMAW
+     keeps a 1/4" row that DesignBook deliberately does not carry (Jake,
+     2026-09-07 - a real MixPack reads "N / A" there), so that slot stays
+     null rather than shifting everything below it up one. */
+  const jmf = gradationJmf(v);
+  if (jmf.some((s) => s.pct != null)) {
+    inherited.push({ key: 'jmf_gradation', value: jmf, from: 'values.<sieve>',
+                     to: `${GRADATION.sheet}!${GRADATION.jmfCol}${GRADATION.first}:${GRADATION.jmfCol}${GRADATION.first + GRADATION.sieves.length - 1}`,
+                     note: 'the 1/4" slot is left blank - DesignBook does not carry that sieve' });
+    sources.jmf_gradation = `${sourceLabel(a)} · values.<sieve>`;
+  } else {
+    wasMissing('jmf_gradation',
+      'The approval carries no gradation, so a sublot has no JMF to be judged against under Gradation acceptance.',
+      ['gradation-acceptance']);
+  }
+
+  /* ---- binder -------------------------------------------------------- */
+  take('binder_grade', str(v.binder_grade) || (mix ? mix.binder_grade : null), 'values.binder_grade', null);
+  take('binder_terminal', str(v.binder_terminal), 'values.binder_terminal', cell(PAY.sheet, PAY.lot.binderProducer),
+       'PlantBook should still resolve this against `binder_terminals` rather than trusting the string');
+
+  /* ---- what a technician still has to type --------------------------
+     The honest half of the report. Everything here is a cell the approval
+     genuinely cannot fill, with the reason, because "why am I typing this
+     again" is the question this whole intake exists to answer. */
+
+  // ESAL Class. NOT the AADTT Class on the approval, and this is the trap.
+  // CLAUDE.md is explicit that CONFIG.CONSENSUS_CRITERIA is keyed on the
+  // spec's Class 2/3/4 and that it is "*not* ESAL or depth" - the MixPack's
+  // own Criteria formulas still branch on the old ESAL-era table and the note
+  // says do not copy them. The AMAW's flag is literally labelled ESAL CLASS
+  // (Calculations!C14) and takes 1-4. Two different scales that overlap on
+  // three of their values is the worst possible shape for a silent
+  // mis-mapping, so it is refused rather than guessed - and the AADTT class
+  // is carried beside it so whoever does set it has the design's answer in
+  // front of them.
+  const aadtt = str(v.aadtt_class);
+  needsTyping('esal_class', `${cell(LOT.sheet, LOT.esalClass)} -> ${cell(CALC.sheet, CALC.esalClass)}`,
+    aadtt
+      ? `The design's AADTT Class is ${aadtt}, but that is the spec's Class for consensus properties, not the AMAW's ESAL Class (1-4). They are different scales; pick the ESAL Class deliberately.`
+      : 'The approval carries no ESAL Class, and it moves three air-void bands and four density constants.',
+    ['pay']);
+  if (aadtt) {
+    inherited.push({ key: 'aadtt_class', value: aadtt, from: 'values.aadtt_class', to: null,
+                     note: 'carried for reference only - NOT wired to ESAL Class, see report.typed' });
+    sources.aadtt_class = `${sourceLabel(a)} · values.aadtt_class`;
+  }
+
+  needsTyping('acceptance_option', `${cell(CALC.sheet, 'H13')} (from the dropdown at ${cell(CALC.sheet, CALC.acceptanceMethod)})`,
+    'Gradation, Volumetrics or Visual. It decides which pay schedule runs at all.', ['pay']);
+  needsTyping('density_option', cell(CALC.sheet, CALC.densityOption), 'A or B. Option B pays no lane density.', ['pay']);
+  needsTyping('joint_density', cell(CALC.sheet, 'H11'), 'Whether joint density counts on this lot.', ['pay']);
+  needsTyping('lot_number', cell(LOT.sheet, LOT.lotNumber),
+    'Which lot of this contract this is. Lot 1 sublot 1 carries the "*For Sublot # 1 Only" allowance and nothing else ever does.', ['pay']);
+  needsTyping('lot_tons', cell(LOT.sheet, LOT.lotTons),
+    `The approval's Tonnage${v.total_tons ? ` (${v.total_tons})` : ''} is the whole CONTRACT quantity, not this lot's.`, ['pay']);
+  needsTyping('unit_price', cell(LOT.sheet, LOT.unitPrice), 'The bid price this lot is paid at.', ['pay']);
+  needsTyping('wedge_tons', cell(PAY.sheet, PAY.lot.wedgeTons),
+    'Pavement wedge tons come off the top of the lot tonnage. Blank in both of Jake\'s real lots.', ['pay']);
+  needsTyping('sample_id', cell(LOT.sheet, LOT.sampleIdPrefix),
+    'Both real lots leave it blank - KYTC fills it at hand-off. Empty means "not ready to hand off", not a read failure.', ['medl-load']);
+  needsTyping('binder_lot_numbers', `${PAY.sheet}!${PAY.binderLotCols.join('/')}${PAY.binderLotRow}`,
+    'PG binder lot numbers, per sublot, off the delivery tickets.', []);
+  needsTyping('technicians', `${SUBLOT.sheet}!${SUBLOT.technician.join('/')} ('Cert. Techs')`,
+    'Who sampled and tested each sublot.', ['medl-load']);
+  needsTyping('sublot_tests',
+    `${SUBLOT.sheet} rows ${[0,1,2,3].map((i)=>SUBLOT.volumetric.first + i*SUBLOT.volumetric.stride).join('/')}, ` +
+    `${GRADATION.sheet} ${GRADATION.cols.join('/')}, ${CORES.sheet}, KYCT`,
+    'Every sublot result. This is the work the lot exists to record - the approval supplies what they are measured against, never the measurements.', ['pay']);
+  needsTyping('department_records',
+    `${AVERIFY.sheet} rows ${[0,1].map((i)=>AVERIFY.first + i*AVERIFY.stride).join('/')} (QA01, IQ01)`,
+    'Department acceptance and independent assurance are filled by KYTC district personnel, not by the plant.', []);
+
+  /* ---- the envelope -------------------------------------------------- */
+  const identity = {
+    contract_id: contract,
+    amp_number: amp,
+    mix_id: mixId,
+    lot_number: lotNumber,
+  };
+  const bad = Object.keys(identity).filter((k) => !str(identity[k]));
+  if (bad.length) {
+    // blankLot() would throw; say what is wrong instead, in the same shape as
+    // every other refusal here.
+    checks.failures.push({ code: FAILURE.NO_CONTRACT,
+      message: `A lot cannot be identified without ${bad.join(', ')}.`, missing: bad });
+    return { ok: false, lot: null, report: null, checks: { ...checks, ok: false } };
+  }
+
+  const lot = blankLot(identity, { mix_signature: signature, plant_name: str(payload.plant_name) || null });
+
+  lot.values = {
+    county: str(v.county) || null,
+    mix_designation: designation,
+    mix_type_code: mt ? mt.code : null,
+    mix_type_name: mt ? mt.name : null,
+    binder_grade: str(v.binder_grade) || (mix ? mix.binder_grade : null) || null,
+    binder_terminal: str(v.binder_terminal) || null,
+    combined_gsb: combinedGsb,
+    // Typed at the plant. Present and null on purpose: a key that exists and
+    // is empty is a field the form knows about; a key that is absent is a
+    // field somebody forgot.
+    esal_class: null,
+    acceptance_option: null,
+    density_option: null,
+    joint_density: null,
+    lot_tons: null,
+    unit_price: null,
+    wedge_tons: null,
+    sample_id: null,
+
+    // Everything inherited from the approval, in one place, so a reviewer
+    // looking at a lot can see what it was produced under without holding the
+    // PDF. Nested under `values` rather than as a top-level key because
+    // storage.mjs's normaliseLot() keeps only its own key list and would drop
+    // it on the first save.
+    design: {
+      source: sourceLabel(a),
+      approval: {
+        mix_id: a.mix_id || null,
+        // The file's claims. When a verification comes back good, the SERVER's
+        // recomputed label is the one to show - it is derived from the signed
+        // mix id, which is why editing "#467" to "#467PA" cannot survive a
+        // check. Both are kept so the disagreement is visible.
+        claimed_approval_no: a.approval_no || null,
+        claimed_pa: a.pa == null ? null : !!a.pa,
+        code: a.code || null,
+        issued_at: a.issued_at || null,
+        approved_by: a.approved_by || null,
+        submitted_by: a.submitted_by || submitterOf(payload),
+        // NEVER absent, NEVER true by default.
+        verification,
+      },
+      signature,
+      nominal_size: mix ? mix.nominal_size : null,
+      designer: str(v.designer) || null,
+      submittal_type: str(v.submittal_type) || null,
+      aadtt_class: aadtt || null,
+      // The three the pay schedule reads. `min_vma` and possibly `target_va`
+      // are ours, not KYTC's - `report.derived` says which.
+      jmf_ac: jmfAc,
+      target_va: designTarget != null ? designTarget : bookTarget,
+      min_vma: minVma,
+      volumetrics: achieved,
+      combined_gsb: combinedGsb,
+      blend,
+      jmf_gradation: jmf,
+    },
+  };
+
+  lot.rows = {
+    // The lot's own measurements. Empty by definition - this is a blank lot.
+    cores: [],
+    gradation: [],
+    tickets: [],
+  };
+
+  lot.extracted_from = sources;
+
+  lot.history = [{
+    at: new Date().toISOString(),
+    action: 'Opened from a DesignBook approval',
+    approval_no: a.approval_no || null,
+    mix_id: a.mix_id || null,
+    // On the record, in the file, for whoever opens this lot next.
+    verification: verification.state,
+  }];
+
+  return {
+    ok: true,
+    lot,
+    checks,
+    report: { inherited, derived, typed, missing, warnings, verification,
+              blocked: blockedBy(missing) },
+  };
+}
+
+/** What cannot be computed, and what is missing that would let it be.
+ *  `pay` appearing here is the one that matters: it means this lot cannot be
+ *  paid until somebody supplies the field. */
+function blockedBy(missing) {
+  const out = {};
+  for (const m of missing)
+    for (const b of m.blocks || []) (out[b] = out[b] || []).push(m.key);
+  return out;
+}
+
+// ---------------------------------------------------------------------
+// Small helpers
+// ---------------------------------------------------------------------
+
+function str(v) { return v == null ? '' : String(v).trim(); }
+function num(v) {
+  if (v == null || v === '') return null;
+  const n = parseFloat(String(v).replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+const cell = (sheet, ref) => `${sheet}!${ref}`;
+const cellRange = (sheet, col, first, count) => `${sheet}!${col}${first}:${col}${first + count - 1}`;
+
+function sourceLabel(a) {
+  const n = a && (a.approval_no || a.mix_id);
+  return n ? `DesignBook approval ${n}` : 'DesignBook approval';
+}
+
+/** RAP by Type & size, never by Producer — `aggregate_types` carries
+ *  `Coarse RAP`, `Fine RAP` and `Intermediate RAP`, and that is where a real
+ *  MixPack puts it (CLAUDE.md, `isRapRow()`). */
+function isRapType(typeSize) {
+  return /\bRAP\b|\bR\.A\.P\b/i.test(str(typeSize));
+}
+
+// DesignBook's sieve keys, in the AMAW's own row order. The 1/4" slot is
+// deliberately `null`: DesignBook does not carry that sieve (a real MixPack
+// reads "N / A" there), so it stays blank rather than shifting the thirteen
+// below it up a row — which is precisely the class of bug the SheetJS
+// chartsheet note in CLAUDE.md is about, one sheet over.
+const JMF_SIEVE_KEYS = [
+  's50', 's37_5', 's25', 's19', 's12_5', 's9_5',
+  null,                       // 1/4" — AMAW has the row, DesignBook does not
+  's4_75', 's2_36', 's1_18', 's0_6', 's0_3', 's0_15', 's0_075',
+];
+
+function gradationJmf(values) {
+  return GRADATION.sieves.map((label, i) => {
+    const key = JMF_SIEVE_KEYS[i];
+    return {
+      sieve: label,
+      row: GRADATION.first + i,
+      key,
+      pct: key ? num(values[key]) : null,
+    };
+  });
+}
+
+export default { approvalChecks, lotFromApproval, verifyRequest, readVerifyResponse, notChecked };
