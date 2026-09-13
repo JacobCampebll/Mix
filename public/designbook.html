@@ -459,7 +459,6 @@
   /* A frozen (Approved) form: flatter than the paper, so the whole sheet
      reads as closed rather than as a page of fields that happen not to work. */
   .box:disabled{background:transparent; border-color:var(--line); color:var(--muted); opacity:1;}
-  .srcnote{font-family:'Roboto Mono',monospace; font-size:9.5px; color:var(--muted); margin-top:3px;}
   /* Consensus Properties: the resolved spec limit + pass/fail marker under
      each value, written by computeConsensus(). */
   .crit{font-size:10.5px; margin-top:3px; line-height:1.35;}
@@ -4032,9 +4031,21 @@ function refControlHTML(def, cls, attrs, value) {
   return `<input type="text" class="${cls}" data-source="${def.source}" ${attrs}${comboAttrs} autocomplete="off" value="${esc(v)}">`;
 }
 
-function inputFor(f, value) {
+function inputFor(f, value, src) {
   const cls = "box req-marker" + (f.mono ? " mono" : "") + (f.req ? " req" : "");
-  const attrs = `data-field="${f.key}"`;
+  // WHERE A PREFILLED VALUE CAME FROM IS ON THE CONTROL, NOT UNDER IT.
+  // It used to print as a grey line below every box ("from DesignBook
+  // approval #467 - values.county"), which on a step of twenty inherited
+  // fields is twenty paragraphs of provenance between a person and the four
+  // boxes they actually have to fill (Jake, 2026-09-13: "lets get rid of the
+  // grey letter below each box"). The provisional-value rule this file is
+  // emphatic about is NOT weakened by this: the rule is that an extracted
+  // value must read as provisional rather than as fact, and the TINT is what
+  // says so (.prefilled, and the warning rail behind it). The sentence saying
+  // which cell it came from is the detail behind the tint, so it moves to the
+  // tooltip and to `extracted_from` in the payload, where the audit trail has
+  // always actually lived. Nothing is lost and nothing is hidden.
+  const attrs = `data-field="${f.key}"` + (src ? ` title="from ${esc(src)}"` : "");
   if (f.source) return refControlHTML(f, cls, attrs, value);
   if (f.type === "select") {
     // An option is either a bare string (value and label are the same) or an
@@ -4064,8 +4075,7 @@ function gridHTML(fields) {
     const src = state.sources[f.key];
     return `<div class="field">
       <label>${f.label}${f.req ? "" : ' <span class="opt">(optional)</span>'}</label>
-      ${inputFor(f, v)}
-      ${src ? `<div class="srcnote">from ${src}</div>` : ""}
+      ${inputFor(f, v, src)}
     </div>`;
   }).join("") + `</div>`;
 }
@@ -16948,12 +16958,7 @@ function prefillLive(key, value, source) {
   if (!state.extracted) state.extracted = { scalars: {}, tables: {} };
   state.extracted.scalars[key] = v;
   state.sources[key] = source;
-  const field = el.closest(".field");
-  if (field) {
-    let note = field.querySelector(".srcnote");
-    if (!note) { note = document.createElement("div"); note.className = "srcnote"; field.appendChild(note); }
-    note.textContent = `from ${source}`;
-  }
+  el.title = `from ${source}`;
   if (el.dataset.source) snapToReference(el);
   autofillFrom(el);
   return "filled";
