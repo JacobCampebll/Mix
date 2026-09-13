@@ -43,7 +43,13 @@ export function cellsOf(xml, sst) {
     const ref = r[1];
     const t = /t="([^"]+)"/.exec(attrs)?.[1];
     const s = /\ss="(\d+)"/.exec(attrs)?.[1];
-    const v = /<v>([\s\S]*?)<\/v>/.exec(body);
+    // <v> carries attributes and can be self-closing. Excel writes
+    // `<v xml:space="preserve">` whenever a cached value has leading or
+    // trailing whitespace, and `<v/>` for a formula cell with no cached value
+    // at all - a real approved MixPack (467PA) has 39 of the first and 209 of
+    // the second. The old `/<v>...<\/v>/` matched neither, so those 39 cached
+    // values were silently invisible to every reader built on this.
+    const v = /<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(body);
     const fm = /<f\s*([^>]*?)(?:\/>|>([\s\S]*?)<\/f>)/.exec(body);
     let f = null, si = null;
     if (fm) {
