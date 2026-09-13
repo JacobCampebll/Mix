@@ -240,7 +240,15 @@ the **approved mix design's MIX ID followed by its signature**. That is the
 join between the two books. A PlantBook lot is a child of a DesignBook
 approval, and the workbook already writes the link down.
 
-The blend is lot-level, identical in both:
+**CORRECTION (2026-09-13): the blend percentages are PER-SUBLOT, not
+lot-level.** Producer, type & size and BOD are lot-level (`Superpave` columns
+N/O/Q, rows 3-8), but the percentage is one column per sublot - **R/S/T/U** -
+and so is combined Gsb at row 9. Both real lots repeat the same five
+percentages across all four columns, which is exactly why this reads as
+lot-level until you check the addresses. A plant that adjusts its blend
+mid-lot would break any code that assumed otherwise.
+
+The blend below is lot 1's, the same in all four sublot columns:
 
 | AGP | Type & size | % | BOD sp. gr. |
 |---|---|---|---|
@@ -262,9 +270,13 @@ Sublot volumetrics, lot 1 / lot 2:
 | QC03 | 6.34 / 6.20 | 2.479 / 2.473 | 3.89 / 3.64 | 15.9 / 15.8 | 75.5 / 76.9 |
 | QC04 | 6.32 / 6.21 | 2.483 / 2.470 | 3.48 / 4.15 | 15.4 / 16.3 | 77.3 / 74.6 |
 
-Six cores in lot 1 (`1-2-A` … `1-3-B`, 132.4–142.5 pcf, 86.2–92.8 % solid),
-ten in lot 2 — so the core count is not fixed per lot and a mapper must not
-assume six. Sublot mix temperature was 325–330 °F throughout.
+**CORRECTION (2026-09-13): there are two core banks, and the earlier count
+here was wrong.** This document previously said "six cores in lot 1, ten in
+lot 2". That was one bank read in isolation. `Cores` carries **mat cores at
+rows 10-13, stride 5** and **joint cores at rows 33-34, stride 3** - lot 1 has
+**24 core ids across its four sublots, 18 of them carrying a density**
+(sublot 1's six were labelled and never measured). The count is not fixed per
+lot *or* per sublot: read every slot and drop the blanks. Sublot mix temperature was 325–330 °F throughout.
 
 Two format traps in that data. **Times are Excel time fractions**, not HHMM as
 the stale `AMAMAW` sheet's comment claims — `0.9125` is 21:54. And the
@@ -279,6 +291,21 @@ Class A dolomite restricted to Bench B. It does not settle the class question
 on its own (an AMAW records production, it does not re-adjudicate the design),
 but it is evidence that blend is ordinary rather than exceptional, and it is a
 real case to put to Andrew alongside #467PA.
+
+## `Field Rutting` is not Hamburg
+
+Worth knowing before anyone maps it. The loader's own field labels say things
+like "Hamburg Pass 100 Left Max", but the sheet underneath them is **IDT-HT**
+(A18:E24) and **IDEAL-RT** (I18:M24) - six specimens each, no wheel tracker.
+KYTC reused the old Hamburg field slots when the test changed and the labels
+never followed.
+
+Two traps inside that. The verification and production sides read **different
+columns for the same quantity** - VI01 takes the derived E/M columns, QC and IQ
+the raw peak loads in D/L. And **sn 176 and sn 177 both point at `D19`** in the
+production blocks, which shifts that series one place. Both are reproduced
+verbatim rather than corrected, on the same rule as the TSR absorbed-water
+oddity: it is what the workbooks on file were judged by.
 
 ## Also on that page, unmapped
 

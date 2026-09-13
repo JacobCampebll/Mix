@@ -1071,6 +1071,51 @@ TBD — cite the governing spec section when encoding a limit in code.
   committed** - nothing uses them yet, and `.gitignore`'s `MIXPACK*.xls*` rule
   does not catch `AMAW_*`, so one would land if added without thinking.
 
+- **PlantBook starts by uploading a DesignBook approval** (Jake, 2026-09-13),
+  and that one decision settles a surprising amount. The approval PDF already
+  **embeds the whole design payload** as a JSON attachment - `buildApprovalPDF`
+  attaches it exactly as the review sheet does, and `readHandoffPDF` reads it
+  back - so a lot does not TYPE its contract, plant, mix, blend or Gsb, it
+  inherits them. More to the point it inherits the three numbers the pay
+  calculation is measured against: **JMF %AC, target air voids and minimum
+  VMA**. Pay is meaningless without them, so the approval upload is what makes
+  the pay step computable at all rather than merely convenient.
+  **And the approval is signed**, which turns the front door into a real gate:
+  `verify-approval` is already live and `verify.html` already uses it, so
+  PlantBook can refuse to open a lot on a design KYTC never approved, or on one
+  edited after approval. That is a property the file-is-the-record model gives
+  away for free here, and it is worth not losing whichever way the storage
+  question lands.
+
+- **Three corrections to `docs/amaw-map.md`, found 2026-09-13 by deriving the
+  address map instead of reading the sheet.** All three are the kind that look
+  right until real data disagrees:
+  **The blend percentages are PER-SUBLOT, not lot-level.** Producer, type &
+  size and BOD are lot-level (`Superpave` N/O/Q, rows 3-8) but the percentage
+  is one column per sublot - R/S/T/U - and so is combined Gsb at row 9. Both
+  real lots repeat the same five percentages across all four columns, which is
+  precisely why it reads as lot-level; a plant that adjusted its blend mid-lot
+  would break anything that assumed otherwise.
+  **There are TWO core banks with different strides**, and the earlier "six
+  cores in lot 1" was one bank read alone. Mat cores are rows 10-13 stride 5,
+  joint cores rows 33-34 stride 3; lot 1 has 24 core ids and 18 densities
+  (sublot 1's six were labelled and never measured). Never assume a count per
+  lot or per sublot - read every slot and drop blanks.
+  **`Field Rutting` is not Hamburg.** The loader's labels still say "Hamburg
+  Pass 100 Left Max" but the sheet is IDT-HT (A18:E24) and IDEAL-RT
+  (I18:M24) - KYTC reused the old slots when the test changed and the labels
+  never followed. Two traps inside it: verification reads the derived E/M
+  columns where production reads raw peak loads in D/L, and **sn 176 and 177
+  both point at `D19`** in the production blocks, shifting that series one
+  place. Reproduced verbatim, not corrected - same rule as the TSR
+  absorbed-water oddity.
+  One field of 210 stays unclassified: **sn 253 "Test Charges"** is
+  `Calculations!P84` on QC01 and `P278` on QC02 with no stride between them and
+  nothing for the other five blocks. Carried explicitly and printed by the
+  checker every run rather than guessed at.
+  Also: both real lots leave `'Pay Values'!B3` blank, so `t_smpl.smpl_id` is
+  empty in both - read that as "not ready to hand off", not as a read failure.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
