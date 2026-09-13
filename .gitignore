@@ -55,14 +55,17 @@ docs/*.xlsm
 MIXPACK*.xls*
 \#*.xls*
 # Completed AMAW (plant acceptance) workbooks carry technician names, contract
-# and plant data the same way. The blank KYTC templates are public downloads
-# with no data, but nothing serves them yet, so they are ignored too - drop
-# this rule's AMAW_VER line if PlantBook ever needs one in public/.
+# and plant data the same way.
 AMAW*.xls*
-# ...except KYTC's own blank template, which is a public download off their
-# SiteManager page and holds no data. The MixPack generator needs it as the
-# base it writes into, so it has to be served, not just referenced.
+# ...except KYTC's own blank templates, which are public downloads off their
+# SiteManager page and hold no data. Each generator needs one as the base it
+# writes into, so they have to be served, not just referenced. AMAW 14.01 is
+# the current public download; Jake's two real lots are 13.3, and all 85
+# dictionary rows and every staging dimension are identical across 13.3 /
+# 13.04 / 14.01 (docs/amaw-map.md), so the newer template is the right base
+# for a lot checked against the older files.
 !public/MIXPACK2026_VER12_01.xlsm
+!public/AMAW_VER14_01.xlsm
 
 # ---- OS ----
 .DS_Store

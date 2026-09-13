@@ -253,7 +253,7 @@
     // not built yet shows as "coming soon", not as a link to nowhere.
     BOOKS: {
       designbook: { label: "DesignBook", capability: "can_access_designbook", built: true },
-      plantbook:  { label: "PlantBook",  capability: "can_access_plantbook",  built: false },
+      plantbook:  { label: "PlantBook",  capability: "can_access_plantbook",  built: true },
     },
     SUPABASE_URL: "https://iwysxhcmvhkcjxmjarkd.supabase.co",
     SUPABASE_ANON_KEY:
@@ -296,11 +296,24 @@
   }
 
   // The ?next= target if it names an allow-listed page, else the Portal.
-  function destination() {
+  // Where a signed-in technician goes. A `next=` that survives NEXT_ALLOW
+  // wins; otherwise the Portal for a book they can actually open. Defaulting
+  // to DesignBook was right while it was the only book built, and is wrong
+  // now: a technician who holds only Plant Tech would land on a Portal that
+  // immediately bounces them, which reads as a broken sign-in rather than as
+  // a certification they do not have.
+  // The certifications the last refreshView() resolved. continueBtn is bound
+  // once, outside that function, so it has no `caps` of its own - and a
+  // button that sends someone to a Portal they cannot open is the same dead
+  // end destination() exists to avoid.
+  let lastCaps = null;
+  function destination(caps) {
     const next = new URLSearchParams(location.search).get("next") || "";
     const page = next.split("?")[0];
     if (CONFIG.NEXT_ALLOW.includes(page) && !next.includes("//") && !next.startsWith("/")) return next;
-    return `${CONFIG.PORTAL_URL}?book=designbook`;
+    const key = Object.keys(CONFIG.BOOKS)
+      .find((k) => CONFIG.BOOKS[k].built && caps && caps[CONFIG.BOOKS[k].capability]) || "designbook";
+    return `${CONFIG.PORTAL_URL}?book=${key}`;
   }
 
   const statusEl = document.getElementById("status");
@@ -436,12 +449,13 @@
         .eq("user_id", session.user.id)
         .maybeSingle();
 
+      lastCaps = capsError ? null : caps;
       const canOpen = !capsError && Object.values(CONFIG.BOOKS)
         .some((b) => b.built && caps && caps[b.capability]);
 
       if (forwardOnReady && canOpen) {
         forwardOnReady = false;
-        location.replace(destination());
+        location.replace(destination(caps));
         return;
       }
       forwardOnReady = false;
@@ -470,12 +484,13 @@
         sessionAccess.appendChild(el);
       });
 
-      const anyGranted = Object.values(CONFIG.BOOKS).some((b) => caps && caps[b.capability]);
+      // Both books are built now, so "granted" and "can open" are the same
+      // question and the middle branch this used to have - "PlantBook is
+      // being built; there is nothing to open yet" - is gone rather than left
+      // unreachable. If a third book is ever added unbuilt, put it back.
       sessionHint.textContent = canOpen
         ? "You're signed in. Pick up where you left off."
-        : anyGranted
-          ? "Your Plant Tech certification is on file. PlantBook is being built; there is nothing to open yet."
-          : "No current certification grants access to either book. Contact an admin.";
+        : "No current certification grants access to either book. Contact an admin.";
     }
 
     supabase.auth.getSession().then(({ data }) => refreshView(data.session));
@@ -507,7 +522,7 @@
       }
     });
 
-    continueBtn.addEventListener("click", () => location.assign(destination()));
+    continueBtn.addEventListener("click", () => location.assign(destination(lastCaps)));
 
     onboardEmailForm.addEventListener("submit", async (e) => {
       e.preventDefault();

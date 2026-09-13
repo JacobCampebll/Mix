@@ -370,10 +370,21 @@
 </div>
 <!-- ===== END SUBMIT ===== -->
 
-<!-- ===== PLANTBOOK (not built) ===== -->
+<!-- ===== PLANTBOOK ===== -->
+<!-- One door, not a wizard. DesignBook's four steps exist to establish a
+     contract, a plant and a mix before the form opens; a lot inherits all
+     three from the approved design it is produced under, so asking for them
+     here would be asking twice and letting the two answers disagree.
+     PlantBook's front door is the approval upload, and it is in the book
+     itself (Jake, 2026-09-13). -->
 <div class="card hidden" id="plantbookView">
-  <h2>PlantBook is being built</h2>
-  <p class="lead">Your Plant Tech certification is on file. There is nothing to open here yet; this Portal fronts DesignBook only for now.</p>
+  <h2>Start a lot</h2>
+  <p class="lead">A lot is produced under an approved mix design, so PlantBook starts
+    with that approval. The PDF KYTC issued carries the whole design inside it and is
+    signed &mdash; the contract, plant, mix, blend and Gsb arrive with it, along with the
+    three figures the lot pay is measured against. A lot&rsquo;s own working copy
+    (.json) reopens the same way.</p>
+  <div class="linkrow"><a id="pbStart">Open PlantBook &rarr;</a></div>
   <div class="linkrow"><a id="pbToDesign" class="hidden">Go to the DesignBook Portal →</a></div>
 </div>
 <!-- ===== END PLANTBOOK ===== -->
@@ -406,6 +417,11 @@
       // Reopening a review PDF: no job in the query string, the payload
       // parked in localStorage carries contract, plant, mix and stage.
       resume: "designbook.html?mode=resume",
+      // PlantBook is the same page in its other view. No job in the query
+      // string on purpose: a lot gets its contract, plant and mix from the
+      // approval it opens with, and a second source for those is a second
+      // chance for them to disagree.
+      plantbook: "designbook.html?book=plantbook",
     },
 
     // ---- Review PDF hand-off ----
@@ -433,7 +449,7 @@
     // built: `built:false` shows an honest message instead of the wizard.
     BOOKS: {
       designbook: { label: "DesignBook", crumb: "Portal", built: true },
-      plantbook:  { label: "PlantBook",  crumb: "Portal", built: false },
+      plantbook:  { label: "PlantBook",  crumb: "Portal", built: true },
     },
     DEFAULT_BOOK: "designbook",
 
@@ -1011,8 +1027,11 @@
       restoreJob();
       renderSteps();
 
-      if (!book.built) {
-        // PlantBook is not built: say so instead of a wizard that leads nowhere.
+      // PlantBook is a door rather than a wizard - see the card's own comment.
+      // A book that is not built at all would land here too and say so; both
+      // are `built: true` now, so this branch is only about which flow the
+      // book has.
+      if (bookKey === "plantbook") {
         $("pbToDesign").classList.toggle("hidden", !state.caps.can_access_designbook);
         showOnly("plantbookView");
         return;
@@ -1054,6 +1073,7 @@
     if (n < state.step) goStep(n);      // completed steps are revisitable; step 4 lives in DesignBook
   }));
   $("navSubmit").addEventListener("click", openSubmit);
+  $("pbStart").addEventListener("click", () => { location.href = CONFIG.ROUTES.plantbook; });
   $("pbToDesign").addEventListener("click", () => { location.href = "portal.html?book=designbook"; });
   $("signOutLink").addEventListener("click", signOut);
 

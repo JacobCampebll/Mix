@@ -742,13 +742,24 @@ export const PLANTBOOK_SECTIONS = [
     rows: [
       {
         key: "verification", heading: "Verification records", fixed: true,
+        // The record column is the only one here that is not mono: it holds a
+        // 28-character label ("QA01 — Department acceptance") rather than a
+        // figure, and proportional text is about a fifth narrower for the
+        // same string. It still does not fit its track, and widening the
+        // track was tried and reverted - 2.4fr took the width straight out
+        // of Gmm, Va, VMA and Pbe, which are figures a person reads rather
+        // than a caption they already know. So this one clips and says the
+        // whole thing in its `title`, which is exactly what CLAUDE.md
+        // concluded for the producer name: some clipping is accepted, and
+        // the baseline in scripts/amaw/harness/baseline/clipping.json is
+        // where it is recorded rather than quietly tolerated.
         grid: "1.5fr .7fr 1fr .8fr 1fr .85fr .8fr .8fr .8fr .8fr .85fr",
         seed: [
           { record: "QA01 — Department acceptance" },
           { record: "IQ01 — Independent assurance" },
         ],
         columns: [
-          { key: "record", label: "Record", type: "text", mono: true, readonly: true },
+          { key: "record", label: "Record", type: "text", readonly: true },
           { key: "sublot_verified", label: "Verifies", type: "select", req: false, mono: true,
             options: ["1", "2", "3", "4"] },
           { key: "technician", label: "Tech (SM ID)", type: "text", req: false, mono: true },
@@ -815,6 +826,13 @@ export const PLANTBOOK_SECTIONS = [
     tag: "computed from the sublots, cores and the approved JMF",
     type: "computed",
     cites: ["pay403", "density403"],
+    // computedHTML()'s head band names the table, and its default is
+    // DesignBook's "From Four Points". A lot's figures come from the
+    // sublots, the cores and the approved JMF, so it says so.
+    valueHead: "Lot pay",
+    note: "Read-only \u2014 computed from the sublots, the cores and the three " +
+          "figures the approved design supplies. A weight of \u00d70% means that " +
+          "property does not count on this lot.",
     outputs: [
       { key: "pay_joint_density", label: "Joint density (%)", weight: "jointDensity",
         row: "Joint density" },

@@ -95,7 +95,14 @@ export function rewrittenPage(src = PAGE) {
     // Google Fonts: no network here, and a failed stylesheet is an error-level
     // console message that would have to be filtered back out again.
     .replace(/<link[^>]*fonts\.(googleapis|gstatic)\.com[^>]*>/g, "")
-    .replace(/src="assets\//g, `src="file://${LOGO_DIR}/`);
+    // The logo, as a data: URI rather than a file:// path. The <img> would be
+    // happy either way, but buildReviewPDF() FETCHES this same asset to embed
+    // it, and Chromium refuses a fetch of a file:// URL from a file:// origin
+    // - a CORS error on the console, which is the one thing the review-PDF
+    // check measures besides the round trip itself. Rewriting the path does
+    // not help; removing the fetch does. Same rule as the Google Fonts line
+    // above: stop making the noise rather than widening IGNORE.
+    .replace(/assets\/kytc-logo\.png/g, logoDataUri());
   const out = path.join(cachedDir, "page.html");
   fs.writeFileSync(out, html);
   return { file: out, libs };
@@ -104,6 +111,23 @@ export function rewrittenPage(src = PAGE) {
 /* A job that looks like the one #467PA came from, so a check that reaches the
  * contract lookup or the plant strip has real-shaped values to work with. */
 export const JOB = { cid: "262120", letting: "2026-02-19", plant: "AMP070301" };
+
+/* public/assets/kytc-logo.png, inlined. Read once - it is 8 KB and the page
+ * is rewritten once per run. If it is missing, hand back a 1x1 transparent
+ * PNG rather than throwing: a harness that cannot run because an image moved
+ * is worse than one that measures a page with no logo on it, and every check
+ * here is about layout and data rather than about the mark. */
+const BLANK_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+let logoCache = null;
+function logoDataUri() {
+  if (logoCache) return logoCache;
+  try {
+    const b = fs.readFileSync(path.join(LOGO_DIR, "kytc-logo.png"));
+    return (logoCache = `data:image/png;base64,${b.toString("base64")}`);
+  } catch (_) {
+    return (logoCache = BLANK_PNG);
+  }
+}
 
 /* Open designbook.html at one viewport and wait until the form is on screen.
  *
