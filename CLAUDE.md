@@ -984,6 +984,57 @@ TBD — cite the governing spec section when encoding a limit in code.
   approve and generate the workbook, and that is where a stale sheet actually
   bites, not back on step 1 where a contractor filled it.
 
+- **PlantBook's target, the AMAW workbook, is mapped as of 2026-09-13 -
+  `docs/amaw-map.md`.** First real look at one. The headline for whoever picks
+  PlantBook up: **the engine ports, the mapper does not.** AMAW is the same
+  MEDL loader architecture as the MixPack, checked rather than assumed -
+  `xl/xmlMaps.xml` is **byte-identical** (27,873 bytes, same
+  `MaterialDisciplines_Map` and `http://tempuri.org/XMLSchema.xsd`), and all
+  seven `t_*` staging tables plus `Project Items` and `discipline` have
+  **identical column lists**, including all 54 of `t_smpl`'s. So the zip
+  surgery and the staging evaluator are reusable; what is new is the domain.
+  The refs are where they differ, and they say what AMAW is: **eight sample
+  rows where the MixPack has one** (B7:BC14 vs B7:BC8), 1,470 test-result rows
+  against 335, 350 remark rows against one - a lot's worth of sublots rather
+  than one design. AMAW's staging shape is a strict SUBSET: the MixPack has
+  `t_superpave`, `t_bit_conc_mixblnd` and `Chart Data`, AMAW has nothing the
+  MixPack lacks. `Project Items` is the very sheet the pay-estimate lookup
+  already fills (`prj_nbr | ln_itm_nbr | repr_qty`, A5:C99), so that work
+  transfers whole.
+  **`discipline` row 2 is the loader id and is NOT the filename version**:
+  AMAW 14.01 declares `AMAW` / `v2.0`, MixPack 12.1 declares `AMMIXPACK` /
+  `v3.0`.
+  **The evaluator needs four functions**, three trivial. `CHAR` (364 uses) and
+  `COUNT` (1) are one line each; `VLOOKUP` (7, all the same lookup) already has
+  the `evalOnly` escape. **`INDIRECT` (28) is the one real piece of work** -
+  but contained, two shapes, both selecting a column or row off one sublot
+  index (`INDIRECT("G"&'Super Verify'!B5+8)`), not arbitrary string-built
+  references.
+  **The `AMAMAW` sheet documents the workbook's own input cells** - columns
+  M-R are `Cell | Type | Label | Length | English unit | Comment`, 85 rows with
+  real cell references, extracted to `docs/amaw-superpave-fields.json`. That is
+  the thing that took manual derivation for the MixPack, handed over for free.
+  Rows past those carry no cell and are the computed pay values instead; their
+  `f93`-style numbers *look* like `t_tst_rslt_dtl.tst_fld_sn` and the `VI01 -`
+  prefix *looks* like a verification tag - **neither is confirmed**, do not map
+  against them until someone checks.
+  Two facts that cross back into DesignBook. `.45 Data` carries the **same
+  gradation control points** DesignBook holds in
+  `CONFIG.GRADATION_CONTROL_POINTS`, so that constant belongs to both books
+  rather than being design-only. And `PG Producer` / `Producer supplier` are
+  in-workbook reference lists of the same terminals as the `binder_terminals`
+  table - PlantBook should read the table, same rule as everywhere else.
+  **The SheetJS gotcha is worse here than on a MixPack**: AMAW has a chartsheet
+  AND a `Dialog1` dialogsheet, so the name shift is bigger - `wb.Sheets["t_smpl"]`
+  returns `t_cont_smpl`. Every figure in that doc was taken by resolving
+  `xl/workbook.xml` -> the rels -> the worksheet XML directly. Use cell-bounded
+  regexes too: a greedy `<f>...</f>` match runs past `</c>` on these sheets and
+  invents hits, which it did here before being caught.
+  The blank templates are public downloads off KYTC's SiteManager page
+  (`AMAW_VER14_01.xlsm`, and 13.04 before it) and are deliberately **not
+  committed** - nothing uses them yet, and `.gitignore`'s `MIXPACK*.xls*` rule
+  does not catch `AMAW_*`, so one would land if added without thinking.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
