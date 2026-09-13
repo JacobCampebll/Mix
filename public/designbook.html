@@ -3535,6 +3535,7 @@ const state = {
   dirty: false,      // edits since the last review PDF was downloaded
   history: [],      // append-only trail carried in the review PDF (no design_events any more)
   plantName: null,   // resolved from the plants table; travels in the review PDF
+  plantLabId: null,  // plants.ps_lab_id - PlantBook's 'Pay Values'!I6, null until Andrew applies the column
   approval: null,    // { approval_no, code, issued_at, approved_by, submitted_by } once KYTC signs it
   signedDesign: null,// the design exactly as the approval signature covers it
   submitted: null,   // the payload EXACTLY as sent to KYTC - the submittal PDF
@@ -4229,6 +4230,7 @@ function renderForm() {
   renderRail();
   wireForm();
   applyAutofills();
+  applyPlantLabId();   // the plants lookup may have landed before this book was on screen
   renderRefStatus();
   renderStage();
   go(state.step || 0, null, false);   // places #valBlock and recomputes; does not scroll
@@ -16016,6 +16018,45 @@ async function loadPlantName() {
     // stays recoverable either way.
     if (data && data.name) { state.plantName = data.name; $("outPlant").textContent = $("outPlant").title = `${data.name} — ${amp}`; }
   } catch (_) { /* leave the bare AMP number */ }
+  await loadPlantLabId(amp);
+}
+
+// The plant's producer/supplier lab (supabase/plants_lab_id.sql), for
+// PlantBook's 'Pay Values'!I6. Jake, 2026-09-13: the lab belongs to the
+// plant, the approval names the plant, so nobody should be typing it.
+//
+// Its OWN query, deliberately, and not another column on the select above or
+// on CONFIG.REFERENCE.TABLES.plants: `ps_lab_id` is a column Andrew has still
+// to apply, and PostgREST answers a select naming a column that does not
+// exist with a 400 for the WHOLE row. Folded into either of those, a
+// not-yet-applied migration would take the plant NAME down with it here, and
+// the whole RAP producer list down with it there - a much worse failure than
+// the empty field this degrades to.
+async function loadPlantLabId(amp) {
+  try {
+    const { data, error } = await sb.from("plants").select("ps_lab_id").eq("amp_number", amp).maybeSingle();
+    if (error) return;                                   // column not applied yet
+    if (data && data.ps_lab_id) state.plantLabId = String(data.ps_lab_id);
+  } catch (_) { /* leave it for the technician to type */ }
+  applyPlantLabId();
+}
+
+// Fill the lot's P/S lab id from the plant, on the same terms as every other
+// provisional value on this page: only into a blank or into what this filled
+// before, tinted, and with a title saying where it came from. Called after
+// the lookup lands AND from renderForm(), because the two race - a lot opened
+// from a file renders long after boot, and boot's lookup lands long before
+// anybody has switched to PlantBook.
+function applyPlantLabId() {
+  if (!state.plantLabId || !isPlantBook()) return;
+  const el = document.querySelector('[data-field="lot_ps_lab"]');
+  if (!el || el.disabled) return;
+  if (String(el.value || "").trim() && el.dataset.autofilled !== "1") return;   // theirs
+  if (el.value === state.plantLabId) return;
+  el.value = state.plantLabId;
+  el.dataset.autofilled = "1";
+  el.classList.add("autofilled");
+  el.title = `Producer/supplier lab recorded for ${state.plantName || state.job.plant} in the plants table`;
 }
 
 async function boot(session) {
