@@ -515,6 +515,25 @@
   .rowitem{display:grid; gap:10px; align-items:center; padding:5px 10px;
            border-bottom:1px solid var(--line); background:transparent;}
   .rowitem:hover{background:var(--well);}
+  /* A repeating table that cannot fit its columns SCROLLS rather than
+     squeezing them, the same answer .gradwrap gives the sieve table.
+     The header strip and the rows share one scroller so they cannot drift
+     apart horizontally - that is why the wrapper is around both.
+
+     `min-width:max-content` rather than a pixel figure: a grid of `fr`
+     tracks resolves max-content to what its columns actually need, so a
+     two-column table never scrolls and PlantBook's nine-column volumetrics
+     does exactly when it has to. CLAUDE.md's warning applies in reverse
+     here - inside an overflow-x container `width:100%` is a squeeze, not a
+     width, so the content must state a minimum or it just compresses and
+     clips, which is what it was doing between 701 and 1000px.
+
+     Above 700px only: below that the rows are already cards, one field per
+     line, and nothing is wide. */
+  .rowscroll{overflow-x:auto;}
+  @media (min-width:701px){
+    .rowscroll > .rowhead, .rowscroll > .rowlist{min-width:max-content;}
+  }
   /* Each row still carries its labels for the phone layout below. */
   .rowitem label{display:none;}
   .rowitem .box{padding:5px 7px; font-size:12.5px; min-height:28px;}
@@ -4012,7 +4031,7 @@ function rowsHTML(spec) {
     const rows = (spec.seed || []).map((v, i) =>
       rowHTML(spec, held[i] ? Object.assign({}, v, held[i]) : v, i)).join("");
     return rowHeadingHTML(spec) +
-      rowHeadHTML(spec) + `<div class="rowlist" data-rowlist="${spec.key}">${rows}</div>`;
+      `<div class="rowscroll">${rowHeadHTML(spec)}<div class="rowlist" data-rowlist="${spec.key}">${rows}</div></div>`;
   }
   const found = state.extracted ? (state.extracted.tables[spec.key] || []) : [];
   // `start` is how many blank rows a spec opens with when nothing was
@@ -4020,10 +4039,9 @@ function rowsHTML(spec) {
   const blanks = Math.min(spec.start || 1, spec.max || 1);
   const seed = found.length ? found.slice(0, spec.max) : Array.from({ length: blanks }, () => null);
   return rowHeadingHTML(spec) +
-    rowHeadHTML(spec) +
-    `<div class="rowlist" data-rowlist="${spec.key}">
+    `<div class="rowscroll">${rowHeadHTML(spec)}<div class="rowlist" data-rowlist="${spec.key}">
       ${seed.map((v, i) => rowHTML(spec, v, i)).join("")}
-    </div>
+    </div></div>
     <button class="addrow" data-add="${spec.key}">${spec.addLabel}</button>`;
 }
 
