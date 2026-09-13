@@ -1365,6 +1365,27 @@ TBD — cite the governing spec section when encoding a limit in code.
   whole thing in its `title`, and is recorded in the baseline: the same
   conclusion this file reached for the producer name.
 
+- **A repeating row on a phone packs its FIGURES three-up and gives only its
+  TEXT the full width** (Jake, 2026-09-13, off a phone: "surely this isn't the
+  best way to show or ask for this information... the gsb per sublot could be
+  one table like the AMAW or displayed more efficiently"). The one-column rule
+  below 560px was written for a 48-character producer name and was being
+  applied to `2.66`, so "Combined Gsb, by sublot" - which the schema already
+  declares as ONE row of four columns - came out as four full-width boxes down
+  the screen. `rowHTML()` marks a cell `.num` when its column is
+  `type: "number"`, `.rowitem` runs on six tracks, and a text cell takes
+  three of them (two-up) or six (one-up below 560) while a figure takes two.
+  Measured at 390px rather than eyeballed, and it is worth a lot more than it
+  sounds: **PlantBook's whole page went 19,517px -> 15,000px** (the blend
+  3,664 -> 2,146, sublot volumetrics 2,516 -> 1,156, Combined Gsb 283 -> 147)
+  and **DesignBook's 15,059px -> 12,797px** with the TSR specimens
+  5,296 -> 3,778. That is five phone screens off one book and three off the
+  other, for a rule about what a number is.
+  **The tabs half of that report was withdrawn** - Jake was on a phone and had
+  forgotten that the one-scroll shape below 700px is deliberate and his own
+  call (see the two-shapes note above). Do not add a per-row tab strip or a
+  phone wizard on the strength of that message.
+
 - **Three live bugs found while building PlantBook, all in DesignBook or in
   KYTC's own workbook, all now fixed or recorded:**
   **The section head's kicker disagreed with the action bar.** `renderForm()`

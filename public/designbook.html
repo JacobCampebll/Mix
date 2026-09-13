@@ -542,9 +542,18 @@
        template as an inline style, which no stylesheet rule can outrank.
        Five columns at 390px squeezed "Specimen 1" down to "Spec" and the
        weights to one digit, so the card wraps to two columns instead. */
-    .rowitem{grid-template-columns:repeat(2,minmax(0,1fr))!important;
+    .rowitem{grid-template-columns:repeat(6,minmax(0,1fr))!important;
              align-items:end; padding:8px 10px; border:1px solid var(--line);
              border-radius:var(--radius); background:#FCFCFA;}
+    /* Six tracks so the two kinds of cell can each take a sensible share of
+       them: a text cell two-up, a figure three-up. Before this every cell got
+       the same width, which is why "Combined Gsb, by sublot" - four numbers
+       of four characters - came out as four full-width boxes down the screen
+       (Jake, 2026-09-13: "could be one table like the AMAW or displayed more
+       efficiently"). The spec already said that table was one row of four
+       columns; only the phone rendering disagreed. */
+    .rowitem > .cell{grid-column:span 3;}
+    .rowitem > .cell.num{grid-column:span 2;}
     .rowitem .rmbtn{justify-self:end; align-self:center;}
     .rowitem:hover{background:#FCFCFA;}
     .rowitem label{display:block; font-size:10px; color:var(--muted);
@@ -557,7 +566,11 @@
      one column is a short card, and the card border already says where one
      row ends and the next begins. */
   @media (max-width:560px){
-    .rowitem{grid-template-columns:minmax(0,1fr)!important;}
+    /* Text cells go one-up here - that is what this breakpoint was for, and
+       a producer name still needs the whole width. Figures stay three-up:
+       "2.660" at 16px is 48px of type, and giving it 350px was never the
+       point of this rule. */
+    .rowitem > .cell{grid-column:span 6;}
     .rowitem .rmbtn{justify-self:end;}
   }
   .addrow{display:block; width:100%; margin-top:8px; padding:10px;
@@ -3757,7 +3770,11 @@ function rowHTML(spec, values, idx) {
         ? selectHTML(cls, attrs, (c.options || []).map((o) =>
             (typeof o === "string" ? { value: o, label: o } : o)), v)
         : `<input type="text"${ro} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
-    return `<div><label>${c.label}</label>${ctrl}</div>`;
+    // `num` is what lets a phone pack three figures onto one line instead of
+    // giving each its own. A number column holds a figure - four or five
+    // characters - where a text column can hold a 48-character producer name,
+    // and the one-column rule below 560px was written for the latter.
+    return `<div class="cell${c.type === "number" ? " num" : ""}"><label>${c.label}</label>${ctrl}</div>`;
   }).join("");
   // Fixed tables (e.g. the Hamburg pass-count grid) have no remove button.
   return `<div class="rowitem" style="grid-template-columns:${spec.grid}">
