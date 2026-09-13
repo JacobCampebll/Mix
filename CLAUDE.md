@@ -1330,16 +1330,46 @@ TBD — cite the governing spec section when encoding a limit in code.
   is not the contract's bid price. Contract 252112's line 0160 IS the mix both
   of Jake's real lots were produced under (`CL3 ASPH SURF 0.38A PG64-22`, item
   `22906ES403`) and the contract bids it at **$119.80/TON** - but both AMAWs
-  carry a unit price of **$50**, and 50 is the figure their pay actually used:
-  lot 2's +26.25 tons came to +$1,312.50, which is 26.25 x 50. Filling the bid
-  price in put a number more than twice too large into every dollar
-  adjustment, silently, and tinted as though the page knew it. The lookup now
-  REPORTS the bid price in its note and leaves the field alone. What $50 is
-  has not been established - the Lot Pay Adjustment Schedule at 2026 Std Spec
-  p.186 is literally `Lot Pay Adjustment = ($50.00)(Quantity){...}`, which
-  makes it a spec CONSTANT rather than a price at all, and if that is right
-  the field is misnamed rather than unfilled. **Open for Tate**; do not wire
-  it either way on the strength of that alone.
+  carry **$50**, and 50 is the figure their pay actually used: lot 2's +26.25
+  tons came to +$1,312.50, which is 26.25 x 50. Filling the bid price in put a
+  number more than twice too large into every dollar adjustment, silently, and
+  tinted as though the page knew it.
+
+- **SETTLED 2026-09-13: the AMAW's "Unit Price" is the SPEC's $50.00/ton, the
+  same for every mix type, and it is seeded rather than asked for.** Jake's
+  question - "does the AMAW show 50 per ton as the unit price no matter the
+  mix type?" - is what closed it, and the answer is yes, from three
+  independent directions.
+  **The spec says it outright.** 2026 Std Spec **402.05.02** (PDF p.182) puts
+  both numbers in one breath: "The Department will pay for the mixture at the
+  Contract unit bid price and apply a Lot Pay Adjustment for each lot placed
+  ... The Department will apply the Lot Pay Adjustment for each lot to **a
+  defined unit price of $50.00 per ton**." Two numbers doing two jobs - the
+  bid price pays for the tonnage, the $50 scales the adjustment - which is
+  why reading one as the other is a silent 2.4x error rather than an obvious
+  one.
+  **All three Lot Pay Adjustment Schedules open with the same constant**,
+  whatever the mix: Option A Base and Binder (p.**185**), Option A Surface
+  (p.**186**) and Option B (p.**188**) are each
+  `Lot Pay Adjustment = ($50.00)(Quantity){...}`. Only the WEIGHTS differ
+  between them, which is what `propertyWeights()` already models. (The
+  Specialty Mixtures schedule - OGFC, ATDB, wedge, leveling and wedging,
+  scratch course, 402.05.01 - is a separate table and was not read; PlantBook
+  does not model it.)
+  **KYTC's own blank AMAW agrees**: `'Pay Values'!F5` ships as a hard-coded
+  `50` in the untouched VER 14.01 template - not a formula, not blank - so
+  nobody typed it on those two lots either.
+  So `ADJUSTMENT_UNIT_PRICE = 50` is seeded on exactly the same footing as
+  `LOT_TONS`, and stays editable for the same reason. `check_intake.mjs`
+  asserts it both ways round like `lot_tons`, and note it also had to re-point
+  its "every schema field is present, null where unfilled" probe, which had
+  been parked on `lot_unit_price` - now on `lot_wedge_tons`, which is optional,
+  blank in both real lots and derived by nothing.
+  The lookup still reports the contract's bid price beside it, because that is
+  genuinely useful and genuinely a different quantity. **The field is arguably
+  misnamed** - it is the adjustment basis rather than a price - but it is what
+  the workbook calls it, so the label follows the workbook and the derivation
+  note carries the explanation.
 
 - **Still NOT auto-filled on the Lot step, and both are open questions rather
   than settled answers** (2026-09-13):
@@ -1360,8 +1390,10 @@ TBD — cite the governing spec section when encoding a limit in code.
   is a silent 0% lot. Left blank pending Tate.
   **Two of those three moved the same day - see the entry below.** Joint
   density is derived from the mix now, and the density option turns out to be
-  on the proposal rather than being anybody's decision. Acceptance method is
-  the one that genuinely stays blank pending Tate.
+  on the proposal rather than being anybody's decision. **Acceptance method is
+  now the ONLY field on the Lot step still waiting on a person** other than
+  ESAL Class: unit price became a spec constant and joint density a derivation
+  in the same round.
 
 - **Joint density is settled by the MIX, and the density option is on the
   PROPOSAL - neither is a per-lot preference** (Jake, 2026-09-13: "Joint
