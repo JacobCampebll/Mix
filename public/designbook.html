@@ -2956,7 +2956,7 @@ function renderForm() {
     // emitted here rather than being appended by computeTSR(), which used to
     // put it at the very end of the section.
     return `<section class="section step" id="${s.id}" data-section="${s.id}" data-label="${s.label}" data-step="${i}">
-      <div class="section-head"><div class="headtitle"><span class="kicker">Step ${i + 1} of ${tops.length}</span><h2>${s.label}</h2></div>
+      <div class="section-head"><div class="headtitle"><span class="kicker"></span><h2>${s.label}</h2></div>
         <span class="headmeta">${sectionCitesHTML(s)}${s.lookup && state.job && state.job.cid
           ? `<button type="button" class="seclookup" id="contractLookupBtn">Look up<span class="wide-only"> contract</span> ${esc(state.job.cid)}</button>` : ""}<span class="section-tag mono">${s.tag}</span></span></div>
       ${s.lookup ? `<div class="lookupnote${state.contractNote ? " " + esc(state.contractNote.kind) : ""}" id="contractLookupNote">${state.contractNote ? esc(state.contractNote.text) : ""}</div>` : ""}
@@ -3110,10 +3110,23 @@ function paintStepChrome() {
   }
   const rail = document.querySelectorAll("#railnav .railstep");
   let n = 0;
+  // The rail dot AND the section's own kicker, from the same counter. The
+  // kicker used to be baked into renderForm() as `Step ${i+1} of
+  // ${tops.length}` - a SCHEMA count - so on every Type D mix, and on every
+  // design before Nominal size is typed (which is the default), the head read
+  // "Step 1 of 9" above a bar reading "Step 1 of 8". Same bug the rail and the
+  // bar were already fixed for; this was the third place and it was missed.
+  // Every number a person sees is a VISIBLE position and is painted here.
+  const total = visibleSteps().length;
   secs.forEach((sec, k) => {
+    const hidden = stepHidden(sec);
+    const pos = hidden ? null : ++n;
     const dot = rail[k] && rail[k].querySelector(".dot");
-    if (!dot) return;
-    dot.textContent = stepHidden(sec) ? "" : String(++n);
+    if (dot) dot.textContent = hidden ? "" : String(pos);
+    // Painted on every section, not just the active one: below 700px they are
+    // all on one scroll, so each carries its own position.
+    const kick = sec.querySelector(".kicker");
+    if (kick) kick.textContent = hidden ? "" : `Step ${pos} of ${total}`;
   });
   if (onePage()) return;      // no action bar to paint
   const vis = visibleSteps(), pos = vis.indexOf(cur) + 1;
