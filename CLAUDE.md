@@ -1489,6 +1489,32 @@ TBD — cite the governing spec section when encoding a limit in code.
   district. Do not derive an AMAW's KYTC lab from that list until somebody
   confirms it.
 
+- **The 1/4" sieve is off PlantBook's gradation tab too, and the note that
+  kept it there was factually wrong** (Jake, 2026-09-13: "on the gradation tab
+  lets get rid of the 1/4" sieve please"). `sections.mjs` had claimed "the
+  AMAW carries it as a real measured row on all four sublots, so PlantBook
+  keeps it". Checked against both of Jake's real lots: **`Gradation` row 16 is
+  EMPTY in both** - all four sublot columns (D/G/J/M) and the JMF column (N).
+  It is as dead on an AMAW as it is on a MixPack, which reads "N / A" there
+  and is why DesignBook dropped it on 2026-09-07. Seven columns of an
+  always-blank row is seven fields a technician is asked for and cannot
+  supply, plus a column of dashes on the 0.45 chart. The tab is 13 sieves x 7
+  columns now, 91 fields rather than 98.
+  **The WORKBOOK keeps all fourteen rows, and that is the part to be careful
+  with.** `GRADATION.sieves` in `addresses.mjs` is the AMAW's own row order
+  and still has the 1/4" at index 6; the mapper walks THAT list and matches
+  the form's by LABEL, so a sieve absent from the form writes blank to row 16
+  rather than shifting #4..#200 up a row - exactly the class of bug the
+  SheetJS chartsheet note above is about. **Never renumber the workbook list
+  to match a form's.** `check_intake.mjs` now asserts the full shape of that
+  slot (14 long, index 6 is the 1/4" with no schema key, index 7 is `#4`) so
+  a later tidy-up cannot quietly shift it, and asserts that no `s6_3` field is
+  seeded at either end. Verified end to end: `check_mapper` still reports 0
+  unexplained cells against both real lots.
+  The two books' sieve lists now agree, but do not start indexing across them
+  - anything shared (the control-point band, `trimFlatCoarseEnd`) still keys
+  on `mm`, never on position.
+
 - **A row table key may now be shared between the books, but only out loud.**
   `check_sections.mjs` fails a PlantBook row table whose key collides with a
   DesignBook one - the key is the `data-rowlist` attribute and the payload's
