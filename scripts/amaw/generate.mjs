@@ -493,10 +493,23 @@ export async function generateAmaw({ template, lot, ref, mapper, values, evalOnl
   // of the finished workbook so it catches a value that was mapped but
   // evaluated away to nothing.
   const missing = [...(mapped.report.missing || [])];
+  // The mapper names the same cells in its own words wherever it can see
+  // them. Say each one once: a report that lists a missing sample id twice
+  // reads like two problems.
+  const named = new Set();
+  for (const line of missing) {
+    const m = /^\s*('[^']+'|[A-Za-z_][A-Za-z0-9_. #]*)!([A-Z]{1,3}\d+)/.exec(line);
+    if (m) named.add(splitAddr(`${m[1]}!${m[2]}`).join("!"));
+  }
+  const nameIt = (sheet, ref, why) => {
+    if (named.has(`${sheet}!${ref}`)) return;
+    named.add(`${sheet}!${ref}`);
+    missing.push(`${sheet}!${ref} — ${why}`);
+  };
   for (const [key, why] of LOADER_REQUIRES) {
     const v = filled.valueOf(AMAW.LOT.sheet, AMAW.LOT[key]);
     if (v === null || v === undefined || String(v).trim() === "")
-      missing.push(`${AMAW.LOT.sheet}!${AMAW.LOT[key]} — ${why}`);
+      nameIt(AMAW.LOT.sheet, AMAW.LOT[key], why);
   }
   const items = [];
   const pi = DIRECT_READ["Project Items"];
@@ -504,7 +517,8 @@ export async function generateAmaw({ template, lot, ref, mapper, values, evalOnl
     if (pi.cols.some((c) => { const v = filled.valueOf("Project Items", c + r); return v != null && String(v).trim() !== ""; }))
       items.push(r);
   if (!items.length)
-    missing.push("Project Items!A6 — no project / line item rows; the Applet expands one t_cont_smpl row per row on that tab, so the lot would load without any");
+    nameIt("Project Items", "A6", "no project / line item rows; the Applet expands one " +
+           "t_cont_smpl row per row on that tab, so the lot would load without any");
 
   // The sample id is the filename, same as the MixPack's. An empty one is
   // KYTC's own "not ready to hand off" state rather than a fault here, so it

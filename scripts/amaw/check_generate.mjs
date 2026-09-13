@@ -10,7 +10,7 @@
 // evaluate and bank the eight staging sheets, repack, and then diff EVERY cell
 // of the result against the lot we started from.
 //
-// Three sections, and the third is the one people forget:
+// Four sections, and the last two are the ones people forget:
 //
 //   1. STAGING PARITY — every staging cell Excel cached a value for, against
 //      the value we banked. This is the payload MEDL loads.
@@ -20,9 +20,21 @@
 //      generated workbook, not by looking for a cached value: Excel
 //      recomputes it on open, and "will it come back the same?" is the only
 //      question that matters there.
-//   3. THE ZIP — vbaProject.bin and xl/xmlMaps.xml byte-identical, every
-//      other part either untouched or one we meant to rewrite. A workbook
-//      that loses either is not an AMAW any more, whatever its cells say.
+//   3. THE WORKBOOK ITSELF — vbaProject.bin and xl/xmlMaps.xml byte-identical,
+//      every other part either untouched or one we meant to rewrite, every
+//      rewritten part well formed, and every banked value read back off the
+//      DISK rather than out of memory. A workbook that loses the VBA or the
+//      XML map is not an AMAW any more, whatever its cells say, and a regex
+//      splice can produce a part that zips perfectly and Excel refuses.
+//   4. THE MAPPER, through the generator — the seam between the two, which
+//      has a quoting trap in it. See section 6.
+//
+// Measured on both real lots (contract 252112, Boonesboro, lots 1 and 2)
+// against KYTC's blank 14.01 and 13.04 templates, 2026-09-13:
+// 6,747 staging cells matching, 0 expected differences, 0 unexplained; about
+// 16,100 archive cells matching with ~1,480 expected differences and 0
+// unexplained; 6,719 banked cells read back off the file; VBA and XML map
+// intact. Five seconds a lot.
 //
 // The payload here is the lot's own cells rather than a PlantBook lot object,
 // for the same reason regenerate.mjs works that way: it isolates the engine
@@ -550,3 +562,35 @@ const hardFail = stagingRest.length || archiveRest.length || missing.length || e
                  malformed.length || rereadBad.length || mapperProblems.length;
 console.log(`\n${hardFail ? "FAIL" : "PASS"}`);
 process.exit(hardFail ? 1 : 0);
+
+/* ---------------------------------------------------------------------------
+ * What this proves, and the three things it does not.
+ *
+ * IT PROVES THE PAYLOAD. Every staging cell either matches the lot KYTC
+ * accepted or differs for a reason this file states as a rule rather than a
+ * list: the lot holds an Excel error there (28 INDIRECTs over an empty
+ * "which sublot" cell, which a generated file reproduces as the same error),
+ * or the value is stamped at generation time.
+ *
+ * IT PROVES THE FILE OPENS THE SAME. Archive parity models what Excel shows
+ * rather than what we cached, which is the only way to catch a formula kept
+ * over inputs we did not write - the failure this whole exercise exists to
+ * prevent, and one that looks like a perfect file until somebody opens it.
+ *
+ * WHAT IT DOES NOT PROVE, first: A MEDL LOAD. The same thing is still owed
+ * for the MixPack (docs/sitemanager-handoff.md) - Andrew and Tate loaded a
+ * regenerate.mjs file on 2026-09-10 and nobody has put an AMAW through yet.
+ * Staging parity with a workbook KYTC accepted is strong evidence and not a
+ * receipt.
+ *
+ * Second: A LOT'S OWN SAMPLE ID. Both real lots leave 'Pay Values'!B3 blank,
+ * so both generate as "AMAW-no-sample-id.xlsm" with smpl_id empty on all
+ * seven records, and the report says so. That is KYTC's own "not ready to
+ * hand off" state rather than a fault here, but it means no run so far has
+ * exercised a fully identified workbook end to end.
+ *
+ * Third: THE MAPPING. Section 6 proves the two modules meet correctly, not
+ * that a lot's %AC lands on the right row - that is check_mapper.mjs, which
+ * reads a real AMAW into a payload and diffs every cell the mapper produces.
+ * Run both; neither subsumes the other.
+ * ------------------------------------------------------------------------- */
