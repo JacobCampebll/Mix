@@ -20,20 +20,31 @@ const isNum = v => typeof v === 'number';
 
 /**
  * Replace one cell in a worksheet's XML, keeping its style so the sheet still
- * reads like a MixPack. A formula on that cell is dropped: we are writing the
- * answer, and a stale <f> would be recalculated by Excel on open and could
- * overwrite it.
+ * reads like a MixPack.
+ *
+ * The template's formula on that cell is DROPPED by default: we are writing
+ * the answer, and a stale <f> would be recalculated by Excel on open and
+ * could overwrite it. `keepFormula` is the other half of that rule - it
+ * leaves the <f> in place with our value cached beside it, the shape a
+ * natively saved Excel file has - and is right only where the formula reads
+ * cells we also wrote, so Excel recomputes the same answer. designbook.html's
+ * copy of this engine has carried the parameter since the MixPack mapper was
+ * written; it is here now because scripts/amaw/generate.mjs decides the same
+ * question per cell (see decideKeep there) and this is the one splicer.
  */
-export function setCell(xml, ref, value) {
-  const re = new RegExp(`<c r="${ref}"((?:\\s+[a-zA-Z:]+="[^"]*")*)\\s*(?:/>|>[\\s\\S]*?</c>)`);
+export function setCell(xml, ref, value, keepFormula) {
+  const re = new RegExp(`<c r="${ref}"((?:\\s+[a-zA-Z:]+="[^"]*")*)\\s*(?:/>|>([\\s\\S]*?)</c>)`);
   const m = re.exec(xml);
   const style = m ? /\ss="(\d+)"/.exec(m[1])?.[1] : undefined;
   const s = style !== undefined ? ` s="${style}"` : '';
+  const fTag = keepFormula && m ? (/<f\b[\s\S]*?(?:\/>|<\/f>)/.exec(m[2] || '') || [''])[0] : '';
   const cell = value === '' || value === null || value === undefined
-    ? `<c r="${ref}"${s}/>`
+    ? (fTag ? `<c r="${ref}"${s}>${fTag}</c>` : `<c r="${ref}"${s}/>`)
     : isNum(value)
-      ? `<c r="${ref}"${s}><v>${+value}</v></c>`
-      : `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${esc(value)}</t></is></c>`;
+      ? `<c r="${ref}"${s}>${fTag}<v>${+value}</v></c>`
+      : fTag
+        ? `<c r="${ref}"${s} t="str">${fTag}<v>${esc(value)}</v></c>`
+        : `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${esc(value)}</t></is></c>`;
   // Every splice below passes the replacement as a FUNCTION. A string
   // replacement is a pattern: "$1", "$&" and "$$" inside it are expanded, so a
   // remark like "$1,200 change order" would have written a back-reference into
