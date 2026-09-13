@@ -1116,6 +1116,71 @@ TBD — cite the governing spec section when encoding a limit in code.
   Also: both real lots leave `'Pay Values'!B3` blank, so `t_smpl.smpl_id` is
   empty in both - read that as "not ready to hand off", not as a read failure.
 
+- **PlantBook's parts are built and verified; nothing is wired into the page
+  yet** (2026-09-13). Every piece lives in `scripts/amaw/` and each has a
+  checker beside it that runs against Jake's two real lots. What passes today:
+  `pay.mjs` 127/127 workbook cells, `mapper.mjs` 455 and 480 matching with 0
+  unexplained, `generate.mjs` producing a valid 819 KB .xlsm with
+  `vbaProject.bin` and `xl/xmlMaps.xml` byte-identical, the AMAW evaluator
+  6712/0, `addresses.mjs`, `sections.mjs`, `payview.mjs` and `intake.mjs`. The
+  book switch is still `disabled` and both `built: false` flags are still
+  false, so none of it can reach a person.
+  **`scripts/amaw/harness/run.mjs` is the regression suite for the splice** -
+  136 passing, 12 skipped, and every skip is gated on one fact
+  (`#bookPlant.disabled`), so nothing needs editing when PlantBook lands. It
+  defends the traps this file already records: measuring inside a hidden step,
+  `documentElement.scrollWidth` at 390px, the `#valBlock` park, one-id-one-
+  element, visible-position numerals, `collectForm()` round-trip. Per-input
+  clipping compares against `harness/baseline/clipping.json` rather than zero,
+  because this file is explicit that some clipping is accepted and unfixable -
+  a check that failed on the RAP note would simply get turned off.
+
+- **Three live bugs found while building PlantBook, all in DesignBook or in
+  KYTC's own workbook, all now fixed or recorded:**
+  **The section head's kicker disagreed with the action bar.** `renderForm()`
+  wrote it as `Step ${i+1} of ${tops.length}` - a SCHEMA count - so the navy
+  band read "Step 1 of 9" over a bar reading "Step 1 of 8" on every Type D mix
+  AND on every design before Nominal size is typed, which is the default a
+  contractor opens on. The rail and the bar had both been fixed for exactly
+  this; the kicker was the third place and was missed. It is painted in
+  `paintStepChrome()` now, from the same counter as the rail dots, on every
+  section rather than only the active one (below 700px they are all on one
+  scroll). The harness check that caught it fails again if the fix is reverted.
+  **An approval PDF called itself a review copy.** `handoffPayload()`
+  hard-codes `doc_kind: "review"`, `freezeSubmittal()` overwrites it, and
+  `approvedPayload()` did neither - so every approval ever issued carried
+  `"review"` in its payload and `CONFIG.HANDOFF.DOC.approval` was declared and
+  assigned nowhere. One line. Safe both ways: `doc_kind` is deliberately
+  outside what the signature covers, so no issued approval is invalidated, and
+  both readers test only for `submittal`.
+  **`'Pay Values'!C6` reads `#N/A` in both approved lots and it is KYTC's bug,
+  not ours.** The plant VLOOKUP range is `'Producer supplier'!B3:C106` while
+  that list now runs to row 140 and `AMP070302` sits at row 130, so Boonesboro
+  can never resolve. The mapper notes it rather than working around it.
+
+- **Two PlantBook questions for Andrew and Tate, neither guessable:**
+  **The two books spell a mix id differently.** Both real AMAWs carry five
+  digits whose tail is the pay item code (`00385`); `canonical.mjs` issues
+  eight (`00260467`). `intake.mjs` carries the value verbatim with a
+  `mix-id-shape` warning rather than inventing a transform, but something has
+  to give before a generated AMAW loads into MEDL.
+  **An MCL air void or VMA on sublot 1 of lot 1 pays 100%.** `'Pay Values'!G13`
+  is `IF(AND(F3=1,AH9>=90),100,AH9)` and in Excel a text value outranks every
+  number, so `"MCL" >= 90` is true. Reproduced because it is what every lot
+  approved on this workbook was paid by - but we are now the second system
+  doing it, which is worth Tate confirming. Note the sublot-1 allowance is
+  gated on the LOT number (`F3=1`), not the sublot, despite the caption.
+  Also unresolved: `Calculations!A72` computes a capped 100% and
+  `'Pay Values'!G26` prints "Final Pay should be made at 100% Maximum", but
+  `J23`/`J24` multiply the UNCAPPED figure and both real lots were paid
+  uncapped. Lot 2's +$1,312.50 may or may not be what KYTC actually pays.
+
+- **Still owed before PlantBook could ship**, both stated rather than hidden:
+  `sections.mjs` carries **nine spec citations that are UNVERIFIED** - inferred
+  rather than opened and read in the real document, which is not the standard
+  every DesignBook citation was held to - and no browser-built AMAW has ever
+  been loaded into MEDL, the same debt the MixPack still carries.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
