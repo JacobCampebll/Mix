@@ -54,6 +54,11 @@ docs/*.xlsx
 docs/*.xlsm
 MIXPACK*.xls*
 \#*.xls*
+# Completed AMAW (plant acceptance) workbooks carry technician names, contract
+# and plant data the same way. The blank KYTC templates are public downloads
+# with no data, but nothing serves them yet, so they are ignored too - drop
+# this rule's AMAW_VER line if PlantBook ever needs one in public/.
+AMAW*.xls*
 # ...except KYTC's own blank template, which is a public download off their
 # SiteManager page and holds no data. The MixPack generator needs it as the
 # base it writes into, so it has to be served, not just referenced.

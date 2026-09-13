@@ -1010,14 +1010,50 @@ TBD — cite the governing spec section when encoding a limit in code.
   but contained, two shapes, both selecting a column or row off one sublot
   index (`INDIRECT("G"&'Super Verify'!B5+8)`), not arbitrary string-built
   references.
-  **The `AMAMAW` sheet documents the workbook's own input cells** - columns
-  M-R are `Cell | Type | Label | Length | English unit | Comment`, 85 rows with
-  real cell references, extracted to `docs/amaw-superpave-fields.json`. That is
-  the thing that took manual derivation for the MixPack, handed over for free.
-  Rows past those carry no cell and are the computed pay values instead; their
-  `f93`-style numbers *look* like `t_tst_rslt_dtl.tst_fld_sn` and the `VI01 -`
-  prefix *looks* like a verification tag - **neither is confirmed**, do not map
-  against them until someone checks.
+  **CORRECTION 2026-09-13 to the note this replaces, which said the `AMAMAW`
+  sheet documents the workbook's input cells "all on the `Superpave` sheet".
+  Both halves were wrong** - caught by checking it against two completed
+  workbooks Jake supplied. `AMAMAW` is the **test-method code** (the value in
+  `t_tst_rslt_dtl.tst_meth`), not an abbreviation of AMAW, and that sheet is
+  stale: its `Cell` column disagrees with the live workbook on every entry
+  tested - it says `C10` for Aggr. Pro. Codes where the real source is
+  `Superpave!N3`, `D28` for Air Voids where it is `Superpave!J14`, `E5` for
+  County where it is `'Pay Values'!I3`. Do not map against it. (Its `f93`-style
+  numbers are not `tst_fld_sn` either - "Acceptance Method" is `f93` there and
+  sn 42 in the staging table.)
+  **The real map is `t_tst_rslt_dtl` itself**, documented in the columns beside
+  its ListObject: column A is `<block> - <field label>`, column E is
+  `tst_fld_sn`, and column F or G holds a **formula naming the source cell**.
+  Same derivation the MixPack map came from, and it cannot go stale because it
+  is what the loader reads. Extracted whole to `docs/amaw-field-map.json`
+  (1,469 rows, 1,095 with a source formula).
+  **A lot is seven test records, and two strides generate them all.**
+  `VI01` (verification), `QC01`-`QC04` (the four sublots), `QA01`
+  (Department acceptance) and `IQ01` (independent assurance), ~210 fields
+  each. Lot-level fields read the same cell in all seven; the four QC sublots
+  step **6 rows** down `Superpave` (`B14/B20/B26/B32`); QA and IQ read
+  `'Super Verify'` at a stride of **7** (`B10/B17`). So a mapper needs the
+  lot-level addresses once plus two strides, not 1,469 addresses.
+  **Version layout is stable, unlike the MixPack's** - Jake's two lots are
+  **13.3**, older than either public download, and all 85 dictionary rows and
+  every staging dimension are identical across 13.3 / 13.04 / 14.01. The
+  version marker is `Pay Values!K1`; the `Workbook Edits` changelog is stale in
+  all four files (last entry 2007) and `discipline` carries the loader contract
+  (`AMAW` / `v2.0`) rather than the build, so neither identifies your copy.
+  **`Pay Values!D9` is the join between the two books**: `00385 CL3 ASPH SURF
+  0.38A PG64-22` - the approved design's MIX ID followed by its signature. A
+  PlantBook lot is a child of a DesignBook approval and the workbook already
+  writes that link down.
+  Two data-format traps from the real files: **times are Excel time fractions**
+  (0.9125 = 21:54), not the HHMM the stale sheet claims, and the per-sublot
+  **Tons figure is cumulative ticket tonnage** rather than that sublot's own.
+  Core count is not fixed either - lot 1 has six, lot 2 has ten.
+  **Jake's lots bear on the open dolomite question**: both are contract 252112
+  at Boonesboro, and the blend's second-largest component is `Dol. #10's
+  Washed` at **20%** from `AGP027501` - the exact component and producer that
+  question is about. It does not settle the class (an AMAW records production,
+  it does not re-adjudicate a design) but it is a real accepted lot to put to
+  Andrew beside #467PA. Full lot data in `docs/amaw-map.md`.
   Two facts that cross back into DesignBook. `.45 Data` carries the **same
   gradation control points** DesignBook holds in
   `CONFIG.GRADATION_CONTROL_POINTS`, so that constant belongs to both books

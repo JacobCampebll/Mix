@@ -32,6 +32,15 @@ their port in `designbook.html`) are reusable as-is apart from four evaluator
 functions. What is entirely new is the domain: acceptance testing over a
 production lot, not one mix design.
 
+**Version layout is stable, unlike the MixPack's.** Checked 2026-09-13 against
+two completed workbooks Jake supplied, which are **Version 13.3** — older than
+either public download. All 85 `AMAMAW` dictionary rows and every staging
+dimension are identical across 13.3, 13.04 and 14.01, so a map built on one
+version holds on the others. Note the version marker is `Pay Values!K1`; the
+`Workbook Edits` changelog sheet is stale in all four files (its last entry is
+from 2007) and the `discipline` row is the loader contract (`AMAW` / `v2.0`)
+rather than the workbook version, so neither tells you which build you have.
+
 ---
 
 ## What is shared, exactly
@@ -118,38 +127,75 @@ dynamic reference resolution driven by a sublot index, not arbitrary
 string-built references — tractable, but it is a genuine addition to the
 evaluator rather than a function-table entry.
 
-## The workbook's own field dictionary
+## CORRECTION (2026-09-13): the field map, and where it really lives
 
-**The `AMAMAW` sheet (A1:U124) documents its own input cells** — columns M–R
-are `Cell | Type | Label | Length | English unit | Comment`. This is the thing
-that took manual derivation for the MixPack (`docs/legacy-mixpack-map.md`),
-handed over for free.
+An earlier version of this document said the `AMAMAW` sheet documents the
+workbook's own input cells and that its 85 cell references "are the typed
+inputs — all on the `Superpave` sheet". **Both halves of that are wrong**, and
+checking it against two completed workbooks is what caught it. Do not use that
+sheet's `Cell` column for anything.
 
-Rows 2–86 carry real cell references and are the typed inputs — all on the
-`Superpave` sheet:
+`AMAMAW` is the **test-method code**, not an abbreviation of AMAW — it is the
+value in `t_tst_rslt_dtl.tst_meth` on every row. Its sheet is a stale
+description of the fields, and its `Cell` column disagrees with the live
+workbook on every entry checked:
 
-| Cells | What |
-|---|---|
-| `E5` | County |
-| `H8` | Gsb |
-| `C10:C15` | Aggr. Pro. Codes ×6 — note the comment: **"P/S Code is 15 on SM (not 7)"** |
-| `E10:E15` | Type & Size ×6 |
-| `G10:G15` | % ×6 |
-| `H10:H15` | B.O.D. Sp. Gravity ×6 |
-| `D19` `E19` `F19` `G19` | Date (MMDDYYYY), Time (HHMM 24-hr), Truck #, Tons |
-| `D24:D34` | Acceptance Method, % Binder, Unit Weight, Max Sp. Gravity, Air Voids, % Eff. Binder, VMA, VFA, D/A Ratio, Hand Mixed % Binder, H.M. Max Sp. Gravity |
-| `I25:I38` | Gradation % passing, 2" down to #200 (14 sieves — includes a 1/4" the MixPack has no field for) |
-| `B39:B44` `C39:C44` `D39:D44` `E39:E44` | Core #, Sta/Offset, Core Density (PCF), % Sol. Den. — six cores |
-| `H42` | Test Charges ($) |
+| Field | `AMAMAW` says | Real source | Value in Lot 1 |
+|---|---|---|---|
+| Aggr. Pro. Codes | `C10` (empty) | `Superpave!N3` | `AGP027501` |
+| Type & Size | `E10` (empty) | `Superpave!O3` | `Dolomite #8's` |
+| % | `G10` → "BSG" | `Superpave!R3` | `35` |
+| B.O.D. Sp. Gravity | `H10` → "Unit" | `Superpave!Q3` | `2.640` |
+| Gsb | `H8` (empty) | `Superpave!R9` | `2.6528` |
+| % Binder in Mix | `D25` → `2794.5` | `Superpave!B14` | `5.98` |
+| Air Voids | `D28` → "Weight (g)" | `Superpave!J14` | `4.57` |
+| County | `E5` (empty) | `'Pay Values'!I3` | `Madison` |
 
-Rows 87–124 have **no cell reference** — column L holds field names (`f93`…
-`f129`) instead. These are the computed outputs: ESAL Class, Density Option,
-JMF %AC, and the pay values (AC, AV, VMA, JD, LD, Gradation, Final Pay Value
-Mainline, Lot Pay Adjustment), then PG binder lot/grade/producer, additive,
-and the full JMF target gradation. The `f`-numbers look like they correspond to
-`t_tst_rslt_dtl`'s `tst_fld_sn`, and the `VI01 -` prefix on the JMF comments
-looks like a verification-record tag — **neither is confirmed**, and both are
-worth pinning down before anyone maps against them.
+**The real map is `t_tst_rslt_dtl` itself**, which carries its own
+documentation in the columns beside the ListObject:
+
+- **column A** — `<block> - <field label>`, e.g. `VI01 - Gsb =`
+- **column E** (`tst_fld_sn`) — the field sequence number, 1…209/210 per block
+- **columns F / G** (`tst_strg_fld_val` / `tst_numrc_fld_val`) — whichever
+  applies holds a **formula naming the source cell**, e.g. `=Superpave!R9`
+
+That is the same way the MixPack's map was derived, and it cannot go stale
+because it is the thing the loader actually reads. Extracted whole to
+`docs/amaw-field-map.json` — 1,469 rows, 1,095 of them carrying a source
+formula.
+
+(The `f93`-style numbers on the `AMAMAW` sheet were flagged as *possibly*
+`tst_fld_sn`. They are not: "Acceptance Method" is `f93` there and
+`tst_fld_sn` 42 in the staging table. Whatever they are, they are not this.)
+
+## The seven test records, and the stride that generates them
+
+`t_tst_rslt_dtl`'s 1,470 rows are **seven blocks of ~210 fields**, which is
+what an AMAW lot is:
+
+| Block | Rows | Fields | What |
+|---|---|---|---|
+| `VI01` | 8–216 | 209 | verification / initial |
+| `QC01`–`QC04` | 218–1057 | 210 each | the four QC sublots |
+| `QA01` | 1058–1267 | 210 | Department acceptance |
+| `IQ01` | 1268–1477 | 210 | independent assurance |
+
+A mapper does not need 1,469 addresses — it needs the lot-level fields once
+and **two strides**, because the same `tst_fld_sn` resolves differently per
+block:
+
+- **Lot-level fields read the same cell in every block.** `Aggr. Pro. Codes`
+  (sn 11) is `Superpave!N3` in all seven.
+- **The four QC sublots step 6 rows down the `Superpave` sheet.**
+  `% Binder in Mix` (sn 42) is `Superpave!B14 / B20 / B26 / B32`.
+- **QA and IQ read a different sheet entirely** — `'Super Verify'!B10` and
+  `B17`, 7 rows apart. That is why the QA/IQ blocks reference `Super Verify`
+  where the QC blocks reference `Cores`.
+
+So the `Superpave` sheet holds the aggregate structure once (rows 3–8, columns
+N/O/Q/R) and then one volumetric block per sublot at rows 14/20/26/32, with
+the sublot's own date, time, truck, tons and temperature in rows 3–6 of
+columns I–M.
 
 ## The sheets PlantBook would have to become
 
@@ -182,6 +228,57 @@ books rather than design-only. And **`PG Producer` / `Producer supplier` are
 in-workbook reference lists** (ATS @ Lexington, BP Amoco @ Whiting and so on)
 — the same data as the `binder_terminals` Supabase table, which is the right
 source for PlantBook per the reference-data rule.
+
+## A real lot, for anyone building against this
+
+Two completed workbooks (Jake, 2026-09-13), both **contract 252112, Madison
+County, plant AMP070302 Boonesboro**, mix `00385 CL3 ASPH SURF 0.38A PG64-22`,
+4,000 tons each, approved by Tate Sallee. Lots 1 and 2 of the same mix.
+
+Worth noting what `Pay Values!D9` is: `00385 CL3 ASPH SURF 0.38A PG64-22` —
+the **approved mix design's MIX ID followed by its signature**. That is the
+join between the two books. A PlantBook lot is a child of a DesignBook
+approval, and the workbook already writes the link down.
+
+The blend is lot-level, identical in both:
+
+| AGP | Type & size | % | BOD sp. gr. |
+|---|---|---|---|
+| AGP027501 | Dolomite #8's | 35.0 | 2.640 |
+| AGP027501 | Dol. #10's Washed | 20.0 | 2.690 |
+| AGP007401 | LS #10's (Washed) | 12.0 | 2.660 |
+| AGP007401 | LS #10's (Unwashed) | 5.0 | 2.660 |
+| AGP012102 | Natural Sand | 15.0 | 2.620 |
+
+Combined Gsb 2.6528. Recycle: 0.481 AC from recycle, 5.499 virgin binder in
+mix, 10% effective replacement (lot 2: 5.669 and 9%).
+
+Sublot volumetrics, lot 1 / lot 2:
+
+| | %AC | Gmm | Va | VMA | VFA |
+|---|---|---|---|---|---|
+| QC01 | 5.98 / 6.15 | 2.495 / 2.476 | 4.57 / 3.84 | 15.6 / 15.8 | 70.8 / 75.7 |
+| QC02 | 6.32 / 6.21 | 2.462 / 2.474 | 3.25 / 3.54 | 15.9 / 15.6 | 79.5 / 77.4 |
+| QC03 | 6.34 / 6.20 | 2.479 / 2.473 | 3.89 / 3.64 | 15.9 / 15.8 | 75.5 / 76.9 |
+| QC04 | 6.32 / 6.21 | 2.483 / 2.470 | 3.48 / 4.15 | 15.4 / 16.3 | 77.3 / 74.6 |
+
+Six cores in lot 1 (`1-2-A` … `1-3-B`, 132.4–142.5 pcf, 86.2–92.8 % solid),
+ten in lot 2 — so the core count is not fixed per lot and a mapper must not
+assume six. Sublot mix temperature was 325–330 °F throughout.
+
+Two format traps in that data. **Times are Excel time fractions**, not HHMM as
+the stale `AMAMAW` sheet's comment claims — `0.9125` is 21:54. And the
+per-sublot **Tons figure is cumulative ticket tonnage**, not the sublot's own
+tons: lot 2 runs 4,955 → 5,390 → 6,693 → 7,530 across its four sublots.
+
+**One thing here bears directly on an open DesignBook question.** This is a
+real, KYTC-accepted production blend whose second-largest component is
+**`Dol. #10's Washed` at 20%** — the exact component the open dolomite-class
+note in CLAUDE.md is about, from `AGP027501`, the producer the LAM lists as
+Class A dolomite restricted to Bench B. It does not settle the class question
+on its own (an AMAW records production, it does not re-adjudicate the design),
+but it is evidence that blend is ordinary rather than exceptional, and it is a
+real case to put to Andrew alongside #467PA.
 
 ## Also on that page, unmapped
 
