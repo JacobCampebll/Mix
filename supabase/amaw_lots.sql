@@ -267,23 +267,27 @@ create policy "amaw_lot_records: read for visible lots"
   on amaw_lot_records for select to authenticated
   using (exists (select 1 from amaw_lots l where l.id = amaw_lot_records.lot_id));
 
--- The contractor side writes the contractor blocks. `party` is generated, so
--- this cannot be dodged by sending party='contractor' with block='QA01'.
+-- The contractor side writes the contractor blocks. These spell the two
+-- department blocks out rather than reading the generated `party` column: a
+-- policy that depended on when a STORED generated column is computed relative
+-- to WITH CHECK would be correct-by-accident. `party` stays for the index and
+-- for queries; `block` is the authority, and it is immutable after insert
+-- (amaw_lot_records_guard pins it), so neither can be dodged.
 create policy "amaw_lot_records: plant writes contractor blocks"
   on amaw_lot_records for insert to authenticated
   with check (
-    party = 'contractor'
+    block not in ('QA01', 'IQ01')
     and exists (select 1 from amaw_lots l where l.id = amaw_lot_records.lot_id and plantbook_at_plant(l.amp_number))
   );
 
 create policy "amaw_lot_records: plant updates contractor blocks"
   on amaw_lot_records for update to authenticated
   using (
-    party = 'contractor'
+    block not in ('QA01', 'IQ01')
     and exists (select 1 from amaw_lots l where l.id = amaw_lot_records.lot_id and plantbook_at_plant(l.amp_number))
   )
   with check (
-    party = 'contractor'
+    block not in ('QA01', 'IQ01')
     and exists (select 1 from amaw_lots l where l.id = amaw_lot_records.lot_id and plantbook_at_plant(l.amp_number))
   );
 
@@ -293,7 +297,7 @@ create policy "amaw_lot_records: plant updates contractor blocks"
 create policy "amaw_lot_records: plant deletes a contractor block on an open lot"
   on amaw_lot_records for delete to authenticated
   using (
-    party = 'contractor'
+    block not in ('QA01', 'IQ01')
     and exists (
       select 1 from amaw_lots l
        where l.id = amaw_lot_records.lot_id and l.status = 'Open' and plantbook_at_plant(l.amp_number)
