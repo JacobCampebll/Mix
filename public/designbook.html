@@ -13515,6 +13515,50 @@ const PB_LOT = (() => {
     return JOINT_DENSITY_SIZES.includes(size) ? '1' : '2';
   }
 
+  /** The AMAW's "ESAL Class" (`Calculations!D15`, picklist 1-4) from the
+   *  design's Class — CL2 -> 2, CL3 -> 3, CL4 -> 4.
+   *
+   *  CORRECTED 2026-09-13. This was refused as a trap for one day, on the
+   *  reading that the spec's Class 2/3/4 is "not ESAL or depth" and that two
+   *  scales overlapping on three values is the worst shape for a silent
+   *  mis-mapping. The refusal confused two different things: the spec DID
+   *  rename the concept away from ESALs, but KYTC never relabelled the
+   *  workbook, so the AMAW's "ESAL Class" box holds what the 2026 spec now
+   *  calls the AADTT Class. Same family as `Field Rutting` still saying
+   *  "Hamburg" (docs/amaw-map.md) and the MixPack's P52:P55 Criteria
+   *  formulas still branching on the old ESAL-era table.
+   *
+   *  Confirmed three ways rather than taken on trust:
+   *    - Jake, asked directly: "esal class is easy, its what ever class the
+   *      aproval is such as CL3 or CL2 or CL4";
+   *    - both real lots are CL3 ASPH SURF 0.38A and read `Calculations!D15`
+   *      = 3;
+   *    - decisively, the bands this number selects in `airVoidPay()` are the
+   *      2026 Std Spec AV table VERBATIM, and that table's own two columns
+   *      are headed "AADTT Class 2" and "AADTT Class 3 or 4"
+   *      (pp.185/186/188): the low branch pays 1.00+0.1(AV-3.0) over 1.5-3.1
+   *      and 0.75 over 6.1-6.5, the high branch starts at 2.0 and has no
+   *      0.75 band at all. A field that drives the AADTT Class table IS the
+   *      AADTT Class.
+   *
+   *  Note the workbook's picklist offers 1 as well, which no mix signature
+   *  can produce (only CL2/CL3/CL4 occur — CLAUDE.md, confirmed with
+   *  Andrew). `airVoidPay()` treats 1 and 2 alike, so nothing is lost; a 1
+   *  can still be chosen by hand.
+   *
+   *  Returns '1'-'4' to match the schema's option values, or null when
+   *  neither source says — never a default, because an out-of-range class
+   *  pays ZERO everywhere except the 3.0-4.0 air-void band.
+   */
+  function esalClassFor(mix, aadttClass) {
+    for (const raw of [aadttClass, mix ? mix.mix_class : null]) {
+      if (raw == null || raw === '') continue;
+      const m = /^(?:CL\s*)?([1-4])$/i.exec(String(raw).trim());
+      if (m) return m[1];
+    }
+    return null;
+  }
+
   /** What mix this design is actually for.
    *
    *  Contract Information's own two fields win, then the Portal's lookup —
@@ -14112,25 +14156,24 @@ const PB_LOT = (() => {
        genuinely cannot fill, with the reason, because "why am I typing this
        again" is the question this whole intake exists to answer. */
 
-    // ESAL Class. NOT the AADTT Class on the approval, and this is the trap.
-    // CLAUDE.md is explicit that CONFIG.CONSENSUS_CRITERIA is keyed on the
-    // spec's Class 2/3/4 and that it is "*not* ESAL or depth" - the MixPack's
-    // own Criteria formulas still branch on the old ESAL-era table and the note
-    // says do not copy them. The AMAW's flag is literally labelled ESAL CLASS
-    // (Calculations!C14) and takes 1-4. Two different scales that overlap on
-    // three of their values is the worst possible shape for a silent
-    // mis-mapping, so it is refused rather than guessed - and the AADTT class
-    // is carried beside it so whoever does set it has the design's answer in
-    // front of them.
+    // ESAL Class, derived from the design's Class - see esalClassFor() for
+    // why the workbook's label is legacy and the quantity is the spec's
+    // AADTT Class. Refused as a trap until 2026-09-13; that refusal was
+    // wrong.
     const aadtt = str(v.aadtt_class);
-    needsTyping('lot_esal_class', `${cell(LOT.sheet, LOT.esalClass)} -> ${cell(CALC.sheet, CALC.esalClass)}`,
-      aadtt
-        ? `The design's AADTT Class is ${aadtt}, but that is the spec's Class for consensus properties, not the AMAW's ESAL Class (1-4). They are different scales; pick the ESAL Class deliberately.`
-        : 'The approval carries no ESAL Class, and it moves three air-void bands and four density constants.',
-      ['pay']);
+    const esal = esalClassFor(mix, aadtt);
+    if (esal) {
+      derive('lot_esal_class', esal,
+             `the design is Class ${esal} - the AMAW's box is labelled ESAL Class but selects the spec's AADTT Class bands`,
+             `${cell(LOT.sheet, LOT.esalClass)} -> ${cell(CALC.sheet, CALC.esalClass)}`);
+    } else {
+      needsTyping('lot_esal_class', `${cell(LOT.sheet, LOT.esalClass)} -> ${cell(CALC.sheet, CALC.esalClass)}`,
+        'The approval carries no Class - neither an AADTT Class field nor a CL prefix on the mix signature - and this moves three air-void bands and four density constants.',
+        ['pay']);
+    }
     if (aadtt) {
       inherited.push({ key: 'aadtt_class', value: aadtt, from: 'values.aadtt_class', to: null,
-                       note: 'carried for reference only - NOT wired to ESAL Class, see report.typed' });
+                       note: 'the design\'s Class; lot_esal_class is derived from it' });
       sources.aadtt_class = `${sourceLabel(a)} · values.aadtt_class`;
     }
 
@@ -14374,7 +14417,7 @@ const PB_LOT = (() => {
     // intake.mjs
     APPROVAL_FORMAT, APPROVAL_MAX_VERSION, DOC_KIND, SUBMITTED_ACTION, APPROVED_ACTION,
     VERIFICATION, isVerified, VERIFY_FN, FAILURE, MIX_TYPE_CODES,
-    splitDesignation, mixTypeFor, jointDensityFor, JOINT_DENSITY_SIZES,
+    splitDesignation, mixTypeFor, jointDensityFor, JOINT_DENSITY_SIZES, esalClassFor,
     effectiveMixOf, approvalChecks, submitterOf,
     verifyRequest, readVerifyResponse, notChecked, lotFromApproval,
   };

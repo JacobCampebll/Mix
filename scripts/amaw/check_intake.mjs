@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   approvalChecks, lotFromApproval, verifyRequest, readVerifyResponse, notChecked,
-  VERIFICATION, FAILURE, DOC_KIND, isVerified, mixTypeFor, jointDensityFor,
+  VERIFICATION, FAILURE, DOC_KIND, isVerified, mixTypeFor, jointDensityFor, esalClassFor,
 } from './intake.mjs';
 import { normaliseLot, lotSummary } from './storage.mjs';
 import { lotPay, sublotPay } from './pay.mjs';
@@ -179,8 +179,7 @@ if (!approval) {
 
     // --- what a technician still types --------------------------------
     const typedKeys = r.report.typed.map((t) => t.key);
-    for (const k of ['lot_esal_class', 'lot_acceptance_method', 'lot_density_option',
-                     'sublot_tests'])
+    for (const k of ['lot_acceptance_method', 'lot_density_option', 'sublot_tests'])
       ok(`report.typed names ${k}`, typedKeys.includes(k), typedKeys);
     // lot_unit_price came off that list on 2026-09-13, once the $50 turned out
     // to be the spec's defined adjustment price (402.05.02) rather than a bid
@@ -225,11 +224,22 @@ if (!approval) {
     // The trap worth a test of its own: AADTT Class is on the approval and
     // must NOT be wired to the AMAW's ESAL Class. Two scales that overlap on
     // 2/3/4 is the worst possible shape for a silent mis-mapping.
-    ok('ESAL class is NOT taken from the design\'s AADTT class',
-       lot.values.lot_esal_class === null && d.aadtt_class === String(approval.values.aadtt_class),
+    // INVERTED 2026-09-13. This asserted the opposite for one day, on the
+    // reading that ESAL Class and AADTT Class are different scales. They are
+    // not: the AMAW kept the old ESAL-era label after the spec renamed the
+    // concept, and the bands this number selects in airVoidPay() are the
+    // 2026 spec's AV table whose own columns are headed "AADTT Class 2" and
+    // "AADTT Class 3 or 4". See esalClassFor().
+    ok('ESAL class IS the design\'s Class',
+       String(lot.values.lot_esal_class) === String(approval.values.aadtt_class),
        { esal: lot.values.lot_esal_class, aadtt: d.aadtt_class });
-    ok('...and the reason is on the typed entry',
-       /AADTT/.test((r.report.typed.find((t) => t.key === 'lot_esal_class') || {}).why || ''));
+    ok('...and it is not also listed as still to type',
+       !typedKeys.includes('lot_esal_class'), typedKeys);
+    ok('report.derived names lot_esal_class',
+       r.report.derived.some((d2) => d2.key === 'lot_esal_class'),
+       r.report.derived.map((d2) => d2.key));
+    ok('the design\'s Class is still carried in its own right',
+       d.aadtt_class === String(approval.values.aadtt_class), d.aadtt_class);
 
     // --- the lot is a real storage.mjs envelope ----------------------
     const round = normaliseLot(JSON.parse(JSON.stringify(lot)));
@@ -397,6 +407,20 @@ for (const [mix, want, why] of [
   [{ layer: 'SURF', nominal_size: null    }, null, 'an unknown size is not an answer'],
   [null, null, 'no mix at all is not an answer'],
 ]) ok(why, jointDensityFor(mix) === want, jointDensityFor(mix));
+
+// ESAL Class off the design's Class. The AADTT field wins over the
+// signature's CL prefix because a human confirmed the former on the form.
+head('3e. ESAL Class from the design\'s Class');
+for (const [mix, aadtt, want, why] of [
+  [{ mix_class: 3 }, null, '3', 'CL3 -> 3'],
+  [{ mix_class: 2 }, null, '2', 'CL2 -> 2'],
+  [{ mix_class: 4 }, null, '4', 'CL4 -> 4'],
+  [null, '3', '3', 'the AADTT field alone answers'],
+  [null, 'CL2', '2', "a 'CL2' spelling is accepted"],
+  [{ mix_class: 3 }, '2', '2', 'the AADTT field wins over the signature'],
+  [null, '5', null, 'a class outside 1-4 is refused, not clamped'],
+  [null, null, null, 'no class at all is not an answer'],
+]) ok(why, esalClassFor(mix, aadtt) === want, esalClassFor(mix, aadtt));
 
 // =====================================================================
 //  4. The verify-approval request, and reading its answer
