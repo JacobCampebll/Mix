@@ -577,10 +577,10 @@ export const PLANTBOOK_SECTIONS = [
     rows: [
       {
         key: "sublot_tickets", heading: "Sublot tickets", fixed: true,
-        grid: ".5fr 1fr .8fr .9fr .9fr .8fr 1fr 1fr 1.1fr",
+        grid: ".7fr 1fr .8fr .9fr .9fr .8fr 1fr 1fr 1.1fr",
         seed: SUBLOT_SEED,
         columns: [
-          { key: "sublot", label: "#", type: "text", mono: true, readonly: true },
+          { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
           // A row column is rendered as a plain text input whatever its
           // `type` — rowHTML() only branches on `select` and `source` — so
           // `type: "date"` would NOT give a date picker here the way it does
@@ -644,15 +644,20 @@ export const PLANTBOOK_SECTIONS = [
       {
         key: "sublot_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for each of the 4 sublots",
         fixed: true,
-        grid: ".4fr .5fr 1fr 1fr 1fr .9fr .9fr",
+        grid: ".7fr .5fr 1fr 1fr 1fr .9fr .9fr",
         seed: SPECIMEN_SEED,
         columns: [
-          // "Sublot #" and "Sample #" are the workbook's own captions (Superpave
+          // "<lot>-<sublot>", KYTC's own convention - the workbook writes core
+          // ids as "1-2-A" for lot 1 sublot 2, and Jake: "1-1 would mean lot 1
+          // and sublot 1". Painted by paintSublotIds() from the Lot step's lot
+          // number, so it follows a lot 2 without anyone retyping it, and read
+          // back by sublotIndexOf(), which is the ONLY reader of this cell.
+          // "Sample #" is the workbook's own caption (Superpave
           // A10 "Sublot # 1", A11 "Sample #"). They were "Sublot" and "Spec."
           // until 2026-09-13 and Jake read the pair as lot-and-sublot - two
           // columns of bare 1..4 and 1..2 side by side do not say which is
           // which on their own. A PlantBook is ONE lot; see the schema note.
-          { key: "sublot", label: "Sublot #", type: "text", mono: true, readonly: true },
+          { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
           { key: "specimen", label: "Sample #", type: "text", mono: true, readonly: true },
           // Superpave C/D/E. KYTC's own column captions are "Weight (g)" over
           // "(Air) / (Water) / (SSD)"; spelled out here because "(Air)" alone
@@ -675,10 +680,10 @@ export const PLANTBOOK_SECTIONS = [
       {
         key: "sublot_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for each of the 4 sublots",
         fixed: true,
-        grid: ".4fr .5fr 1fr 1fr 1fr 1fr .8fr",
+        grid: ".7fr .5fr 1fr 1fr 1fr 1fr .8fr",
         seed: SPECIMEN_SEED,
         columns: [
-          { key: "sublot", label: "Sublot #", type: "text", mono: true, readonly: true },
+          { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
           // The mapper calls these the Gmm bowls; "Bowl #" keeps them visibly
           // distinct from the BSG table's pucks on a step that shows both.
           { key: "specimen", label: "Bowl #", type: "text", mono: true, readonly: true },
@@ -700,10 +705,10 @@ export const PLANTBOOK_SECTIONS = [
         // "4.57" in 50px clips while the wider neighbour sat half empty. Every
         // value here is 2-6 characters, so none has a claim on more room than
         // the others.
-        grid: ".35fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
+        grid: ".7fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
         seed: SUBLOT_SEED,
         columns: [
-          { key: "sublot", label: "#", type: "text", mono: true, readonly: true },
+          { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
           // Superpave!B — the workbook's "% Binder in Mix". STILL TYPED, and
           // the one figure on this table that is: the workbook takes it from
           // the Gradation tab's as-tested AC less a correction at row 48
