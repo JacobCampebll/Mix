@@ -28,6 +28,7 @@ import path from 'node:path';
 import {
   approvalChecks, lotFromApproval, verifyRequest, readVerifyResponse, notChecked,
   VERIFICATION, FAILURE, DOC_KIND, isVerified, mixTypeFor, jointDensityFor, esalClassFor,
+  acceptanceMethodFor,
 } from './intake.mjs';
 import { normaliseLot, lotSummary } from './storage.mjs';
 import { lotPay, sublotPay } from './pay.mjs';
@@ -207,8 +208,34 @@ if (!approval) {
 
     // --- what a technician still types --------------------------------
     const typedKeys = r.report.typed.map((t) => t.key);
-    for (const k of ['lot_acceptance_method', 'lot_density_option', 'sublot_tests'])
+    for (const k of ['lot_density_option', 'sublot_tests'])
       ok(`report.typed names ${k}`, typedKeys.includes(k), typedKeys);
+    // lot_acceptance_method came off that list on 2026-09-13. It is WHICH
+    // TESTS the Department accepts the lot on, and that follows from the mix:
+    // an ordinary asphalt mixture is judged on volumetrics (402.03.02 A)),
+    // a specialty mixture on AC and gradation (F)). Both ways round, like
+    // lot_tons and lot_unit_price - a value that is both seeded AND still
+    // listed as something to type is the worse bug.
+    ok('lot_acceptance_method is derived from the mix, not asked for',
+       lot.values.lot_acceptance_method === 'Volumetrics', lot.values.lot_acceptance_method);
+    ok('...and is not also listed as still to type',
+       !typedKeys.includes('lot_acceptance_method'), typedKeys);
+    ok('report.derived names lot_acceptance_method',
+       r.report.derived.some((d2) => d2.key === 'lot_acceptance_method'),
+       r.report.derived.map((d2) => d2.key));
+    // The refusal is the half that matters: PlantBook does not model the
+    // Specialty Mixtures schedule, and propertyWeights() weighs every
+    // property at ZERO for any acceptance option but Volumetrics. So a mix
+    // the Superpave table has no row for must leave this BLANK and say the
+    // lot cannot be paid, rather than defaulting to a silent 0%.
+    ok('a non-Superpave mix gets no acceptance method at all',
+       acceptanceMethodFor({ nominal_size: 'LEVELING & WEDGING' }) === null,
+       acceptanceMethodFor({ nominal_size: 'LEVELING & WEDGING' }));
+    ok('...and neither does a mix with no nominal size',
+       acceptanceMethodFor({}) === null && acceptanceMethodFor(null) === null);
+    ok('every Superpave size IS Volumetrics',
+       ['1.50', '1.00', '0.75', '0.50', '0.38', 'NO.4']
+         .every((sz) => acceptanceMethodFor({ nominal_size: sz + 'A' }) === 'Volumetrics'));
     // lot_unit_price came off that list on 2026-09-13, once the $50 turned out
     // to be the spec's defined adjustment price (402.05.02) rather than a bid
     // price that varies by contract. Same both-ways-round assertion as

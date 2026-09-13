@@ -1888,6 +1888,53 @@ TBD — cite the governing spec section when encoding a limit in code.
   negative under the same fill. So the entry records a width limit that is
   real and a value that is not.
 
+- **Acceptance method is WHICH TESTS THE DEPARTMENT ACCEPTS THE LOT ON, and
+  it follows from the mix - so it is derived now, and the Lot step has
+  nothing left waiting on a person** (Jake, 2026-09-13: "lets get the
+  acceptance method auto filled too, that was my prompt what does that even
+  mean?"). The name is the problem: it sounds like a preference or a grade
+  and it is neither. 2026 Std Spec **402.03.02 A)** - an ordinary asphalt
+  mixture is monitored on "the AC, air voids (AV), voids-in-mineral aggregate
+  (VMA), density, and gradation" and paid under 402.05.02's schedules, which
+  is **Volumetrics**. **F)** - a specialty mixture (OGFC, ATDB, pavement
+  wedge, leveling and wedging, scratch course, temporary mixtures, base
+  failure repair) gets "one AC and one gradation determination per sublot"
+  and is paid under 402.05.01's separate Specialty schedule, which is
+  **Gradation**. **Visual** is the third box; the nearest thing the spec has
+  to it is ATDB's binder content, "based on visual inspection of the extent
+  the aggregate is coated" (p.161).
+  So the mix settles it, and `acceptanceMethodFor()` reads off the same
+  `mixTypeFor()` the pay tables already gate on: a Superpave mixture is
+  Volumetrics, and every lot PlantBook can open is one, because the front
+  door is a DesignBook approval and DesignBook designs Superpave mixtures.
+  Both real lots read `Calculations!H20` = "Volumetrics".
+  **NULL for anything else, and that is the load-bearing half.**
+  `propertyWeights()` answers for three flag combinations, all of them
+  Volumetrics, and weighs every property at ZERO for the rest - and PlantBook
+  does not model the Specialty schedule at all. A leveling-and-wedging lot is
+  therefore not a lot this page can pay, and writing "Volumetrics" over it
+  would be a silent 0% instead of a stated gap. `check_intake.mjs` asserts it
+  both ways round and asserts the refusal.
+  **`Calculations!H13` is the decoder and is worth quoting**:
+  `IF(H20="Gradation",1,IF(H20="Volumetrics",2,IF(H20="Visual",3,"")))` - the
+  WORDS are what the workbook stores, the CODES are what pay.mjs switches on.
+
+- **The Verification step's "Method" column was the LOT's acceptance method's
+  options over a completely different cell, and that is most of why the
+  question was confusing.** It offered Volumetrics / Gradation / Visual for
+  `Calculations!AU33`/`AU34` - which are fed by the same
+  `VLOOKUP(AP.., AJ33:AK37)` as the four sublot rows below them, and that
+  table is the **AC determination method**: `1 Back-Calculation of MSG,
+  2 Extraction, 3 Ignition Furnace, 4 NACG, 5 Printed Ticket`. Both real lots
+  read `AP35:AP38` = 3, "Ignition Furnace", on all four sublots. Two controls
+  a step apart, one of them wearing the other's options, is exactly the shape
+  that makes a form unanswerable. The column is `ac_method` now with the
+  workbook's own five.
+  **Still not asked for anywhere: the PER-SUBLOT AC method** (`AP35:AP38`).
+  Both real lots use one method for all four, so a lot-level field with a
+  tinted default is defensible - but two files is not a rule and nobody has
+  confirmed it, so it is written down rather than built.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by

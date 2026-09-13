@@ -845,6 +845,18 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
                         '0.50 C', '  0.75b  ', '', null, undefined, 5, '0.38AB'];
   sweep('splitDesignation()', P.splitDesignation, M.splitDesignation, designations.map((d) => [d]));
   sweep('mixTypeFor()', P.mixTypeFor, M.mixTypeFor, designations.map((d) => [d]));
+  // The three the intake DERIVES rather than asks for. All three return null
+  // on anything they cannot answer, and that is the half worth sweeping: a
+  // default here is a silently zero-paid lot in every case.
+  const mixes = designations.map((d) => [{ nominal_size: d }])
+    .concat([[{ nominal_size: '0.38A', layer: 'SURF' }], [{ nominal_size: '0.50A', layer: 'SURF' }],
+             [{ nominal_size: 'NO.4A', layer: 'SURF' }], [{ nominal_size: '1.00A', layer: 'BASE' }],
+             [{ layer: 'SURF' }], [{}], [null], [undefined]]);
+  sweep('jointDensityFor()', P.jointDensityFor, M.jointDensityFor, mixes);
+  sweep('acceptanceMethodFor()', P.acceptanceMethodFor, M.acceptanceMethodFor, mixes);
+  same('ACCEPTANCE_METHODS is identical', P.ACCEPTANCE_METHODS, M.ACCEPTANCE_METHODS);
+  sweep('esalClassFor()', P.esalClassFor, M.esalClassFor,
+        mixes.flatMap(([mix]) => [null, '2', 3, 'CL4', 'CL9', ''].map((c) => [mix, c])));
   sweep('isDepartmentBlock()', P.isDepartmentBlock, M.isDepartmentBlock,
         [...MOD_STORAGE.BLOCKS, 'NOPE', '', null, undefined].map((b) => [b]));
   sweep('isVerified()', P.isVerified, M.isVerified,

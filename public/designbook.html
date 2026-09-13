@@ -3023,6 +3023,22 @@ const PB_SECTIONS = (() => {
         // spells them. These are not preferences — propertyWeights() answers
         // for exactly three of their combinations and weighs every property at
         // zero for the rest, which is a silent 0% lot if it is set wrong.
+        //
+        // WHAT THE ACCEPTANCE METHOD IS, since the name does not say (Jake,
+        // 2026-09-13: "that was my prompt what does that even mean?"): it is
+        // WHICH TESTS THE DEPARTMENT ACCEPTS THE LOT ON, and therefore which
+        // pay schedule runs. An ordinary asphalt mixture is judged on AC, air
+        // voids, VMA, density and gradation (2026 Std Spec 402.03.02 A)) and
+        // paid under 402.05.02 - that is VOLUMETRICS. A specialty mixture -
+        // OGFC, ATDB, pavement wedge, leveling and wedging, scratch course -
+        // gets "one AC and one gradation determination per sublot" (F)) and is
+        // paid under a separate Specialty schedule - that is GRADATION.
+        //
+        // So it follows from the mix, and acceptanceMethodFor() derives it:
+        // every lot PlantBook can open comes from a DesignBook approval, and
+        // DesignBook designs Superpave mixtures. It is a FIELD rather than a
+        // readout because the Department decides acceptance, not the design -
+        // but it arrives filled and tinted like every other inherited value.
         { key: "lot_acceptance_method", label: "Acceptance method", type: "select", req: true,
           options: [
             { value: "Volumetrics", label: "Volumetrics" },
@@ -3715,8 +3731,21 @@ const PB_SECTIONS = (() => {
             { key: "technician", label: "Tech (SM ID)", type: "text", req: false, mono: true },
             // Calculations!AU33/AU34 — per-record, and note those sit ABOVE the
             // four sublot rows (AU35..AU38), not after them.
-            { key: "acceptance_method", label: "Method", type: "select", req: false,
-              options: ["Volumetrics", "Gradation", "Visual"] },
+            //
+            // CORRECTED 2026-09-13: this offered Volumetrics / Gradation /
+            // Visual, which is the LOT's acceptance method at `Calculations`
+            // !H20 - a different question, asked once for the whole lot on the
+            // Contract & Mix step. AU33/AU34 are fed by the same
+            // VLOOKUP(AP.., AJ33:AK37) as the four sublot rows below them, and
+            // that table is the AC DETERMINATION METHOD: how the binder
+            // content was measured. Both real lots read "Ignition Furnace" on
+            // all four sublots. Two controls a step apart, one of them
+            // mislabelled with the other's options, is exactly what made the
+            // question "what does that even mean?" - so the options are the
+            // workbook's own five now.
+            { key: "ac_method", label: "AC method", type: "select", req: false,
+              options: ["Back-Calculation of MSG", "Extraction", "Ignition Furnace",
+                        "NACG", "Printed Ticket"] },
           ],
         },
         // ---- THE RAW WEIGHTS, AND THE CALCULATION THEY DRIVE -------------
@@ -14681,6 +14710,48 @@ const PB_LOT = (() => {
     return JOINT_DENSITY_SIZES.includes(size) ? '1' : '2';
   }
 
+  /** The three acceptance methods `Calculations!H20` offers, and the codes
+   *  `H13` turns them into: `IF(H20="Gradation",1,IF(H20="Volumetrics",2,
+   *  IF(H20="Visual",3,"")))`. Spelled out because the WORDS are what the
+   *  workbook stores and the CODES are what pay.mjs switches on. */
+  const ACCEPTANCE_METHODS = { Gradation: 1, Volumetrics: 2, Visual: 3 };
+
+  /**
+   * Which of them this lot is accepted under — `Calculations!H20`.
+   *
+   * WHAT THE FIELD MEANS, because it is not obvious from its name: it is not a
+   * preference and not a quality grade, it is WHICH TESTS THE DEPARTMENT ACCEPTS
+   * THE LOT ON, and therefore which pay schedule runs. 2026 Std Spec 402.03.02:
+   *
+   *   A) ordinary asphalt mixtures - "Monitor and evaluate the AC, air voids
+   *      (AV), voids-in-mineral aggregate (VMA), density, and gradation", paid
+   *      under 402.05.02's Lot Pay Adjustment Schedules. That is VOLUMETRICS.
+   *   F) specialty mixtures - OGFC, ATDB, Pavement Wedge, Leveling and
+   *      Wedging, Scratch Course, temporary mixtures and Base Failure Repair -
+   *      "Perform one AC and one gradation determination per sublot", paid
+   *      under 402.05.01's separate Specialty schedule. That is GRADATION.
+   *   VISUAL is the third box on the dropdown; the nearest thing the spec has
+   *      to it is the ATDB binder content, which is "based on visual
+   *      inspection of the extent the aggregate is coated" (p.161).
+   *
+   * So it follows from the MIX, and it is derivable for every lot PlantBook
+   * can currently open: the front door is a DesignBook approval, DesignBook
+   * designs Superpave mixtures, and a Superpave mixture is accepted on
+   * volumetrics. Both real lots read "Volumetrics".
+   *
+   * NULL rather than a default for anything else, and that is the important
+   * half. `propertyWeights()` answers for three flag combinations, all of them
+   * `acceptanceOption === 2`, and weighs every property at ZERO for the rest -
+   * and PlantBook does not model the Specialty schedule at all (CLAUDE.md:
+   * "was not read"). So a leveling-and-wedging lot is not a lot this page can
+   * pay, and saying "Volumetrics" over it would be a silent 0% rather than a
+   * stated gap. `mixTypeFor()` is the same test the pay tables already gate on,
+   * which is why this reads off it rather than inventing a second opinion.
+   */
+  function acceptanceMethodFor(mix) {
+    return mixTypeFor(mix && mix.nominal_size) ? 'Volumetrics' : null;
+  }
+
   /** The AMAW's "ESAL Class" (`Calculations!D15`, picklist 1-4) from the
    *  design's Class — CL2 -> 2, CL3 -> 3, CL4 -> 4.
    *
@@ -15362,8 +15433,19 @@ const PB_LOT = (() => {
       sources.aadtt_class = `${sourceLabel(a)} · values.aadtt_class`;
     }
 
-    needsTyping('lot_acceptance_method', `${cell(CALC.sheet, 'H13')} (from the dropdown at ${cell(CALC.sheet, CALC.acceptanceMethod)})`,
-      'Gradation, Volumetrics or Visual. It decides which pay schedule runs at all.', ['pay']);
+    const accept = acceptanceMethodFor(mix);
+    if (accept) {
+      derive('lot_acceptance_method', accept,
+        'a Superpave mixture is accepted on volumetric properties - 2026 Std Spec 402.03.02 A)',
+        `${cell(CALC.sheet, CALC.acceptanceMethod)} -> ${cell(CALC.sheet, 'H13')}`);
+    } else {
+      wasMissing('lot_acceptance_method',
+        'The approval is not a Superpave mixture, so it is accepted on AC and gradation under '
+        + '402.03.02 F) and paid under the Specialty Mixtures schedule - which PlantBook does not '
+        + 'model. Nothing here can pay this lot; the acceptance method is left blank rather than '
+        + 'defaulted, because a wrong one weighs every property at zero without saying so.',
+        ['pay']);
+    }
     // Density option. On the CONTRACT, not on the design: 2026 Std Spec
     // 402.03.02 D) 6) opens "The Contract will state the compaction option to
     // be used", and every proposal carries it as an OPTION A / OPTION B
@@ -15619,6 +15701,7 @@ const PB_LOT = (() => {
     APPROVAL_FORMAT, APPROVAL_MAX_VERSION, DOC_KIND, SUBMITTED_ACTION, APPROVED_ACTION,
     VERIFICATION, isVerified, VERIFY_FN, FAILURE, MIX_TYPE_CODES,
     splitDesignation, mixTypeFor, jointDensityFor, JOINT_DENSITY_SIZES, esalClassFor,
+    ACCEPTANCE_METHODS, acceptanceMethodFor,
     effectiveMixOf, approvalChecks, submitterOf,
     verifyRequest, readVerifyResponse, notChecked, lotFromApproval,
   };

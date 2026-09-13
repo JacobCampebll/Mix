@@ -417,6 +417,22 @@ export const PLANTBOOK_SECTIONS = [
       // spells them. These are not preferences — propertyWeights() answers
       // for exactly three of their combinations and weighs every property at
       // zero for the rest, which is a silent 0% lot if it is set wrong.
+      //
+      // WHAT THE ACCEPTANCE METHOD IS, since the name does not say (Jake,
+      // 2026-09-13: "that was my prompt what does that even mean?"): it is
+      // WHICH TESTS THE DEPARTMENT ACCEPTS THE LOT ON, and therefore which
+      // pay schedule runs. An ordinary asphalt mixture is judged on AC, air
+      // voids, VMA, density and gradation (2026 Std Spec 402.03.02 A)) and
+      // paid under 402.05.02 - that is VOLUMETRICS. A specialty mixture -
+      // OGFC, ATDB, pavement wedge, leveling and wedging, scratch course -
+      // gets "one AC and one gradation determination per sublot" (F)) and is
+      // paid under a separate Specialty schedule - that is GRADATION.
+      //
+      // So it follows from the mix, and acceptanceMethodFor() derives it:
+      // every lot PlantBook can open comes from a DesignBook approval, and
+      // DesignBook designs Superpave mixtures. It is a FIELD rather than a
+      // readout because the Department decides acceptance, not the design -
+      // but it arrives filled and tinted like every other inherited value.
       { key: "lot_acceptance_method", label: "Acceptance method", type: "select", req: true,
         options: [
           { value: "Volumetrics", label: "Volumetrics" },
@@ -1109,8 +1125,21 @@ export const PLANTBOOK_SECTIONS = [
           { key: "technician", label: "Tech (SM ID)", type: "text", req: false, mono: true },
           // Calculations!AU33/AU34 — per-record, and note those sit ABOVE the
           // four sublot rows (AU35..AU38), not after them.
-          { key: "acceptance_method", label: "Method", type: "select", req: false,
-            options: ["Volumetrics", "Gradation", "Visual"] },
+          //
+          // CORRECTED 2026-09-13: this offered Volumetrics / Gradation /
+          // Visual, which is the LOT's acceptance method at `Calculations`
+          // !H20 - a different question, asked once for the whole lot on the
+          // Contract & Mix step. AU33/AU34 are fed by the same
+          // VLOOKUP(AP.., AJ33:AK37) as the four sublot rows below them, and
+          // that table is the AC DETERMINATION METHOD: how the binder
+          // content was measured. Both real lots read "Ignition Furnace" on
+          // all four sublots. Two controls a step apart, one of them
+          // mislabelled with the other's options, is exactly what made the
+          // question "what does that even mean?" - so the options are the
+          // workbook's own five now.
+          { key: "ac_method", label: "AC method", type: "select", req: false,
+            options: ["Back-Calculation of MSG", "Extraction", "Ignition Furnace",
+                      "NACG", "Printed Ticket"] },
         ],
       },
       // ---- THE RAW WEIGHTS, AND THE CALCULATION THEY DRIVE -------------

@@ -267,6 +267,48 @@ export function jointDensityFor(mix) {
   return JOINT_DENSITY_SIZES.includes(size) ? '1' : '2';
 }
 
+/** The three acceptance methods `Calculations!H20` offers, and the codes
+ *  `H13` turns them into: `IF(H20="Gradation",1,IF(H20="Volumetrics",2,
+ *  IF(H20="Visual",3,"")))`. Spelled out because the WORDS are what the
+ *  workbook stores and the CODES are what pay.mjs switches on. */
+export const ACCEPTANCE_METHODS = { Gradation: 1, Volumetrics: 2, Visual: 3 };
+
+/**
+ * Which of them this lot is accepted under — `Calculations!H20`.
+ *
+ * WHAT THE FIELD MEANS, because it is not obvious from its name: it is not a
+ * preference and not a quality grade, it is WHICH TESTS THE DEPARTMENT ACCEPTS
+ * THE LOT ON, and therefore which pay schedule runs. 2026 Std Spec 402.03.02:
+ *
+ *   A) ordinary asphalt mixtures - "Monitor and evaluate the AC, air voids
+ *      (AV), voids-in-mineral aggregate (VMA), density, and gradation", paid
+ *      under 402.05.02's Lot Pay Adjustment Schedules. That is VOLUMETRICS.
+ *   F) specialty mixtures - OGFC, ATDB, Pavement Wedge, Leveling and
+ *      Wedging, Scratch Course, temporary mixtures and Base Failure Repair -
+ *      "Perform one AC and one gradation determination per sublot", paid
+ *      under 402.05.01's separate Specialty schedule. That is GRADATION.
+ *   VISUAL is the third box on the dropdown; the nearest thing the spec has
+ *      to it is the ATDB binder content, which is "based on visual
+ *      inspection of the extent the aggregate is coated" (p.161).
+ *
+ * So it follows from the MIX, and it is derivable for every lot PlantBook
+ * can currently open: the front door is a DesignBook approval, DesignBook
+ * designs Superpave mixtures, and a Superpave mixture is accepted on
+ * volumetrics. Both real lots read "Volumetrics".
+ *
+ * NULL rather than a default for anything else, and that is the important
+ * half. `propertyWeights()` answers for three flag combinations, all of them
+ * `acceptanceOption === 2`, and weighs every property at ZERO for the rest -
+ * and PlantBook does not model the Specialty schedule at all (CLAUDE.md:
+ * "was not read"). So a leveling-and-wedging lot is not a lot this page can
+ * pay, and saying "Volumetrics" over it would be a silent 0% rather than a
+ * stated gap. `mixTypeFor()` is the same test the pay tables already gate on,
+ * which is why this reads off it rather than inventing a second opinion.
+ */
+export function acceptanceMethodFor(mix) {
+  return mixTypeFor(mix && mix.nominal_size) ? 'Volumetrics' : null;
+}
+
 /** The AMAW's "ESAL Class" (`Calculations!D15`, picklist 1-4) from the
  *  design's Class — CL2 -> 2, CL3 -> 3, CL4 -> 4.
  *
@@ -945,8 +987,19 @@ export function lotFromApproval(payload, opts = {}) {
     sources.aadtt_class = `${sourceLabel(a)} · values.aadtt_class`;
   }
 
-  needsTyping('lot_acceptance_method', `${cell(CALC.sheet, 'H13')} (from the dropdown at ${cell(CALC.sheet, CALC.acceptanceMethod)})`,
-    'Gradation, Volumetrics or Visual. It decides which pay schedule runs at all.', ['pay']);
+  const accept = acceptanceMethodFor(mix);
+  if (accept) {
+    derive('lot_acceptance_method', accept,
+      'a Superpave mixture is accepted on volumetric properties - 2026 Std Spec 402.03.02 A)',
+      `${cell(CALC.sheet, CALC.acceptanceMethod)} -> ${cell(CALC.sheet, 'H13')}`);
+  } else {
+    wasMissing('lot_acceptance_method',
+      'The approval is not a Superpave mixture, so it is accepted on AC and gradation under '
+      + '402.03.02 F) and paid under the Specialty Mixtures schedule - which PlantBook does not '
+      + 'model. Nothing here can pay this lot; the acceptance method is left blank rather than '
+      + 'defaulted, because a wrong one weighs every property at zero without saying so.',
+      ['pay']);
+  }
   // Density option. On the CONTRACT, not on the design: 2026 Std Spec
   // 402.03.02 D) 6) opens "The Contract will state the compaction option to
   // be used", and every proposal carries it as an OPTION A / OPTION B
