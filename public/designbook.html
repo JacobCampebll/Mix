@@ -2189,6 +2189,15 @@ const CONFIG = {
     // the value printing as 5.0 when 5.02 was asked for; the harness now
     // fails on any duplicate in this block so the next one cannot be silent.
     va: 2, vma: 2, vfa: 2, unit_weight: 2, dust_ratio: 2,
+    // %AC to two, on BOTH books' tables that carry it. It is typed on the
+    // sublot volumetrics and COMPUTED on the verification (back-calculated
+    // off the sample's own Gmm), and the two sit two steps apart on one
+    // form - a typed 5.25 beside a computed 5.2517 reads as a disagreement
+    // rather than as two precisions.
+    binder_pct: 2,
+    // The water in a verification sample, `Super Verify` row 39. Two, because
+    // it comes straight off the back-calculated %AC, which is shown to two.
+    moisture: 2,
     // The hand-mixed sample's Gmm. FOUR decimals, not three, and
     // deliberately: this pair is the one place the workbook does NOT round
     // to three (see handMixedGse()), and printing it to three would show a
@@ -2816,6 +2825,24 @@ const PB_SECTIONS = (() => {
   // not "up to".
   const SPECIMEN_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
     ["1", "2"].map((specimen) => ({ sublot, specimen })));
+
+  // The two verification records, and the two specimens / bowls each takes.
+  // `Super Verify` is the same shape as `Superpave` one block at a time: two
+  // "Sample #" rows above an Average row, and two MSG column pairs - QA01 in
+  // C/D, IQ01 in E/F. The record name is the row's identity here where the
+  // sublot number is on the QC side.
+  const VERIFY_RECORDS = [
+    { key: "QA01", label: "QA01 \u2014 Department acceptance" },
+    { key: "IQ01", label: "IQ01 \u2014 Independent assurance" },
+  ];
+  // The long caption on the IDENTITY table, which is where it explains what
+  // QA01 is, and the bare code on the four tables that repeat it. Five
+  // full-width copies of "QA01 - Department acceptance" is most of this step on
+  // a 360px screen, and after the first one it says nothing new.
+  const VERIFY_SEED = VERIFY_RECORDS.map((r) => ({ record: r.label }));
+  const VERIFY_ROW_SEED = VERIFY_RECORDS.map((r) => ({ record: r.key }));
+  const VERIFY_SPECIMEN_SEED = VERIFY_RECORDS.flatMap((r) =>
+    ["1", "2"].map((specimen) => ({ record: r.key, specimen })));
 
   // The two Rice determinations of the lot's hand-mixed check sample
   // (`Superpave` columns M and N). One per lot, not per sublot.
@@ -3668,21 +3695,21 @@ const PB_SECTIONS = (() => {
           // The record column is the only one here that is not mono: it holds a
           // 28-character label ("QA01 — Department acceptance") rather than a
           // figure, and proportional text is about a fifth narrower for the
-          // same string. It still does not fit its track, and widening the
-          // track was tried and reverted - 2.4fr took the width straight out
-          // of Gmm, Va, VMA and Pbe, which are figures a person reads rather
-          // than a caption they already know. So this one clips and says the
-          // whole thing in its `title`, which is exactly what CLAUDE.md
-          // concluded for the producer name: some clipping is accepted, and
-          // the baseline in scripts/amaw/harness/baseline/clipping.json is
-          // where it is recorded rather than quietly tolerated.
-          grid: "1.5fr .7fr 1fr .8fr 1fr .85fr .8fr .8fr .8fr .8fr .85fr",
-          seed: [
-            { record: "QA01 — Department acceptance" },
-            { record: "IQ01 — Independent assurance" },
-          ],
+          // same string. It clips and says the whole thing in its `title`,
+          // which is what CLAUDE.md concluded for the producer name: some
+          // clipping is accepted, and the baseline in
+          // scripts/amaw/harness/baseline/clipping.json is where it is recorded
+          // rather than quietly tolerated. It has room to breathe now that the
+          // seven computed figures have moved off this table.
+          grid: "1.9fr .8fr 1.1fr 1fr",
+          seed: VERIFY_SEED,
           columns: [
             { key: "record", label: "Record", type: "text", readonly: true },
+            // WHICH sublot this record verifies. It is not a label: every
+            // INDIRECT on that sheet resolves through it, and the Gsb the row's
+            // Pbe and VMA are measured against is that sublot's
+            // (`Superpave!R9`/`S9`/`T9`/`U9`, picked by this value). A record
+            // with weights and no sublot computes nothing, and says so.
             { key: "sublot_verified", label: "Verifies", type: "select", req: false, mono: true,
               options: ["1", "2", "3", "4"] },
             { key: "technician", label: "Tech (SM ID)", type: "text", req: false, mono: true },
@@ -3690,13 +3717,108 @@ const PB_SECTIONS = (() => {
             // four sublot rows (AU35..AU38), not after them.
             { key: "acceptance_method", label: "Method", type: "select", req: false,
               options: ["Volumetrics", "Gradation", "Visual"] },
-            { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true },
-            { key: "unit_weight", label: "Unit wt (pcf)", type: "number", req: false, mono: true },
-            { key: "gmm", label: "Gmm", type: "number", req: false, mono: true },
-            { key: "va", label: "Va (%)", type: "number", req: false, mono: true },
-            { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true },
-            { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true },
-            { key: "vfa", label: "VFA (%)", type: "number", req: false, mono: true },
+          ],
+        },
+        // ---- THE RAW WEIGHTS, AND THE CALCULATION THEY DRIVE -------------
+        //
+        // Jake, 2026-09-13: "verification needs to be similar to lot pay in
+        // terms of the full calc and information on the bsg msg and air
+        // voids". It is the same argument the Sublots step won three days
+        // earlier and for the same reason: the AMAW computes every one of
+        // these from weights already on the technician's bench sheet, so
+        // typing them is how a lot ends up disagreeing with the workbook it
+        // will be loaded from. Seven typed figures per record became three
+        // weighings.
+        //
+        // WHAT IS DIFFERENT HERE, and none of it is guessable from the QC
+        // side - all four read out of KYTC's own blank template:
+        //
+        //   * `Super Verify` ROUNDS NOTHING. `Superpave` rounds the bulk
+        //     volume to 0.1 and the BSG and each MSG to 0.001; the same
+        //     quantities here are bare quotients. See verifyVolumetrics().
+        //   * THE %AC IS BACK-CALCULATED. A verification sample is a box of
+        //     mix off the road - nobody weighed binder into it - so its binder
+        //     content is recovered from its own Gmm against the lot's Gse and
+        //     then corrected for moisture. That is why there is a moisture
+        //     table below and none on the Sublots step.
+        //   * THE Gsb IS THE VERIFIED SUBLOT'S, not the lot's.
+        //
+        // NOT YET PROVEN AGAINST A REAL LOT: neither of Jake's completed AMAWs
+        // has a QA or IQ sample at all, so `Super Verify` is blank in both.
+        // `check_verify.mjs` evaluates the template's OWN formulas instead and
+        // matches this to them cell for cell - which checks the transcription,
+        // not the field experience.
+        {
+          key: "verify_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for each record",
+          fixed: true,
+          grid: ".7fr .5fr 1fr 1fr 1fr .9fr .9fr",
+          seed: VERIFY_SPECIMEN_SEED,
+          columns: [
+            { key: "record", label: "Record", type: "text", readonly: true },
+            { key: "specimen", label: "Sample #", type: "text", mono: true, readonly: true },
+            // Super Verify C/D/E, rows 8/9 and 15/16.
+            { key: "wt_air", label: "Wt in air (g)", type: "number", req: false, mono: true },
+            { key: "wt_water", label: "Wt in water (g)", type: "number", req: false, mono: true },
+            { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: false, mono: true },
+            // F = E-D and G = C/F, both UNROUNDED on this sheet.
+            { key: "bulk_volume", label: "Bulk vol.", type: "number", req: false, mono: true, readonly: true },
+            { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
+          ],
+        },
+        {
+          key: "verify_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for each record",
+          fixed: true,
+          grid: ".7fr .5fr 1fr 1fr 1fr 1fr .8fr",
+          seed: VERIFY_SPECIMEN_SEED,
+          columns: [
+            { key: "record", label: "Record", type: "text", readonly: true },
+            { key: "specimen", label: "Bowl #", type: "text", mono: true, readonly: true },
+            // Super Verify rows 20/21/23/24, in COLUMN pairs per record:
+            // C,D for QA01 and E,F for IQ01.
+            { key: "wt_mix", label: "Wt of mix (g)", type: "number", req: false, mono: true },
+            { key: "calibration", label: "Calibration (g)", type: "number", req: false, mono: true },
+            { key: "final_wt", label: "Final wt (g)", type: "number", req: false, mono: true },
+            // Row 24. Blank in every real lot on file and a blank reads as 0
+            // inside the sum, which is the workbook's own behaviour rather than
+            // a convenience - so optional, not missing.
+            { key: "absorbed_water", label: "Absorbed water (g)", type: "number", req: false, mono: true },
+            { key: "msg", label: "MSG", type: "number", req: false, mono: true, readonly: true },
+          ],
+        },
+        {
+          key: "verify_moisture", heading: "Moisture in the mixture — the %AC correction",
+          fixed: true,
+          grid: ".7fr 1fr 1fr 1fr .9fr",
+          seed: VERIFY_ROW_SEED,
+          columns: [
+            { key: "record", label: "Record", type: "text", readonly: true },
+            // Super Verify M36/M37/M38 for QA01, N36/N38 for IQ01.
+            { key: "wt_before", label: "Pan + mix, before drying (g)", type: "number", req: false, mono: true },
+            { key: "wt_after", label: "Pan + mix, after drying (g)", type: "number", req: false, mono: true },
+            { key: "wt_pan", label: "Pan (g)", type: "number", req: false, mono: true },
+            { key: "moisture", label: "% moisture", type: "number", req: false, mono: true, readonly: true },
+          ],
+        },
+        {
+          key: "verify_volumetrics", heading: "Verification volumetrics — computed", fixed: true,
+          // Even tracks past the record name, same reasoning as the sublot
+          // volumetrics table: every value is 2-6 characters, so none has a
+          // claim on more room than the others.
+          grid: ".7fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
+          seed: VERIFY_ROW_SEED,
+          columns: [
+            { key: "record", label: "Record", type: "text", readonly: true },
+            // Computed, unlike the sublot table's - see the note above. The
+            // moisture-corrected figure, which is what the workbook's own
+            // average row carries (`B10` falls back to the uncorrected `J28`
+            // when there is no moisture block).
+            { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
+            { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
+            { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
+            { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
+            { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
+            { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true, readonly: true },
+            { key: "vfa", label: "VFA (%)", type: "number", req: false, mono: true, readonly: true },
           ],
         },
       ],
@@ -6501,7 +6623,8 @@ function recompute() {
   // writes the readonly % solid column that lotPay() then reads, so the order
   // is not a style choice - reading it the other way round is one keystroke
   // behind for a whole render.
-  computeSublotVolumetrics();
+  const vol = computeSublotVolumetrics();
+  computeVerification(vol ? vol.gse : null);
   computeCoreSolids();
   const lp = computeLotPay();
   if (lp) {
@@ -9797,13 +9920,13 @@ const PB_VOL = (() => {
    * (`F` only tests SSD, `G` only tests air) but it cannot produce a number
    * without all three either, so this is the same behaviour stated honestly.
    */
-  function bsgSpecimen(spec = {}) {
+  function bsgSpecimen(spec = {}, { round = true } = {}) {
     const air = num(spec.air), water = num(spec.water), ssd = num(spec.ssd);
     const blank = { volume: null, bsg: null, unitWeight: null };
     if (air == null || water == null || ssd == null) return blank;
-    const volume = xlRound(ssd - water, DP.bulkVolume);
+    const volume = round ? xlRound(ssd - water, DP.bulkVolume) : ssd - water;
     if (volume == null || volume === 0) return blank;   // a zero volume is a typo, not a gravity
-    const bsg = xlRound(air / volume, DP.bsg);
+    const bsg = round ? xlRound(air / volume, DP.bsg) : air / volume;
     return { volume, bsg, unitWeight: bsg == null ? null : bsg * PCF_PER_SG };
   }
 
@@ -9849,8 +9972,8 @@ const PB_VOL = (() => {
    * CLAUDE.md — it is what every lot on file was judged by, so it is mirrored
    * rather than tidied.
    */
-  function bsgAverage(specimens) {
-    const each = (specimens || []).map(bsgSpecimen);
+  function bsgAverage(specimens, opts) {
+    const each = (specimens || []).map((s) => bsgSpecimen(s, opts));
     if (!each.length || each[0].bsg == null) {
       return { each, bsg: null, unitWeight: null };
     }
@@ -10023,6 +10146,138 @@ const PB_VOL = (() => {
     };
   }
 
+  // =====================================================================
+  //  THE DEPARTMENT'S VERIFICATION — `Super Verify`, QA01 and IQ01
+  // =====================================================================
+  /*
+   * The same volumetric chain a sublot runs, off the same kind of weights, with
+   * three differences that are real and none of them guessable from the sublot
+   * side. All four sets of formulas below were read out of KYTC's own blank
+   * VER 14.01 template, not inferred.
+   *
+   *  1. NOTHING IS ROUNDED. `Superpave` rounds the bulk volume to 0.1, the BSG
+   *     to 0.001 and each MSG to 0.001; `Super Verify` rounds none of the
+   *     three - `F8 = E8-D8`, `G8 = C8/F8`, `C25 = C20/(C22-C23+C24)`, all bare.
+   *     Same workbook, same arithmetic, two different formulas, exactly like
+   *     the hand-mixed sample already documented above. Reproduced, not tidied.
+   *
+   *  2. THE %AC IS BACK-CALCULATED, NEVER TYPED. A verification sample is a
+   *     box of mix off the road; nobody weighed binder into it, so its binder
+   *     content is recovered from its own Gmm against the lot's Gse
+   *     (`J28`) and then corrected for the moisture in the mix (`J27`). That is
+   *     the whole reason the moisture block exists on that sheet.
+   *
+   *  3. THE Gsb IS THE VERIFIED SUBLOT'S. `K10`/`L10` branch on `B5` - the
+   *     sublot this record verifies - and read `Superpave!R9`, `S9`, `T9` or
+   *     `U9` accordingly. The blend percentages are per-sublot (docs/amaw-map.md),
+   *     so this is not the same number for every record.
+   *
+   * NOT CHECKED AGAINST A REAL LOT, AND THAT CANNOT BE FIXED HERE: both of
+   * Jake's completed AMAWs leave `Calculations!L1`/`L2` empty, meaning no QA or
+   * IQ sample was ever taken on either, so every cell on that sheet is blank in
+   * both. `check_verify.mjs` closes the gap the only other honest way - it
+   * evaluates the template's OWN formulas with scripts/mixpack/formula.mjs and
+   * compares them to this, so the transcription is checked against the workbook
+   * even though the arithmetic has never met a real verification.
+   */
+
+  /**
+   * `'Super Verify'!J28` — the binder content recovered from the sample's own
+   * maximum specific gravity:
+   *
+   *   Pb = 1.03 * (Gse - Gmm) / (Gmm * (Gse - 1.03)) * 100
+   *
+   * Null rather than a number whenever it cannot be formed. `Gse == 1.03` is
+   * the degenerate case (an aggregate as light as the binder), which is not a
+   * real mixture and would divide by zero.
+   */
+  function backCalcBinderPct({ gse, gmm } = {}) {
+    const g = num(gse), m = num(gmm);
+    if (g == null || m == null || m === 0 || g === BINDER_SG) return null;
+    return ((BINDER_SG * (g - m)) / (m * (g - BINDER_SG))) * 100;
+  }
+
+  /**
+   * `'Super Verify'!M39` — the water in the mix, as a percentage of it, from
+   * the three pan weights:
+   *
+   *   % moisture = ((wet - dry) / wet) * 100,  wet = before - pan, dry = after - pan
+   *
+   * ONE DELIBERATE DIVERGENCE FROM THE WORKBOOK, and it is the only one in
+   * this file that is not a reproduction. The cell gates on the BEFORE weight
+   * alone (`IF(M36="","",...)`), so in Excel two blank cells under a filled one
+   * read as zeros and the formula returns a confident 100%. Every other
+   * quirk in this file is mirrored because a real approved lot was judged by
+   * it; nothing was ever judged by this one (no completed AMAW has a
+   * verification block at all), and 100% moisture would come straight off the
+   * back-calculated %AC as a four-point error on a printed record. So all
+   * three weights are required. The workbook's own zero-wet guard IS kept.
+   */
+  function moisturePct({ before, after, pan } = {}) {
+    const b = num(before), a = num(after), p = num(pan);
+    if (b == null || a == null || p == null) return null;
+    const wet = b - p;
+    if (wet === 0) return 0;            // the workbook's own IF(M36-M38=0,0,…)
+    return ((wet - (a - p)) / wet) * 100;
+  }
+
+  /**
+   * One verification record's whole row — `'Super Verify'` rows 10 and 17.
+   *
+   *   verifyVolumetrics({ specimens, determinations, moisture, gsb, gse })
+   *
+   * `specimens` is the two BSG pucks ({air, water, ssd}), `determinations` the
+   * two Rice bowls ({mix, calibration, finalWeight, absorbedWater}), `moisture`
+   * the percentage from moisturePct() (null when the pan weights are not there,
+   * in which case the workbook uses the uncorrected back-calculation - `B10`
+   * falls back from `J27` to `J28` for exactly that reason), `gsb` the VERIFIED
+   * SUBLOT's combined aggregate Gsb and `gse` the lot's.
+   *
+   * Every figure is null unless everything it needs is present, and `needs`
+   * names what a null one is waiting for, same contract as sublotVolumetrics().
+   */
+  function verifyVolumetrics(o = {}) {
+    // Unrounded, on both - see (1) above.
+    const { bsg: gmb, unitWeight, each: bsgEach } = bsgAverage(o.specimens, { round: false });
+    const { msg: gmm, each: msgEach } = msgAverage(o.determinations, { round: false });
+    const gsb = num(o.gsb), gse = num(o.gse), moisture = num(o.moisture);
+    const needs = [];
+
+    // J28, then J27 = J28 - M39. B10 takes the corrected one when there is one.
+    const backCalc = backCalcBinderPct({ gse, gmm });
+    const binderPct = backCalc == null ? null : (moisture == null ? backCalc : backCalc - moisture);
+
+    // J10 = ((Gmm - Gmb) / Gmm) * 100
+    if (gmb == null) needs.push("BSG specimen weights");
+    if (gmm == null) needs.push("MSG determinations");
+    const va = (gmb != null && gmm != null && gmm !== 0) ? ((gmm - gmb) / gmm) * 100 : null;
+
+    // The absorbed half of K10, spelled out so the row can show the step.
+    const absorbedAC = (binderPct != null && gsb != null && gse != null && gsb !== 0 && gse !== 0)
+      ? ((100 - binderPct) * (100 * (((gse - gsb) / (gsb * gse)) * BINDER_SG))) / 100
+      : null;
+    // K10 = B10 - <the above>. Note the COLUMN differs from the sublot sheet -
+    // `Super Verify` puts Pbe where `Superpave` puts absorbed AC - but the
+    // quantity is the same one (addresses.mjs: "one column left from pbe on").
+    const pbe = (binderPct != null && absorbedAC != null) ? binderPct - absorbedAC : null;
+    // L10 = 100 - (Gmb * (100 - Pb) / Gsb)
+    const vma = (gmb != null && binderPct != null && gsb != null && gsb !== 0)
+      ? 100 - (gmb * (100 - binderPct) / gsb) : null;
+    // M10 = 100 * (VMA - Va) / VMA
+    const vfa = (vma != null && va != null && vma !== 0) ? 100 * (vma - va) / vma : null;
+
+    if (gse == null) needs.push("the hand-mixed check sample (for Gse)");
+    if (gsb == null) needs.push("combined Gsb for the sublot being verified");
+
+    return {
+      bsgEach, msgEach,
+      gmb, unitWeight, gmm,
+      backCalcBinderPct: backCalc, moisture, binderPct,
+      va, absorbedAC, pbe, vma, vfa,
+      needs: [...new Set(needs)],
+    };
+  }
+
   /** `Superpave!O15` prints this verbatim when the D/A ratio leaves the band. */
   const DUST_RATIO_NOTE =
     "* Does not satisfy KY Specification Subsection 402.03.02 D) 5)";
@@ -10032,7 +10287,7 @@ const PB_VOL = (() => {
     PCF_PER_SG, BINDER_SG, DP, DUST_RATIO_NOTE,
     xlRound, bsgSpecimen, msgDetermination, averagePresent,
     bsgAverage, msgAverage, gseFromHandMix, handMixedGse, sublotVolumetrics,
-    coreDerived,
+    coreDerived, backCalcBinderPct, moisturePct, verifyVolumetrics,
   };
 })();
 /* ===== END PLANTBOOK VOLUMETRICS ===== */
@@ -15634,8 +15889,122 @@ function computeSublotVolumetrics() {
     if (dr) dr.title = v.dustRatioNote || "(% passing the #200, from the Gradation step) / Pbe - Superpave O";
     out.push(v);
   });
+  // The lot's Gse rides back out with the sublots because the Verification
+  // step needs the same one and it is a lot-level figure - recomputing it
+  // there would be a second answer to one question, which is the failure
+  // mode this file keeps recording.
+  return { sublots: out, gse: hm.gse };
+}
+
+/* ---------- the Department's verification, from its own weights ----------
+ *
+ * Jake, 2026-09-13: "verification needs to be similar to lot pay in terms of
+ * the full calc and information on the bsg msg and air voids".
+ *
+ * Structurally this is computeSublotVolumetrics() over `Super Verify`, and
+ * three things make it its own function rather than a parameter of that one.
+ *
+ *  - NOTHING ON THIS SHEET IS ROUNDED. Same arithmetic, bare quotients. The
+ *    titles below say so, because a technician comparing this tab to the
+ *    Sublots tab will otherwise read the extra decimals as a bug.
+ *  - THE %AC IS BACK-CALCULATED rather than typed, off the sample's own Gmm
+ *    against the lot's Gse, then corrected for the moisture in the mix.
+ *  - THE Gsb IS THE VERIFIED SUBLOT'S. Which sublot a record verifies is a
+ *    dropdown on the first table, and with it blank there is no Gsb, so Pbe
+ *    and VMA are blank and say why. That is not a gap to paper over: the
+ *    workbook branches on the very same cell.
+ */
+function computeVerification(gse) {
+  if (!isPlantBook()) return null;
+  const recRows = rowsOfList("verification");
+  const bsgRows = rowsOfList("verify_bsg");
+  const msgRows = rowsOfList("verify_msg");
+  const wetRows = rowsOfList("verify_moisture");
+  const volRows = rowsOfList("verify_volumetrics");
+  const gsbRow = rowsOfList("blend_gsb")[0] || null;
+  const out = [];
+
+  volRows.forEach((vRow, i) => {
+    // The record CODE is the join between the five tables, not the row's
+    // position: it is what the seed writes into every one of them, and the
+    // only thing that survives a table being re-rendered. The identity table
+    // spells it out ("QA01 - Department acceptance") and the four repeating
+    // tables carry the bare code, so the join is on the code either way -
+    // matching the whole caption would silently pair nothing.
+    const name = recordCode(cellValue(vRow, "record"));
+    const ofRecord = (rows) => rows.filter((r) => recordCode(cellValue(r, "record")) === name);
+
+    const specimenRows = ofRecord(bsgRows);
+    const detRows = ofRecord(msgRows);
+    const specimens = specimenRows.map((r) => ({
+      air: num(cellValue(r, "wt_air")), water: num(cellValue(r, "wt_water")), ssd: num(cellValue(r, "wt_ssd")),
+    }));
+    const dets = detRows.map((r) => rawDet(r));
+
+    const wetRow = ofRecord(wetRows)[0] || null;
+    const moisture = wetRow ? PB_VOL.moisturePct({
+      before: num(cellValue(wetRow, "wt_before")),
+      after: num(cellValue(wetRow, "wt_after")),
+      pan: num(cellValue(wetRow, "wt_pan")),
+    }) : null;
+    if (wetRow) {
+      const mEl = putCell(wetRow, "moisture", moisture, CONFIG.DP.moisture);
+      if (mEl) mEl.title = moisture == null
+        ? "Needs all three weights - a partial block is left blank here rather than reading as 100%"
+        : "((before - pan) - (after - pan)) / (before - pan) x 100 - Super Verify row 39";
+    }
+
+    // Which sublot this record verifies decides the Gsb every VMA and Pbe on
+    // the row is measured against - Super Verify K/L branch on it.
+    const verifies = sublotIndexOf(cellValue(recRows[i], "sublot_verified"));
+    const gsb = (gsbRow && verifies) ? num(cellValue(gsbRow, `gsb_${verifies}`)) : null;
+
+    const v = PB_VOL.verifyVolumetrics({ specimens, determinations: dets, moisture, gsb, gse });
+
+    specimenRows.forEach((r, k) => {
+      const e = v.bsgEach[k] || {};
+      const bv = putCell(r, "bulk_volume", e.volume, CONFIG.DP.bulk_volume);
+      if (bv) bv.title = "SSD - water. NOT rounded on this sheet, unlike the sublots'";
+      const b = putCell(r, "bsg", e.bsg, CONFIG.DP.bsg);
+      if (b) b.title = "Wt in air / bulk volume - Super Verify G. NOT rounded on this sheet";
+    });
+    detRows.forEach((r, k) => {
+      const e = v.msgEach[k] || {};
+      const m = putCell(r, "msg", e.msg, CONFIG.DP.msg);
+      if (m) m.title = "Wt of mix / (mix + calibration - final + absorbed) - Super Verify row 25, NOT rounded";
+    });
+
+    const why = v.needs.length ? `Needs ${v.needs.join(", ")}` : "";
+    const ac = putCell(vRow, "binder_pct", v.binderPct, CONFIG.DP.binder_pct);
+    if (ac) ac.title = v.binderPct == null
+      ? (why || "Needs the sample's own Gmm and the lot's Gse")
+      : `1.03 x (Gse - Gmm) / (Gmm x (Gse - 1.03)) x 100`
+        + (v.moisture == null
+          ? ", uncorrected - no moisture block on this record (Super Verify J28)"
+          : `, less ${fmt(v.moisture, CONFIG.DP.moisture)}% moisture (Super Verify J27)`);
+    const gmb = putCell(vRow, "gmb", v.gmb, CONFIG.DP.gmb);
+    if (gmb) gmb.title = "Average of the two samples' BSG - Super Verify G on the Average row";
+    const gmm = putCell(vRow, "gmm", v.gmm, CONFIG.DP.handmix_gmm);
+    if (gmm) gmm.title = "Average of the two MSG determinations - Super Verify row 26";
+    const va = putCell(vRow, "va", v.va, CONFIG.DP.va);
+    if (va) va.title = v.va == null ? why : "((Gmm - Gmb) / Gmm) x 100 - Super Verify J";
+    const pbe = putCell(vRow, "pbe", v.pbe, CONFIG.DP.pbe);
+    if (pbe) pbe.title = v.pbe == null ? why : "%AC less the absorbed AC - Super Verify K";
+    const vma = putCell(vRow, "vma", v.vma, CONFIG.DP.vma);
+    if (vma) vma.title = v.vma == null ? why : "100 - (Gmb x (100 - %AC) / the verified sublot's Gsb) - Super Verify L";
+    const vfa = putCell(vRow, "vfa", v.vfa, CONFIG.DP.vfa);
+    if (vfa) vfa.title = v.vfa == null ? why : "100 x (VMA - Va) / VMA - Super Verify M";
+    out.push(v);
+  });
   return out;
 }
+
+/** "QA01 — Department acceptance" or "QA01" -> "QA01". The five Verification
+ *  tables are joined on this, so it has to read both spellings. */
+function recordCode(v) {
+  return String(v == null ? "" : v).trim().split(/[\s\u2013\u2014-]/)[0].toUpperCase();
+}
+
 /** A Rice determination read off one row of either MSG table. */
 function rawDet(row) {
   return {

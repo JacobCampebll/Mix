@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-13T14:24:56.957Z",
+  "generatedAt": "2026-09-13T22:10:34.186Z",
   "books": {
     "DesignBook": {
       "360": [
@@ -38,51 +38,15 @@
       "700": [
         "producer"
       ],
-      "701": [
-        "air_voids",
-        "dry_wt",
-        "gmb",
-        "gsb",
-        "load",
-        "pct_blend",
-        "producer",
-        "sat_ssd_wt",
-        "saturation",
-        "specimen",
-        "ssd_wt",
-        "strength",
-        "thickness",
-        "wt_water"
-      ],
-      "800": [
-        "air_voids",
-        "gmb",
-        "producer",
-        "saturation",
-        "thickness"
-      ],
-      "900": [
-        "gmb",
-        "producer",
-        "saturation"
-      ],
-      "1000": [
-        "producer"
-      ],
+      "701": [],
+      "800": [],
+      "900": [],
+      "1000": [],
       "1099": [],
       "1100": [],
-      "1240": [
-        "gmb",
-        "producer"
-      ],
-      "1243": [
-        "gmb",
-        "producer"
-      ],
-      "1244": [
-        "gmb",
-        "producer"
-      ],
+      "1240": [],
+      "1243": [],
+      "1244": [],
       "1366": [],
       "1440": [],
       "1500": []
@@ -90,7 +54,8 @@
     "PlantBook": {
       "360": [
         "producer",
-        "record"
+        "record",
+        "va"
       ],
       "390": [
         "producer"
@@ -101,71 +66,18 @@
       "700": [
         "producer"
       ],
-      "701": [
-        "bod",
-        "gmm",
-        "pct_1",
-        "pct_2",
-        "pct_3",
-        "pct_4",
-        "producer",
-        "record",
-        "technician",
-        "time",
-        "unit_weight",
-        "va",
-        "vma"
-      ],
-      "800": [
-        "gmm",
-        "pct_1",
-        "pct_2",
-        "pct_3",
-        "pct_4",
-        "producer",
-        "record"
-      ],
-      "900": [
-        "gmm",
-        "producer",
-        "record"
-      ],
-      "1000": [
-        "producer",
-        "record"
-      ],
-      "1099": [
-        "producer",
-        "record"
-      ],
-      "1100": [
-        "producer",
-        "record"
-      ],
-      "1240": [
-        "producer",
-        "record"
-      ],
-      "1243": [
-        "producer",
-        "record"
-      ],
-      "1244": [
-        "producer",
-        "record"
-      ],
-      "1366": [
-        "producer",
-        "record"
-      ],
-      "1440": [
-        "producer",
-        "record"
-      ],
-      "1500": [
-        "producer",
-        "record"
-      ]
+      "701": [],
+      "800": [],
+      "900": [],
+      "1000": [],
+      "1099": [],
+      "1100": [],
+      "1240": [],
+      "1243": [],
+      "1244": [],
+      "1366": [],
+      "1440": [],
+      "1500": []
     }
   },
   "page": "public/designbook.html"

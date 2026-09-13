@@ -6,7 +6,7 @@
 //        [--page public/designbook.html] [--payloads <dir>]
 //
 // designbook.html carries a browser port of eight modules, folded into four
-// blocks fenced `===== PLANTBOOK SCHEMA/PAY/AMAW/LOT =====`: sections.mjs;
+// blocks fenced `===== PLANTBOOK SCHEMA/VOLUMETRICS/PAY/AMAW/LOT =====`:
 // pay.mjs + payview.mjs; addresses.mjs + mapper.mjs + the browser half of
 // generate.mjs; storage.mjs + intake.mjs. This is the sibling of
 // scripts/mixpack/check_page_engine.mjs and exists for the same reason — two
@@ -46,6 +46,7 @@ import { fileURLToPath } from 'node:url';
 
 import { cellsOf, sharedStrings } from '../mixpack/xlsx.mjs';
 import * as MOD_SECTIONS from './sections.mjs';
+import * as MOD_VOL from './volumetrics.mjs';
 import * as MOD_PAY from './pay.mjs';
 import * as MOD_PAYVIEW from './payview.mjs';
 import * as MOD_ADDRESSES from './addresses.mjs';
@@ -208,9 +209,9 @@ function sweep(label, pageFn, modFn, cases) {
 }
 
 // =====================================================================
-//  1. LIFT THE FOUR BLOCKS OUT OF THE PAGE
+//  1. LIFT THE FIVE BLOCKS OUT OF THE PAGE
 // =====================================================================
-namespace('lift', '1. Lifting the four blocks out of the page');
+namespace('lift', '1. Lifting the five blocks out of the page');
 
 if (!fs.existsSync(PAGE)) { console.error(`\n  no page at ${PAGE}`); process.exit(2); }
 const html = fs.readFileSync(PAGE, 'utf8');
@@ -224,6 +225,7 @@ console.log(`  page  ${PAGE} (${(html.length / 1024).toFixed(0)} KB)`);
 // nothing to test, and a run that scores 0/0 and exits 0 is worse than no run.
 const BANNERS = [
   ['PLANTBOOK SCHEMA', 'PB_SECTIONS'],
+  ['PLANTBOOK VOLUMETRICS', 'PB_VOL'],
   ['PLANTBOOK PAY', 'PB_PAY'],
   ['PLANTBOOK AMAW', 'PB_AMAW'],
   ['PLANTBOOK LOT', 'PB_LOT'],
@@ -246,11 +248,11 @@ for (const [banner, ns] of BANNERS) {
 // PB_AMAW/PB_PAY/PB_SECTIONS, so "the page's own order" is part of what is
 // being tested, not an implementation detail of this file.
 const order = BANNERS.map(([b]) => html.indexOf(`/* ===== END ${b} ===== */`));
-ok('the four blocks appear in the page in schema/pay/amaw/lot order',
+ok('the five blocks appear in the page in schema/volumetrics/pay/amaw/lot order',
    order.every((v, i) => i === 0 || v > order[i - 1]), order);
 
 // ---- the stubs ------------------------------------------------------
-// Deliberately the smallest surface that lets all four blocks EVALUATE. None
+// Deliberately the smallest surface that lets all five blocks EVALUATE. None
 // of them may need a DOM; if one ever does that is a finding about the splice
 // (a browser-only dependency has leaked into ported module code) and it is
 // reported below rather than papered over with a jsdom.
@@ -290,7 +292,7 @@ function makeContext() {
 // name, this line throws a SyntaxError at instantiation exactly as the page
 // would, which is the `supabase`/`sb` gotcha in CLAUDE.md.
 const SRC = BANNERS.map(([, ns]) => blocks.get(ns)).join('\n')
-          + '\n;({ PB_SECTIONS, PB_PAY, PB_AMAW, PB_LOT });';
+          + '\n;({ PB_SECTIONS, PB_VOL, PB_PAY, PB_AMAW, PB_LOT });';
 let PB = null;
 // The context is kept: the page's copies are built in another vm realm, so
 // `pageError instanceof Error` is false against THIS realm's Error however
@@ -299,9 +301,9 @@ let PB = null;
 const CTX = makeContext();
 try {
   PB = vm.runInContext(SRC, CTX, { filename: 'designbook.html:PLANTBOOK' });
-  ok('all four blocks evaluate in one context, in the page\'s order', true);
+  ok('all five blocks evaluate in one context, in the page\'s order', true);
 } catch (err) {
-  ok('all four blocks evaluate in one context, in the page\'s order', false, String(err && err.stack || err).split('\n').slice(0, 3).join(' | '));
+  ok('all five blocks evaluate in one context, in the page\'s order', false, String(err && err.stack || err).split('\n').slice(0, 3).join(' | '));
   console.error('\n  FATAL: the blocks did not evaluate, so nothing below could run.');
   console.error(`         ${err && err.message}`);
   if (/is not defined/.test(String(err && err.message)))
@@ -451,7 +453,85 @@ namespace('PB_SECTIONS', '2. PB_SECTIONS vs scripts/amaw/sections.mjs');
 // =====================================================================
 //  3. PB_PAY  vs  pay.mjs + payview.mjs
 // =====================================================================
-namespace('PB_PAY', '3. PB_PAY vs scripts/amaw/pay.mjs + payview.mjs');
+namespace('PB_VOL', '3. PB_VOL vs scripts/amaw/volumetrics.mjs');
+{
+  const P = PB.PB_VOL;
+  const M = MOD_VOL;
+
+  same('the surface carries every name the module exports',
+       Object.keys(P).sort(), Object.keys(M).filter((k) => k !== 'default').sort());
+  ok('PCF_PER_SG is KYTC\'s 62.4, not a rounding of 62.428',
+     P.PCF_PER_SG === 62.4 && M.PCF_PER_SG === 62.4, [P.PCF_PER_SG, M.PCF_PER_SG]);
+  same('DP is identical', P.DP, M.DP);
+  ok('DUST_RATIO_NOTE is identical', P.DUST_RATIO_NOTE === M.DUST_RATIO_NOTE);
+
+  // Weights around the shapes that actually occur, plus the ones that break
+  // arithmetic: a zero bulk volume (a typo, not a gravity), a missing third
+  // weight, and a blank absorbed-water cell, which reads as 0 inside the sum
+  // in Excel and therefore has to here.
+  const specs = [
+    { air: 4812.4, water: 2751.3, ssd: 4818.9 },
+    { air: 4795.1, water: 2744.8, ssd: 4801.2 },
+    { air: 4800, water: 2750, ssd: 2750 },          // zero volume
+    { air: 4800, water: 2750 },                      // no SSD
+    { air: null, water: null, ssd: null },
+    {},
+  ];
+  // BOTH rounding modes, because the two sheets disagree and that divergence
+  // is the single most reversible-looking thing in this module: `Superpave`
+  // rounds the bulk volume and BSG, `Super Verify` rounds neither.
+  sweep('bsgSpecimen()', P.bsgSpecimen, M.bsgSpecimen,
+        specs.flatMap((sp) => [[sp], [sp, { round: true }], [sp, { round: false }]]).concat([[undefined]]));
+  const dets = [
+    { mix: 2015.3, calibration: 7996.2, finalWeight: 9205.4, absorbedWater: 0 },
+    { mix: 2008.7, calibration: 7996.2, finalWeight: 9201.9 },   // absorbed water blank
+    { mix: 2000, calibration: 8000, finalWeight: 10000, absorbedWater: 0 },  // zero denominator
+    { mix: 2000 },
+    {},
+  ];
+  sweep('msgDetermination()', P.msgDetermination, M.msgDetermination,
+        dets.flatMap((d) => [[d], [d, { round: true }], [d, { round: false }]]).concat([[undefined]]));
+  sweep('averagePresent()', P.averagePresent, M.averagePresent,
+        [[[]], [[1, 2]], [[1, null]], [[null, null]], [[0, 0]], [null], [undefined]]);
+  sweep('bsgAverage()', P.bsgAverage, M.bsgAverage,
+        [[specs.slice(0, 2)], [specs.slice(0, 2), { round: false }], [[specs[0]]], [[]], [null]]);
+  sweep('msgAverage()', P.msgAverage, M.msgAverage,
+        [[dets.slice(0, 2)], [dets.slice(0, 2), { round: false }], [[]], [null]]);
+  sweep('gseFromHandMix()', P.gseFromHandMix, M.gseFromHandMix,
+        [[{ gmm: 2.5, binderPct: 5.2 }], [{ gmm: 2.5 }], [{ binderPct: 5.2 }], [{}], [undefined]]);
+  sweep('handMixedGse()', P.handMixedGse, M.handMixedGse,
+        [[{ determinations: dets.slice(0, 2), binderPct: 5.2 }], [{ determinations: [] }], [undefined]]);
+
+  const gsbs = [2.664, 2.671, null];
+  sweep('sublotVolumetrics()', P.sublotVolumetrics, M.sublotVolumetrics,
+        gsbs.flatMap((gsb) => [5.25, null].map((binderPct) => [{
+          specimens: specs.slice(0, 2), determinations: dets.slice(0, 2),
+          binderPct, gsb, gse: 2.721, pctPassing200: 5.1,
+        }])).concat([[{}], [undefined]]));
+
+  // ---- the verification half ----------------------------------------
+  // check_verify.mjs is what proves these against KYTC's own formulas; this
+  // only proves the page's copy and the module's are the same code.
+  sweep('backCalcBinderPct()', P.backCalcBinderPct, M.backCalcBinderPct,
+        [[{ gse: 2.721, gmm: 2.5 }], [{ gse: 1.03, gmm: 2.5 }], [{ gse: 2.721, gmm: 0 }],
+         [{ gse: 2.721 }], [{ gmm: 2.5 }], [{}], [undefined]]);
+  sweep('moisturePct()', P.moisturePct, M.moisturePct,
+        [[{ before: 1520.4, after: 1513.1, pan: 310.2 }], [{ before: 310.2, after: 310.2, pan: 310.2 }],
+         [{ before: 1520.4 }], [{ before: 1520.4, after: 1513.1 }], [{}], [undefined]]);
+  sweep('verifyVolumetrics()', P.verifyVolumetrics, M.verifyVolumetrics,
+        gsbs.flatMap((gsb) => [0.6, null].map((moisture) => [{
+          specimens: specs.slice(0, 2), determinations: dets.slice(0, 2), moisture, gsb, gse: 2.721,
+        }])).concat([[{ specimens: specs.slice(0, 2), determinations: [], gsb: 2.664, gse: 2.721 }],
+                     [{}], [undefined]]));
+
+  sweep('coreDerived()', P.coreDerived, M.coreDerived,
+        [[{ air: 4800, water: 2750, ssd: 4810, msg: 2.5 }],
+         [{ air: 4800, water: 2750, ssd: 4810, msg: 2.5, paysOnMix: false }],
+         [{ air: 4800, water: 2750, ssd: 4810, msg: 0 }],
+         [{ air: 4800, water: 2750, ssd: 4810 }], [{}], [undefined]]);
+}
+
+namespace('PB_PAY', '4. PB_PAY vs scripts/amaw/pay.mjs + payview.mjs');
 {
   const P = PB.PB_PAY;
   const M = { ...MOD_PAY, ...MOD_PAYVIEW };
@@ -609,7 +689,7 @@ namespace('PB_PAY', '3. PB_PAY vs scripts/amaw/pay.mjs + payview.mjs');
 // =====================================================================
 //  4. PB_AMAW  vs  addresses.mjs + mapper.mjs + generate.mjs
 // =====================================================================
-namespace('PB_AMAW', '4. PB_AMAW vs scripts/amaw/addresses.mjs + mapper.mjs + generate.mjs');
+namespace('PB_AMAW', '5. PB_AMAW vs scripts/amaw/addresses.mjs + mapper.mjs + generate.mjs');
 {
   const P = PB.PB_AMAW;
 
@@ -745,7 +825,7 @@ namespace('PB_AMAW', '4. PB_AMAW vs scripts/amaw/addresses.mjs + mapper.mjs + ge
 // =====================================================================
 //  5. PB_LOT  vs  storage.mjs + intake.mjs
 // =====================================================================
-namespace('PB_LOT', '5. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
+namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
 {
   const P = PB.PB_LOT;
   const M = { ...MOD_STORAGE, ...MOD_INTAKE };
@@ -1083,8 +1163,9 @@ console.log('PlantBook: public/designbook.html vs scripts/amaw/');
 console.log('='.repeat(74));
 
 const PAIRING = {
-  lift: 'lifting the four blocks',
+  lift: 'lifting the five blocks',
   PB_SECTIONS: 'PB_SECTIONS  <- sections.mjs',
+  PB_VOL: 'PB_VOL       <- volumetrics.mjs',
   PB_PAY: 'PB_PAY       <- pay.mjs + payview.mjs',
   PB_AMAW: 'PB_AMAW      <- addresses.mjs + mapper.mjs + generate.mjs',
   PB_LOT: 'PB_LOT       <- storage.mjs + intake.mjs',

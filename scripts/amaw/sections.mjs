@@ -220,6 +220,24 @@ const SUBLOT_SEED = [{ sublot: "1" }, { sublot: "2" }, { sublot: "3" }, { sublot
 const SPECIMEN_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
   ["1", "2"].map((specimen) => ({ sublot, specimen })));
 
+// The two verification records, and the two specimens / bowls each takes.
+// `Super Verify` is the same shape as `Superpave` one block at a time: two
+// "Sample #" rows above an Average row, and two MSG column pairs - QA01 in
+// C/D, IQ01 in E/F. The record name is the row's identity here where the
+// sublot number is on the QC side.
+const VERIFY_RECORDS = [
+  { key: "QA01", label: "QA01 \u2014 Department acceptance" },
+  { key: "IQ01", label: "IQ01 \u2014 Independent assurance" },
+];
+// The long caption on the IDENTITY table, which is where it explains what
+// QA01 is, and the bare code on the four tables that repeat it. Five
+// full-width copies of "QA01 - Department acceptance" is most of this step on
+// a 360px screen, and after the first one it says nothing new.
+const VERIFY_SEED = VERIFY_RECORDS.map((r) => ({ record: r.label }));
+const VERIFY_ROW_SEED = VERIFY_RECORDS.map((r) => ({ record: r.key }));
+const VERIFY_SPECIMEN_SEED = VERIFY_RECORDS.flatMap((r) =>
+  ["1", "2"].map((specimen) => ({ record: r.key, specimen })));
+
 // The two Rice determinations of the lot's hand-mixed check sample
 // (`Superpave` columns M and N). One per lot, not per sublot.
 const HANDMIX_SEED = [{ determination: "1" }, { determination: "2" }];
@@ -1071,21 +1089,21 @@ export const PLANTBOOK_SECTIONS = [
         // The record column is the only one here that is not mono: it holds a
         // 28-character label ("QA01 — Department acceptance") rather than a
         // figure, and proportional text is about a fifth narrower for the
-        // same string. It still does not fit its track, and widening the
-        // track was tried and reverted - 2.4fr took the width straight out
-        // of Gmm, Va, VMA and Pbe, which are figures a person reads rather
-        // than a caption they already know. So this one clips and says the
-        // whole thing in its `title`, which is exactly what CLAUDE.md
-        // concluded for the producer name: some clipping is accepted, and
-        // the baseline in scripts/amaw/harness/baseline/clipping.json is
-        // where it is recorded rather than quietly tolerated.
-        grid: "1.5fr .7fr 1fr .8fr 1fr .85fr .8fr .8fr .8fr .8fr .85fr",
-        seed: [
-          { record: "QA01 — Department acceptance" },
-          { record: "IQ01 — Independent assurance" },
-        ],
+        // same string. It clips and says the whole thing in its `title`,
+        // which is what CLAUDE.md concluded for the producer name: some
+        // clipping is accepted, and the baseline in
+        // scripts/amaw/harness/baseline/clipping.json is where it is recorded
+        // rather than quietly tolerated. It has room to breathe now that the
+        // seven computed figures have moved off this table.
+        grid: "1.9fr .8fr 1.1fr 1fr",
+        seed: VERIFY_SEED,
         columns: [
           { key: "record", label: "Record", type: "text", readonly: true },
+          // WHICH sublot this record verifies. It is not a label: every
+          // INDIRECT on that sheet resolves through it, and the Gsb the row's
+          // Pbe and VMA are measured against is that sublot's
+          // (`Superpave!R9`/`S9`/`T9`/`U9`, picked by this value). A record
+          // with weights and no sublot computes nothing, and says so.
           { key: "sublot_verified", label: "Verifies", type: "select", req: false, mono: true,
             options: ["1", "2", "3", "4"] },
           { key: "technician", label: "Tech (SM ID)", type: "text", req: false, mono: true },
@@ -1093,13 +1111,108 @@ export const PLANTBOOK_SECTIONS = [
           // four sublot rows (AU35..AU38), not after them.
           { key: "acceptance_method", label: "Method", type: "select", req: false,
             options: ["Volumetrics", "Gradation", "Visual"] },
-          { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true },
-          { key: "unit_weight", label: "Unit wt (pcf)", type: "number", req: false, mono: true },
-          { key: "gmm", label: "Gmm", type: "number", req: false, mono: true },
-          { key: "va", label: "Va (%)", type: "number", req: false, mono: true },
-          { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true },
-          { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true },
-          { key: "vfa", label: "VFA (%)", type: "number", req: false, mono: true },
+        ],
+      },
+      // ---- THE RAW WEIGHTS, AND THE CALCULATION THEY DRIVE -------------
+      //
+      // Jake, 2026-09-13: "verification needs to be similar to lot pay in
+      // terms of the full calc and information on the bsg msg and air
+      // voids". It is the same argument the Sublots step won three days
+      // earlier and for the same reason: the AMAW computes every one of
+      // these from weights already on the technician's bench sheet, so
+      // typing them is how a lot ends up disagreeing with the workbook it
+      // will be loaded from. Seven typed figures per record became three
+      // weighings.
+      //
+      // WHAT IS DIFFERENT HERE, and none of it is guessable from the QC
+      // side - all four read out of KYTC's own blank template:
+      //
+      //   * `Super Verify` ROUNDS NOTHING. `Superpave` rounds the bulk
+      //     volume to 0.1 and the BSG and each MSG to 0.001; the same
+      //     quantities here are bare quotients. See verifyVolumetrics().
+      //   * THE %AC IS BACK-CALCULATED. A verification sample is a box of
+      //     mix off the road - nobody weighed binder into it - so its binder
+      //     content is recovered from its own Gmm against the lot's Gse and
+      //     then corrected for moisture. That is why there is a moisture
+      //     table below and none on the Sublots step.
+      //   * THE Gsb IS THE VERIFIED SUBLOT'S, not the lot's.
+      //
+      // NOT YET PROVEN AGAINST A REAL LOT: neither of Jake's completed AMAWs
+      // has a QA or IQ sample at all, so `Super Verify` is blank in both.
+      // `check_verify.mjs` evaluates the template's OWN formulas instead and
+      // matches this to them cell for cell - which checks the transcription,
+      // not the field experience.
+      {
+        key: "verify_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for each record",
+        fixed: true,
+        grid: ".7fr .5fr 1fr 1fr 1fr .9fr .9fr",
+        seed: VERIFY_SPECIMEN_SEED,
+        columns: [
+          { key: "record", label: "Record", type: "text", readonly: true },
+          { key: "specimen", label: "Sample #", type: "text", mono: true, readonly: true },
+          // Super Verify C/D/E, rows 8/9 and 15/16.
+          { key: "wt_air", label: "Wt in air (g)", type: "number", req: false, mono: true },
+          { key: "wt_water", label: "Wt in water (g)", type: "number", req: false, mono: true },
+          { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: false, mono: true },
+          // F = E-D and G = C/F, both UNROUNDED on this sheet.
+          { key: "bulk_volume", label: "Bulk vol.", type: "number", req: false, mono: true, readonly: true },
+          { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
+        ],
+      },
+      {
+        key: "verify_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for each record",
+        fixed: true,
+        grid: ".7fr .5fr 1fr 1fr 1fr 1fr .8fr",
+        seed: VERIFY_SPECIMEN_SEED,
+        columns: [
+          { key: "record", label: "Record", type: "text", readonly: true },
+          { key: "specimen", label: "Bowl #", type: "text", mono: true, readonly: true },
+          // Super Verify rows 20/21/23/24, in COLUMN pairs per record:
+          // C,D for QA01 and E,F for IQ01.
+          { key: "wt_mix", label: "Wt of mix (g)", type: "number", req: false, mono: true },
+          { key: "calibration", label: "Calibration (g)", type: "number", req: false, mono: true },
+          { key: "final_wt", label: "Final wt (g)", type: "number", req: false, mono: true },
+          // Row 24. Blank in every real lot on file and a blank reads as 0
+          // inside the sum, which is the workbook's own behaviour rather than
+          // a convenience - so optional, not missing.
+          { key: "absorbed_water", label: "Absorbed water (g)", type: "number", req: false, mono: true },
+          { key: "msg", label: "MSG", type: "number", req: false, mono: true, readonly: true },
+        ],
+      },
+      {
+        key: "verify_moisture", heading: "Moisture in the mixture — the %AC correction",
+        fixed: true,
+        grid: ".7fr 1fr 1fr 1fr .9fr",
+        seed: VERIFY_ROW_SEED,
+        columns: [
+          { key: "record", label: "Record", type: "text", readonly: true },
+          // Super Verify M36/M37/M38 for QA01, N36/N38 for IQ01.
+          { key: "wt_before", label: "Pan + mix, before drying (g)", type: "number", req: false, mono: true },
+          { key: "wt_after", label: "Pan + mix, after drying (g)", type: "number", req: false, mono: true },
+          { key: "wt_pan", label: "Pan (g)", type: "number", req: false, mono: true },
+          { key: "moisture", label: "% moisture", type: "number", req: false, mono: true, readonly: true },
+        ],
+      },
+      {
+        key: "verify_volumetrics", heading: "Verification volumetrics — computed", fixed: true,
+        // Even tracks past the record name, same reasoning as the sublot
+        // volumetrics table: every value is 2-6 characters, so none has a
+        // claim on more room than the others.
+        grid: ".7fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
+        seed: VERIFY_ROW_SEED,
+        columns: [
+          { key: "record", label: "Record", type: "text", readonly: true },
+          // Computed, unlike the sublot table's - see the note above. The
+          // moisture-corrected figure, which is what the workbook's own
+          // average row carries (`B10` falls back to the uncorrected `J28`
+          // when there is no moisture block).
+          { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
+          { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
+          { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
+          { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
+          { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
+          { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true, readonly: true },
+          { key: "vfa", label: "VFA (%)", type: "number", req: false, mono: true, readonly: true },
         ],
       },
     ],

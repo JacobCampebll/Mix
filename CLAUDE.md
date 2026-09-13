@@ -1792,6 +1792,102 @@ TBD — cite the governing spec section when encoding a limit in code.
   most of its fields, so it was twenty paragraphs of provenance standing
   between a person and the four boxes they actually have to fill.
 
+- **The Verification step computes now, off its own weights** (Jake,
+  2026-09-13: "verification needs to be similar to lot pay in terms of the
+  full calc and information on the bsg msg and air voids"). It was seven typed
+  figures per record - %AC, unit weight, Gmm, Va, Pbe, VMA, VFA - which is the
+  same mistake the Sublots step made until three days earlier, and the same
+  argument settles it: the AMAW computes all of them from weights already on
+  the bench sheet, so typing them is how a lot ends up disagreeing with the
+  workbook it will be loaded from. Three weighings per record now.
+  **Three things about `Super Verify` are NOT guessable from the QC side, and
+  all three came out of KYTC's own blank template rather than by analogy:**
+  **It rounds NOTHING.** `Superpave` rounds the bulk volume to a tenth and
+  each BSG and each sublot MSG to three (`F12 = ROUND(E12-D12,1)`,
+  `G12 = ROUND(C12/F12,3)`, `C41 = ROUND(...,3)`); the same quantities here
+  are bare quotients (`F8 = E8-D8`, `G8 = C8/F8`, `C25 = C20/(C22-C23+C24)`).
+  Same workbook, same arithmetic, two different formulas - the hand-mixed
+  sample's already-recorded quirk, one sheet over. `bsgSpecimen()` and
+  `msgAverage()` take a `{ round }` option for it and the checker asserts the
+  rounded form would NOT match, so a later tidy-up cannot quietly align them.
+  **The %AC is BACK-CALCULATED, never typed.** A verification sample is a box
+  of mix off the road - nobody weighed binder into it - so its binder content
+  is recovered from its own Gmm against the lot's Gse
+  (`Pb = 1.03(Gse-Gmm) / (Gmm(Gse-1.03)) x 100`, `J28`) and then corrected for
+  the water in the mix (`J27 = J28 - M39`). That is the entire reason the
+  sheet carries a moisture block and the Sublots step does not, and it is why
+  the step needs a moisture table nobody would otherwise have added.
+  **The Gsb is the VERIFIED SUBLOT's**, not the lot's: `K10`/`L10` branch on
+  `B5` and read `Superpave!R9`/`S9`/`T9`/`U9`. So "Verifies" on the first
+  table is load-bearing arithmetic rather than a label - with it blank there
+  is no Gsb, and Pbe and VMA are blank and say why.
+  **`check_verify.mjs` is a different KIND of check and the difference is
+  worth understanding.** `check_volumetrics.mjs` reads raw weights out of a
+  completed lot and compares every derived cell to what Excel itself cached
+  there - the strongest kind available. That is impossible here: both of
+  Jake's completed AMAWs leave `Calculations!L1`/`L2` empty, meaning no QA or
+  IQ sample was ever taken on either, so every cell of `Super Verify` is blank
+  in both and there is no cached answer to compare to. So this one seeds the
+  blank template's input cells and evaluates the template's OWN FORMULAS with
+  `scripts/mixpack/formula.mjs`, matching 53 cells. The expectations are still
+  the workbook's; what is still owed is a real lot with a real verification on
+  it. Stated in the code, not just here.
+  Three functions the shared evaluator lacks - AVERAGE, ISERROR and AND - are
+  expanded inside that checker rather than added to `formula.mjs`, and that is
+  deliberate: adding AVERAGE there would change which cells a generated
+  MixPack or AMAW banks as a literal instead of leaving to Excel, which is a
+  real change to two shipping generators and has no business riding along
+  inside a checker.
+  **One deliberate divergence from the workbook, the only one in
+  `volumetrics.mjs` that is not a reproduction.** `M39` gates on the BEFORE
+  weight alone, so in Excel two blank cells under a filled one read as zeros
+  and the formula returns a confident **100% moisture** - which would come
+  straight off the back-calculated %AC as a four-point error on a printed
+  record. Every other quirk in that file is mirrored because a real approved
+  lot was judged by it; nothing was ever judged by this one. `moisturePct()`
+  requires all three weights and `check_verify.mjs` asserts both halves - that
+  ours is blank, and that the workbook's own answer there is 100.
+
+- **`PB_VOL` was the fifth namespace and the drift checker did not know it
+  existed.** `check_page_plantbook.mjs` lifted four blocks by banner and swept
+  them against their modules; `PLANTBOOK VOLUMETRICS` was spliced in on
+  2026-09-13 and never added, so the page's copy of `volumetrics.mjs` and the
+  module could have diverged silently for as long as anyone liked - which is
+  precisely the thing that file exists to prevent, and it went unnoticed
+  because its summary table reads "0 fail" whether a block is in step or
+  absent. Now five blocks, sixteen sweeps, and the summary names it. Watched
+  failing: changing `PCF_PER_SG` to 62.5 in the page's copy alone reports 6
+  drifts. **When a sixth namespace is spliced in, add it to `BANNERS` and to
+  `PAIRING` in the same commit** - a block that is not in both is not checked,
+  and nothing says so.
+
+- **PlantBook's first and seventh steps are "Contract & Mix" and "Lot Pay"**
+  (Jake, 2026-09-13: "rename lot to contract and mix, and the one named pay
+  name lot pay"). Labels only - the section ids stay `lot` and `pay`, because
+  every id in the two schemas is distinct on purpose (`lot-status` versus
+  DesignBook's `status`) and renaming one to read better on screen would trade
+  a caption for the `getElementById` collision CLAUDE.md records for the moved
+  `#advanceStage` node. The step's contents already were the contract and the
+  mix; "Lot" was the file's word for the record rather than for what the step
+  asks.
+
+- **The clipping baseline was carrying a lot of entries that had stopped
+  clipping, and the harness had been saying so every run.** `re-bless to
+  tighten` appeared on fourteen widths across both books before this change -
+  the `.rowitem` three-up rule of 2026-09-13 fixed most of them and nobody
+  re-blessed. Re-blessed now: 110 stale lines out of, 22 in. A stale baseline
+  is not neutral, it is a hole - every key it lists is one this check can no
+  longer catch, and the only sign was a PASS note nobody was reading.
+  **Read the diff before committing a blessing, and read it for REMOVALS as
+  well as additions.** The one addition here is `va` on PlantBook's
+  verification volumetrics at 360px, and it is worth knowing what it is: the
+  harness fills every raw weight with junk, so the back-calculated %AC comes
+  out at 54% and Va at **-217.80** - seven characters where a real lot's is
+  "6.84". Any `.num` cell clips at seven characters in a three-up row at
+  360px, the sublot volumetrics table included; it simply never produced a
+  negative under the same fill. So the entry records a width limit that is
+  real and a value that is not.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by

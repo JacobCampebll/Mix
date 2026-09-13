@@ -88,13 +88,13 @@ export function xlRound(v, digits) {
  * (`F` only tests SSD, `G` only tests air) but it cannot produce a number
  * without all three either, so this is the same behaviour stated honestly.
  */
-export function bsgSpecimen(spec = {}) {
+export function bsgSpecimen(spec = {}, { round = true } = {}) {
   const air = num(spec.air), water = num(spec.water), ssd = num(spec.ssd);
   const blank = { volume: null, bsg: null, unitWeight: null };
   if (air == null || water == null || ssd == null) return blank;
-  const volume = xlRound(ssd - water, DP.bulkVolume);
+  const volume = round ? xlRound(ssd - water, DP.bulkVolume) : ssd - water;
   if (volume == null || volume === 0) return blank;   // a zero volume is a typo, not a gravity
-  const bsg = xlRound(air / volume, DP.bsg);
+  const bsg = round ? xlRound(air / volume, DP.bsg) : air / volume;
   return { volume, bsg, unitWeight: bsg == null ? null : bsg * PCF_PER_SG };
 }
 
@@ -140,8 +140,8 @@ export function averagePresent(values) {
  * CLAUDE.md — it is what every lot on file was judged by, so it is mirrored
  * rather than tidied.
  */
-export function bsgAverage(specimens) {
-  const each = (specimens || []).map(bsgSpecimen);
+export function bsgAverage(specimens, opts) {
+  const each = (specimens || []).map((s) => bsgSpecimen(s, opts));
   if (!each.length || each[0].bsg == null) {
     return { each, bsg: null, unitWeight: null };
   }
@@ -314,6 +314,138 @@ export function sublotVolumetrics(o = {}) {
   };
 }
 
+// =====================================================================
+//  THE DEPARTMENT'S VERIFICATION — `Super Verify`, QA01 and IQ01
+// =====================================================================
+/*
+ * The same volumetric chain a sublot runs, off the same kind of weights, with
+ * three differences that are real and none of them guessable from the sublot
+ * side. All four sets of formulas below were read out of KYTC's own blank
+ * VER 14.01 template, not inferred.
+ *
+ *  1. NOTHING IS ROUNDED. `Superpave` rounds the bulk volume to 0.1, the BSG
+ *     to 0.001 and each MSG to 0.001; `Super Verify` rounds none of the
+ *     three - `F8 = E8-D8`, `G8 = C8/F8`, `C25 = C20/(C22-C23+C24)`, all bare.
+ *     Same workbook, same arithmetic, two different formulas, exactly like
+ *     the hand-mixed sample already documented above. Reproduced, not tidied.
+ *
+ *  2. THE %AC IS BACK-CALCULATED, NEVER TYPED. A verification sample is a
+ *     box of mix off the road; nobody weighed binder into it, so its binder
+ *     content is recovered from its own Gmm against the lot's Gse
+ *     (`J28`) and then corrected for the moisture in the mix (`J27`). That is
+ *     the whole reason the moisture block exists on that sheet.
+ *
+ *  3. THE Gsb IS THE VERIFIED SUBLOT'S. `K10`/`L10` branch on `B5` - the
+ *     sublot this record verifies - and read `Superpave!R9`, `S9`, `T9` or
+ *     `U9` accordingly. The blend percentages are per-sublot (docs/amaw-map.md),
+ *     so this is not the same number for every record.
+ *
+ * NOT CHECKED AGAINST A REAL LOT, AND THAT CANNOT BE FIXED HERE: both of
+ * Jake's completed AMAWs leave `Calculations!L1`/`L2` empty, meaning no QA or
+ * IQ sample was ever taken on either, so every cell on that sheet is blank in
+ * both. `check_verify.mjs` closes the gap the only other honest way - it
+ * evaluates the template's OWN formulas with scripts/mixpack/formula.mjs and
+ * compares them to this, so the transcription is checked against the workbook
+ * even though the arithmetic has never met a real verification.
+ */
+
+/**
+ * `'Super Verify'!J28` — the binder content recovered from the sample's own
+ * maximum specific gravity:
+ *
+ *   Pb = 1.03 * (Gse - Gmm) / (Gmm * (Gse - 1.03)) * 100
+ *
+ * Null rather than a number whenever it cannot be formed. `Gse == 1.03` is
+ * the degenerate case (an aggregate as light as the binder), which is not a
+ * real mixture and would divide by zero.
+ */
+export function backCalcBinderPct({ gse, gmm } = {}) {
+  const g = num(gse), m = num(gmm);
+  if (g == null || m == null || m === 0 || g === BINDER_SG) return null;
+  return ((BINDER_SG * (g - m)) / (m * (g - BINDER_SG))) * 100;
+}
+
+/**
+ * `'Super Verify'!M39` — the water in the mix, as a percentage of it, from
+ * the three pan weights:
+ *
+ *   % moisture = ((wet - dry) / wet) * 100,  wet = before - pan, dry = after - pan
+ *
+ * ONE DELIBERATE DIVERGENCE FROM THE WORKBOOK, and it is the only one in
+ * this file that is not a reproduction. The cell gates on the BEFORE weight
+ * alone (`IF(M36="","",...)`), so in Excel two blank cells under a filled one
+ * read as zeros and the formula returns a confident 100%. Every other
+ * quirk in this file is mirrored because a real approved lot was judged by
+ * it; nothing was ever judged by this one (no completed AMAW has a
+ * verification block at all), and 100% moisture would come straight off the
+ * back-calculated %AC as a four-point error on a printed record. So all
+ * three weights are required. The workbook's own zero-wet guard IS kept.
+ */
+export function moisturePct({ before, after, pan } = {}) {
+  const b = num(before), a = num(after), p = num(pan);
+  if (b == null || a == null || p == null) return null;
+  const wet = b - p;
+  if (wet === 0) return 0;            // the workbook's own IF(M36-M38=0,0,…)
+  return ((wet - (a - p)) / wet) * 100;
+}
+
+/**
+ * One verification record's whole row — `'Super Verify'` rows 10 and 17.
+ *
+ *   verifyVolumetrics({ specimens, determinations, moisture, gsb, gse })
+ *
+ * `specimens` is the two BSG pucks ({air, water, ssd}), `determinations` the
+ * two Rice bowls ({mix, calibration, finalWeight, absorbedWater}), `moisture`
+ * the percentage from moisturePct() (null when the pan weights are not there,
+ * in which case the workbook uses the uncorrected back-calculation - `B10`
+ * falls back from `J27` to `J28` for exactly that reason), `gsb` the VERIFIED
+ * SUBLOT's combined aggregate Gsb and `gse` the lot's.
+ *
+ * Every figure is null unless everything it needs is present, and `needs`
+ * names what a null one is waiting for, same contract as sublotVolumetrics().
+ */
+export function verifyVolumetrics(o = {}) {
+  // Unrounded, on both - see (1) above.
+  const { bsg: gmb, unitWeight, each: bsgEach } = bsgAverage(o.specimens, { round: false });
+  const { msg: gmm, each: msgEach } = msgAverage(o.determinations, { round: false });
+  const gsb = num(o.gsb), gse = num(o.gse), moisture = num(o.moisture);
+  const needs = [];
+
+  // J28, then J27 = J28 - M39. B10 takes the corrected one when there is one.
+  const backCalc = backCalcBinderPct({ gse, gmm });
+  const binderPct = backCalc == null ? null : (moisture == null ? backCalc : backCalc - moisture);
+
+  // J10 = ((Gmm - Gmb) / Gmm) * 100
+  if (gmb == null) needs.push("BSG specimen weights");
+  if (gmm == null) needs.push("MSG determinations");
+  const va = (gmb != null && gmm != null && gmm !== 0) ? ((gmm - gmb) / gmm) * 100 : null;
+
+  // The absorbed half of K10, spelled out so the row can show the step.
+  const absorbedAC = (binderPct != null && gsb != null && gse != null && gsb !== 0 && gse !== 0)
+    ? ((100 - binderPct) * (100 * (((gse - gsb) / (gsb * gse)) * BINDER_SG))) / 100
+    : null;
+  // K10 = B10 - <the above>. Note the COLUMN differs from the sublot sheet -
+  // `Super Verify` puts Pbe where `Superpave` puts absorbed AC - but the
+  // quantity is the same one (addresses.mjs: "one column left from pbe on").
+  const pbe = (binderPct != null && absorbedAC != null) ? binderPct - absorbedAC : null;
+  // L10 = 100 - (Gmb * (100 - Pb) / Gsb)
+  const vma = (gmb != null && binderPct != null && gsb != null && gsb !== 0)
+    ? 100 - (gmb * (100 - binderPct) / gsb) : null;
+  // M10 = 100 * (VMA - Va) / VMA
+  const vfa = (vma != null && va != null && vma !== 0) ? 100 * (vma - va) / vma : null;
+
+  if (gse == null) needs.push("the hand-mixed check sample (for Gse)");
+  if (gsb == null) needs.push("combined Gsb for the sublot being verified");
+
+  return {
+    bsgEach, msgEach,
+    gmb, unitWeight, gmm,
+    backCalcBinderPct: backCalc, moisture, binderPct,
+    va, absorbedAC, pbe, vma, vfa,
+    needs: [...new Set(needs)],
+  };
+}
+
 /** `Superpave!O15` prints this verbatim when the D/A ratio leaves the band. */
 export const DUST_RATIO_NOTE =
   "* Does not satisfy KY Specification Subsection 402.03.02 D) 5)";
@@ -322,5 +454,5 @@ export default {
   PCF_PER_SG, BINDER_SG, DP, DUST_RATIO_NOTE,
   xlRound, bsgSpecimen, msgDetermination, averagePresent,
   bsgAverage, msgAverage, gseFromHandMix, handMixedGse, sublotVolumetrics,
-  coreDerived,
+  coreDerived, backCalcBinderPct, moisturePct, verifyVolumetrics,
 };
