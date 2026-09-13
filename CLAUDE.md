@@ -1722,6 +1722,76 @@ TBD — cite the governing spec section when encoding a limit in code.
   AND `lotScalars()` derives 5 back out of the size it does store), because a
   removal that quietly lost the value would pass the first half alone.
 
+- **The density option is looked up off the proposal now, and joint cores
+  follow from it** (Jake, 2026-09-13: "I thought you were deriving the density
+  option from the proposal?... once that is figured out the we will know if
+  joint cores apply because its only for 0.38 and 0.50 mixes"). The note above
+  said closing this meant `kytc-lookup` returning the OPTION notes. It does
+  not return them, confirmed by calling the deployed function rather than
+  trusting the note: header, `required_mix_designs`, items, no notes at all.
+  And it is Andrew's, in a Supabase project this repo has no access to.
+  **What it does return is `source_filename`**, and that turned out to be the
+  whole key. The proposal is named `<call no>-<COUNTY>-<yy>-<nnnn>.pdf` and
+  nothing on a contract carries the call number, so that name is the one thing
+  a contract ID cannot produce - everything else is public. So the page calls
+  `kytc-lookup` exactly as the Portal and Contract Information already do,
+  takes the file name, and hands it to a new **`netlify/functions/kytc-notes`**
+  which fetches the PDF and reads the OPTION notes out of it. No change to
+  Andrew's function, and the same CORS-proxy shape as `kytc-items`.
+  **The PDF reading is `node:zlib` and about eighty lines** - inflate every
+  FlateDecode stream, keep the text-showing operators - and it is deliberately
+  not a PDF library. It is also NOT sufficient everywhere, which is the part to
+  remember: a page set in a subsetted CID font with a custom CMap decodes to
+  control characters, and **the Project(s) page of 262120's own proposal is one
+  of those** (which is also why the PCN -> route question below is still open).
+  `hasText()` checks the result reads as English before anything is parsed out
+  of it, and a page that fails returns a stated failure - a wrong Option letter
+  is worse than no Option letter, because a wrong one weighs every pay property
+  at zero and nothing on screen says so.
+  **The note is per ROUTE, so the function returns a list and the page fills
+  nothing when there are two.** 262120 carries "OPTION A (KY 627)" and
+  "OPTION B (US 25)" on facing pages; 252112 carries a bare "OPTION A". One is
+  applied; two are named, the same answer `applyProjectItems()` gives when two
+  mixes could be the design's. Closing THAT needs the design's project number
+  resolved to a route, which is the Project(s) page, which is the font problem.
+  **Then joint cores follow, and the narrow rule is the one worth guarding.**
+  Option B takes no cores at all. Option A takes them "for surface mixtures
+  only" - and only at 0.38 and 0.50, so **a NO.4 surface is NOT on the list**
+  (a thin lift, outside the note's "at 1 inch (25mm) or greater"), which is the
+  case a reasonable person gets wrong by shortening the rule to "surface".
+  `jointDensityFor()` already held all of it; what it never had was the COURSE,
+  which comes off the contract's own mix item (`layer: "SURF"`). An unknown
+  course leaves the field BLANK rather than collapsing to "no" - "no" is a real
+  answer that would silently drop a surface lot's 15% joint-density weight.
+  Two checks, because the two halves fail differently:
+  `scripts/kytc/check_notes.mjs` guards the parser against fixtures from both
+  real proposals (including the two decoys every one of these documents
+  carries - the contents listing's "COMPACTION OPTION A" and the KYCT note's
+  "the Option A or Option B test fixture"), with `--live` for the real PDFs;
+  and the harness's new `compaction` check guards what the PAGE does with an
+  answer, refusals asserted as hard as fills. Both watched failing.
+  **A section-head lookup is a declared thing now**, not a hardcoded button:
+  `lookup: { key, label }` in the schema, `state.lookupNotes[key]` for the
+  message, and `<key>LookupBtn` / `<key>LookupNote` for the ids so two lookups
+  on one page can never answer to one `getElementById`. DesignBook's
+  `lookup: true` still means its contract lookup and reads the same way.
+  The lot carries **`letting_date`** and **`layer`** on `values.design` for
+  this: `kytc-lookup` 400s without a letting date, and a lot reopened from its
+  .json had lost it - the lookup would have been dead on exactly the lots that
+  run for a week.
+
+- **Where a prefilled value came from is on the control, not under it**
+  (Jake, 2026-09-13: "lets get rid of the grey letter below each box"). The
+  `.srcnote` line is gone; the text is the input's `title`. **This does not
+  weaken the provisional-value rule**, and it is worth being precise about
+  why: that rule says an extracted value must read as provisional rather than
+  as fact, and the TINT is what says so (`.prefilled`, plus the warning rail
+  behind it). The sentence naming the source cell is the detail behind the
+  tint, and `extracted_from` in the payload is where the audit trail has
+  always actually lived. What it cost was real: PlantBook's Lot step inherits
+  most of its fields, so it was twenty paragraphs of provenance standing
+  between a person and the four boxes they actually have to fill.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by

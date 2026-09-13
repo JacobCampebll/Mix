@@ -271,6 +271,18 @@ export const PLANTBOOK_SECTIONS = [
     tag: "AMAW · Pay Values header — from the approved design, or typed",
     type: "grid",
     cites: ["jmf", "accept403"],
+    // A button in the section head, the same shape Contract Information's
+    // contract lookup has. `key` is what the page dispatches on; the schema
+    // names the lookup and never holds a handler, because this module is
+    // read in Node with no DOM.
+    //
+    // What it is for: 402.03.02 D) 6) opens "The Contract will state the
+    // compaction option to be used", so Option A / Option B is a LOOKUP and
+    // not a preference - and once it is known, joint cores follow from it
+    // and the mix (Jake, 2026-09-13: "once that is figured out the we will
+    // know if joint cores apply because its only for 0.38 and 0.50 mixes").
+    // Both fields are filled from one press.
+    lookup: { key: "compaction", label: "Look up compaction<span class=\"wide-only\"> option</span>" },
     fields: [
       // Scalar field keys are prefixed `lot_` throughout. They share
       // `state.extracted.scalars` with DesignBook's, and `county`,

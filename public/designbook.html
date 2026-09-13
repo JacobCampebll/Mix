@@ -1205,6 +1205,22 @@ const CONFIG = {
     },
   },
 
+  // ---- The compaction option, off the contract's proposal ----
+  // PlantBook's Lot step. 2026 Std Spec 402.03.02 D) 6): "The Contract will
+  // state the compaction option to be used" - so Option A / Option B is a
+  // lookup rather than a preference, and joint cores follow from it and the
+  // mix. netlify/functions/kytc-notes reads the OPTION notes out of the
+  // proposal PDF; the proposal's file name comes from kytc-lookup, because
+  // the file is named for the CALL number and nothing on a contract carries
+  // that. See lookupCompaction().
+  COMPACTION: {
+    fn: "/.netlify/functions/kytc-notes",
+    // Same as the other two: KYTC's IIS is slow enough under load that one
+    // call in three can time out and the retry succeeds. A proposal is a few
+    // megabytes, so this one has more reason than either.
+    retries: 1,
+  },
+
   // Was the page's single cert gate; it is per-BOOK now, on CONFIG.BOOKS
   // (`capability`), because this page is two books. Kept as the answer for
   // anything that still asks the page as a whole, and as the default when
@@ -2852,6 +2868,18 @@ const PB_SECTIONS = (() => {
       tag: "AMAW · Pay Values header — from the approved design, or typed",
       type: "grid",
       cites: ["jmf", "accept403"],
+      // A button in the section head, the same shape Contract Information's
+      // contract lookup has. `key` is what the page dispatches on; the schema
+      // names the lookup and never holds a handler, because this module is
+      // read in Node with no DOM.
+      //
+      // What it is for: 402.03.02 D) 6) opens "The Contract will state the
+      // compaction option to be used", so Option A / Option B is a LOOKUP and
+      // not a preference - and once it is known, joint cores follow from it
+      // and the mix (Jake, 2026-09-13: "once that is figured out the we will
+      // know if joint cores apply because its only for 0.38 and 0.50 mixes").
+      // Both fields are filled from one press.
+      lookup: { key: "compaction", label: "Look up compaction<span class=\"wide-only\"> option</span>" },
       fields: [
         // Scalar field keys are prefixed `lot_` throughout. They share
         // `state.extracted.scalars` with DesignBook's, and `county`,
@@ -3834,10 +3862,14 @@ const state = {
   mix: null,         // { signature, binder_grade, total_quantity, unit, mix_class, layer,
                      //   nominal_size, county, lines, source } or null
   contract: null,    // { header, source } - the proposal header from the Portal's record or a lookup
-  contractNote: null,// { text, kind } - what the last lookup did, re-rendered with the form
+  // What each section-head lookup last did, keyed by its `lookup.key` -
+  // "contract" (DesignBook's proposal read) and "compaction" (PlantBook's).
+  // Kept on state so the message survives renderForm(); one map rather than
+  // one field each, so a third lookup needs no new state.
+  lookupNotes: {},
   // Notes for the lookups that hang off a row table's head, keyed by the
   // note id in that spec's `action`. Same shape and same job as
-  // contractNote: kept on state so the message survives renderForm().
+  // lookupNotes: kept on state so the message survives renderForm().
   notes: {},
   extracted: null,   // { scalars, tables } from the workbook, if any
   legacy: null,      // full import result: version, sheet resolution, per-field log, unmapped, context
@@ -4056,6 +4088,38 @@ function inputFor(f, value, src) {
   const type = f.type === "date" ? "date" : "text";
   const im = f.type === "number" ? ' inputmode="decimal"' : "";
   return `<input type="${type}"${im} class="${cls}" ${attrs} value="${esc(value == null ? "" : value)}">`;
+}
+
+/* ---------- a section-head lookup ----------
+ *
+ * Two of them now: DesignBook's Contract Information reads the proposal for
+ * county, funding, tonnage and line items; PlantBook's Lot step reads it for
+ * the compaction option. They are the same control, so they share the markup
+ * and the note line rather than growing a second set.
+ *
+ * `lookup: true` is DesignBook's, kept as it was written - the button says
+ * the contract number, which only makes sense for that one. Anything else
+ * declares `{ key, label }`, and the key is both the dispatch and the half of
+ * the element ids, so two lookups on one page can never answer to one
+ * getElementById (the trap CLAUDE.md records for the moved #advanceStage).
+ */
+function lookupSpec(s) {
+  if (!s || !s.lookup) return null;
+  if (s.lookup === true) {
+    return { key: "contract", label: `Look up<span class="wide-only"> contract</span> ${esc(state.job.cid || "")}` };
+  }
+  return s.lookup;
+}
+function lookupHTML(s) {
+  const lk = lookupSpec(s);
+  if (!lk || !state.job || !state.job.cid) return "";
+  return `<button type="button" class="seclookup" id="${esc(lk.key)}LookupBtn">${lk.label}</button>`;
+}
+function lookupNoteHTML(s) {
+  const lk = lookupSpec(s);
+  if (!lk) return "";
+  const n = state.lookupNotes[lk.key];
+  return `<div class="lookupnote${n && n.kind ? " " + esc(n.kind) : ""}" id="${esc(lk.key)}LookupNote">${n ? esc(n.text) : ""}</div>`;
 }
 
 function gridHTML(fields) {
@@ -4536,9 +4600,8 @@ function renderForm() {
     // put it at the very end of the section.
     return `<section class="section step" id="${s.id}" data-section="${s.id}" data-label="${s.label}" data-step="${i}">
       <div class="section-head"><div class="headtitle"><span class="kicker"></span><h2>${s.label}</h2></div>
-        <span class="headmeta">${sectionCitesHTML(s)}${s.lookup && state.job && state.job.cid
-          ? `<button type="button" class="seclookup" id="contractLookupBtn">Look up<span class="wide-only"> contract</span> ${esc(state.job.cid)}</button>` : ""}<span class="section-tag mono">${s.tag}</span></span></div>
-      ${s.lookup ? `<div class="lookupnote${state.contractNote ? " " + esc(state.contractNote.kind) : ""}" id="contractLookupNote">${state.contractNote ? esc(state.contractNote.text) : ""}</div>` : ""}
+        <span class="headmeta">${sectionCitesHTML(s)}${lookupHTML(s)}<span class="section-tag mono">${s.tag}</span></span></div>
+      ${lookupNoteHTML(s)}
       ${sectionBodyHTML(s)}
       ${child}
       ${s.id === "tsr" ? `<div class="tsrresults"></div>` : ""}
@@ -15158,6 +15221,17 @@ const PB_LOT = (() => {
       },
       signature,
       nominal_size: mix ? mix.nominal_size : null,
+      // The course the mix is placed in - SURF / BASE / BINDER - when the
+      // approval carries a signature to read it off. It is what decides joint
+      // cores under Option A ("for surface mixtures only"), so it is carried
+      // rather than re-parsed at each use.
+      layer: mix && mix.layer ? str(mix.layer) : null,
+      // The contract's letting date, carried for one reason: kytc-lookup will
+      // not answer without it, and the Lot step's compaction lookup needs that
+      // function to find the proposal (it is the only source of the proposal's
+      // file name). A lot reopened from its .json would otherwise have lost it
+      // and the lookup would be dead on exactly the lots that run for a week.
+      letting_date: str(job.letting_date || job.letting) || null,
       designer: str(v.designer) || null,
       submittal_type: str(v.submittal_type) || null,
       // The design's own Class, carried on the envelope as well as being
@@ -16009,7 +16083,10 @@ function openLotFile(text, label) {
   const lot = PB_LOT.normaliseLot(JSON.parse(text));
   state.lot = lot;
   state.lotReport = null;
-  state.job = { cid: lot.contract_id, letting: "", plant: lot.amp_number };
+  // The letting date rides on the lot's design block precisely so a reopened
+  // lot can still run the compaction lookup; without it kytc-lookup 400s.
+  state.job = { cid: lot.contract_id, plant: lot.amp_number,
+                letting: ((lot.values || {}).design || {}).letting_date || "" };
   state.plantName = lot.plant_name || null;
   state.extracted = { scalars: lot.values, tables: lot.rows };
   state.sources = lot.extracted_from || {};
@@ -17195,20 +17272,174 @@ async function lookupContract() {
   const j = state.job;
   if (!j || !j.cid || !j.letting) { note.className = "lookupnote error"; note.textContent = "The lookup needs the contract ID and letting date the Portal sends; start from the Portal."; return; }
   btn.disabled = true;
-  const was = btn.textContent;
+  // innerHTML, not textContent: the label carries a .wide-only span, and
+  // restoring it as text would leave the button permanently un-collapsible
+  // below 700px after one lookup.
+  const was = btn.innerHTML;
   btn.textContent = "Reading the proposal...";
   note.className = "lookupnote"; note.textContent = `Reading contract ${j.cid}'s proposal from transportation.ky.gov - this can take a few seconds.`;
   try {
     const data = await fetchContract(j.cid, j.letting);
-    state.contractNote = applyContractLookup(data);
-    note.className = "lookupnote" + (state.contractNote.kind ? " " + state.contractNote.kind : "");
-    note.textContent = state.contractNote.text;
+    const out = applyContractLookup(data);
+    state.lookupNotes.contract = out;
+    note.className = "lookupnote" + (out.kind ? " " + out.kind : "");
+    note.textContent = out.text;
     audit(`Contract ${j.cid} looked up - ${state.tech ? state.tech.sm_id : ""}`);
   } catch (err) {
     note.className = "lookupnote error";
     note.textContent = `Couldn't read the proposal (${err.message || "lookup failed"}). The KYTC site is slow at times - try again in a moment, or type the values.`;
   } finally {
-    btn.disabled = false; btn.textContent = was;
+    btn.disabled = false; btn.innerHTML = was;
+  }
+}
+
+/* ==================================================================
+   THE COMPACTION OPTION, OFF THE PROPOSAL
+   ==================================================================
+
+   2026 Std Spec 402.03.02 D) 6) opens "The Contract will state the
+   compaction option to be used". So Option A or Option B is a LOOKUP, not a
+   question a technician should answer from memory - and getting it wrong is
+   not cosmetic: propertyWeights() answers for exactly three flag
+   combinations and weighs every property at zero for the rest, so a wrong
+   option is a silently zero-paid lot.
+
+   Two calls, because the fact lives in two places and neither is ours:
+
+     1. kytc-lookup  (Andrew's, the same function the Portal and Contract
+        Information already call) for `source_filename` - the proposal's own
+        name, which cannot be derived from a contract ID at all, since the
+        file is named for the CALL number. It also returns the contract's mix
+        items, which is where the mix's COURSE comes from.
+     2. kytc-notes   (this repo) to read the OPTION notes out of that PDF.
+
+   THE NOTE IS WRITTEN PER ROUTE, so 262120 carries "OPTION A (KY 627)" and
+   "OPTION B (US 25)" and there is no honest way to pick between them here -
+   the lot would have to know which stretch it paved. One note is applied;
+   two or more are NAMED and nothing is filled, the same answer
+   applyProjectItems() gives when two mixes could be the design's.
+
+   And then joint cores follow, which is the whole point of doing this now
+   (Jake, 2026-09-13: "once that is figured out the we will know if joint
+   cores apply because its only for 0.38 and 0.50 mixes"). Option B takes no
+   cores at all; Option A takes them "for surface mixtures only", and the
+   sizes are 0.38 and 0.50 - jointDensityFor() already holds that rule, it
+   just never had a course to read. */
+
+async function fetchCompactionNotes(cid, proposal) {
+  const cfg = CONFIG.COMPACTION;
+  let last = "lookup failed";
+  for (let attempt = 0; attempt <= (cfg.retries || 0); attempt++) {
+    try {
+      const res = await fetch(`${cfg.fn}?cid=${encodeURIComponent(cid)}&proposal=${encodeURIComponent(proposal)}`);
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((json && json.error) || `HTTP ${res.status}`);
+      return json;
+    } catch (err) { last = err.message || "lookup failed"; }
+  }
+  throw new Error(last);
+}
+
+/** The contract's record of the mix this lot is producing, for its COURSE.
+ *  Matched on the designation the form already holds, the same way
+ *  pickContractMix() does it for DesignBook - and deliberately NOT falling
+ *  back to "the only mix on the contract" when nothing matches: a course
+ *  taken off the wrong line would decide joint cores wrongly and read as
+ *  though the proposal had said so. */
+function contractMixForLot(mixes) {
+  const size = String(fieldValue("lot_nominal_size") || "").trim() + String(fieldValue("lot_mix_type") || "").trim();
+  if (!size) return null;
+  const hits = (mixes || []).filter((x) =>
+    String(x.nominal_size || "").toUpperCase() === size.toUpperCase());
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/** Fill Density option and Joint density from what the proposal said.
+ *  Returns { text, kind } for the note line, the same shape every other
+ *  lookup on this page returns. */
+function applyCompaction(notes, mixes) {
+  const opts = (notes && notes.options) || [];
+  const source = `kytc-notes \u00b7 ${notes.file}`;
+  const say = (n) => `OPTION ${n.option}${n.route ? ` (${n.route})` : ""}`;
+
+  if (!opts.length) {
+    return { text: `${notes.file} carries no compaction note, so the option is not stated in the proposal `
+                 + `and has to come from whoever holds the Contract.`, kind: "warn" };
+  }
+  if (opts.length > 1) {
+    return { text: `The proposal states ${opts.map(say).join(" and ")} - the note is written per route, `
+                 + `so nothing here can tell which stretch this lot paved. Pick the one that applies; `
+                 + `joint density follows from it.`, kind: "warn" };
+  }
+
+  const n = opts[0];
+  const done = [];
+  const opt = prefillLive("lot_density_option", n.option, source);
+  done.push(opt === "filled" ? `Density option set to Option ${n.option}`
+          : opt === "kept"   ? `Density option already says ${fieldValue("lot_density_option") || "something"}, left alone`
+          : `Density option could not be set to "${n.option}"`);
+
+  // Joint density. Option B has no cores at all, so it is settled by the
+  // option alone; under Option A the note's own wording decides whether
+  // joint cores are taken, and then the mix decides whether THIS lot's are.
+  let jd = null, why = "";
+  if (n.option === "B") { jd = "2"; why = "Option B takes no cores"; }
+  else if (!n.joint_cores) { jd = "2"; why = "the note does not require joint cores"; }
+  else {
+    const cm = contractMixForLot(mixes);
+    const d = lotDesign() || {};
+    const layer = (cm && cm.layer) || d.layer || null;
+    const mix = { layer, nominal_size: fieldValue("lot_nominal_size") || d.nominal_size || "" };
+    jd = PB_LOT.jointDensityFor(mix);
+    why = layer ? `a ${layer} ${mix.nominal_size} mix under Option A` : "";
+  }
+  if (jd == null) {
+    done.push(`Joint density not set - the proposal requires joint cores for surface mixtures only, `
+            + `and nothing here says which course this mix is placed in`);
+  } else {
+    const r = prefillLive("lot_joint_density", jd, `${source} \u00b7 ${why || "the compaction note"}`);
+    done.push(r === "filled" ? `Joint density set to ${jd === "1" ? "Yes" : "No"}${why ? ` - ${why}` : ""}`
+            : r === "kept"   ? "Joint density already answered, left alone"
+            : "Joint density could not be set");
+  }
+  return { text: `${say(n)}. ${done.join(". ")}.`, kind: "ok" };
+}
+
+async function lookupCompaction() {
+  const btn = $("compactionLookupBtn"), note = $("compactionLookupNote");
+  if (!btn || btn.disabled || !note) return;
+  const j = state.job || {};
+  // The letting date is what kytc-lookup will not answer without. It comes
+  // off the approval and is carried on the lot envelope for exactly this,
+  // so a lot reopened from its .json a week later can still run the lookup.
+  const letting = j.letting || (lotDesign() || {}).letting_date || "";
+  const setNote = (n) => {
+    state.lookupNotes.compaction = n;
+    note.className = "lookupnote" + (n.kind ? " " + n.kind : "");
+    note.textContent = n.text;
+  };
+  if (!j.cid || !letting) {
+    setNote({ text: "The lookup needs the contract ID and its letting date, which come from the approval. "
+                  + "Set the option from the Contract's own special note instead.", kind: "error" });
+    return;
+  }
+  btn.disabled = true;
+  const was = btn.innerHTML;
+  btn.textContent = "Reading the proposal...";
+  setNote({ text: `Reading contract ${j.cid}'s proposal from transportation.ky.gov - this can take a few seconds.`, kind: "" });
+  try {
+    const contract = await fetchContract(j.cid, letting);
+    const file = contract && contract.source_filename;
+    if (!file) throw new Error("the contract lookup returned no proposal file name");
+    const notes = await fetchCompactionNotes(j.cid, file);
+    setNote(applyCompaction(notes, (contract && contract.required_mix_designs) || []));
+    recompute();
+    audit(`Compaction option looked up for contract ${j.cid} - ${state.tech ? state.tech.sm_id : ""}`);
+  } catch (err) {
+    setNote({ text: `Couldn't read the compaction option (${err.message || "lookup failed"}). `
+                  + `The KYTC site is slow at times - try again in a moment, or set it from the Contract.`, kind: "error" });
+  } finally {
+    btn.disabled = false; btn.innerHTML = was;
   }
 }
 
@@ -17433,6 +17664,7 @@ document.addEventListener("click", (e) => {
   // span and not the button.
   const look = e.target.closest ? e.target.closest("button") : null;
   if (look && look.id === "contractLookupBtn") lookupContract();
+  if (look && look.id === "compactionLookupBtn") lookupCompaction();
   if (look && ITEMS.buttons.includes(look.id)) lookupProjectItems();
 });
 $("skipUpload").addEventListener("click", () => {

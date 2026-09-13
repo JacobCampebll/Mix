@@ -1,6 +1,6 @@
 # Netlify Functions
 
-Three, and all three are **transit, not storage**. Nothing here keeps a
+Four, and all four are **transit, not storage**. Nothing here keeps a
 design; that is the whole point of the model in CLAUDE.md ("Designs: the file
 is the record, not a table"). A function exists only where the browser
 genuinely cannot do the job:
@@ -10,6 +10,55 @@ genuinely cannot do the job:
 | `sign-approval` | An approval must be impossible to forge by editing a file. That needs a secret the browser never sees. |
 | `verify-approval` | Checking an approval needs the same secret. Open on purpose — a district office with a PDF should be able to check it without an account. |
 | `kytc-items` | The contract's current line items, off `transportation.ky.gov`. No secret at all — the reason is CORS: the KYTC site is public and sends no `Access-Control-Allow-Origin`, so a browser cannot read it. Open, like `verify-approval`; it reads public pages and takes nothing but a contract ID. |
+| `kytc-notes` | The contract's **compaction option**, out of the proposal PDF. Same CORS reason, plus one the others don't have: it has to decode the PDF, which is a `node:zlib` inflate of every content stream. Takes a contract ID and the proposal's file name, and nothing else. |
+
+## kytc-notes — the compaction option
+
+2026 Std Spec **402.03.02 D) 6)** opens "The Contract will state the
+compaction option to be used". So Option A or Option B is a **lookup**, not a
+question for a technician — and it is not cosmetic: `propertyWeights()`
+answers for exactly three flag combinations and weighs every property at zero
+for the rest, so a wrong option is a silently zero-paid lot. Once it is known,
+joint cores follow from it and the mix (Option B takes no cores at all; Option
+A takes them "for surface mixtures only", at 0.38 and 0.50).
+
+Two calls, because the fact lives in two places and only one of them is ours:
+
+1. **`kytc-lookup`** (Andrew's Supabase Edge Function, the same one the Portal
+   and Contract Information already call) for `source_filename`. That is the
+   one thing a contract ID cannot produce: the proposal is named
+   `<call no>-<COUNTY>-<yy>-<nnnn>.pdf`, and nothing on a contract carries the
+   call number. It also returns the contract's mix items, which is where the
+   mix's **course** (SURF / BASE) comes from.
+2. **`kytc-notes`** to read the notes out of that PDF.
+
+The file name arrives through a browser, so it is validated rather than
+trusted — a bare `.pdf` name in the Proposals library, no path and no scheme,
+and the host and directory are ours. The contract ID is then cross-checked
+against the text, since the file name carries a call number and not a
+contract: every page of these proposals has `Contract ID:  262120` in its
+footer, so a mis-aimed name is a 409 rather than a confident wrong answer.
+
+**The note is written per route, which is why this returns a list.** Contract
+262120 carries `OPTION A (KY 627)` and `OPTION B (US 25)` on facing pages of
+one proposal; a single-route contract writes a bare `OPTION A`. Deciding
+between two is the caller's problem, and the page's answer is to fill nothing
+and name both.
+
+The PDF reading is deliberately minimal — inflate every `FlateDecode` stream
+and pull the text-showing operators — and it is **not** sufficient everywhere.
+A page set in a subsetted CID font with a custom CMap decodes to control
+characters; the Project(s) page of 262120's own proposal is one of those. So
+`hasText()` checks the result reads as English before anything is parsed out
+of it, and a page that fails that returns a stated failure. A wrong Option
+letter is worse than no Option letter.
+
+`scripts/kytc/check_notes.mjs` guards the parser against fixtures taken from
+both real proposals, including the two decoys every one of these documents
+contains — the contents listing's "COMPACTION OPTION A" and the KYCT note's
+"the Option A or Option B test fixture". `--live` adds the two real PDFs,
+which is the only way to check the PDF reader itself. The page half —
+what gets filled, and what is refused — is the harness's `compaction` check.
 
 `kytc-items` is the one thing on a generated MixPack that a correct design
 could still get wrong. Its Project Items sheet is what MEDL checks the load

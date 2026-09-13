@@ -1059,6 +1059,17 @@ export function lotFromApproval(payload, opts = {}) {
     },
     signature,
     nominal_size: mix ? mix.nominal_size : null,
+    // The course the mix is placed in - SURF / BASE / BINDER - when the
+    // approval carries a signature to read it off. It is what decides joint
+    // cores under Option A ("for surface mixtures only"), so it is carried
+    // rather than re-parsed at each use.
+    layer: mix && mix.layer ? str(mix.layer) : null,
+    // The contract's letting date, carried for one reason: kytc-lookup will
+    // not answer without it, and the Lot step's compaction lookup needs that
+    // function to find the proposal (it is the only source of the proposal's
+    // file name). A lot reopened from its .json would otherwise have lost it
+    // and the lookup would be dead on exactly the lots that run for a week.
+    letting_date: str(job.letting_date || job.letting) || null,
     designer: str(v.designer) || null,
     submittal_type: str(v.submittal_type) || null,
     // The design's own Class, carried on the envelope as well as being
