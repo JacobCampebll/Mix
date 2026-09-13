@@ -153,8 +153,12 @@ if (!approval) {
     ok('nothing was seeded under a key sections.mjs does not have',
        !r.report.warnings.some((w) => w.code === 'schema-drift'),
        r.report.warnings.filter((w) => w.code === 'schema-drift'));
+    // The example field here was lot_unit_price until it became a seeded spec
+    // constant on 2026-09-13. lot_wedge_tons is the replacement and a better
+    // one: it is optional, blank in BOTH real lots, and nothing derives it -
+    // so it should stay null for as long as this assertion is worth making.
     ok('every schema field is present on the lot, null where unfilled',
-       'lot_unit_price' in lot.values && lot.values.lot_unit_price === null);
+       'lot_wedge_tons' in lot.values && lot.values.lot_wedge_tons === null);
     ok('combined Gsb inherited', d.combined_gsb === parseFloat(approval.values.fourpoint['const:fp_gsb']),
        d.combined_gsb);
     ok('JMF gradation has the AMAW\'s fourteen slots', d.jmf_gradation.length === 14, d.jmf_gradation.length);
@@ -176,8 +180,20 @@ if (!approval) {
     // --- what a technician still types --------------------------------
     const typedKeys = r.report.typed.map((t) => t.key);
     for (const k of ['lot_esal_class', 'lot_acceptance_method', 'lot_density_option',
-                     'lot_unit_price', 'sublot_tests'])
+                     'sublot_tests'])
       ok(`report.typed names ${k}`, typedKeys.includes(k), typedKeys);
+    // lot_unit_price came off that list on 2026-09-13, once the $50 turned out
+    // to be the spec's defined adjustment price (402.05.02) rather than a bid
+    // price that varies by contract. Same both-ways-round assertion as
+    // lot_tons, and one extra: it must NOT be the contract's bid price, which
+    // is the bug this replaced.
+    ok('lot_unit_price is seeded from the spec constant, not asked for',
+       Number(lot.values.lot_unit_price) === 50, lot.values.lot_unit_price);
+    ok('...and is not also listed as still to type',
+       !typedKeys.includes('lot_unit_price'), typedKeys);
+    ok('report.derived names lot_unit_price',
+       r.report.derived.some((d2) => d2.key === 'lot_unit_price'),
+       r.report.derived.map((d2) => d2.key));
     // lot_joint_density came off that list on 2026-09-13. Joint cores are
     // taken on surface mixtures at 1 inch or greater and on nothing else, so
     // the mix settles it and the approval carries the mix. Asserted both ways

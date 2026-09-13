@@ -183,6 +183,30 @@ export const FAILURE = {
 // editable like every other provisional one.
 export const LOT_TONS = 4000;
 
+// The unit price the Lot Pay Adjustment is computed against - $50.00/ton,
+// a SPEC CONSTANT and not this contract's bid price.
+//
+// 2026 Std Spec 402.05.02 (PDF p.182) says both halves in one breath: "The
+// Department will pay for the mixture at the Contract unit bid price and
+// apply a Lot Pay Adjustment for each lot placed ... The Department will
+// apply the Lot Pay Adjustment for each lot to a defined unit price of
+// $50.00 per ton." Two numbers doing two jobs - the bid price pays for the
+// tonnage, this one scales the adjustment - and all three Lot Pay Adjustment
+// Schedules open with the same figure whatever the mix:
+//   Option A Base and Binder  p.185  ($50.00)(Quantity){...}
+//   Option A Surface          p.186  ($50.00)(Quantity){...}
+//   Option B                  p.188  ($50.00)(Quantity){...}
+// KYTC's own blank AMAW agrees - 'Pay Values'!F5 ships as a hard-coded 50,
+// not a formula and not blank - and both of Jake's real lots carry 50 and
+// were paid by it (lot 2: +26.25 tons -> +$1,312.50 = 26.25 x 50).
+//
+// Seeded rather than asked for, on exactly the same footing as LOT_TONS, and
+// editable for the same reason: if KYTC revises the figure, or a specialty
+// mixture turns out to use another, a technician can correct it without a
+// deploy. It is emphatically NOT filled from the contract's bid price - see
+// the note beside applyProjectItems() in designbook.html for what that cost.
+export const ADJUSTMENT_UNIT_PRICE = 50;
+
 export const MIX_TYPE_CODES = [
   { size: '1.50', code: 1, name: 'Superpave 1.5' },
   { size: '1.00', code: 2, name: 'Superpave 1.0' },
@@ -904,7 +928,9 @@ export function lotFromApproval(payload, opts = {}) {
   derive('lot_tons', LOT_TONS,
          `a lot is ${LOT_TONS} tons - correct it for a short final lot`,
          cell(LOT.sheet, LOT.lotTons));
-  needsTyping('lot_unit_price', cell(LOT.sheet, LOT.unitPrice), 'The bid price this lot is paid at.', ['pay']);
+  derive('lot_unit_price', ADJUSTMENT_UNIT_PRICE,
+         `the Lot Pay Adjustment is computed against a defined $${ADJUSTMENT_UNIT_PRICE}.00/ton (Std Spec 402.05.02), not this contract's bid price`,
+         cell(LOT.sheet, LOT.unitPrice));
   needsTyping('lot_wedge_tons', cell(PAY.sheet, PAY.lot.wedgeTons),
     'Pavement wedge tons come off the top of the lot tonnage. Blank in both of Jake\'s real lots.', ['pay']);
   needsTyping('lot_sample_id_prefix', cell(LOT.sheet, LOT.sampleIdPrefix),
