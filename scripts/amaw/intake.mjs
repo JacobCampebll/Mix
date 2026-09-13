@@ -210,6 +210,39 @@ export function mixTypeFor(nominalSize) {
   return hit ? { code: hit.code, name: hit.name } : null;
 }
 
+/** The sizes a surface mixture is placed at 1 inch (25 mm) or greater, which
+ *  is what decides joint cores. Jake, 2026-09-13: "Joint cores is just if
+ *  it's surface 0.38 or 0.50, which we already know". A NO.4 surface is a
+ *  thin lift and falls outside the Option A note's "at 1 inch (25mm) or
+ *  greater", which is why it is not on this list. */
+export const JOINT_DENSITY_SIZES = ['0.38', '0.50'];
+
+/** Whether joint density counts on a lot of this mix — the AMAW's
+ *  `Calculations!H11`, 1 = yes, 2 = no.
+ *
+ *  Not a preference and not a per-lot decision: 2026 Std Spec 402.03.02 D)
+ *  6) Option A reads "Joint - For surface mixtures placed on driving lanes
+ *  and ramps, furnish 2 cores per sublot", and every proposal's OPTION A
+ *  special note says the same in its own words ("The Department will require
+ *  joint cores as described in Section 402.03.02 for surface mixtures
+ *  only"). So the mix settles it, and the approval carries the mix.
+ *
+ *  Returns '1' / '2' to match the schema's option values, or null when the
+ *  course is genuinely unknown — a design built from scratch with no
+ *  signature and no Portal lookup has no layer to read, and a guessed answer
+ *  there is worth less than an empty field with a reason beside it. Both of
+ *  Jake's real lots are CL3 ASPH SURF 0.38A and read H11 = 1.
+ */
+export function jointDensityFor(mix) {
+  if (!mix) return null;
+  const layer = String(mix.layer == null ? '' : mix.layer).trim().toUpperCase();
+  if (!layer) return null;
+  if (!layer.startsWith('SURF')) return '2';
+  const size = splitDesignation(mix.nominal_size).size.toUpperCase().replace(/\s+/g, '');
+  if (!size) return null;
+  return JOINT_DENSITY_SIZES.includes(size) ? '1' : '2';
+}
+
 /** What mix this design is actually for.
  *
  *  Contract Information's own two fields win, then the Portal's lookup —
@@ -830,8 +863,37 @@ export function lotFromApproval(payload, opts = {}) {
 
   needsTyping('lot_acceptance_method', `${cell(CALC.sheet, 'H13')} (from the dropdown at ${cell(CALC.sheet, CALC.acceptanceMethod)})`,
     'Gradation, Volumetrics or Visual. It decides which pay schedule runs at all.', ['pay']);
-  needsTyping('lot_density_option', cell(CALC.sheet, CALC.densityOption), 'A or B. Option B pays no lane density.', ['pay']);
-  needsTyping('lot_joint_density', cell(CALC.sheet, 'H11'), 'Whether joint density counts on this lot.', ['pay']);
+  // Density option. On the CONTRACT, not on the design: 2026 Std Spec
+  // 402.03.02 D) 6) opens "The Contract will state the compaction option to
+  // be used", and every proposal carries it as an OPTION A / OPTION B
+  // special note. It is not yet fetched, and the reason is worth stating
+  // rather than discovering: the note is written PER ROUTE, so one contract
+  // can be both. 262120 - the very contract Jake is testing against - reads
+  // "OPTION A (KY 627)" and "OPTION B (US 25)" on facing pages, and the
+  // design's own project number is what picks between them (#467PA is on
+  // MP07606272601, the KY 627 one). So this needs `kytc-lookup` to return
+  // the notes with their route qualifier; the lookup returns the proposal
+  // header and the mix items and no notes at all today.
+  needsTyping('lot_density_option', cell(CALC.sheet, CALC.densityOption),
+    'Option A or Option B. It is stated in the Contract (Std Spec 402.03.02 D) 6)), as an OPTION A / OPTION B special note in the proposal - and per ROUTE, so a two-route contract can be both. Option B pays no lane density and takes no cores.',
+    ['pay']);
+
+  // Joint density. Fully settled by the mix, so it is derived rather than
+  // asked for - see jointDensityFor() for the spec wording. Left blank with
+  // a reason when the course is unknown, which is only a design that reached
+  // PlantBook with neither a signature nor a Portal mix lookup.
+  const jd = jointDensityFor(mix);
+  if (jd) {
+    derive('lot_joint_density', jd,
+           `${mix.layer} ${mix.nominal_size || ''}`.trim() +
+           (jd === '1' ? ' is a surface mixture at 1 inch or greater, so joint cores are taken'
+                       : ' is not a surface mixture placed at 1 inch or greater, so no joint cores'),
+           cell(CALC.sheet, 'H11'));
+  } else {
+    needsTyping('lot_joint_density', cell(CALC.sheet, 'H11'),
+      'Joint cores are taken on surface mixtures at 1 inch or greater (0.38 and 0.50), and this approval does not say which course the mix is - it reached PlantBook with no signature and no Portal mix lookup.',
+      ['pay']);
+  }
   if (!lotNumberGiven)
     needsTyping('lot_number', cell(LOT.sheet, LOT.lotNumber),
       'Defaulted to 1. Lot 1 sublot 1 carries the "*For Sublot # 1 Only" allowance and nothing else on the job ever does, so confirm it.', ['pay']);

@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   approvalChecks, lotFromApproval, verifyRequest, readVerifyResponse, notChecked,
-  VERIFICATION, FAILURE, DOC_KIND, isVerified, mixTypeFor,
+  VERIFICATION, FAILURE, DOC_KIND, isVerified, mixTypeFor, jointDensityFor,
 } from './intake.mjs';
 import { normaliseLot, lotSummary } from './storage.mjs';
 import { lotPay, sublotPay } from './pay.mjs';
@@ -176,8 +176,20 @@ if (!approval) {
     // --- what a technician still types --------------------------------
     const typedKeys = r.report.typed.map((t) => t.key);
     for (const k of ['lot_esal_class', 'lot_acceptance_method', 'lot_density_option',
-                     'lot_joint_density', 'lot_unit_price', 'sublot_tests'])
+                     'lot_unit_price', 'sublot_tests'])
       ok(`report.typed names ${k}`, typedKeys.includes(k), typedKeys);
+    // lot_joint_density came off that list on 2026-09-13. Joint cores are
+    // taken on surface mixtures at 1 inch or greater and on nothing else, so
+    // the mix settles it and the approval carries the mix. Asserted both ways
+    // round for the same reason lot_tons is: derived AND still listed is the
+    // worse bug of the two.
+    ok('lot_joint_density is derived from the mix, not asked for',
+       String(lot.values.lot_joint_density) === '1', lot.values.lot_joint_density);
+    ok('...and is not also listed as still to type',
+       !typedKeys.includes('lot_joint_density'), typedKeys);
+    ok('report.derived names lot_joint_density',
+       r.report.derived.some((d2) => d2.key === 'lot_joint_density'),
+       r.report.derived.map((d2) => d2.key));
     // lot_tons was on that list until 2026-09-13. A lot IS 4,000 tons - it is
     // the definition rather than a default anyone chose, and both real lots
     // carry exactly 4000 - so it is seeded and stays editable for the short
@@ -353,6 +365,22 @@ for (const [token, code] of [['1.50A', 1], ['1.00', 2], ['0.75B', 3], ['0.50A', 
   ok(`${token} -> ${code}`, (mixTypeFor(token) || {}).code === code, mixTypeFor(token));
 ok('an unknown size resolves to nothing rather than to a default',
    mixTypeFor('0.62A') === null && mixTypeFor('') === null);
+
+// Joint density, settled by the mix. The three answers are deliberately
+// distinct: '1' and '2' are both facts, null is "the approval does not say
+// which course this is" - and null must never collapse into '2', which would
+// silently drop a surface lot's joint-density pay to no deduction at all.
+head('3d. Joint density from the mix');
+for (const [mix, want, why] of [
+  [{ layer: 'SURF', nominal_size: '0.38A' }, '1', 'surface 0.38 takes joint cores'],
+  [{ layer: 'SURF', nominal_size: '0.50B' }, '1', 'surface 0.50 takes joint cores'],
+  [{ layer: 'SURF', nominal_size: 'NO.4B' }, '2', 'a No. 4 surface is a thin lift - under 1 inch, so no joint cores'],
+  [{ layer: 'BASE', nominal_size: '0.75A' }, '2', 'a base mix takes no joint cores'],
+  [{ layer: 'INT',  nominal_size: '0.50A' }, '2', 'an intermediate 0.50 takes no joint cores'],
+  [{ layer: null,   nominal_size: '0.38A' }, null, 'an unknown course is not an answer'],
+  [{ layer: 'SURF', nominal_size: null    }, null, 'an unknown size is not an answer'],
+  [null, null, 'no mix at all is not an answer'],
+]) ok(why, jointDensityFor(mix) === want, jointDensityFor(mix));
 
 // =====================================================================
 //  4. The verify-approval request, and reading its answer

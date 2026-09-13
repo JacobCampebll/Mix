@@ -289,9 +289,17 @@ export const PLANTBOOK_SECTIONS = [
           { value: "Gradation",   label: "Gradation (pay not modelled)" },
           { value: "Visual",      label: "Visual" },
         ] },
+      // The proposal writes these two words out in full ("OPTION A", "OPTION
+      // B"), so the dropdown does too - a bare "A" beside "Acceptance
+      // method" reads as a grade.
       { key: "lot_density_option", label: "Density option", type: "select", req: true,
-        options: [{ value: "A", label: "A" }, { value: "B", label: "B — no cores" }] },
-      { key: "lot_joint_density", label: "Joint density counts", type: "select", req: true,
+        options: [{ value: "A", label: "Option A" }, { value: "B", label: "Option B — no cores" }] },
+      // Derived from the mix by intake.mjs' jointDensityFor(); surface
+      // mixtures at 1 inch or greater take joint cores and nothing else
+      // does. Still a field rather than a readout, because the proposal's
+      // OPTION note is what finally says so and a lot may have to disagree
+      // with the derivation.
+      { key: "lot_joint_density", label: "Joint density", type: "select", req: true,
         options: [{ value: "1", label: "Yes" }, { value: "2", label: "No" }] },
       { key: "lot_kytc_lab", label: "KYTC lab id", type: "text", req: false, mono: true },
       { key: "lot_ps_lab",   label: "Producer/supplier lab id", type: "text", req: false, mono: true },
