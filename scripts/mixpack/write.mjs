@@ -101,10 +101,15 @@ export function fillWorkbook({ template, values, now = new Date() }) {
   // 2. resolve a cell: an override wins, then the template's own cached value
   const valueOf = (sheet, ref) => {
     const k = `${sheet}!${ref}`;
-    if (overrides.has(k)) { const v = overrides.get(k); return v === null || v === undefined ? '' : v; }
-    if (!read(sheet)) return '';
+    // An override of '' is how a caller says "this cell is blank" - the mapper
+    // writes '' for a value the design does not hold - so it resolves to a
+    // blank cell, not to the empty STRING the evaluator would read as text.
+    if (overrides.has(k)) { const v = overrides.get(k); return v === '' || v == null ? null : v; }
+    if (!read(sheet)) return null;
     const c = cells.get(sheet).get(ref);
-    if (!c || c.v == null) return '';
+    // null, not '': a cell with nothing cached is BLANK, and the evaluator
+    // reads a blank as 0 where it reads an empty string as text.
+    if (!c || c.v == null) return null;
     return (c.t === 's' || c.t === 'str' || c.t === 'inlineStr') ? c.v : (NUMRE.test(c.v) ? +c.v : c.v);
   };
 

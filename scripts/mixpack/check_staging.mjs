@@ -36,7 +36,7 @@ const load = name => {
 };
 const valueOf = (sheet, cell) => {
   const c = load(sheet).get(cell);
-  if (!c || c.v == null) return '';
+  if (!c || c.v == null) return null;        // blank, as against a cached ''
   return (c.t === 's' || c.t === 'str' || c.t === 'inlineStr') ? c.v
        : (NUMRE.test(c.v) ? +c.v : c.v);
 };
