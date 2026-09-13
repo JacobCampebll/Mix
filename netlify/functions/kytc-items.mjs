@@ -133,17 +133,28 @@ function itemListFile(names, cid) {
    a row. Anything that is not a data row under a known header is skipped
    rather than guessed at. */
 const LAYOUTS = [
-  { // pay estimate
+  { // pay estimate — 13 columns:
+    //   0 LINE ITEM NUMBER   1 ITEM DESCRIPTION   2 ITEM NO.   3 UNIT
+    //   4 PLAN QTY   5 CURRENT QUANTITY   6 QUANTITY PAID THIS EST
+    //   7 QUANTITY PAID PREV. EST   8 QUANTITY PAID TO DATE
+    //   9 UNIT PRICE   10 AMOUNT PAID THIS EST   11 AMOUNT PAID TO DATE
+    // Read off 252112-00135-EST0006 rather than inferred. `min` stays at 6 so
+    // a row that stops short of the money columns is still a line item; a
+    // price that is not there comes back null rather than dropping the row.
     id: "estimate",
     is: (c) => c.includes("LINE ITEM NUMBER") && c.includes("CURRENT QUANTITY"),
     min: 6,
-    read: (c) => ({ line: c[0], description: c[1], item_no: c[2], unit: c[3], plan_qty: num(c[4]), quantity: num(c[5]) }),
+    read: (c) => ({ line: c[0], description: c[1], item_no: c[2], unit: c[3],
+                    plan_qty: num(c[4]), quantity: num(c[5]), unit_price: num(c[9]) }),
   },
-  { // item list (as awarded)
+  { // item list (as awarded) — 8 columns:
+    //   0 PROJ LN #   1 Item Description   2 BID CODE   3 Bid Qty
+    //   4 Plan Qty   5 Unit Price   6 Unit   7 % of Bid Amt
     id: "itemlist",
     is: (c) => c.includes("PROJ LN #") && c.includes("BID CODE"),
     min: 7,
-    read: (c) => ({ line: c[0], description: c[1], item_no: c[2], unit: c[6], plan_qty: num(c[4]), quantity: num(c[4]) }),
+    read: (c) => ({ line: c[0], description: c[1], item_no: c[2], unit: c[6],
+                    plan_qty: num(c[4]), quantity: num(c[4]), unit_price: num(c[5]) }),
   },
 ];
 
@@ -175,6 +186,11 @@ function parseItems(html) {
       unit: (r.unit || "").trim(),
       plan_qty: r.plan_qty,
       quantity: r.quantity != null ? r.quantity : r.plan_qty,
+      // The bid price this line is paid at. PlantBook fills a lot's unit
+      // price from it - a lot's pay adjustment is tons x this number, and
+      // asking a technician to re-type a figure KYTC has already published
+      // is how it ends up wrong.
+      unit_price: r.unit_price != null ? r.unit_price : null,
     });
   }
   return items;

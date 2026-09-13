@@ -1279,6 +1279,67 @@ TBD — cite the governing spec section when encoding a limit in code.
   that entry", so a producer spelled the way a real MixPack spells it
   resolves for the workbook exactly as it does in the form.
 
+- **Three things a lot should have inherited from its approval and did not**
+  (Jake, 2026-09-13, off a phone: "Should these not be auto picked from
+  uploading the approval?"). All three are now inherited, and the reason they
+  were not is the same each time: the value is on a document nobody had asked
+  for it from yet.
+  **The approval's PROJECT ITEMS never reached the lot, and that one was a
+  real bug** - `project_items` was added to PlantBook's Lot step after
+  `intake.mjs` was written, so the schema had the table and the intake never
+  filled it. It matters more than a convenience: the Spreadsheet Applet
+  expands one `t_cont_smpl` row per row on that tab, so a lot with none loads
+  carrying no project at all, and `generate.mjs` names exactly that gap.
+  Inherited provisionally, because a change order re-numbers items - which is
+  the whole reason the lookup button exists beside it.
+  **A lot IS 4,000 tons.** That is the definition rather than a default anyone
+  picked, and both real lots carry exactly 4000 at `'Pay Values'!F4`, so
+  `lot_tons` is seeded (`LOT_TONS`) instead of asked for. Still editable: the
+  LAST lot of a job is short. Note it is emphatically NOT the approval's
+  Tonnage, which is the whole contract quantity. `check_intake.mjs` asserts it
+  both ways round - seeded, AND not still listed as something to type - because
+  a value that is both is the worse bug: it tells a technician to supply a
+  figure the form already holds.
+  **The unit price is on the contract, and `kytc-items` was throwing it
+  away.** A lot's whole pay adjustment is tons x this number. Both report
+  layouts carry it and the parser read neither; the columns were read off the
+  real reports rather than inferred, and `/tmp` probes against
+  `252112-00135-EST0006` and `252112items00135` confirmed both:
+  **pay estimate** is 13 columns, UNIT PRICE at index **9** (0 LINE ITEM
+  NUMBER, 1 ITEM DESCRIPTION, 2 ITEM NO., 3 UNIT, 4 PLAN QTY, 5 CURRENT
+  QUANTITY, 6/7/8 the three QUANTITY PAID columns, 9 UNIT PRICE, 10/11 the
+  AMOUNT PAID pair); **item list** is 8 columns, Unit Price at index **5**
+  (0 PROJ LN #, 1 Item Description, 2 BID CODE, 3 Bid Qty, 4 Plan Qty, 5 Unit
+  Price, 6 Unit, 7 % of Bid Amt). `min` stays at 6 for the estimate, so a row
+  that stops short of the money columns is still a line item and a missing
+  price comes back null rather than dropping the row.
+  **The price is NOT a column on the Project Items table** - it belongs to the
+  lot, not to each row, and that table is already tight at 390px. PlantBook's
+  lookup fills the `lot_unit_price` FIELD from the matched line instead,
+  tinted and editable, never over a price somebody typed. Where the matched
+  lines disagree it says so and fills nothing: two prices for one lot is a
+  question rather than an answer. DesignBook ignores it - a design is not
+  paid. Verified end to end on contract 262120, whose 0.38B is line 0165 on
+  `MP07606272601` at **$117.45/TON**.
+
+- **Still NOT auto-filled on the Lot step, and both are open questions rather
+  than settled answers** (2026-09-13):
+  **ESAL Class** is refused deliberately and the refusal is worth keeping in
+  front of whoever revisits it. The design carries an AADTT Class; the AMAW
+  wants an ESAL Class (`Calculations!C14`, 1-4). CLAUDE.md is already explicit
+  that the spec's Class 2/3/4 is "*not* ESAL or depth" - two different scales
+  that overlap on three of their values, which is the worst possible shape for
+  a silent mis-mapping. The design's AADTT Class is carried beside it for
+  reference (`values.design.aadtt_class`) so whoever sets it has the answer in
+  front of them. If Jake or Andrew confirms a mapping, it is a one-line
+  change.
+  **Acceptance method / density option / joint density counts** are KYTC's
+  per-lot decisions about how this lot is accepted and paid, and the approval
+  is a design. Both real lots are Volumetrics / A / Yes, so a tinted default
+  is defensible - but `propertyWeights()` answers for exactly three
+  combinations and weighs EVERY property at zero for the rest, so a wrong one
+  is a silent 0% lot. Left blank pending Tate.
+
 - **A row table key may now be shared between the books, but only out loud.**
   `check_sections.mjs` fails a PlantBook row table whose key collides with a
   DesignBook one - the key is the `data-rowlist` attribute and the payload's

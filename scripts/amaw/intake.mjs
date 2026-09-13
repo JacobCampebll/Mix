@@ -177,6 +177,12 @@ export const FAILURE = {
 // which is the same six sizes DesignBook's `nominal_size` field offers, in
 // the same order. `5` is independently confirmed — both of Jake's real lots
 // are Superpave 0.38 and read J1 = 5 (pay.mjs).
+// A lot is 4,000 tons of asphalt - that is the definition, not a default
+// anyone chose, and both real lots on file carry exactly 4000 at
+// 'Pay Values'!F4. The last lot of a job is short, so the seeded value stays
+// editable like every other provisional one.
+export const LOT_TONS = 4000;
+
 export const MIX_TYPE_CODES = [
   { size: '1.50', code: 1, name: 'Superpave 1.5' },
   { size: '1.00', code: 2, name: 'Superpave 1.0' },
@@ -766,6 +772,30 @@ export function lotFromApproval(payload, opts = {}) {
       ['gradation-acceptance']);
   }
 
+  /* ---- project items ------------------------------------------------
+     The `Project Items` sheet is the same sheet with the same ListObject in
+     both workbooks (A6:C99), so a lot inherits whatever the approved design
+     carried rather than looking them up a second time. Worth inheriting even
+     though the Lot step has its own lookup button: the Spreadsheet Applet
+     expands one t_cont_smpl row per row on that tab, so a lot with none loads
+     carrying no project at all.
+     Provisional like everything else here - a change order re-numbers items,
+     which is the whole reason that button exists, so these are a starting
+     point and the lookup is how they are refreshed. */
+  const projectItems = (rows.project_items || [])
+    .filter((r) => r && str(r.project) && str(r.line))
+    .map((r) => ({ ...r }));
+  if (projectItems.length) {
+    inherited.push({ key: 'project_items', value: `${projectItems.length} line item(s)`,
+                     from: 'rows.project_items', to: cell('Project Items', 'A6'),
+                     note: 'a change order can re-number these; the Lot step has a lookup that re-reads KYTC' });
+    sources.project_items = `${sourceLabel(a)} · rows.project_items`;
+  } else {
+    wasMissing('project_items',
+      'The approved design carries no project items. The loader expands one t_cont_smpl row per row on that tab, so a lot with none loads carrying no project - use the lookup on the Lot step.',
+      ['medl-load']);
+  }
+
   /* ---- binder -------------------------------------------------------- */
   take('lot_binder_grade', str(v.binder_grade) || (mix ? mix.binder_grade : null), 'values.binder_grade', null);
   take('lot_binder_terminal', str(v.binder_terminal), 'values.binder_terminal', cell(PAY.sheet, PAY.lot.binderProducer),
@@ -805,8 +835,13 @@ export function lotFromApproval(payload, opts = {}) {
   if (!lotNumberGiven)
     needsTyping('lot_number', cell(LOT.sheet, LOT.lotNumber),
       'Defaulted to 1. Lot 1 sublot 1 carries the "*For Sublot # 1 Only" allowance and nothing else on the job ever does, so confirm it.', ['pay']);
-  needsTyping('lot_tons', cell(LOT.sheet, LOT.lotTons),
-    `The approval's Tonnage${v.total_tons ? ` (${v.total_tons})` : ''} is the whole CONTRACT quantity, not this lot's.`, ['pay']);
+  // A lot IS 4,000 tons - that is what a lot is, and both real lots on file
+  // say exactly 4000 at 'Pay Values'!F4. Seeded rather than asked for, and
+  // still editable, because the LAST lot of a job is short. Note this is not
+  // the approval's Tonnage, which is the whole CONTRACT quantity.
+  derive('lot_tons', LOT_TONS,
+         `a lot is ${LOT_TONS} tons - correct it for a short final lot`,
+         cell(LOT.sheet, LOT.lotTons));
   needsTyping('lot_unit_price', cell(LOT.sheet, LOT.unitPrice), 'The bid price this lot is paid at.', ['pay']);
   needsTyping('lot_wedge_tons', cell(PAY.sheet, PAY.lot.wedgeTons),
     'Pavement wedge tons come off the top of the lot tonnage. Blank in both of Jake\'s real lots.', ['pay']);
@@ -898,6 +933,7 @@ export function lotFromApproval(payload, opts = {}) {
   lot.rows = {
     blend,
     ...(blendGsb ? { blend_gsb: blendGsb } : {}),
+    project_items: projectItems,
     sublot_tickets: [], sublot_volumetrics: [],
     mat_cores: [], joint_cores: [], verification: [],
   };

@@ -176,8 +176,20 @@ if (!approval) {
     // --- what a technician still types --------------------------------
     const typedKeys = r.report.typed.map((t) => t.key);
     for (const k of ['lot_esal_class', 'lot_acceptance_method', 'lot_density_option',
-                     'lot_joint_density', 'lot_tons', 'lot_unit_price', 'sublot_tests'])
+                     'lot_joint_density', 'lot_unit_price', 'sublot_tests'])
       ok(`report.typed names ${k}`, typedKeys.includes(k), typedKeys);
+    // lot_tons was on that list until 2026-09-13. A lot IS 4,000 tons - it is
+    // the definition rather than a default anyone chose, and both real lots
+    // carry exactly 4000 - so it is seeded and stays editable for the short
+    // final lot of a job. Asserted both ways round, because a value that is
+    // seeded AND still listed as something to type is the worse bug: it tells
+    // a technician to supply a figure the form already holds.
+    ok('lot_tons is seeded, not asked for', Number(lot.values.lot_tons) === 4000,
+       lot.values.lot_tons);
+    ok('...and is not also listed as still to type', !typedKeys.includes('lot_tons'), typedKeys);
+    ok('report.derived names lot_tons',
+       r.report.derived.some((d2) => d2.key === 'lot_tons'),
+       r.report.derived.map((d2) => d2.key));
     ok('a lot number the caller supplied is NOT listed as still to type',
        !typedKeys.includes('lot_number'), typedKeys);
     ok('...but a defaulted one is',
