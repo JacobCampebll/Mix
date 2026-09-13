@@ -326,10 +326,10 @@ if (!approval) {
   ok('a submittal label over an approval block warns, and still passes',
      sb2.ok && sb2.warnings.some((w) => w.code === 'submittal-carrying-approval'), sb2.warnings);
 
-  // The two books do not spell a mix id the same way, and the intake says so
-  // rather than transforming one into the other on a guess.
-  ok('the eight-digit DesignBook mix id raises the mix-id-shape warning',
-     lotFromApproval(approval).report.warnings.some((w) => w.code === 'mix-id-shape'));
+  // Eight digits is the shape (Jake, 2026-09-13), so DesignBook's own id is
+  // carried through and nothing warns about it.
+  ok('the eight-digit DesignBook mix id is carried without a shape warning',
+     !lotFromApproval(approval).report.warnings.some((w) => w.code === 'mix-id-shape'));
 }
 
 // The mixture-type table, read off the blank VER 14.01 template. Every size

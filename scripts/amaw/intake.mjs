@@ -576,21 +576,17 @@ export function lotFromApproval(payload, opts = {}) {
        `${cell(LOT.sheet, LOT.approvedMixDesign)} / ${cell(LOT.sheet, LOT.mixId)}`,
        't_smpl.rel_smpl_id - the approval this lot is produced under, and the join between the two books');
 
-  // THE TWO BOOKS DO NOT AGREE ABOUT THE SHAPE OF A MIX ID, and it is worth
-  // saying out loud rather than papering over. Both of Jake's real AMAWs read
-  // "00385 CL3 ASPH SURF 0.38A PG64-22" - a FIVE-digit lead whose last three
-  // digits are the pay item code at 'Pay Values'!D3 ("385"). canonical.mjs
-  // issues EIGHT digits: "00" + the letting year + a four-digit sequence
-  // ("00260467" for #467PA). Same field, two formats, and nothing here can
-  // tell which KYTC's loader will accept - the answer is a question for
-  // Andrew and Tate, not a transform to guess at. So the approval's own
-  // string is carried verbatim, the item code is left to be typed, and this
-  // says why.
-  if (mixId && !/^\d{5}$/.test(mixId))
-    warnings.push({ code: 'mix-id-shape',
-      message: `The approval's MIX ID is "${mixId}" (${mixId.length} digits). Both real AMAWs on file carry a five-digit id whose last three are the pay item code. Check which form MEDL expects before handing this lot off.` });
+  // THE MIX ID IS EIGHT DIGITS, settled by Jake 2026-09-13. Both of his real
+  // AMAWs carry a FIVE-digit lead ("00385 CL3 ASPH SURF 0.38A PG64-22") whose
+  // last three digits are the pay item code at 'Pay Values'!D3, and
+  // canonical.mjs issues eight ("00260467" for #467PA) - "00" + the letting
+  // year + a four-digit sequence. Asked which shape MEDL expects; the answer
+  // is eight, so DesignBook's id is carried through untouched and the two
+  // real lots are read as the older shape rather than as the standard. The
+  // item code stays its own field, because it always was one - the five-digit
+  // form merely happened to end in it.
   needsTyping('lot_item_code', cell(LOT.sheet, LOT.itemCode),
-    'The pay item ("385"). On both real lots it is the tail of the workbook\'s own five-digit mix id, which is not the shape DesignBook issues - see the mix-id-shape warning.',
+    'The pay item ("385"). Its own field: on both real lots it is also the tail of the workbook\'s older five-digit mix id, but the id DesignBook issues is eight digits and does not carry it.',
     ['medl-load']);
 
   /* ---- the mixture type code, and what hangs off it -----------------
