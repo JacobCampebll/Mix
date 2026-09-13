@@ -1263,14 +1263,14 @@ TBD — cite the governing spec section when encoding a limit in code.
   front door. `supabase/amaw_lots.sql` is DDL for Andrew to apply and **has
   not been applied**; nothing in the page reads or writes those tables, so
   applying it changes nothing until the store is wired.
-  **Who may generate the AMAW is an open question for Jake.** DesignBook's
-  MixPack button is reviewer-only, because a contractor never loads
-  SiteManager, and `sections.mjs` carried that over to this step by analogy.
-  It is NOT gated that way as built: the AMAW is the contractor's own
-  document - "what contractors fill out during a project of paving", and the
-  lot pay it computes is "a major part of the sheet" for them - so anyone
-  holding the lot can download it. Worth confirming rather than assuming
-  either way.
+  **SETTLED 2026-09-13 (Jake): anyone holding the lot may download the AMAW** -
+  "the contractor can download their plantbook or KYTC such as Andrew or
+  Tate". `sections.mjs` had carried DesignBook's reviewer-only rule over to
+  this step by analogy, and the analogy is wrong: the MixPack button is gated
+  because a contractor never loads SiteManager, whereas the AMAW is the
+  contractor's OWN document - what they fill out over a lot, and the lot pay
+  it computes is most of why they care about it. **Do not add a `can_review`
+  gate to the AMAW download.**
   **The `ref` the AMAW mapper takes is three FUNCTIONS, not three lists**
   (`agpFor`, `ampFor`, `matCodeFor`), and it swallows a throw from any of
   them - so handing it `state.ref` directly produces a workbook missing every

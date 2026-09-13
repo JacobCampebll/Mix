@@ -910,13 +910,22 @@ export const PLANTBOOK_SECTIONS = [
     //  in the 44px action bar, because the generator's list of what the lot
     //  lacks is exactly the message you cannot afford to clip.
     //
-    //  Two things to carry over from DesignBook's Status step unchanged.
-    //  Generating the workbook is REVIEWER-ONLY, gated on the signed-in
-    //  account, and the project-items lookup sits here beside Approve as
-    //  well as on the Lot step — the AMAW's `Project Items` sheet is the
-    //  same sheet with the same ListObject (A5:C99, prj_nbr | ln_itm_nbr |
-    //  repr_qty), so the pay-estimate lookup transfers whole, and a stale
-    //  sheet bites at approval time rather than back on step 1.
+    //  SETTLED 2026-09-13 (Jake): ANYONE HOLDING THE LOT MAY DOWNLOAD THE
+    //  AMAW — "the contractor can download their plantbook or KYTC such as
+    //  Andrew or Tate". An earlier draft of this comment said it should be
+    //  reviewer-only by analogy with DesignBook's MixPack button, and that
+    //  analogy is wrong: the MixPack is gated because a contractor never
+    //  loads SiteManager, whereas the AMAW is the contractor's own
+    //  document — it is what they fill out over a lot, and the lot pay it
+    //  computes is most of why they care about it. Do not add a can_review
+    //  gate here.
+    //
+    //  One thing IS carried over from DesignBook's Status step unchanged:
+    //  the project-items lookup sits here as well as on the Lot step — the
+    //  AMAW's `Project Items` sheet is the same sheet with the same
+    //  ListObject (A5:C99, prj_nbr | ln_itm_nbr | repr_qty), so the
+    //  pay-estimate lookup transfers whole, and a stale sheet bites at
+    //  hand-off rather than back on step 1.
     id: "lot-status", label: "Status & validation", step: "Submit",
     tag: "workflow", type: "status",
   },
