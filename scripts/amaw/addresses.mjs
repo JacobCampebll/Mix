@@ -730,7 +730,8 @@ export const FIELDS = [
   { sn: 207, kind: "numeric" , field: "CT Peak Stability # 7",                   at: { family: "kyct", i: 13, peak: true } },
   { sn: 208, kind: "numeric" , field: "CT Peak Flow # 8",                        at: { family: "kyct", i: 14, peak: true } },
   { sn: 209, kind: "numeric" , field: "CT Peak Stability # 8",                   at: { family: "kyct", i: 15, peak: true } },
-  { sn: 253, kind: "numeric" , field: "Test Charges",                            at: { family: "explicit", at: [null,"Calculations!P84","Calculations!P278",null,null,null,null] } },];
+  { sn: 253, kind: "numeric" , field: "Test Charges",                            at: { family: "explicit", at: [null,"Calculations!P84","Calculations!P278",null,null,null,null] } },
+];
 
 // ---------------------------------------------------------------------
 //  What this map could NOT classify, stated rather than guessed.

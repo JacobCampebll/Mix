@@ -88,12 +88,17 @@ export function evaluate(formula, lookup) {
     throw new Error('unexpected ' + tok.k + ' in ' + formula);
   }
   function cell(sheet, ref) { const v = lookup(sheet, ref); return (v === undefined || v === null) ? EMPTY : v; }
+  // Row-major, so a range is a block rather than a bag of cells - VLOOKUP needs
+  // to know which column a value sat in.
   function range(tok) {
     const c1 = colNum(/^([A-Z]+)/.exec(tok.from)[1]), c2 = colNum(/^([A-Z]+)/.exec(tok.to)[1]);
     const r1 = +/(\d+)$/.exec(tok.from)[1], r2 = +/(\d+)$/.exec(tok.to)[1];
     const out = [];
-    for (let c = Math.min(c1,c2); c <= Math.max(c1,c2); c++)
-      for (let r = Math.min(r1,r2); r <= Math.max(r1,r2); r++) out.push(cell(tok.sheet, colName(c)+r));
+    for (let r = Math.min(r1,r2); r <= Math.max(r1,r2); r++) {
+      const row = [];
+      for (let c = Math.min(c1,c2); c <= Math.max(c1,c2); c++) row.push(cell(tok.sheet, colName(c)+r));
+      out.push(row);
+    }
     return out;
   }
   // A number for arithmetic. Excel reads a blank cell as 0 here; text is
@@ -142,7 +147,7 @@ export function evaluate(formula, lookup) {
       case 'CONCATENATE': return a.map(x => x === '' ? '' : String(x)).join('');
       case 'CHAR':    { const n = num(a[0]); if (!(n >= 1 && n <= 255)) throw new Error('CHAR out of range: ' + n); return String.fromCharCode(n); }
       // Excel's COUNT counts numbers only - text and blanks do not count.
-      case 'COUNT':   return a.flat().filter(x => typeof x === 'number' || (!isEmpty(x) && typeof x !== 'boolean' && NUM.test(String(x)))).length;
+      case 'COUNT':   return a.flat(Infinity).filter(x => typeof x === 'number' || (!isEmpty(x) && typeof x !== 'boolean' && NUM.test(String(x)))).length;
       // AMAW builds 28 references out of one "which sublot" control cell, in two
       // shapes: INDIRECT("G"&'Super Verify'!B5+8) and
       // INDIRECT("'Superpave'!"&CHAR(81+'Super Verify'!B5)&"9"). Both come down
@@ -154,6 +159,22 @@ export function evaluate(formula, lookup) {
         const m = /^(?:(?:'([^']+)'|([A-Za-z_][A-Za-z0-9_. ]*))!)?\$?([A-Z]{1,3})\$?(\d+)$/.exec(s);
         if (!m) throw new Error('INDIRECT: not a single-cell reference: ' + JSON.stringify(s));
         return cell(m[1] || m[2] || null, m[3] + m[4]);
+      }
+      // Exact match only. AMAW's seven uses are all one lookup - the binder
+      // grade, VLOOKUP(Calculations!$D$147,Calculations!$A$147:$B$161,2,FALSE)
+      // - and unlike the MixPack's VLOOKUPs, which sit on the visible tabs
+      // where evalOnly can supply their answer, these are ON the staging
+      // sheets: decline them and the payload loses its binder grade on all
+      // seven test records. An approximate match (TRUE, or the argument
+      // omitted) is a different algorithm and is not implemented, so it throws.
+      case 'VLOOKUP': {
+        const [key, tbl, col, exact] = a;
+        if (!Array.isArray(tbl) || !Array.isArray(tbl[0])) throw new Error('VLOOKUP: second argument is not a range');
+        if (exact !== false) throw new Error('VLOOKUP: only the exact-match form is supported');
+        if (!(col >= 1 && col <= tbl[0].length)) throw new Error('VLOOKUP: column ' + col + ' is outside the range');
+        const hit = tbl.find(row => eqv(row[0], key));
+        if (!hit) throw new Error('VLOOKUP: no match for ' + JSON.stringify(String(key)));
+        return hit[col - 1];
       }
       case 'TEXT':    return '__TEXT__';        // only used for NOW(); caller substitutes
       case 'NOW':     return '__NOW__';

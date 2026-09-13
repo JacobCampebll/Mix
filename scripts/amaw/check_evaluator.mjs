@@ -65,9 +65,7 @@ const cache = new Map();
 // rather than there. Both are all over an AMAW and BOTH ARE ALSO IN A REAL
 // MIXPACK (467PA: one on Design Data, 36 on TSR, plus 43 empty <v/> on
 // t_tst_rslt_dtl), so this is a genuine gap in the shared reader - fixing it
-// there is a separate change, because it makes ~57 more MixPack staging cells
-// comparable and one of them then needs the page's engine ported too. See the
-// note at the foot of this file.
+// there is a separate change - see the note at the foot of this file.
 //   <v xml:space="preserve"> ... </v>  a value with significant whitespace
 //   <v/>                               Excel's cached EMPTY STRING, which is
 //                                      not the same as a cell never computed
@@ -92,7 +90,7 @@ const valueOf = (sheet, cell) => {
 // of t_rmks_dtl from the comparison.
 const cached = c => c.v != null ? typed(c) : undefined;
 
-let ok = 0, skipped = 0;
+let ok = 0, okValued = 0, skipped = 0;
 const diffs = [], threw = [];
 for (const name of STAGING) {
   for (const [ref, c] of load(name)) {
@@ -106,17 +104,16 @@ for (const name of STAGING) {
     const same = (typeof got === 'number' && typeof want === 'number')
       ? Math.abs(got - want) < 1e-9
       : String(got).trim() === String(want).trim();
-    if (same) ok++; else diffs.push([`${name}!${ref}`, c.f, got, want]);
+    if (same) { ok++; if (String(want).trim() !== '') okValued++; }
+    else diffs.push([`${name}!${ref}`, c.f, got, want]);
   }
 }
 
-// The only tolerated outcomes. A cell the source workbook itself holds an Excel
+// The one tolerated outcome. A cell the source workbook itself holds an Excel
 // error in is not a value we can or should reproduce: we decline to evaluate it
-// and leave the formula for Excel, which is what evalOnly means. VLOOKUP is the
-// same decision made deliberately - see the note at the foot of this file.
+// and leave the formula for Excel, which is what evalOnly means.
 const EXPECTED = {
-  'source holds an Excel error (#VALUE! etc.)': d => String(d[3]).startsWith('#') || d[3] === '' && String(d[2] ?? '').startsWith('#'),
-  'VLOOKUP - left to Excel on purpose': d => /VLOOKUP\(/.test(d[1]),
+  'source holds an Excel error (#VALUE! etc.)': d => String(d[3]).startsWith('#'),
 };
 const classify = (list) => {
   const by = {}; const rest = [];
@@ -134,7 +131,7 @@ const unexplained = [...threwRest.map(d => [...d, 'THREW']), ...diffRest];
 
 console.log(`workbook                      : ${XLSM}`);
 console.log(`staging sheets                : ${STAGING.length}`);
-console.log(`\nstaging cells matching source : ${ok}`);
+console.log(`\nstaging cells matching source : ${ok}   (${okValued} of them carrying a value, not "")`);
 console.log(`expected differences          : ${expected}`);
 for (const [why, list] of [...Object.entries(threwBy), ...Object.entries(diffBy)])
   console.log(`    ${String(list.length).padStart(4)}  ${why}`);
@@ -170,11 +167,12 @@ for (const name of STAGING) for (const [ref, c] of load(name)) {
   for (let n = 1; n <= 4; n++) {
     CONTROL[`Super Verify!${control[1]}`] = n;
     const [sh, cell] = target(c.f, n);
-    const want = valueOf(sh ?? name, cell);
+    // A blank target cell reads as 0 through a reference, INDIRECT or not.
+    const want = valueOf(sh ?? name, cell) ?? 0;
     let got;
     try { got = evaluate(c.f, (s, r) => CONTROL[`${s || name}!${r}`] ?? valueOf(s || name, r)); }
     catch (e) { probeBad++; console.log(`INDIRECT ${name}!${ref} n=${n} THREW ${e.message}`); continue; }
-    const same = String(got === 0 && want === '' ? '' : got).trim() === String(want).trim();
+    const same = String(got).trim() === String(want).trim();
     if (same) probed++;
     else { probeBad++; console.log(`INDIRECT ${name}!${ref} n=${n} -> ${sh ?? name}!${cell}: got ${JSON.stringify(got)} want ${JSON.stringify(want)}`); }
   }
@@ -184,3 +182,50 @@ console.log(`\nINDIRECT cells                : ${shapes}`);
 console.log(`resolutions checked           : ${probed} correct, ${probeBad} wrong`);
 
 process.exit(unexplained.length || probeBad ? 1 : 0);
+
+/* ---------------------------------------------------------------------------
+ * What this run proves, and the two things it leaves open.
+ *
+ * MEASURED on both real lots (contract 252112, Boonesboro, lots 1 and 2) and on
+ * KYTC's blank 14.01 and 13.04 templates: 6,712 staging cells reproduced
+ * exactly, 28 expected differences, 0 unexplained.
+ *
+ * THE 28. Every one is an INDIRECT, and every one reads #VALUE! in the source
+ * workbook too: both lots leave 'Super Verify'!B5 / B12 - "which sublot am I
+ * verifying" - empty, and Excel's own answer to "G" & ("" + 8) is #VALUE!. The
+ * evaluator refuses them rather than reading the empty control cell as 0 and
+ * resolving a plausible, wrong reference (G8 instead of G9..G12, column Q
+ * instead of R..U). Refusing means the cell keeps its formula - the evalOnly
+ * path - which is always safe. The resolution itself is checked separately, by
+ * driving the control cell through all four sublots on a real file: 112 of 112
+ * land on the cell the shape predicts, carrying that cell's value.
+ *
+ * VLOOKUP IS IMPLEMENTED, not deferred, and the reason is a real difference
+ * between the two workbooks. In a MixPack the VLOOKUPs sit on the VISIBLE tabs,
+ * where the mapper can hand the staging evaluator their answer as an evalOnly
+ * input and leave Excel to recompute the same thing on open. AMAW's seven sit
+ * ON t_tst_rslt_dtl itself, one per test record - decline them and a generated
+ * workbook reaches MEDL with no binder grade on any of the seven, because
+ * nothing recalculates between here and the Applet. All seven are the same
+ * exact-match lookup into a 15-row table, so only that form is implemented;
+ * the approximate-match form throws.
+ *
+ * THE <v> READER GAP IS REAL AND IS NOT FIXED HERE. normalise() above works
+ * around two shapes scripts/mixpack/xlsx.mjs's cellsOf() cannot read, and a
+ * real MixPack has both (467PA: one <v xml:space="preserve"> on Design Data, 36
+ * on TSR, 43 empty <v/> on t_tst_rslt_dtl). Fixing it in xlsx.mjs makes ~57
+ * more MixPack staging cells comparable - 56 of which already match - and the
+ * 57th then needs the blank-vs-empty-string rule ported into the page's engine
+ * before check_page_engine.mjs is green again. That is one change across two
+ * copies of the engine, so it belongs in its own commit, not in this one.
+ *
+ * STILL TO PORT INTO public/designbook.html's MIXPACK ENGINE block, which
+ * carries its own copy of the evaluator:
+ *   - the operator grammar (& + - * / = <> < <= > >=, unary minus, TRUE/FALSE)
+ *   - A1:B2 ranges, read row-major
+ *   - CHAR, COUNT, INDIRECT, VLOOKUP
+ *   - blank vs empty string: only null/undefined from a lookup is a blank cell
+ *     that reads as 0; '' is text. This one changes MixPack behaviour, so the
+ *     page's own valueOf has to return null for an uncached cell at the same
+ *     time, exactly as write.mjs now does.
+ * ------------------------------------------------------------------------- */

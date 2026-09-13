@@ -262,7 +262,7 @@ function assertLot1(get, lot) {
 const argv = process.argv.slice(2);
 const mapAt = argv.indexOf('--map');
 const mapPath = mapAt >= 0 ? argv[mapAt + 1] : null;
-const files = argv.filter((a, i) => a !== '--map' && i !== mapAt + 1);
+const files = argv.filter((a, i) => a !== '--map' && !(mapAt >= 0 && i === mapAt + 1));
 if (!files.length) {
   console.error('usage: node scripts/amaw/check_addresses.mjs <lot.xlsm> [...] [--map amaw_field_map.json]');
   process.exit(2);
