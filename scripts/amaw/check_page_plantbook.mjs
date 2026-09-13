@@ -432,9 +432,22 @@ namespace('PB_SECTIONS', '2. PB_SECTIONS vs scripts/amaw/sections.mjs');
       sweep(`REFERENCE_TABLES.${t}.${fn}()`, a[fn], b[fn], rows.map((r) => [r]));
   }
 
+  // The five AC determination methods and the code Calculations!AP.. holds
+  // for each. On this namespace rather than PB_AMAW's because the FORM is
+  // where they are picked, and PB_AMAW calls PB_SECTIONS.acMethodCode() to
+  // turn a label back into a number - so a drift here is a workbook whose
+  // AP cells are blank and whose AU cells therefore VLOOKUP to nothing,
+  // with nothing on screen or in the report saying so.
+  same('AC_METHODS is identical', P.AC_METHODS, MOD_SECTIONS.AC_METHODS);
+  sweep('acMethodCode()', P.acMethodCode, MOD_SECTIONS.acMethodCode,
+        [...MOD_SECTIONS.AC_METHODS, ' Ignition Furnace ', 'ignition furnace',
+         'Volumetrics', '', null, undefined, 3].map((x) => [x]));
+
   // The surface, including the ONE name that is deliberately absent.
-  same('the surface is exactly the five namespaced names',
-       Object.keys(P).sort(), ['CITES', 'DESIGNBOOK_CITE_KEYS', 'REFERENCE_KEYS', 'REFERENCE_TABLES', 'SECTIONS']);
+  same('the surface is exactly the namespaced names',
+       Object.keys(P).sort(),
+       ['AC_METHODS', 'CITES', 'DESIGNBOOK_CITE_KEYS', 'REFERENCE_KEYS', 'REFERENCE_TABLES',
+        'SECTIONS', 'acMethodCode'].sort());
   ok('isRapRow is NOT on the surface — the splice deleted it as the module asks, '
    + 'and the schema calls the page\'s hoisted copy instead', !('isRapRow' in P));
   ok('…and sections.mjs still exports the copy it tells the splice to delete, '

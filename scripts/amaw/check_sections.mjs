@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import {
   PLANTBOOK_SECTIONS, PLANTBOOK_CITES, PLANTBOOK_REFERENCE_KEYS,
-  DESIGNBOOK_CITE_KEYS,
+  DESIGNBOOK_CITE_KEYS, AC_METHODS, acMethodCode,
 } from "./sections.mjs";
 import { LOT_FIELD_ALIASES } from "./mapper.mjs";
 
@@ -424,6 +424,58 @@ for (const [key, where] of scalarKeys) {
 for (const key of NO_WORKBOOK_CELL) {
   if (!scalarKeys.has(key))
     fail("H", `check_sections lists "${key}" as having no workbook cell, but the schema no longer has it`);
+}
+
+//  The other half of that seam, for the one thing on the form that is not a
+//  scalar and still has to become a NUMBER in a cell: the AC determination
+//  method. Two `ac_method` columns - one per sublot on the tickets table, one
+//  per record on the Verification identity table - and `Calculations!AP..`
+//  holds the code that `AJ33:AK37` looks the label up by, so the form's words
+//  ARE the lookup key. A reworded option is not an error anywhere: the
+//  VLOOKUP simply finds nothing and the cell goes blank.
+const AC_COLUMNS = [
+  ["sublots", "sublot_tickets"],
+  ["verify", "verification"],
+];
+for (const [sectionId, tableKey] of AC_COLUMNS) {
+  const sec = S.find((x) => x.id === sectionId);
+  const tables = sec ? [].concat(sec.rows || []) : [];
+  const t = tables.find((x) => x && x.key === tableKey);
+  const col = t && (t.columns || []).find((c) => c.key === "ac_method");
+  if (!col) { fail("H", `${sectionId}/${tableKey} has no "ac_method" column`); continue; }
+  if (JSON.stringify(col.options) !== JSON.stringify(AC_METHODS))
+    fail("H", `${sectionId}/${tableKey}.ac_method does not offer AC_METHODS - `
+            + `a label off that list is a blank cell, not an error`);
+  for (const label of col.options || []) {
+    if (acMethodCode(label) === null)
+      fail("H", `${sectionId}/${tableKey}.ac_method offers "${label}", which acMethodCode() cannot turn into a code`);
+  }
+}
+// Seeded on the four sublots (Jake, 2026-09-13) and deliberately NOT on the
+// two verification records - the Department states its own method. Asserted
+// both ways round, because a seed that quietly disappeared and a seed that
+// quietly spread are both silent.
+const ticketSeed = (S.find((x) => x.id === "sublots").rows || [])
+  .find((t) => t.key === "sublot_tickets").seed || [];
+if (ticketSeed.length !== 4)
+  fail("H", `sublot_tickets seeds ${ticketSeed.length} rows; a lot is exactly four sublots`);
+for (const r of ticketSeed) {
+  if (acMethodCode(r.ac_method) === null)
+    fail("H", `a seeded sublot row carries ac_method ${JSON.stringify(r.ac_method)}, which is not one of AC_METHODS`);
+}
+const verifySeed = (S.find((x) => x.id === "verify").rows || [])
+  .find((t) => t.key === "verification").seed || [];
+for (const r of verifySeed) {
+  if (r.ac_method !== undefined)
+    fail("H", "a verification record is seeded with an AC method; the Department's method is the Department's to state");
+}
+// `sublot_volumetrics` shares SUBLOT_SEED and has no such column. A seeded
+// cell with no column reaches the payload and no screen.
+const volSeed = (S.find((x) => x.id === "sublots").rows || [])
+  .find((t) => t.key === "sublot_volumetrics").seed || [];
+for (const r of volSeed) {
+  if (r.ac_method !== undefined)
+    fail("H", "sublot_volumetrics is seeded with an AC method it has no column for");
 }
 
 // =====================================================================

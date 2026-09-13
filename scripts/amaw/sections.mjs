@@ -207,10 +207,60 @@ const GRADATION_COLUMNS = [
   { key: "iq",   label: "IQ01", department: true },
 ];
 
+/* HOW THE BINDER CONTENT WAS MEASURED — the workbook's own five, in its own
+ * words and in its own order.
+ *
+ * `Calculations!AJ33:AK37` is a five-row lookup table, and the INDEX IS THE
+ * CODE: 1 Back-Calculation of MSG, 2 Extraction, 3 Ignition Furnace, 4 NACG,
+ * 5 Printed Ticket. `AP35:AP38` hold the code for the four sublots and
+ * `AU35:AU38` the label, via `VLOOKUP(AP.., AJ$33:AK$37, 2, FALSE)`; the two
+ * verification records are `AP33`/`AP34` and `AU33`/`AU34`, which sit ABOVE
+ * the sublot rows rather than after them (`AQ33`/`AQ34` caption them
+ * "Super Verify # 1"/"# 2"). All six AU cells are ONE shared formula, so what
+ * a pick on this form becomes in the workbook is the CODE - see mapper.mjs.
+ *
+ * ONE definition, exported, because the same five words have to appear in two
+ * places on the form and be turned back into a number by the mapper. Spelling
+ * them out three times is how the form's words and `Calculations!AP..`'s codes
+ * would drift, and a drifted label is not an error anywhere — `VLOOKUP(..,
+ * FALSE)` on a code we never wrote just leaves the cell blank.
+ *
+ * NOT to be confused with the LOT's acceptance method (`Calculations!H20`,
+ * Volumetrics / Gradation / Visual), which is a different question asked once
+ * on the Contract & Mix step. The Verification step's Method column wore
+ * H20's options over AU33/AU34 until 2026-09-13, which is most of why the
+ * field was unanswerable. */
+export const AC_METHODS = [
+  "Back-Calculation of MSG",
+  "Extraction",
+  "Ignition Furnace",
+  "NACG",
+  "Printed Ticket",
+];
+/** The code `Calculations!AP..` holds for a label, or null for anything off
+ *  the list. 1-based: the lookup table's own row order IS the code. */
+export function acMethodCode(label) {
+  const i = AC_METHODS.indexOf(String(label == null ? "" : label).trim());
+  return i < 0 ? null : i + 1;
+}
+/* Seeded rather than asked for, which Jake asked for on 2026-09-13 ("do it
+ * and the acc per sublot too"). Both of his real accepted lots read code 3 on
+ * all four sublots, and an ignition furnace is what a plant lab actually has;
+ * the other four are a back-calculation, a solvent extraction, a nuclear
+ * gauge and simply believing the ticket. It is a per-sublot SELECT all the
+ * same — a lab that runs a different method on one sublot says so there,
+ * and the workbook has four separate cells precisely because it can differ. */
+const AC_METHOD_DEFAULT = "Ignition Furnace";
+
 // The four QC sublots, seeded. An AMAW lot is exactly four — QC01..QC04 in
 // t_tst_rslt_dtl, four volumetric blocks on `Superpave`, four columns on
 // `Gradation`, four rows of pay. Not "up to four".
 const SUBLOT_SEED = [{ sublot: "1" }, { sublot: "2" }, { sublot: "3" }, { sublot: "4" }];
+// The tickets table carries the AC method as well, so its seed is the sublot
+// ids plus that default. `sublot_volumetrics` shares SUBLOT_SEED and must not
+// gain it - it has no such column, and a seeded cell with no column is a
+// value that reaches the payload and no screen.
+const TICKET_SEED = SUBLOT_SEED.map((r) => ({ ...r, ac_method: AC_METHOD_DEFAULT }));
 
 // Two laboratory specimens per sublot, which is what the workbook holds: the
 // BSG block has two rows above each Average row, and the MSG block has two
@@ -702,8 +752,8 @@ export const PLANTBOOK_SECTIONS = [
     rows: [
       {
         key: "sublot_tickets", heading: "Sublot tickets", fixed: true,
-        grid: ".7fr 1fr .8fr .9fr .9fr .8fr 1fr 1fr 1.1fr",
-        seed: SUBLOT_SEED,
+        grid: ".7fr 1fr .8fr .9fr .9fr .8fr 1fr 1fr 1.1fr 1.5fr",
+        seed: TICKET_SEED,
         columns: [
           { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
           // A row column is rendered as a plain text input whatever its
@@ -735,6 +785,23 @@ export const PLANTBOOK_SECTIONS = [
           // the `technicians` roster it already signs people in from rather
           // than shipping that list, same rule as binder terminals.
           { key: "technician", label: "Tech (SM ID)", type: "text", req: true, mono: true },
+          // Calculations!AP35:AP38 (the code) and AU35:AU38 (the label this
+          // holds). HOW THE SUBLOT'S %AC WAS MEASURED - the figure typed on
+          // the volumetrics table below is the only one on this step a
+          // technician still supplies, and this says where it came from.
+          //
+          // It is on the TICKETS table rather than beside that figure because
+          // the volumetrics table is nine short numbers and a 24-character
+          // dropdown has no business in it; this is the step's one row per
+          // sublot of record-keeping, which is what the method is.
+          //
+          // Seeded to Ignition Furnace and editable per sublot - see
+          // AC_METHODS above for the whole list and why it is one definition.
+          // `req: false` deliberately: a blank leaves AP/AU unwritten, which
+          // is what both the template and a mid-production lot already look
+          // like, and nothing in pay.mjs reads it.
+          { key: "ac_method", label: "AC method", type: "select", req: false,
+            options: AC_METHODS },
         ],
       },
       // ---- THE RAW WEIGHTS THE VOLUMETRICS ARE COMPUTED FROM ----------
@@ -1111,7 +1178,15 @@ export const PLANTBOOK_SECTIONS = [
         // scripts/amaw/harness/baseline/clipping.json is where it is recorded
         // rather than quietly tolerated. It has room to breathe now that the
         // seven computed figures have moved off this table.
-        grid: "1.9fr .8fr 1.1fr 1fr",
+        //
+        // The AC method's track was 1fr and is 1.15fr (out of the technician's
+        // 1.1), because a select does NOT report clipping - its scrollWidth
+        // equals its clientWidth whatever the option text does - so the
+        // harness cannot see a truncated one and this had to be measured
+        // against the widest option's text directly. At 1fr the widest
+        // ("Back-Calculation of MSG", 140px) had exactly 140px from 701px to
+        // 1244px; it has 181 now. Measure the same way if these tracks move.
+        grid: "1.9fr .8fr .95fr 1.15fr",
         seed: VERIFY_SEED,
         columns: [
           { key: "record", label: "Record", type: "text", readonly: true },
@@ -1137,9 +1212,12 @@ export const PLANTBOOK_SECTIONS = [
           // mislabelled with the other's options, is exactly what made the
           // question "what does that even mean?" - so the options are the
           // workbook's own five now.
+          // The same five, from the same definition - see AC_METHODS. A
+          // verification record is a box of mix somebody else re-tested, so
+          // it is NOT seeded: the Department's method is the Department's to
+          // state, and inheriting the plant's would be inventing it.
           { key: "ac_method", label: "AC method", type: "select", req: false,
-            options: ["Back-Calculation of MSG", "Extraction", "Ignition Furnace",
-                      "NACG", "Printed Ticket"] },
+            options: AC_METHODS },
         ],
       },
       // ---- THE RAW WEIGHTS, AND THE CALCULATION THEY DRIVE -------------

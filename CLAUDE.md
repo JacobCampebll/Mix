@@ -1930,10 +1930,50 @@ TBD — cite the governing spec section when encoding a limit in code.
   a step apart, one of them wearing the other's options, is exactly the shape
   that makes a form unanswerable. The column is `ac_method` now with the
   workbook's own five.
-  **Still not asked for anywhere: the PER-SUBLOT AC method** (`AP35:AP38`).
-  Both real lots use one method for all four, so a lot-level field with a
-  tinted default is defensible - but two files is not a rule and nobody has
-  confirmed it, so it is written down rather than built.
+  **The PER-SUBLOT AC method is asked for now** - see the entry below, which
+  closes the gap this paragraph used to record.
+
+- **The per-sublot AC determination method is a column on the Sublots step's
+  ticket table, seeded to Ignition Furnace** (Jake, 2026-09-13: "do it and the
+  acc per sublot too", answering a note that said a lot-level field with a
+  tinted default was defensible but that two files is not a rule). Per SUBLOT
+  rather than per lot because the workbook has four separate cells precisely
+  so it can differ, and on the TICKETS table rather than beside the %AC it
+  describes because `sublot_volumetrics` is nine short figures and a
+  24-character dropdown has no business in it.
+  **`AC_METHODS` in `sections.mjs` is the one definition**, and the reason it
+  has to be one is that the form's WORDS are the lookup key:
+  `Calculations!AU33:AU38` is `VLOOKUP(AP.., AJ$33:AK$37, 2, FALSE)`, and
+  `AJ33:AK37`'s own row order IS the code - 1 Back-Calculation of MSG,
+  2 Extraction, 3 Ignition Furnace, 4 NACG, 5 Printed Ticket, read out of the
+  real lot's shared strings rather than inferred. Reword an option and nothing
+  errors anywhere: the VLOOKUP just finds nothing. `acMethodCode()` is the
+  only translation, `check_sections.mjs` fails both `ac_method` columns if
+  their options are not that list and fails a seed that is not one of them,
+  and `check_page_plantbook.mjs` sweeps the page's copy against it.
+  **Three real bugs came out of building it, all in the same few lines:**
+  **`FLAGS.sublotAcceptanceLabel` was `CALC.sublotAcceptanceMethod`, which
+  carries no `sheet` of its own - so every label write went to the address
+  `"undefined!AU35"` and landed nowhere, silently.** It had been that way
+  since the mapper was written. What kept it invisible is worth more than the
+  fix: **`check_mapper.mjs` read the value back through the same expression**,
+  so both sides agreed on a cell that does not exist and the comparison passed.
+  A checker that derives an address the way the code does cannot catch a wrong
+  address - it can only catch a wrong value at a right one.
+  **AU33:AU38 is ONE shared formula over all six rows**, not "wired only for
+  the two verification rows" as the mapper's comment claimed. So the CODE is
+  what is written plain, into AP, and the label rides in `evalOnly` - the
+  staging bank needs the words (the evaluator does not do VLOOKUP) while Excel
+  recomputes the same words from AP on open. Writing the label over its own
+  formula would be the trap this file already records: a value whose inputs we
+  never wrote, blanked the moment the archived copy is opened.
+  **`AP33`/`AP34` are the two verification records' code cells** - `AQ33`/`AQ34`
+  caption them "Super Verify # 1"/"# 2" - and nothing wrote them at all; the
+  mapper wrote only the label, into the formula cell above. Both are written
+  now, and the Verification step's own `ac_method` column (added the same day)
+  had no path to a cell until this.
+  Not seeded on the two verification records, deliberately: the Department
+  states its own method, and inheriting the plant's would be inventing it.
 
 ### Technician login & plant access
 

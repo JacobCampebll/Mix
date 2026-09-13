@@ -35,6 +35,13 @@ import { lotPay, sublotPay } from './pay.mjs';
 // The seam this file's output has to plug into: the mapper's own words for
 // the same values. lotScalars() is where a schema key becomes a workbook one.
 import { lotScalars } from './mapper.mjs';
+import PLANTBOOK_SECTIONS, { AC_METHODS } from './sections.mjs';
+
+// The four seeded sublot rows' AC method, read out of the schema rather
+// than restated here - see the assertions further down for why it is the
+// schema's seed and not the intake's.
+const TICKET_COLS = ((PLANTBOOK_SECTIONS.find((x) => x.id === 'sublots').rows || [])
+  .find((t) => t.key === 'sublot_tickets').seed || []).map((r) => r.ac_method);
 
 const DIR = process.argv[2] ||
   '/tmp/claude-0/-home-user-Mix/c9cd3888-ef57-5ba4-8674-a56236907f1c/scratchpad';
@@ -272,6 +279,24 @@ if (!approval) {
     ok('report.derived names lot_tons',
        r.report.derived.some((d2) => d2.key === 'lot_tons'),
        r.report.derived.map((d2) => d2.key));
+    // The per-sublot AC determination method - how each sublot's %AC was
+    // measured (Calculations!AP35:AP38). Jake asked for it seeded on
+    // 2026-09-13 ("do it and the acc per sublot too"), and it is seeded in
+    // the SCHEMA rather than here, because it is a row cell: intake hands
+    // back `sublot_tickets: []` and sections.mjs' own seed is what the
+    // renderer opens with. Asserted from here all the same, and both ways
+    // round, because the failure is the same one lot_tons has - a value that
+    // is seeded AND still asked for tells a technician to supply a figure the
+    // form already holds.
+    ok('the lot leaves the four sublot rows to the schema',
+       Array.isArray(lot.rows.sublot_tickets) && lot.rows.sublot_tickets.length === 0,
+       lot.rows.sublot_tickets);
+    ok('...and the schema seeds all four with an AC method off AC_METHODS',
+       TICKET_COLS.length === 4 && TICKET_COLS.every((v) => AC_METHODS.includes(v)),
+       TICKET_COLS);
+    ok('...and it is not also listed as something to type',
+       !typedKeys.includes('ac_method') && !typedKeys.some((k) => /ac_method/.test(k)), typedKeys);
+
     ok('a lot number the caller supplied is NOT listed as still to type',
        !typedKeys.includes('lot_number'), typedKeys);
     ok('...but a defaulted one is',

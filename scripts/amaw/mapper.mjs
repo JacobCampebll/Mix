@@ -89,6 +89,12 @@ import { laneCorePay, jointCorePay, MCL } from './pay.mjs';
 // where the approval is read, and there is one copy of it for the same
 // reason there is one CONFIG.SECTIONS.
 import { mixTypeFor } from './intake.mjs';
+// The five AC determination methods and the code `Calculations!AP..` holds
+// for each. In sections.mjs because the FORM is where they are picked, and
+// one definition for the same reason there is one CONFIG.SECTIONS: the
+// words and the codes cannot be allowed to drift, and a drifted label
+// fails silently - VLOOKUP(.., FALSE) on a code nobody wrote is just blank.
+import { acMethodCode } from './sections.mjs';
 
 // =====================================================================
 //  Address plumbing
@@ -274,8 +280,22 @@ export const FLAGS = {
   binderGradeKey: A(CALC.sheet, CALC.binderGradeKey),
   perfSpecMadeWith: A(CALC.sheet, CALC.perfSpecMadeWith),
   lotNumber: A(CALC.sheet, 'BK1'),             // 'Pay Values'!F3 = VALUE(this)
-  sublotAcceptanceCode: { first: 35, stride: 1, col: 'AP', sheet: CALC.sheet },
-  sublotAcceptanceLabel: CALC.sublotAcceptanceMethod, // AU35.. / AU33,AU34
+  // The AC determination method: AP holds the CODE, AU the label, and
+  // AU33:AU38 is ONE shared formula - IF(AP33="","",VLOOKUP(AP33,
+  // AJ$33:AK$37,2,FALSE)) - over all six rows, verified in both real
+  // lots. So AP is what a human fills and what we write; AU is supplied
+  // as well, but only so the staging bank resolves it (the evaluator
+  // does not do VLOOKUP), which is what `write()`'s evalOnly mode is for.
+  // AP33/AP34 are the two verification rows - AQ33/AQ34 caption them
+  // "Super Verify # 1"/"# 2" - and they sit ABOVE AP35:AP38, not after.
+  sublotAcceptanceCode: { first: 35, stride: 1, col: 'AP', sheet: CALC.sheet,
+                          verify: ['AP33', 'AP34'] },
+  // NOTE the sheet: CALC.sublotAcceptanceMethod carries none of its own,
+  // and reading `.sheet` off it produced the address "undefined!AU35" -
+  // so every label write landed nowhere and nothing said so. It went
+  // unseen because check_mapper.mjs read the label back through the same
+  // expression, so both sides agreed on a cell that does not exist.
+  sublotAcceptanceLabel: { ...CALC.sublotAcceptanceMethod, sheet: CALC.sheet }, // AU35.. / AU33,AU34
 };
 
 // Two literals both completed lots carry that nothing in the workbook
@@ -569,17 +589,43 @@ export function amawCells(lot, tpl, ref) {
     ['density_option', FLAGS.densityOption, 'density option A or B'],
   ]) if (!amHas(v[key])) need(addr, what);
 
-  // Per-sublot acceptance method: AP is the code, AU the label it looks up —
-  // and AU is only wired for the two verification rows, so the four QC rows
-  // need the label written as well as the code.
+  // Per-sublot AC DETERMINATION METHOD - how that sublot's %AC was measured.
+  //
+  // AP holds the code and AU the label, and AU33:AU38 is ONE shared formula
+  // over all six rows - IF(AP33="","",VLOOKUP(AP33,AJ$33:AK$37,2,FALSE)) -
+  // read out of both real lots rather than assumed. So the CODE is what is
+  // written plain and the label rides in `evalOnly`: the evaluator does not
+  // do VLOOKUP, so the staging bank needs the words supplied, while Excel
+  // recomputes the same words from AP the moment the file is opened. Writing
+  // the label over its own formula instead would be the trap CLAUDE.md
+  // records - a value whose inputs we never wrote, blanked on open.
+  //
+  // Two vocabularies again, and the same rule as lotScalars(): a record under
+  // this file's own names wins, because check_mapper.mjs builds its records by
+  // reading a real completed workbook and is already in those words; the FORM
+  // fills the gap, because a lot built in PlantBook has no records at all -
+  // it has `rows.sublot_tickets[s-1].ac_method`, one select per sublot, and
+  // the code is derived from the label rather than stored beside it.
   const acc = FLAGS.sublotAcceptanceCode, accL = FLAGS.sublotAcceptanceLabel;
+  const ticket = (s) => (rows.sublot_tickets || [])[s - 1] || {};
   [1, 2, 3, 4].forEach((s) => {
     const r = recVals(`QC0${s}`);
-    write(A(acc.sheet, `${acc.col}${acc.first + (s - 1) * acc.stride}`), amNum(r.acceptance_code));
-    write(A(accL.sheet, `${accL.col}${accL.first + (s - 1) * accL.stride}`), amStr(r.acceptance_label));
+    // amStr() returns '' rather than null for an absent value, so the
+    // fallback is || and not ?? - a ?? here would write four empty
+    // strings over the form's answers and say nothing about it.
+    const label = amStr(r.acceptance_label) || amStr(ticket(s).ac_method);
+    const code = amNum(r.acceptance_code) ?? acMethodCode(label);
+    write(A(acc.sheet, `${acc.col}${acc.first + (s - 1) * acc.stride}`), code);
+    write(A(accL.sheet, `${accL.col}${accL.first + (s - 1) * accL.stride}`), label);
   });
+  // The verification records' own method, `AU33`/`AU34`. Same fallback, onto
+  // the Verification step's identity table - which had no path to a cell at
+  // all until this, so the column existed and the workbook never saw it.
   ['QA01', 'IQ01'].forEach((b, i) => {
-    write(A(accL.sheet, accL.verify[i]), amStr(recVals(b).acceptance_label));
+    const vrow = (rows.verification || [])[i] || {};
+    const label = amStr(recVals(b).acceptance_label) || amStr(vrow.ac_method);
+    write(A(acc.sheet, acc.verify[i]), amNum(recVals(b).acceptance_code) ?? acMethodCode(label));
+    write(A(accL.sheet, accL.verify[i]), label);
   });
 
   // Which sublot each verification verifies. A value, not a constant — it
