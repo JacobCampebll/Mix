@@ -421,8 +421,11 @@ export const LOT_FIELD_ALIASES = {
   lot_binder_grade: 'binder_grade_key',
   lot_additive: 'additive',
   lot_handmix_binder_pct: 'hand_mixed_ac',
-  lot_equipment_verified_qa: 'equipment_verified_qa',
-  lot_equipment_verified_iq: 'equipment_verified_iq',
+  // lot_equipment_verified_qa/_iq REMOVED 2026-09-14 - moved from lot-wide
+  // scalars into the `verification` row table's own `equipment_verified`
+  // column (LOT_TABLE_ROUTES above), one per record's own slot rather than
+  // one shared answer four tabs could each try to set. See lotRecords()'s
+  // write step for the "Yes"/"No" -> boolean conversion that moved with it.
 };
 
 /** "Yes"/"No" -> the BOOLEAN `Calculations!M1`/`M2` hold, not the 1/2 the
@@ -476,15 +479,13 @@ export function lotScalars(values) {
     const jd = Number(out.joint_density);
     if (jd === 1 || jd === 2) out.joint_density = jd === 1 ? 1 : 0;
   }
-  // The two equipment flags, form words -> M1/M2's boolean. Only a value that
-  // came off the FORM is converted: one already under the mapper's own name
-  // is in M1's words already, which is what check_mapper reads.
-  for (const k of ['equipment_verified_qa', 'equipment_verified_iq']) {
-    if (out[k] === undefined || v[k] !== undefined) continue;
-    const b = YES_NO_BOOL[String(out[k]).trim().toUpperCase()];
-    if (b === undefined) delete out[k];        // an unreadable answer is not a No
-    else out[k] = b;
-  }
+  // The two equipment flags used to live here (form words -> M1/M2's
+  // boolean) - REMOVED 2026-09-14, moved to the `verification` row table's
+  // own `equipment_verified` column (LOT_TABLE_ROUTES) now that a record
+  // lives on one of four possible Sublot tabs rather than being a single
+  // lot-wide scalar. The SAME "Yes"/"No" -> boolean conversion (YES_NO_BOOL)
+  // now happens at the write site in lotRecords()'s per-record loop instead
+  // of here, since `lotScalars()` never sees a per-record value at all.
   // Calculations!J1 is a TRANSLATION of the nominal size and not a field at
   // all (sections.mjs), so a lot built on the form carries no code to read.
   // Derived here, once, where every reader below already looks.
@@ -607,31 +608,43 @@ export const LOT_TABLE_ROUTES = {
   // -- the Department's two samples -----------------------------------
   verification: {
     by: 'record', id: 'record', into: 'values',
+    // `equipment_verified` added 2026-09-14: moved here from a lot-wide
+    // scalar (`lot_equipment_verified_qa`/`_iq`, LOT_FIELD_ALIASES below)
+    // now that a record lives on one of four possible Sublot tabs -
+    // repeating a scalar `data-field` across four tabs is the unsafe kind
+    // of duplication (collectForm() overwrites by DOM order), while a row
+    // column scoped to this one record's own slot is not. See the write
+    // step below for the "Yes"/"No" -> boolean conversion that moved with
+    // it (lotScalars() no longer sees this value at all).
     cols: { sublot_verified: 'sublot_verified', technician: 'tested_by',
-            ac_method: 'acceptance_label' },
+            ac_method: 'acceptance_label', equipment_verified: 'equipment_verified' },
   },
   verify_bsg: {
     by: 'record', id: 'record', slot: 'specimen', into: 'rows.specimens',
     cols: { wt_air: 'wt_air', wt_water: 'wt_water', wt_ssd: 'wt_ssd' },
     drop: { bulk_volume: "'Super Verify' F = E-D, a formula",
-            bsg: "'Super Verify' G = C/F, a formula" },
+            bsg: "'Super Verify' G = C/F, a formula",
+            sublot: 'page-only join key (computeVerification(), 2026-09-14) - not read by the mapper' },
   },
   verify_msg: {
     by: 'record', id: 'record', slot: 'specimen', into: 'rows.gmm',
     cols: { wt_mix: 'wt_mix', calibration: 'calibration', final_wt: 'final_wt',
             absorbed_water: 'absorbed_water', msg: 'msg' },
+    drop: { sublot: 'page-only join key (computeVerification(), 2026-09-14) - not read by the mapper' },
   },
   verify_moisture: {
     by: 'record', id: 'record', into: 'values',
     cols: { wt_before: 'moisture_before', wt_after: 'moisture_after',
             wt_pan: 'moisture_pan' },   // three RENAMEs
-    drop: { moisture: 'computed by volumetrics.mjs and by the sheet' },
+    drop: { moisture: 'computed by volumetrics.mjs and by the sheet',
+            sublot: 'page-only join key (computeVerification(), 2026-09-14) - not read by the mapper' },
   },
   verify_volumetrics: {
     by: 'record', id: 'record', into: 'values', cols: {},
     drop: { binder_pct: 'BACK-CALCULATED, never typed - Super Verify J27/J28',
             gmb: "'Super Verify' G", gmm: 'C25', va: 'J30', pbe: 'J31',
-            vma: 'J32', vfa: 'J33' },
+            vma: 'J32', vfa: 'J33',
+            sublot: 'page-only join key (computeVerification(), 2026-09-14) - not read by the mapper' },
   },
   // -- cores: two banks, different strides, slot by position in its sublot
   mat_cores: {
@@ -1460,9 +1473,15 @@ export function amawCells(lot, tpl, ref) {
     write(A(V.sheet, V.inspectorName[slot]), amStr(rv.tested_by_name));
 
     // Equipment verified, into the BOOLEAN at `Calculations!M1`/`M2` rather
-    // than the `IF(M,1,2)` formula above it that the loader reads.
-    const flag = v[slot === 0 ? 'equipment_verified_qa' : 'equipment_verified_iq'];
-    write(A(CALC.sheet, CALC.equipmentVerified[slot]), amNum(flag));
+    // than the `IF(M,1,2)` formula above it that the loader reads. Reads off
+    // THIS RECORD's own row now (2026-09-14, `rv.equipment_verified`) rather
+    // than a lot-wide scalar - see LOT_TABLE_ROUTES.verification and the
+    // note on `lotScalars()` above for why. The "Yes"/"No" -> boolean
+    // conversion moved here with it: `rv` carries the raw form word,
+    // `lotScalars()` never saw a per-record value to convert in the first
+    // place.
+    const flag = YES_NO_BOOL[String(rv.equipment_verified == null ? '' : rv.equipment_verified).trim().toUpperCase()];
+    write(A(CALC.sheet, CALC.equipmentVerified[slot]), flag);
     // A BLANK flag is not neutral: O1 evaluates to 2 and sn 114/115 tell MEDL
     // "No". That is the workbook's own behaviour and is reproduced rather than
     // worked around - but a Department sample WITH no answer is worth saying

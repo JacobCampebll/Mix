@@ -176,8 +176,23 @@ function buildFormLot() {
 
   // -- the sieve section is NOT a row table: its values live in `values`
   //    under composed keys, which is a third shape again.
-  const grad = PLANTBOOK_SECTIONS.find((s) => s.id === 'sublot-gradation');
-  if (grad) {
+  //
+  // Gradation moved onto the four Sublot tabs (Andrew, 2026-09-14) - there is
+  // no longer one section holding every column. `buildSublotGradationSections()`
+  // (sections.mjs) emits four sections, each carrying only [jmf, sub<n>], so
+  // this fixture has to gather columns across all four rather than looking
+  // one section up by an id that no longer exists. Every one of them shares
+  // the same `sieves` list, so the first section's is as good as any.
+  const gradSections = PLANTBOOK_SECTIONS.filter((s) => s.type === 'sieves');
+  if (gradSections.length) {
+    const seenCols = new Set();
+    const gradCols = [];
+    for (const s of gradSections) {
+      for (const col of s.columns || []) {
+        if (!seenCols.has(col.key)) { seenCols.add(col.key); gradCols.push(col); }
+      }
+    }
+    const gradSieves = gradSections[0].sieves || [];
     // The JMF column is a TARGET and stays % passing; the six measured
     // columns are cumulative grams retained plus a pan and a total. A
     // cumulative series must never fall, so the fixture builds a real one
@@ -186,8 +201,8 @@ function buildFormLot() {
     // instead of the route.
     const TOTAL = 1500;
     const CUM = [0, 0, 0, 15, 120, 285, 600, 840, 1005, 1140, 1245, 1335, 1410];
-    for (const col of grad.columns || []) {
-      (grad.sieves || []).forEach((sieve, i) => {
+    for (const col of gradCols) {
+      gradSieves.forEach((sieve, i) => {
         if (col.target) { values[`${col.key}_${sieve.key}`] = 100 - (CUM[i] / TOTAL) * 100; return; }
         values[`${col.key}_wt_${sieve.key}`] = CUM[i];
       });
@@ -390,9 +405,17 @@ is('the IQ flag reaches M2',
 // value would make IF("No",1,2) a #VALUE! rather than a flag, and writing 2
 // for No would read back as TRUE - the same inversion CLAUDE.md records for
 // joint density at M11.
+//
+// FIXTURE UPDATED 2026-09-14: `equipment_verified` moved from the lot-wide
+// scalar `values.lot_equipment_verified_qa` to QA01's own record
+// (`records.QA01.values.equipment_verified`) now that a Verification record
+// lives on one of four possible Sublot tabs - see LOT_TABLE_ROUTES.
+// verification and mapper.mjs's write step for the "Yes"/"No" -> boolean
+// conversion, which moved to read `rv.equipment_verified` there instead of
+// `lotScalars()`'s old output.
 const flags = (qa) => {
-  const o = amawCells({ values: { lot_number: '1', lot_nominal_size: '0.38B',
-    lot_equipment_verified_qa: qa }, rows: {}, records: { QA01: { values: { tested_by: 'x' } } } }, tpl, {});
+  const o = amawCells({ values: { lot_number: '1', lot_nominal_size: '0.38B' },
+    rows: {}, records: { QA01: { values: { tested_by: 'x', equipment_verified: qa } } } }, tpl, {});
   return { ...o.values, ...o.evalOnly }[eqW];
 };
 is('"Yes" converts to 1', flags('Yes') === 1, flags('Yes'));

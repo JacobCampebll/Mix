@@ -869,6 +869,23 @@
                  margin:14px 0 6px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
   .rowgroup-head .seclookup{margin-left:auto; text-transform:none; letter-spacing:.03em;}
   .rowgroup-head + .lookupnote{margin:-2px 0 8px;}
+  /* PlantBook's Sublot tabs (2026-09-14): Andrew asked for a navy banner on
+     every grouping on a tab, old and new, "creates visual division between
+     the sections". Same -24px bleed as .subhead.banded and the same reason
+     (.rowblock/.rowblocks add no padding of their own, so a row table sits at
+     the same 24px inset .section-head does) - ONLY SAFE ON A FULL-WIDTH
+     (span [12,12], the default) row block. A narrower one would bleed the
+     band into its neighbour rather than the card edge; none of PlantBook's
+     row specs are narrow today, so this is not yet an issue, but a future
+     narrow `banded` spec would need its own answer, not this rule reused
+     blindly. */
+  .rowgroup-head.banded{margin:14px -24px 10px; padding:9px 24px 8px;
+                        background:var(--navy); border-bottom:3px solid var(--gold);
+                        color:var(--panel); font-size:13px; font-weight:600;
+                        text-transform:none; letter-spacing:normal;}
+  .rowgroup-head.banded .seclookup{color:var(--gold); border-color:var(--gold);}
+  .rowgroup-head.banded .seclookup:hover:not(:disabled){background:var(--gold); color:var(--navy);}
+  .rowgroup-head.banded + .lookupnote{margin:-2px 0 8px 24px;}
 
   /* status */
   .timeline{display:flex; align-items:center; margin:6px 0 4px;}
@@ -2896,6 +2913,16 @@ const PB_SECTIONS = (() => {
   // rather than `Gradation`. They are here and not on the Verification step
   // because they are the same quantity on the same sieves: a reviewer
   // comparing QA against sublot 3 must not have to change screens to do it.
+  //
+  // Andrew, 2026-09-14: Gradation moved onto the Sublot 1-4 tabs (one column
+  // per tab, plus the read-only JMF target - see buildSublotGradationSections()
+  // below), which is why `qa`/`iq` below are unused now: they had no natural
+  // per-sublot home (Department data isn't any one sublot's), and adding one
+  // wasn't asked for. QA01/IQ01's own gradation percentages have NO UI
+  // anywhere in PlantBook until someone gives them one - a real, deliberate
+  // gap, not a silent drop; see NEXT_STEPS.md. Kept here as a record of the
+  // workbook's own shape (`Super Verify` rows 33..46, columns D and G) rather
+  // than deleted.
   const GRADATION_COLUMNS = [
     { key: "jmf",  label: "JMF target", target: true },
     { key: "sub1", label: "Sublot 1" },
@@ -2982,10 +3009,31 @@ const PB_SECTIONS = (() => {
   // QA01 is, and the bare code on the four tables that repeat it. Five
   // full-width copies of "QA01 - Department acceptance" is most of this step on
   // a 360px screen, and after the first one it says nothing new.
-  const VERIFY_SEED = VERIFY_RECORDS.map((r) => ({ record: r.label }));
-  const VERIFY_ROW_SEED = VERIFY_RECORDS.map((r) => ({ record: r.key }));
+  //
+  // Andrew, 2026-09-14: "Department Verification... should be on each sublot
+  // tab. If the state does not verify a given sublot, this section will
+  // remain blank." Each record now has FOUR possible homes, one per sublot
+  // tab, of which normally exactly one is ever filled - the seeds below carry
+  // `sublot` on every table (not just the identity one, which already had
+  // `sublot_verified`) so computeVerification() can join a record's BSG/MSG/
+  // moisture/computed rows to the RIGHT slot instead of every same-named row
+  // across all four tabs. See verifyRowOf4()/verifySpecimenOf4() below for the
+  // slice indices, and the section's own comment for what did and did not
+  // need a mapper.mjs change to get here.
+  const VERIFY_SEED = VERIFY_RECORDS.flatMap((r) =>
+    ["1", "2", "3", "4"].map((sublot) => ({ record: r.label, sublot_verified: sublot })));
+  const VERIFY_ROW_SEED = VERIFY_RECORDS.flatMap((r) =>
+    ["1", "2", "3", "4"].map((sublot) => ({ record: r.key, sublot })));
   const VERIFY_SPECIMEN_SEED = VERIFY_RECORDS.flatMap((r) =>
-    ["1", "2"].map((specimen) => ({ record: r.key, specimen })));
+    ["1", "2", "3", "4"].flatMap((sublot) =>
+      ["1", "2"].map((specimen) => ({ record: r.key, sublot, specimen }))));
+  // n is 1..4. Both seeds above are ordered [QA-sub1..QA-sub4, IQ-sub1..IQ-sub4]
+  // (VERIFY_RECORDS.flatMap outer loop is the record), so sublot n's QA slot is
+  // at index n-1 and its IQ slot at 4+(n-1) - same arithmetic family as
+  // oneOf4()/twoOf4()/fourOf4() above, just two records instead of one table.
+  const verifyRowOf4 = (n) => [n - 1, 4 + (n - 1)];
+  const verifySpecimenOf4 = (n) =>
+    [2 * (n - 1), 2 * (n - 1) + 1, 8 + 2 * (n - 1), 8 + 2 * (n - 1) + 1];
 
   // The two Rice determinations of the lot's hand-mixed check sample
   // (`Superpave` columns M and N). One per lot, not per sublot.
@@ -3071,7 +3119,7 @@ const PB_SECTIONS = (() => {
   // are unchanged from the single "Sublots"/"Cores" steps they came from - only
   // the section(s) wrapping them changed.
   const SUBLOT_TICKETS_SPEC = {
-    key: "sublot_tickets", heading: "Sublot ticket", fixed: true,
+    key: "sublot_tickets", heading: "Sublot ticket", banded: true, fixed: true,
     grid: ".7fr 1fr .8fr .9fr .9fr .8fr 1fr 1fr 1.1fr 1.5fr",
     seed: TICKET_SEED,
     columns: [
@@ -3133,7 +3181,7 @@ const PB_SECTIONS = (() => {
   // reproduces both real lots cell for cell.
   const SUBLOT_BSG_SPEC = {
     key: "sublot_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for this sublot",
-    fixed: true,
+    banded: true, fixed: true,
     grid: ".7fr .5fr 1fr 1fr 1fr .9fr .9fr",
     seed: SPECIMEN_SEED,
     columns: [
@@ -3161,7 +3209,7 @@ const PB_SECTIONS = (() => {
   };
   const SUBLOT_MSG_SPEC = {
     key: "sublot_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for this sublot",
-    fixed: true,
+    banded: true, fixed: true,
     grid: ".7fr .5fr 1fr 1fr 1fr 1fr .8fr",
     seed: SPECIMEN_SEED,
     columns: [
@@ -3188,7 +3236,7 @@ const PB_SECTIONS = (() => {
     // reads D33 in preference to D34. Without it the lot is paid on an
     // uncorrected binder content.
     key: "sublot_moisture", heading: "Moisture in the mixture — the %AC correction",
-    fixed: true, seed: SUBLOT_SEED,
+    banded: true, fixed: true, seed: SUBLOT_SEED,
     grid: ".7fr 1fr 1fr 1fr .9fr",
     columns: [
       { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
@@ -3200,7 +3248,7 @@ const PB_SECTIONS = (() => {
     ],
   };
   const SUBLOT_VOLUMETRICS_SPEC = {
-    key: "sublot_volumetrics", heading: "Sublot volumetrics — computed", fixed: true,
+    key: "sublot_volumetrics", heading: "Sublot volumetrics — computed", banded: true, fixed: true,
     grid: ".7fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
     seed: SUBLOT_SEED,
     columns: [
@@ -3237,13 +3285,13 @@ const PB_SECTIONS = (() => {
   ];
   const MAT_CORES_SPEC = {
     key: "mat_cores", heading: "Mat cores (lane density) — 4 for this sublot",
-    fixed: true, seed: MAT_CORE_SEED, span: [12, 12],
+    banded: true, fixed: true, seed: MAT_CORE_SEED, span: [12, 12],
     grid: ".7fr .9fr 1.3fr 1fr 1fr 1fr .8fr .9fr .9fr .8fr",
     columns: CORE_COLUMNS,
   };
   const JOINT_CORES_SPEC = {
     key: "joint_cores", heading: "Joint cores (longitudinal joint density) — 2 for this sublot",
-    fixed: true, seed: JOINT_CORE_SEED, span: [12, 12],
+    banded: true, fixed: true, seed: JOINT_CORE_SEED, span: [12, 12],
     grid: ".7fr .9fr 1.3fr 1fr 1fr 1fr .8fr .9fr .9fr .8fr",
     columns: CORE_COLUMNS,
   };
@@ -3261,12 +3309,16 @@ const PB_SECTIONS = (() => {
         tag: `AMAW · QC0${n} — this sublot's ticket, BSG/MSG, gradation weights and cores`,
         type: "rows",
         cites: ["accept402", "volumetric", "density402"],
-        // Andrew, 2026-09-14: the per-sublot Combined Gsb readout Aggregate
-        // Blend's `blend_gsb` row computes follows its data here rather than
-        // staying only on the Blend step. `blend_gsb` ITSELF is untouched and
-        // stays on Aggregate Blend - this is a read-only mirror of one of its
-        // four cells, painted by paintLotReadouts(), same footing as Contract
-        // & Mix's two design mirrors. Nothing new is collected or saved.
+        // Andrew, 2026-09-14: the per-sublot Combined Gsb readout follows the
+        // Blend section's `blend_gsb` row here rather than only being visible
+        // where that row lives (Aggregate Blend, itself moved `into:
+        // "sublot-1"` the same day). `blend_gsb` ITSELF is untouched - this is
+        // a read-only mirror of one of its four cells, painted by
+        // paintLotReadouts(), same footing as Contract & Mix's two design
+        // mirrors. Nothing new is collected or saved, and since
+        // computeBlendGsb() (designbook.html) now computes `blend_gsb` LIVE
+        // from the blend's own percentages and BODs instead of a static seed,
+        // this readout is live too.
         fields: [
           { type: "readout", label: "Combined Gsb", out: `blend_gsb_${n}`,
             sub: "from Aggregate Blend" },
@@ -3279,6 +3331,195 @@ const PB_SECTIONS = (() => {
           sliceSpec(SUBLOT_VOLUMETRICS_SPEC, oneOf4(n)),
           sliceSpec(MAT_CORES_SPEC, fourOf4(n)),
           sliceSpec(JOINT_CORES_SPEC, twoOf4(n)),
+        ],
+      });
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------------
+  //  Gradation, also per sublot (Andrew, 2026-09-14)
+  // ---------------------------------------------------------------------
+  //
+  //  "The Gradation tab should be divided among the four sublot tabs to
+  //  provide an opportunity to add a gradation test per sublot." Each tab
+  //  gets its OWN two-column sieve table: the JMF target (read-only, for
+  //  comparison while typing) and that sublot's own weights-in column.
+  //
+  //  THE JMF COLUMN IS READ-ONLY EVERYWHERE, ON PURPOSE. It still renders as
+  //  a real `data-field="jmf_<sieve>"` input on all four tabs - collectForm()
+  //  still collects it, so a save/reload round-trip does not lose it - it is
+  //  just never focusable. That is what makes rendering it FOUR TIMES safe:
+  //  a value that can never be edited can never diverge between its four
+  //  copies, unlike Producer/Type/AGP/BOD on the Blend question still open
+  //  for Andrew (see NEXT_STEPS.md) - those would need the same "one canonical
+  //  edit point, N read-only mirrors" answer, or a genuinely new one.
+  //
+  //  NO CHART on these. `drawChart()`/`gradSection()` (designbook.html) are
+  //  written for exactly ONE `type: "sieves"` section on the active book -
+  //  which column's curve draws into which single `#chart` div - and
+  //  generalizing that (four mini-charts, or the M323 control-point band
+  //  drawn four times) is real work this change does not attempt. Logged as
+  //  an open follow-up in NEXT_STEPS.md, not silently dropped.
+  //
+  //  QA01/IQ01's own gradation percentages (`qa`/`iq` in GRADATION_COLUMNS
+  //  above) have no home here either - Department data isn't any one
+  //  sublot's, and giving it one wasn't asked for. Also open.
+  function buildSublotGradationSections() {
+    const jmf = { ...GRADATION_COLUMNS.find((c) => c.key === "jmf"), readonly: true };
+    const out = [];
+    for (let n = 1; n <= 4; n++) {
+      const sub = GRADATION_COLUMNS.find((c) => c.key === `sub${n}`);
+      out.push({
+        id: `sublot-${n}-gradation`, label: "Gradation", into: `sublot-${n}`, banded: true,
+        tag: "cumulative grams retained · % passing computed",
+        type: "sieves",
+        cites: ["ctrlpts"],
+        sieves: AMAW_SIEVES,
+        columns: [jmf, sub],
+        weights: true,
+        noChart: true,
+      });
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------------
+  //  Department Verification, also per sublot (Andrew, 2026-09-14)
+  // ---------------------------------------------------------------------
+  //
+  //  "The verification tab which is one sublot verification per lot should
+  //  be on each sublot tab. If the state does not verify a given sublot,
+  //  this section will remain blank." QA01 and IQ01 are still exactly one
+  //  record each (matching `Super Verify`'s real shape) - each now has FOUR
+  //  possible homes, one per sublot tab, and normally exactly one is filled.
+  //
+  //  THE "VERIFIES" DROPDOWN IS GONE. Which sublot a record verifies used to
+  //  be typed; now it is which tab the record was filled in on, so
+  //  `sublot_verified` is seeded and `readonly` instead. Its value and its
+  //  column key are UNCHANGED - the bridge and mapper.mjs still read exactly
+  //  what they always did.
+  //
+  //  A `sublot` column is NEW on the four repeating tables (BSG/MSG/moisture/
+  //  computed), which previously joined to the identity table by `record`
+  //  alone - fine when there were only two records total, wrong now that
+  //  four blank copies of "QA01" exist alongside the one real one.
+  //  computeVerification() (designbook.html) joins on record AND sublot as
+  //  of this change. The bridge does NOT need this column: a blank slot has
+  //  no measurement, and LOT_TABLE_ROUTES' `hasMeasurement()` already drops
+  //  a measurement-less row before it ever reaches `records[block]` - see
+  //  mapper.mjs. Confirmed by re-reading that file, not by guessing.
+  //
+  //  EQUIPMENT VERIFIED MOVED HERE FROM THE LOT STEP'S SCALAR `fields` - the
+  //  ONE PIECE OF THIS THAT DOES TOUCH mapper.mjs. `lot_equipment_verified_qa`/
+  //  `_iq` were global scalars; repeating either across four tabs would have
+  //  been the unsafe kind of duplication (collectForm() overwrites a scalar
+  //  `data-field` by DOM order, so filling it in on one tab and leaving the
+  //  other three at their untouched default could silently lose the answer
+  //  on the next save). A row column scoped to one record's own slot has no
+  //  such risk - only ONE of the four physical `equipment_verified` cells for
+  //  a given record is ever expected to hold anything. mapper.mjs's write
+  //  step for it now reads `recVals(block).equipment_verified` (already in
+  //  scope there) instead of the old lot-level scalar; LOT_TABLE_ROUTES gained
+  //  one `cols` entry to route it. Both are one-line changes, not a new
+  //  selection algorithm - unlike the "pick the one filled slot" logic this
+  //  looked at first, the record-scoped write already existed for every
+  //  OTHER field on this table (`tested_by`, `acceptance_label`); this one
+  //  had simply never needed it before there were four possible homes.
+  //
+  //  NOT YET RUN AGAINST A REAL AMAW WITH A QA OR IQ SAMPLE - see the note on
+  //  the old "Department Verification" step this replaces: neither of Jake's
+  //  two real lots has ever had one, so there is nothing to verify the new
+  //  routing against yet regardless of who writes it or when.
+  const VERIFY_IDENTITY_SPEC = {
+    key: "verification", heading: "Verification records", banded: true, fixed: true,
+    grid: "1.5fr .5fr .8fr 1fr .8fr",
+    seed: VERIFY_SEED,
+    columns: [
+      { key: "record", label: "Record", type: "text", readonly: true },
+      { key: "sublot_verified", label: "Verifies", type: "text", mono: true, readonly: true },
+      { key: "technician", label: "Tech (SM ID)", type: "text", req: false, mono: true },
+      { key: "ac_method", label: "AC method", type: "select", req: false, options: AC_METHODS },
+      { key: "equipment_verified", label: "Equipment verified", type: "select", req: false,
+        options: ["Yes", "No"] },
+    ],
+  };
+  const VERIFY_BSG_SPEC = {
+    key: "verify_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for this record",
+    banded: true, fixed: true,
+    grid: ".7fr .5fr .5fr 1fr 1fr 1fr .9fr .9fr",
+    seed: VERIFY_SPECIMEN_SEED,
+    columns: [
+      { key: "record", label: "Record", type: "text", readonly: true },
+      { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+      { key: "specimen", label: "Sample #", type: "text", mono: true, readonly: true },
+      { key: "wt_air", label: "Wt in air (g)", type: "number", req: false, mono: true },
+      { key: "wt_water", label: "Wt in water (g)", type: "number", req: false, mono: true },
+      { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: false, mono: true },
+      { key: "bulk_volume", label: "Bulk vol.", type: "number", req: false, mono: true, readonly: true },
+      { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
+    ],
+  };
+  const VERIFY_MSG_SPEC = {
+    key: "verify_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for this record",
+    banded: true, fixed: true,
+    grid: ".7fr .5fr .5fr 1fr 1fr 1fr 1fr .8fr",
+    seed: VERIFY_SPECIMEN_SEED,
+    columns: [
+      { key: "record", label: "Record", type: "text", readonly: true },
+      { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+      { key: "specimen", label: "Bowl #", type: "text", mono: true, readonly: true },
+      { key: "wt_mix", label: "Wt of mix (g)", type: "number", req: false, mono: true },
+      { key: "calibration", label: "Calibration (g)", type: "number", req: false, mono: true },
+      { key: "final_wt", label: "Final wt (g)", type: "number", req: false, mono: true },
+      { key: "absorbed_water", label: "Absorbed water (g)", type: "number", req: false, mono: true },
+      { key: "msg", label: "MSG", type: "number", req: false, mono: true, readonly: true },
+    ],
+  };
+  const VERIFY_MOISTURE_SPEC = {
+    key: "verify_moisture", heading: "Moisture in the mixture — the %AC correction",
+    banded: true, fixed: true,
+    grid: ".7fr .5fr 1fr 1fr 1fr .9fr",
+    seed: VERIFY_ROW_SEED,
+    columns: [
+      { key: "record", label: "Record", type: "text", readonly: true },
+      { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+      { key: "wt_before", label: "Pan + mix, before drying (g)", type: "number", req: false, mono: true },
+      { key: "wt_after", label: "Pan + mix, after drying (g)", type: "number", req: false, mono: true },
+      { key: "wt_pan", label: "Pan (g)", type: "number", req: false, mono: true },
+      { key: "moisture", label: "% moisture", type: "number", req: false, mono: true, readonly: true },
+    ],
+  };
+  const VERIFY_VOLUMETRICS_SPEC = {
+    key: "verify_volumetrics", heading: "Verification volumetrics — computed", banded: true, fixed: true,
+    grid: ".7fr .5fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
+    seed: VERIFY_ROW_SEED,
+    columns: [
+      { key: "record", label: "Record", type: "text", readonly: true },
+      { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+      { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
+      { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
+      { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
+      { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
+      { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
+      { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true, readonly: true },
+      { key: "vfa", label: "VFA (%)", type: "number", req: false, mono: true, readonly: true },
+    ],
+  };
+  function buildSublotVerificationSections() {
+    const out = [];
+    for (let n = 1; n <= 4; n++) {
+      out.push({
+        id: `sublot-${n}-verify`, label: "Department Verification", into: `sublot-${n}`, banded: true,
+        tag: "AMAW · Super Verify — QA01 / IQ01, this sublot's slot",
+        type: "grid",
+        cites: ["accept402", "km443"],
+        rows: [
+          sliceSpec(VERIFY_IDENTITY_SPEC, verifyRowOf4(n)),
+          sliceSpec(VERIFY_BSG_SPEC, verifySpecimenOf4(n)),
+          sliceSpec(VERIFY_MSG_SPEC, verifySpecimenOf4(n)),
+          sliceSpec(VERIFY_MOISTURE_SPEC, verifyRowOf4(n)),
+          sliceSpec(VERIFY_VOLUMETRICS_SPEC, verifyRowOf4(n)),
         ],
       });
     }
@@ -3522,7 +3763,7 @@ const PB_SECTIONS = (() => {
 
     {
       // ---------------------------------------------------------------
-      //  1a. BINDER & ADDITIVE — a sub-block inside Lot
+      //  1a. BINDER — a sub-block inside Lot
       // ---------------------------------------------------------------
       //
       //  `into` draws this inside the Lot section's body rather than as a step
@@ -3530,15 +3771,32 @@ const PB_SECTIONS = (() => {
       //  Structure. It stays a full schema entry, so it keeps its own cite and
       //  its own heading; only where it draws changes. A section with `into`
       //  is not a step. PlantBook was eight steps (not ten) before the Sublot
-      //  1-4 split (2026-09-14); it is ten steps now (not thirteen) -
-      //  buildSublotTabSections() turned one step into four.
+      //  1-4 split (2026-09-14), ten steps (not thirteen) right after it -
+      //  buildSublotTabSections() turned one step into four - nine once the
+      //  Gradation split folded "sublot-gradation" `into` a Sublot tab too,
+      //  eight again once Aggregate Blend moved `into: "sublot-1"` the same
+      //  day, and is SEVEN STEPS now that Department Verification has too -
+      //  Lot, Sublot 1-4, Lot Pay, Submit. This IS Andrew's target shape: the
+      //  seven tabs he asked for. Twenty-one total array entries; seven of
+      //  them are steps.
       //
       //  Pay Values!B46/C46 plus the grade the workbook VLOOKUPs at
       //  Calculations!D147 into A147:B161. addresses.mjs says it outright:
       //  PlantBook should read `binder_grades` instead of that in-sheet table,
       //  same rule as everywhere else. `PG Producer` / `Producer supplier` in
       //  the workbook are the same terminals as `binder_terminals`.
-      id: "binder", label: "Binder & additive", into: "lot",
+      //
+      //  Andrew, 2026-09-14: label shortened from "Binder & additive" to
+      //  "Binder" (the field below is "Additive" now, not "Anti-strip
+      //  additive" - the section name doesn't need to repeat it), `banded:
+      //  true` added for the same navy `.section-head`-style band the
+      //  Aggregate Structure/Design Values mirrors got, and a new Additive
+      //  Dosage rate field. `lot_additive_dosage` has NO KNOWN AMAW CELL YET -
+      //  see NO_WORKBOOK_CELL in check_sections.mjs and the note in
+      //  NEXT_STEPS.md. It is typed and will round-trip through the lot's own
+      //  save/load, it just is not written into a generated AMAW until
+      //  someone confirms the real cell against a workbook.
+      id: "binder", label: "Binder", into: "lot", banded: true,
       tag: "AMAW · Pay Values B46/C46 — dropdowns from Supabase reference",
       type: "grid",
       cites: ["accept402"],
@@ -3547,7 +3805,12 @@ const PB_SECTIONS = (() => {
           source: "binder_terminals" },
         { key: "lot_binder_grade", label: "Binder grade", type: "text", req: true, mono: true,
           source: "binder_grades" },
-        { key: "lot_additive", label: "Anti-strip additive", type: "text", req: false },
+        { key: "lot_additive", label: "Additive", type: "text", req: false },
+        // % by weight of binder - Andrew's call, 2026-09-14. Not `req`: an
+        // additive is itself optional (`lot_additive` above), so a dosage rate
+        // with nothing to dose is meaningless rather than missing.
+        { key: "lot_additive_dosage", label: "Additive dosage rate (%)", type: "number",
+          req: false, mono: true },
       ],
     },
 
@@ -3654,7 +3917,32 @@ const PB_SECTIONS = (() => {
       //  fixed, one-row readonly table below the blend rather than four more
       //  columns on it. Same pattern as TSR's readonly Gmb / air voids
       //  columns: computed by the page, still collected, still round-tripped.
-      id: "blend", label: "Aggregate Blend", step: "Blend",
+      //  CORRECTION to this comment's own earlier claim ("the mapper is a
+      //  straight copy rather than a fan-out"): it is a fan-out after all -
+      //  mapper.mjs's `lotRecords()` bridge (task #39, commit d140866) reads
+      //  this table's `pct_1..pct_4` and pushes `{pct}` into each QC0n
+      //  record's `rows.blend[i]`, matching what its own write loop already
+      //  expected. Found correcting this comment, not by anything broken.
+      //
+      //  Andrew, 2026-09-14: moved `into: "sublot-1"` (was its own "Blend"
+      //  step) - "the Blend tab needs to be broken up among the four sublot
+      //  tabs... provide opportunity to adjust aggregate component
+      //  percentages... calculate an updated Combined Gsb for each sublot."
+      //  THE DATA MODEL DOES NOT CHANGE - this is still the one growable
+      //  table it always was, still all four pct_N columns, still fed to the
+      //  SAME mapper.mjs fan-out untouched. What moved is where it draws.
+      //  Producer/Type/AGP/BOD stay lot-level and get typed here, on Sublot
+      //  1's tab, same as before under "Blend" - Andrew's call (2026-09-14,
+      //  answering the follow-up this raised: AGP sometimes has no other
+      //  source, since the approval carries producer names, not AGP numbers)
+      //  was to accept losing a SEPARATE per-tab identity view rather than
+      //  invent one; visiting Sublot 1 to edit the blend (any sublot's
+      //  percentage) is the accepted tradeoff. Each Sublot 2-4 tab still gets
+      //  its own live "Combined Gsb" readout (buildSublotTabSections()) -
+      //  see computeBlendGsb() in designbook.html, which now computes it
+      //  LIVE from these percentages and BODs instead of the static value
+      //  the design's approval seeded once and never revisited.
+      id: "blend", label: "Aggregate Blend", into: "sublot-1", banded: true,
       tag: "AMAW · Superpave rows 3-8 · % is PER SUBLOT",
       type: "rows",
       cites: ["agg805"],
@@ -3755,7 +4043,7 @@ const PB_SECTIONS = (() => {
       //  "sublots"`, before that step became four) puts it on the first
       //  sublot's tab rather than giving it a step of its own or repeating it
       //  on all four - Andrew's call, 2026-09-14.
-      id: "handmix", label: "Hand-mixed check sample", into: "sublot-1",
+      id: "handmix", label: "Hand-mixed check sample", into: "sublot-1", banded: true,
       tag: "AMAW · Superpave N42/N43 — one per lot",
       type: "grid",
       cites: ["accept402"],
@@ -3777,7 +4065,7 @@ const PB_SECTIONS = (() => {
       // is a real difference in the workbook and not a transcription slip. See
       // handMixedGse() in volumetrics.mjs.
       rows: {
-        key: "handmix_msg", heading: "Hand-mixed MSG determinations", fixed: true,
+        key: "handmix_msg", heading: "Hand-mixed MSG determinations", banded: true, fixed: true,
         grid: ".5fr 1fr 1fr 1fr 1fr .8fr",
         seed: HANDMIX_SEED,
         columns: [
@@ -3791,79 +4079,16 @@ const PB_SECTIONS = (() => {
       },
     },
 
-    {
-      // ---------------------------------------------------------------
-      //  4. GRADATION — fourteen sieves by seven columns
-      // ---------------------------------------------------------------
-      //
-      //  RENDERER GAP (3) — the big one, and it fails LOUDLY (blank inputs
-      //  rather than wrong ones), which is the good kind.
-      //
-      //  `sievesHTML()` today draws a two-column table: the sieve label and
-      //  ONE "% passing" input per sieve, `data-field="${s.key}"`. A lot has
-      //  seven columns of the same fourteen sieves — the JMF target, four
-      //  measured sublots, and the two Department samples. That is the one
-      //  place PlantBook genuinely needs the renderer to grow, and the growth
-      //  is small and additive:
-      //
-      //    sievesHTML(section) reads `section.columns` (absent on DesignBook's
-      //    section, so it defaults to a single implicit column and nothing
-      //    about DesignBook changes), emits one <th> and one input per column,
-      //    and keys each input `data-field="${col.key}_${sieve.key}"`.
-      //
-      //  Those composite keys are what the checker validates for uniqueness,
-      //  so the schema is already carrying the real field list — 98 keys, none
-      //  of which collide with DesignBook's bare `s50`/`s0_075`.
-      //
-      //  The 0.45 chart underneath wants to grow with it: four measured curves
-      //  against the JMF target and the M323 control-point band, rather than
-      //  DesignBook's one. `.45 Data` in the AMAW carries the SAME control
-      //  points DesignBook holds in CONFIG.GRADATION_CONTROL_POINTS, so that
-      //  constant belongs to both books — one fact, one copy, the same rule
-      //  that makes effectiveMix() and trimFlatCoarseEnd() shared.
-      //
-      //  QA/IQ read `Super Verify` rows 33..46 columns D and G, not the
-      //  `Gradation` sheet. Same quantity, different sheet; the mapper cares,
-      //  the technician does not.
-      // ---------------------------------------------------------------
-      //  WEIGHTS IN, PERCENT PASSING OUT (Jake, 2026-09-14: "the gradation
-      //  page needs to be where you can put in the weights and it generates
-      //  the percent passing for you").
-      //
-      //  This is the same argument the Sublots step settled a day earlier and
-      //  it lands the same way: the AMAW computes % passing for itself from
-      //  weights already on the bench sheet, so typing the percentage is how a
-      //  lot ends up disagreeing with the workbook it will be loaded into.
-      //  `Gradation!C = (B/B25)*100` and `D = 100 - C`, over column B's
-      //  CUMULATIVE grams retained - verified against the shipped template's
-      //  own header cells, which read "Grams Retained" / "Percent Retained" /
-      //  "Percent Passing", and confirmed with Jake.
-      //
-      //  It also retires a decision taken the SAME MORNING: the bridge used to
-      //  write % passing and % retained OVER their formulas because the form
-      //  had no grams to give. With grams the workbook computes both natively,
-      //  which is strictly better - nothing is written over, and the printed
-      //  sheet carries the weights a reviewer can check.
-      //
-      //  THE JMF COLUMN STAYS A PERCENTAGE. `Gradation!N10:N23` are typed
-      //  cells and a job mix formula is published as % passing - it is a
-      //  target, not something anybody weighed. Its keys are unchanged.
-      //
-      //  The measured columns' keys carry `_wt_` and are therefore NEW rather
-      //  than a reinterpretation of the old `${col}_${sieve}` ones. That is
-      //  deliberate: those held % passing, and silently reading 94.2 as 94.2
-      //  grams is precisely the kind of quiet wrongness this file exists to
-      //  prevent. An older lot's percentages are still read on the way to the
-      //  workbook (mapper.mjs falls back to them) and simply stop being asked
-      //  for on the form.
-      id: "sublot-gradation", label: "Gradation", step: "Gradation",
-      tag: "cumulative grams retained · % passing computed · 0.45 power chart",
-      type: "sieves",
-      cites: ["ctrlpts"],
-      sieves: AMAW_SIEVES,
-      columns: GRADATION_COLUMNS,
-      weights: true,
-    },
+    // 4. GRADATION — folded into the four Sublot tabs above
+    // (buildSublotGradationSections()), Andrew's 2026-09-14 ask. See that
+    // function's own comment for what came with it (JMF read-only
+    // everywhere, no chart, QA/IQ gradation dropped) and why - the RENDERER
+    // GAP (3) history that used to live in this comment (the composite-key
+    // growth sievesHTML() needed to draw seven columns at all, WEIGHTS IN /
+    // PERCENT PASSING OUT, Jake 2026-09-14) is unchanged and still applies -
+    // it just belongs to sievesHTML()/computeGradation() generally now, not
+    // to one section.
+    ...buildSublotGradationSections(),
 
     // 5. CORES — folded into the four Sublot tabs above (MAT_CORES_SPEC /
     // JOINT_CORES_SPEC, sliced by sliceSpec()). See buildSublotTabSections()
@@ -3871,208 +4096,17 @@ const PB_SECTIONS = (() => {
     // unchanged): lane density and joint density are two different pay
     // properties, run through two different pay curves in pay.mjs.
 
-    {
-      // ---------------------------------------------------------------
-      //  6. VERIFICATION — QA01 and IQ01, on `Super Verify`
-      // ---------------------------------------------------------------
-      //
-      //  The KYTC district technician's records: QA01 is Department
-      //  acceptance, IQ01 independent assurance. Both are filled by KYTC, not
-      //  by the plant — which is the single fact that makes the file-is-the-
-      //  record model hard for PlantBook (the district never holds the
-      //  contractor's file) and is why docs/plantbook-storage.md exists. This
-      //  schema is neutral on that: the section is the same either way.
-      //
-      //  A fixed two-row table rather than twenty `qa_`/`iq_` fields, because
-      //  it is the sublot-volumetrics table with two rows instead of four and
-      //  should read as one.
-      //
-      //  ---- THE TRAP IN THIS SECTION ------------------------------------
-      //
-      //  `Super Verify`'s columns are NOT `Superpave`'s. The same eight
-      //  quantities sit one column left from `pbe` on (pbe K/L, vma L/M,
-      //  vfa M/N, dustRatio N/O). The column KEYS here are the same as the
-      //  sublot table's on purpose — they are the same quantity and should
-      //  share CONFIG.DP — but the mapper must resolve them through
-      //  VERIFY.cols and never through SUBLOT.volumetric.cols. Copying one set
-      //  onto the other silently reads the NEIGHBOURING quantity, which looks
-      //  like bad data rather than a bug.
-      //
-      //  `sublot_verified` is the value every INDIRECT in the workbook is
-      //  built on ('Super Verify'!B5/B12, off Calculations!L1/L2). In BOTH
-      //  completed lots it is empty — no QA/IQ sample was taken — so every
-      //  INDIRECT-resolved field has no answer there. That is a real absence,
-      //  not a parse failure, which is why nothing in this section is `req`.
-      id: "verify", label: "Department Verification", step: "Verification",
-      tag: "AMAW · Super Verify — QA01 / IQ01, stride 7",
-      type: "grid",
-      cites: ["accept402", "km443"],
-      fields: [
-        // Calculations!O1/O2 — the technician's confirmation that the plant's
-        // equipment was checked. Two flags, one per verification block.
-        { key: "lot_equipment_verified_qa", label: "Equipment verified (QA)", type: "select", req: false,
-          options: ["Yes", "No"] },
-        { key: "lot_equipment_verified_iq", label: "Equipment verified (IQ)", type: "select", req: false,
-          options: ["Yes", "No"] },
-      ],
-      rows: [
-        {
-          key: "verification", heading: "Verification records", fixed: true,
-          // The record column is the only one here that is not mono: it holds a
-          // 28-character label ("QA01 — Department acceptance") rather than a
-          // figure, and proportional text is about a fifth narrower for the
-          // same string. It clips and says the whole thing in its `title`,
-          // which is what CLAUDE.md concluded for the producer name: some
-          // clipping is accepted, and the baseline in
-          // scripts/amaw/harness/baseline/clipping.json is where it is recorded
-          // rather than quietly tolerated. It has room to breathe now that the
-          // seven computed figures have moved off this table.
-          //
-          // The AC method's track was 1fr and is 1.15fr (out of the technician's
-          // 1.1), because a select does NOT report clipping - its scrollWidth
-          // equals its clientWidth whatever the option text does - so the
-          // harness cannot see a truncated one and this had to be measured
-          // against the widest option's text directly. At 1fr the widest
-          // ("Back-Calculation of MSG", 140px) had exactly 140px from 701px to
-          // 1244px; it has 181 now. Measure the same way if these tracks move.
-          grid: "1.9fr .8fr .95fr 1.15fr",
-          seed: VERIFY_SEED,
-          columns: [
-            { key: "record", label: "Record", type: "text", readonly: true },
-            // WHICH sublot this record verifies. It is not a label: every
-            // INDIRECT on that sheet resolves through it, and the Gsb the row's
-            // Pbe and VMA are measured against is that sublot's
-            // (`Superpave!R9`/`S9`/`T9`/`U9`, picked by this value). A record
-            // with weights and no sublot computes nothing, and says so.
-            { key: "sublot_verified", label: "Verifies", type: "select", req: false, mono: true,
-              options: ["1", "2", "3", "4"] },
-            { key: "technician", label: "Tech (SM ID)", type: "text", req: false, mono: true },
-            // Calculations!AU33/AU34 — per-record, and note those sit ABOVE the
-            // four sublot rows (AU35..AU38), not after them.
-            //
-            // CORRECTED 2026-09-13: this offered Volumetrics / Gradation /
-            // Visual, which is the LOT's acceptance method at `Calculations`
-            // !H20 - a different question, asked once for the whole lot on the
-            // Contract & Mix step. AU33/AU34 are fed by the same
-            // VLOOKUP(AP.., AJ33:AK37) as the four sublot rows below them, and
-            // that table is the AC DETERMINATION METHOD: how the binder
-            // content was measured. Both real lots read "Ignition Furnace" on
-            // all four sublots. Two controls a step apart, one of them
-            // mislabelled with the other's options, is exactly what made the
-            // question "what does that even mean?" - so the options are the
-            // workbook's own five now.
-            // The same five, from the same definition - see AC_METHODS. A
-            // verification record is a box of mix somebody else re-tested, so
-            // it is NOT seeded: the Department's method is the Department's to
-            // state, and inheriting the plant's would be inventing it.
-            { key: "ac_method", label: "AC method", type: "select", req: false,
-              options: AC_METHODS },
-          ],
-        },
-        // ---- THE RAW WEIGHTS, AND THE CALCULATION THEY DRIVE -------------
-        //
-        // Jake, 2026-09-13: "verification needs to be similar to lot pay in
-        // terms of the full calc and information on the bsg msg and air
-        // voids". It is the same argument the Sublots step won three days
-        // earlier and for the same reason: the AMAW computes every one of
-        // these from weights already on the technician's bench sheet, so
-        // typing them is how a lot ends up disagreeing with the workbook it
-        // will be loaded from. Seven typed figures per record became three
-        // weighings.
-        //
-        // WHAT IS DIFFERENT HERE, and none of it is guessable from the QC
-        // side - all four read out of KYTC's own blank template:
-        //
-        //   * `Super Verify` ROUNDS NOTHING. `Superpave` rounds the bulk
-        //     volume to 0.1 and the BSG and each MSG to 0.001; the same
-        //     quantities here are bare quotients. See verifyVolumetrics().
-        //   * THE %AC IS BACK-CALCULATED. A verification sample is a box of
-        //     mix off the road - nobody weighed binder into it - so its binder
-        //     content is recovered from its own Gmm against the lot's Gse and
-        //     then corrected for moisture. That is why there is a moisture
-        //     table below and none on the Sublots step.
-        //   * THE Gsb IS THE VERIFIED SUBLOT'S, not the lot's.
-        //
-        // NOT YET PROVEN AGAINST A REAL LOT: neither of Jake's completed AMAWs
-        // has a QA or IQ sample at all, so `Super Verify` is blank in both.
-        // `check_verify.mjs` evaluates the template's OWN formulas instead and
-        // matches this to them cell for cell - which checks the transcription,
-        // not the field experience.
-        {
-          key: "verify_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for each record",
-          fixed: true,
-          grid: ".7fr .5fr 1fr 1fr 1fr .9fr .9fr",
-          seed: VERIFY_SPECIMEN_SEED,
-          columns: [
-            { key: "record", label: "Record", type: "text", readonly: true },
-            { key: "specimen", label: "Sample #", type: "text", mono: true, readonly: true },
-            // Super Verify C/D/E, rows 8/9 and 15/16.
-            { key: "wt_air", label: "Wt in air (g)", type: "number", req: false, mono: true },
-            { key: "wt_water", label: "Wt in water (g)", type: "number", req: false, mono: true },
-            { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: false, mono: true },
-            // F = E-D and G = C/F, both UNROUNDED on this sheet.
-            { key: "bulk_volume", label: "Bulk vol.", type: "number", req: false, mono: true, readonly: true },
-            { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
-          ],
-        },
-        {
-          key: "verify_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for each record",
-          fixed: true,
-          grid: ".7fr .5fr 1fr 1fr 1fr 1fr .8fr",
-          seed: VERIFY_SPECIMEN_SEED,
-          columns: [
-            { key: "record", label: "Record", type: "text", readonly: true },
-            { key: "specimen", label: "Bowl #", type: "text", mono: true, readonly: true },
-            // Super Verify rows 20/21/23/24, in COLUMN pairs per record:
-            // C,D for QA01 and E,F for IQ01.
-            { key: "wt_mix", label: "Wt of mix (g)", type: "number", req: false, mono: true },
-            { key: "calibration", label: "Calibration (g)", type: "number", req: false, mono: true },
-            { key: "final_wt", label: "Final wt (g)", type: "number", req: false, mono: true },
-            // Row 24. Blank in every real lot on file and a blank reads as 0
-            // inside the sum, which is the workbook's own behaviour rather than
-            // a convenience - so optional, not missing.
-            { key: "absorbed_water", label: "Absorbed water (g)", type: "number", req: false, mono: true },
-            { key: "msg", label: "MSG", type: "number", req: false, mono: true, readonly: true },
-          ],
-        },
-        {
-          key: "verify_moisture", heading: "Moisture in the mixture — the %AC correction",
-          fixed: true,
-          grid: ".7fr 1fr 1fr 1fr .9fr",
-          seed: VERIFY_ROW_SEED,
-          columns: [
-            { key: "record", label: "Record", type: "text", readonly: true },
-            // Super Verify M36/M37/M38 for QA01, N36/N38 for IQ01.
-            { key: "wt_before", label: "Pan + mix, before drying (g)", type: "number", req: false, mono: true },
-            { key: "wt_after", label: "Pan + mix, after drying (g)", type: "number", req: false, mono: true },
-            { key: "wt_pan", label: "Pan (g)", type: "number", req: false, mono: true },
-            { key: "moisture", label: "% moisture", type: "number", req: false, mono: true, readonly: true },
-          ],
-        },
-        {
-          key: "verify_volumetrics", heading: "Verification volumetrics — computed", fixed: true,
-          // Even tracks past the record name, same reasoning as the sublot
-          // volumetrics table: every value is 2-6 characters, so none has a
-          // claim on more room than the others.
-          grid: ".7fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
-          seed: VERIFY_ROW_SEED,
-          columns: [
-            { key: "record", label: "Record", type: "text", readonly: true },
-            // Computed, unlike the sublot table's - see the note above. The
-            // moisture-corrected figure, which is what the workbook's own
-            // average row carries (`B10` falls back to the uncorrected `J28`
-            // when there is no moisture block).
-            { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
-            { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
-            { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
-            { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
-            { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
-            { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true, readonly: true },
-            { key: "vfa", label: "VFA (%)", type: "number", req: false, mono: true, readonly: true },
-          ],
-        },
-      ],
-    },
+    // 6. VERIFICATION — folded into the four Sublot tabs above
+    // (buildSublotVerificationSections()), Andrew's 2026-09-14 ask. See that
+    // function's own comment for the full reasoning (the dropped "Verifies"
+    // dropdown, the new per-table `sublot` join column, and the one
+    // mapper.mjs change this needed - equipment_verified moving from a
+    // lot-wide scalar into this table's own row column). `Super Verify`'s
+    // columns are NOT `Superpave`'s (the same eight quantities sit one
+    // column left of `pbe` on: pbe K/L, vma L/M, vfa M/N, dustRatio N/O) -
+    // the mapper resolves them through VERIFY.cols and never through
+    // SUBLOT.volumetric.cols, unchanged by this move.
+    ...buildSublotVerificationSections(),
 
     {
       // ---------------------------------------------------------------
@@ -4645,7 +4679,7 @@ function rowHeadHTML(spec) {
 function rowHeadingHTML(spec) {
   if (!spec.heading) return "";
   const a = spec.action;
-  return `<div class="rowgroup-head">${esc(spec.heading)}` +
+  return `<div class="rowgroup-head${spec.banded ? " banded" : ""}">${esc(spec.heading)}` +
     (a ? `<button type="button" class="seclookup" id="${a.id}">${a.label}</button>` : "") +
     `</div>` +
     (a ? `<div class="lookupnote${state.notes[a.key] ? " " + esc(state.notes[a.key].kind) : ""}" id="${a.note}">${state.notes[a.key] ? esc(state.notes[a.key].text) : ""}</div>` : "");
@@ -4736,6 +4770,17 @@ function sievesHTML(section) {
     const cells = cols.map((col) => {
       if (!isWeighed(col)) {
         const key = fieldKey(col, s);
+        // PlantBook's Sublot 1-4 tabs (2026-09-14): the JMF target column is
+        // now `readonly` everywhere it appears - see the note on `noChart`
+        // below for why it appears more than once at all. Still a real
+        // `data-field` input (so collectForm() keeps collecting it and a
+        // save/reload round-trip does not lose it) - just not focusable, so
+        // four identical read-only copies can never diverge from each other
+        // the way four independently-editable ones could.
+        if (col.readonly) {
+          return `<td><input type="text" class="mono" data-field="${key}" readonly tabindex="-1"
+                 value="${esc(val(key))}" placeholder="—"></td>`;
+        }
         const req = col.department ? "" : " req";
         return `<td><input type="text" inputmode="decimal" class="${req.trim()}" data-field="${key}"
                data-mm="${s.mm}" value="${esc(val(key))}" placeholder="—"></td>`;
@@ -4774,17 +4819,28 @@ function sievesHTML(section) {
     return `<th${cls ? ` class="${cls}"` : ""}>${esc(col.label)}</th>`;
   }).join("");
   const wide = cols.length > 1;
+  // PlantBook's Sublot 1-4 tabs (2026-09-14): `noChart` skips the 0.45 power
+  // chart entirely. Each sublot's own Gradation now lives in its own
+  // section (one column of grams, plus the read-only JMF target for
+  // comparison) rather than one shared section with all four sublots' - and
+  // drawChart()/gradSection() are written for exactly ONE `type: "sieves"`
+  // section on the active book, so the chart's own generalization (which
+  // section's data draws into which chart div, the M323 control-point band,
+  // trimFlatCoarseEnd) is real, separate work this change does not attempt.
+  // Flagged as a deliberate, known gap - not silently dropped - in
+  // NEXT_STEPS.md.
+  const chart = section.noChart ? "" : `
+      <div class="chartwrap">
+        <div class="cap">0.45 power chart — target gradation band to follow</div>
+        <div id="chart"></div>
+      </div>`;
   return `<div class="gradwrap${wide ? " wide" : ""}">
       <div class="sievescroll">
       <table class="sievetable">
         <thead><tr><th>Sieve</th>${head}</tr></thead>
         <tbody>${rows}${foot}</tbody>
       </table>
-      </div>
-      <div class="chartwrap">
-        <div class="cap">0.45 power chart — target gradation band to follow</div>
-        <div id="chart"></div>
-      </div>
+      </div>${chart}
     </div>`;
 }
 
@@ -5397,29 +5453,43 @@ function seriesColours(cols) {
  * reader that recomputes from the DOM - the moment there are two, one of
  * them is wrong, the same rule `outstanding` already follows.
  */
+// PlantBook's Sublot 1-4 tabs (2026-09-14): there are now FOUR active
+// `type: "sieves"` sections at once (one per tab), each with its own single
+// weighed column, instead of DesignBook's/the old single PlantBook
+// Gradation step's ONE. gradSection() still returns just the first (used by
+// the code that genuinely only needs sieve METADATA, which is identical
+// across all four - AMAW_SIEVES is one shared array reference), but
+// anything reading per-column DATA has to walk every matching section, not
+// just the first. computeGradation() is the one that does - it returns
+// `{ sectionId, sectionLabel, text }` per warning now, not a bare string,
+// so the rail can point at the RIGHT tab instead of guessing.
+function allGradationSections() {
+  return activeSections().filter((s) => s.type === "sieves" && s.weights);
+}
 function computeGradation() {
   state.gradPassing = {};
   const warnings = [];
-  const sec = gradSection();
-  if (!sec || !sec.weights) return warnings;
   const num = (key) => {
     const el = document.querySelector(`[data-field="${key}"]`);
     const v = parseFloat((el && el.value) || "");
     return Number.isFinite(v) ? v : null;
   };
-  for (const col of sec.columns || []) {
-    if (!col.key || col.target) continue;
-    const retained = sec.sieves.map((sv) => ({ key: sv.key, grams: num(`${col.key}_wt_${sv.key}`) }));
-    const r = PB_VOL.gradationColumn(retained, num(`${col.key}_wt_total`), num(`${col.key}_wt_pan`));
-    const byKey = {};
-    for (const s of r.sieves) if (s.pctPassing != null) byKey[s.key] = s.pctPassing;
-    state.gradPassing[col.key] = byKey;
-    // Paint each computed percentage beside the weight it came from.
-    for (const sv of sec.sieves) {
-      const el = document.querySelector(`[data-gpct="${col.key}_${sv.key}"]`);
-      if (el) el.textContent = byKey[sv.key] == null ? "—" : `${fmt(byKey[sv.key], 1)}%`;
+  for (const sec of allGradationSections()) {
+    for (const col of sec.columns || []) {
+      if (!col.key || col.target) continue;
+      const retained = sec.sieves.map((sv) => ({ key: sv.key, grams: num(`${col.key}_wt_${sv.key}`) }));
+      const r = PB_VOL.gradationColumn(retained, num(`${col.key}_wt_total`), num(`${col.key}_wt_pan`));
+      const byKey = {};
+      for (const s of r.sieves) if (s.pctPassing != null) byKey[s.key] = s.pctPassing;
+      state.gradPassing[col.key] = byKey;
+      // Paint each computed percentage beside the weight it came from.
+      for (const sv of sec.sieves) {
+        const el = document.querySelector(`[data-gpct="${col.key}_${sv.key}"]`);
+        if (el) el.textContent = byKey[sv.key] == null ? "—" : `${fmt(byKey[sv.key], 1)}%`;
+      }
+      for (const w of r.warnings)
+        warnings.push({ sectionId: sec.id, sectionLabel: sec.label, text: `${col.label}: ${w}` });
     }
-    for (const w of r.warnings) warnings.push(`${col.label}: ${w}`);
   }
   return warnings;
 }
@@ -7033,11 +7103,14 @@ function recompute() {
             `air-void target rather than interpolated. Run a trial point that brackets the target.` });
   }
 
-  // PlantBook's own two computations, in the same place DesignBook's are and
-  // for the same reason: compute first, then count. computeCoreSolids()
-  // writes the readonly % solid column that lotPay() then reads, so the order
-  // is not a style choice - reading it the other way round is one keystroke
-  // behind for a whole render.
+  // PlantBook's own three computations, in the same place DesignBook's are
+  // and for the same reason: compute first, then count. computeBlendGsb()
+  // runs FIRST because computeSublotVolumetrics() reads its output (the
+  // sublot's Gsb) to measure VMA against - reading it the other way round
+  // left the page's own VMA preview one keystroke behind a blend edit, same
+  // trap as everywhere else this rule applies. computeCoreSolids() writes
+  // the readonly % solid column that lotPay() then reads.
+  computeBlendGsb();
   const vol = computeSublotVolumetrics();
   computeVerification(vol ? vol.gse : null);
   computeCoreSolids();
@@ -7058,12 +7131,11 @@ function recompute() {
   // read them - same "compute first, then count" rule computeConsensus() and
   // computeFourPoint() already follow. Non-blocking: a column that does not
   // add up is arithmetic the Department would query, not a field to fill.
-  const gsec = gradSection();
-  computeGradation().forEach((text) => {
-    outstanding.push({
-      id: gsec ? gsec.id : "sublot-gradation",
-      label: gsec ? gsec.label : "Gradation", kind: "warn", text,
-    });
+  // Each warning names ITS OWN section (2026-09-14, PlantBook's Sublot 1-4
+  // tabs) rather than one shared `gsec`, so the rail sends you to the right
+  // tab when there are four Gradation sections instead of one.
+  computeGradation().forEach(({ sectionId, sectionLabel, text }) => {
+    outstanding.push({ id: sectionId, label: sectionLabel, kind: "warn", text });
   });
   paintLotReadouts();
   paintDesignMirror();
@@ -13452,8 +13524,11 @@ const LOT_FIELD_ALIASES = {
   lot_binder_grade: 'binder_grade_key',
   lot_additive: 'additive',
   lot_handmix_binder_pct: 'hand_mixed_ac',
-  lot_equipment_verified_qa: 'equipment_verified_qa',
-  lot_equipment_verified_iq: 'equipment_verified_iq',
+  // lot_equipment_verified_qa/_iq REMOVED 2026-09-14 - moved from lot-wide
+  // scalars into the `verification` row table's own `equipment_verified`
+  // column (LOT_TABLE_ROUTES above), one per record's own slot rather than
+  // one shared answer four tabs could each try to set. See lotRecords()'s
+  // write step for the "Yes"/"No" -> boolean conversion that moved with it.
 };
 
 /** "Yes"/"No" -> the BOOLEAN `Calculations!M1`/`M2` hold, not the 1/2 the
@@ -13507,15 +13582,13 @@ function lotScalars(values) {
     const jd = Number(out.joint_density);
     if (jd === 1 || jd === 2) out.joint_density = jd === 1 ? 1 : 0;
   }
-  // The two equipment flags, form words -> M1/M2's boolean. Only a value that
-  // came off the FORM is converted: one already under the mapper's own name
-  // is in M1's words already, which is what check_mapper reads.
-  for (const k of ['equipment_verified_qa', 'equipment_verified_iq']) {
-    if (out[k] === undefined || v[k] !== undefined) continue;
-    const b = YES_NO_BOOL[String(out[k]).trim().toUpperCase()];
-    if (b === undefined) delete out[k];        // an unreadable answer is not a No
-    else out[k] = b;
-  }
+  // The two equipment flags used to live here (form words -> M1/M2's
+  // boolean) - REMOVED 2026-09-14, moved to the `verification` row table's
+  // own `equipment_verified` column (LOT_TABLE_ROUTES) now that a record
+  // lives on one of four possible Sublot tabs rather than being a single
+  // lot-wide scalar. The SAME "Yes"/"No" -> boolean conversion (YES_NO_BOOL)
+  // now happens at the write site in lotRecords()'s per-record loop instead
+  // of here, since `lotScalars()` never sees a per-record value at all.
   // Calculations!J1 is a TRANSLATION of the nominal size and not a field at
   // all (sections.mjs), so a lot built on the form carries no code to read.
   // Derived here, once, where every reader below already looks. PB_LOT is
@@ -13641,31 +13714,43 @@ const LOT_TABLE_ROUTES = {
   // -- the Department's two samples -----------------------------------
   verification: {
     by: 'record', id: 'record', into: 'values',
+    // `equipment_verified` added 2026-09-14: moved here from a lot-wide
+    // scalar (`lot_equipment_verified_qa`/`_iq`, LOT_FIELD_ALIASES below)
+    // now that a record lives on one of four possible Sublot tabs -
+    // repeating a scalar `data-field` across four tabs is the unsafe kind
+    // of duplication (collectForm() overwrites by DOM order), while a row
+    // column scoped to this one record's own slot is not. See the write
+    // step below for the "Yes"/"No" -> boolean conversion that moved with
+    // it (lotScalars() no longer sees this value at all).
     cols: { sublot_verified: 'sublot_verified', technician: 'tested_by',
-            ac_method: 'acceptance_label' },
+            ac_method: 'acceptance_label', equipment_verified: 'equipment_verified' },
   },
   verify_bsg: {
     by: 'record', id: 'record', slot: 'specimen', into: 'rows.specimens',
     cols: { wt_air: 'wt_air', wt_water: 'wt_water', wt_ssd: 'wt_ssd' },
     drop: { bulk_volume: "'Super Verify' F = E-D, a formula",
-            bsg: "'Super Verify' G = C/F, a formula" },
+            bsg: "'Super Verify' G = C/F, a formula",
+            sublot: 'page-only join key (computeVerification(), 2026-09-14) - not read by the mapper' },
   },
   verify_msg: {
     by: 'record', id: 'record', slot: 'specimen', into: 'rows.gmm',
     cols: { wt_mix: 'wt_mix', calibration: 'calibration', final_wt: 'final_wt',
             absorbed_water: 'absorbed_water', msg: 'msg' },
+    drop: { sublot: 'page-only join key (computeVerification(), 2026-09-14) - not read by the mapper' },
   },
   verify_moisture: {
     by: 'record', id: 'record', into: 'values',
     cols: { wt_before: 'moisture_before', wt_after: 'moisture_after',
             wt_pan: 'moisture_pan' },   // three RENAMEs
-    drop: { moisture: 'computed by volumetrics.mjs and by the sheet' },
+    drop: { moisture: 'computed by volumetrics.mjs and by the sheet',
+            sublot: 'page-only join key (computeVerification(), 2026-09-14) - not read by the mapper' },
   },
   verify_volumetrics: {
     by: 'record', id: 'record', into: 'values', cols: {},
     drop: { binder_pct: 'BACK-CALCULATED, never typed - Super Verify J27/J28',
             gmb: "'Super Verify' G", gmm: 'C25', va: 'J30', pbe: 'J31',
-            vma: 'J32', vfa: 'J33' },
+            vma: 'J32', vfa: 'J33',
+            sublot: 'page-only join key (computeVerification(), 2026-09-14) - not read by the mapper' },
   },
   // -- cores: two banks, different strides, slot by position in its sublot
   mat_cores: {
@@ -14474,9 +14559,15 @@ function amawCells(lot, tpl, ref) {
     write(A(V.sheet, V.inspectorName[slot]), amStr(rv.tested_by_name));
 
     // Equipment verified, into the BOOLEAN at `Calculations!M1`/`M2` rather
-    // than the `IF(M,1,2)` formula above it that the loader reads.
-    const flag = v[slot === 0 ? 'equipment_verified_qa' : 'equipment_verified_iq'];
-    write(A(CALC.sheet, CALC.equipmentVerified[slot]), amNum(flag));
+    // than the `IF(M,1,2)` formula above it that the loader reads. Reads off
+    // THIS RECORD's own row now (2026-09-14, `rv.equipment_verified`) rather
+    // than a lot-wide scalar - see LOT_TABLE_ROUTES.verification and the
+    // note on `lotScalars()` above for why. The "Yes"/"No" -> boolean
+    // conversion moved here with it: `rv` carries the raw form word,
+    // `lotScalars()` never saw a per-record value to convert in the first
+    // place.
+    const flag = YES_NO_BOOL[String(rv.equipment_verified == null ? '' : rv.equipment_verified).trim().toUpperCase()];
+    write(A(CALC.sheet, CALC.equipmentVerified[slot]), flag);
     // A BLANK flag is not neutral: O1 evaluates to 2 and sn 114/115 tell MEDL
     // "No". That is the workbook's own behaviour and is reproduced rather than
     // worked around - but a Department sample WITH no answer is worth saying
@@ -17239,6 +17330,46 @@ function putCell(row, col, value, dp) {
   el.value = value == null ? "" : (typeof value === "number" ? fmt(value, dp) : String(value));
   return el;
 }
+/* ---------- Combined Gsb, live from the blend's own percentages ----------
+ *
+ * Andrew, 2026-09-14: "This would then calculate an updated Combined Gsb
+ * for each sublot." `blend_gsb` used to be seeded ONCE from the design's
+ * approval and never recomputed - a technician editing the blend
+ * percentages saw a stale Gsb on screen (and computeSublotVolumetrics()
+ * measured VMA against it, so a stale Gsb quietly threw off the page's
+ * OWN VMA preview too, not just the readout).
+ *
+ * `Superpave!R9:U9` is a WORKBOOK FORMULA over the pct/BOD terms the mapper
+ * already writes per sublot (mapper.mjs's LOT_TABLE_ROUTES fans `blend`'s
+ * pct_1..pct_4 out to each QC0n record, unchanged by this) - the AMAW
+ * itself has always computed this correctly regardless of what the page
+ * showed. This just makes the PAGE agree with what the workbook will say,
+ * using the same textbook formula: Gsb = 100 / sum(pct_i / BOD_i).
+ * Matches mapper.mjs's own tolerance note - if the percentages do not sum
+ * to 100 the workbook's Gsb is off too, so this does not try to be
+ * "smarter" than the sheet it is previewing.
+ */
+function computeBlendGsb() {
+  if (!isPlantBook()) return;
+  const rows = rowsOfList("blend");
+  const gsbRow = rowsOfList("blend_gsb")[0] || null;
+  if (!gsbRow || !rows.length) return;
+  for (let n = 1; n <= 4; n++) {
+    let sumTerms = 0, any = false;
+    for (const r of rows) {
+      const pct = num(cellValue(r, `pct_${n}`));
+      const bod = num(cellValue(r, "bod"));
+      if (pct == null || bod == null || bod <= 0) continue;
+      sumTerms += pct / bod;
+      any = true;
+    }
+    const gsb = any && sumTerms > 0 ? 100 / sumTerms : null;
+    const el = putCell(gsbRow, `gsb_${n}`, gsb, CONFIG.DP.gsb);
+    if (el) el.title = gsb == null
+      ? "Needs at least one component's % and BOD for this sublot"
+      : `100 / sum(% / BOD) over the blend - Superpave R9:U9`;
+  }
+}
 function computeSublotVolumetrics() {
   if (!isPlantBook()) return null;
   paintLotIds();
@@ -17392,14 +17523,23 @@ function computeVerification(gse) {
   const out = [];
 
   volRows.forEach((vRow, i) => {
-    // The record CODE is the join between the five tables, not the row's
-    // position: it is what the seed writes into every one of them, and the
-    // only thing that survives a table being re-rendered. The identity table
-    // spells it out ("QA01 - Department acceptance") and the four repeating
-    // tables carry the bare code, so the join is on the code either way -
-    // matching the whole caption would silently pair nothing.
+    // The record CODE is half the join between the five tables, not the
+    // row's position: it is what the seed writes into every one of them,
+    // and the only thing that survives a table being re-rendered. The
+    // identity table spells it out ("QA01 - Department acceptance") and the
+    // four repeating tables carry the bare code, so the join is on the code
+    // either way - matching the whole caption would silently pair nothing.
+    //
+    // SUBLOT is the other half, added 2026-09-14: each record now has four
+    // possible homes (one per Sublot tab), so "record code matches" alone
+    // would pair QA01's real specimens with the three OTHER tabs' blank
+    // "QA01" placeholder rows too. `vRow`'s own `sublot` column (new on
+    // verify_bsg/msg/moisture/volumetrics) says which physical slot this is;
+    // matching on it is what keeps a record's data scoped to its own tab.
     const name = recordCode(cellValue(vRow, "record"));
-    const ofRecord = (rows) => rows.filter((r) => recordCode(cellValue(r, "record")) === name);
+    const sub = cellValue(vRow, "sublot");
+    const ofRecord = (rows) => rows.filter((r) =>
+      recordCode(cellValue(r, "record")) === name && cellValue(r, "sublot") === sub);
 
     const specimenRows = ofRecord(bsgRows);
     const detRows = ofRecord(msgRows);
