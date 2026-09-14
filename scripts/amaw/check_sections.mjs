@@ -27,6 +27,9 @@
 //    E  key uniqueness, at the granularity the DOM actually scopes at
 //    F  every `cites` entry resolves to a real citation
 //    G  shape sanity — the things the renderer reads without checking
+//    H  every scalar the mapper writes exists, and vice versa
+//    I  a sliced row table (PlantBook's Sublot 1-4 tabs) covers its whole
+//       seed exactly once across every section that slices it
 //
 //  Plus a report, printed every run rather than being a one-off note:
 //  which citations are still unverified, and what the schema adds up to.
@@ -209,6 +212,28 @@ const claim = (map, key, where, check, what) => {
   if (map.has(key)) fail(check, `${what} "${key}" is used twice (${map.get(key)}, ${where})`);
   else map.set(key, where);
 };
+// PlantBook's Sublot 1-4 tabs (2026-09-14): a row spec's `key` may repeat
+// across several sections ONLY when every repeat declares `sliceIndices`
+// (sliceSpec() in sections.mjs) - one shared table rendered as four DOM
+// blocks, not four different tables that happen to share a name. Tracked
+// separately from `rowKeys` so the ordinary "used twice" failure still
+// fires for an accidental duplicate that does NOT declare sliceIndices.
+const sliceCoverage = new Map();   // key -> { seedLen, seen: Set<number>, wheres: string[] }
+const claimSlice = (spec, where) => {
+  const seedLen = Array.isArray(spec.seed) ? spec.seed.length : 0;
+  const cov = sliceCoverage.get(spec.key) || { seedLen, seen: new Set(), wheres: [] };
+  if (cov.seedLen !== seedLen)
+    fail("I", `${where} slices a ${seedLen}-row seed, but another section slicing "${spec.key}" saw ${cov.seedLen}`);
+  cov.wheres.push(where);
+  for (const i of spec.sliceIndices) {
+    if (!Number.isInteger(i) || i < 0 || i >= cov.seedLen)
+      fail("I", `${where} slices index ${i}, out of range for a ${cov.seedLen}-row seed`);
+    else if (cov.seen.has(i))
+      fail("I", `${where} slices index ${i}, already sliced by another section`);
+    else cov.seen.add(i);
+  }
+  sliceCoverage.set(spec.key, cov);
+};
 
 const checkSource = (src, where) => {
   if (src == null) return;
@@ -300,8 +325,15 @@ for (const s of S) {
     const where = `${at} row table "${spec.key}"`;
     if (!spec.key) { fail("G", `${at} has a row spec with no key`); continue; }
     // A row spec key is the data-rowlist attribute and the payload's table
-    // name - both global on the page, both global in the envelope.
-    claim(rowKeys, spec.key, at, "E", "row table key");
+    // name - both global on the page, both global in the envelope. Sliced
+    // (see above) is the one deliberate exception - checked for real
+    // coverage rather than merely waived.
+    if (Array.isArray(spec.sliceIndices)) {
+      claimSlice(spec, where);
+      rowKeys.set(spec.key, `${where} (sliced)`);
+    } else {
+      claim(rowKeys, spec.key, at, "E", "row table key");
+    }
     // Colliding with a DesignBook row table is an error UNLESS the spec says
     // in so many words that the collision is the point. `sharesKey` is that
     // sentence, and it takes a reason rather than a `true`: the only case it
@@ -389,6 +421,22 @@ for (const s of S) {
 }
 
 // =====================================================================
+//  I. Sliced row tables cover their whole seed exactly once
+// =====================================================================
+//
+//  A sliced key (PlantBook's Sublot 1-4 tabs) is only correct if every
+//  section slicing it, TAKEN TOGETHER, renders every row of the shared seed
+//  exactly once - a gap silently drops a sublot's data from the screen (and
+//  from collectForm(), since a row nobody renders is a row nobody can type
+//  into), and an overlap duplicates one sublot's DOM node under two keys,
+//  which is exactly the class of bug a duplicate `data-rowlist` risks.
+for (const [key, cov] of sliceCoverage) {
+  if (cov.seen.size !== cov.seedLen)
+    fail("I", `row table "${key}" is sliced across ${cov.wheres.length} section(s) (${cov.wheres.join(", ")}) ` +
+      `but covers ${cov.seen.size} of its ${cov.seedLen} seed rows`);
+}
+
+// =====================================================================
 //  H. The seam to the workbook
 // =====================================================================
 //
@@ -433,6 +481,20 @@ for (const key of NO_WORKBOOK_CELL) {
     fail("H", `check_sections lists "${key}" as having no workbook cell, but the schema no longer has it`);
 }
 
+// A row spec by table key, wherever it lives - `sublot_tickets` etc. used to
+// have exactly one owning section ("sublots"); since the Sublot 1-4 split
+// (2026-09-14) it has four, and every one of them carries the SAME full
+// `seed` (sliceSpec() only narrows what a given section RENDERS, never the
+// spec's own seed - see the comment on sliceSpec() in sections.mjs), so the
+// first match is as good as any.
+function findRowSpec(key) {
+  for (const s of S) {
+    const t = rowSpecsOf(s).find((x) => x && x.key === key);
+    if (t) return t;
+  }
+  return null;
+}
+
 //  The other half of that seam, for the one thing on the form that is not a
 //  scalar and still has to become a NUMBER in a cell: the AC determination
 //  method. Two `ac_method` columns - one per sublot on the tickets table, one
@@ -440,46 +502,38 @@ for (const key of NO_WORKBOOK_CELL) {
 //  holds the code that `AJ33:AK37` looks the label up by, so the form's words
 //  ARE the lookup key. A reworded option is not an error anywhere: the
 //  VLOOKUP simply finds nothing and the cell goes blank.
-const AC_COLUMNS = [
-  ["sublots", "sublot_tickets"],
-  ["verify", "verification"],
-];
-for (const [sectionId, tableKey] of AC_COLUMNS) {
-  const sec = S.find((x) => x.id === sectionId);
-  const tables = sec ? [].concat(sec.rows || []) : [];
-  const t = tables.find((x) => x && x.key === tableKey);
+const AC_COLUMNS = ["sublot_tickets", "verification"];
+for (const tableKey of AC_COLUMNS) {
+  const t = findRowSpec(tableKey);
   const col = t && (t.columns || []).find((c) => c.key === "ac_method");
-  if (!col) { fail("H", `${sectionId}/${tableKey} has no "ac_method" column`); continue; }
+  if (!col) { fail("H", `no row table "${tableKey}" declares an "ac_method" column`); continue; }
   if (JSON.stringify(col.options) !== JSON.stringify(AC_METHODS))
-    fail("H", `${sectionId}/${tableKey}.ac_method does not offer AC_METHODS - `
+    fail("H", `${tableKey}.ac_method does not offer AC_METHODS - `
             + `a label off that list is a blank cell, not an error`);
   for (const label of col.options || []) {
     if (acMethodCode(label) === null)
-      fail("H", `${sectionId}/${tableKey}.ac_method offers "${label}", which acMethodCode() cannot turn into a code`);
+      fail("H", `${tableKey}.ac_method offers "${label}", which acMethodCode() cannot turn into a code`);
   }
 }
 // Seeded on the four sublots (Jake, 2026-09-13) and deliberately NOT on the
 // two verification records - the Department states its own method. Asserted
 // both ways round, because a seed that quietly disappeared and a seed that
 // quietly spread are both silent.
-const ticketSeed = (S.find((x) => x.id === "sublots").rows || [])
-  .find((t) => t.key === "sublot_tickets").seed || [];
+const ticketSeed = (findRowSpec("sublot_tickets") || {}).seed || [];
 if (ticketSeed.length !== 4)
   fail("H", `sublot_tickets seeds ${ticketSeed.length} rows; a lot is exactly four sublots`);
 for (const r of ticketSeed) {
   if (acMethodCode(r.ac_method) === null)
     fail("H", `a seeded sublot row carries ac_method ${JSON.stringify(r.ac_method)}, which is not one of AC_METHODS`);
 }
-const verifySeed = (S.find((x) => x.id === "verify").rows || [])
-  .find((t) => t.key === "verification").seed || [];
+const verifySeed = (findRowSpec("verification") || {}).seed || [];
 for (const r of verifySeed) {
   if (r.ac_method !== undefined)
     fail("H", "a verification record is seeded with an AC method; the Department's method is the Department's to state");
 }
 // `sublot_volumetrics` shares SUBLOT_SEED and has no such column. A seeded
 // cell with no column reaches the payload and no screen.
-const volSeed = (S.find((x) => x.id === "sublots").rows || [])
-  .find((t) => t.key === "sublot_volumetrics").seed || [];
+const volSeed = (findRowSpec("sublot_volumetrics") || {}).seed || [];
 for (const r of volSeed) {
   if (r.ac_method !== undefined)
     fail("H", "sublot_volumetrics is seeded with an AC method it has no column for");

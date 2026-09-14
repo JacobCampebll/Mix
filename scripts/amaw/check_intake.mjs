@@ -39,9 +39,21 @@ import PLANTBOOK_SECTIONS, { AC_METHODS } from './sections.mjs';
 
 // The four seeded sublot rows' AC method, read out of the schema rather
 // than restated here - see the assertions further down for why it is the
-// schema's seed and not the intake's.
-const TICKET_COLS = ((PLANTBOOK_SECTIONS.find((x) => x.id === 'sublots').rows || [])
-  .find((t) => t.key === 'sublot_tickets').seed || []).map((r) => r.ac_method);
+// schema's seed and not the intake's. `sublot_tickets` no longer has one
+// owning section (PlantBook's Sublot 1-4 tabs, 2026-09-14, each slice it),
+// so find it by table key across every section rather than by a section id
+// that no longer exists - every section slicing it carries the SAME full
+// seed (sliceSpec() in sections.mjs never narrows the spec itself, only
+// which rows a given tab renders).
+function findRowSpecByKey(key) {
+  for (const s of PLANTBOOK_SECTIONS) {
+    const specs = !s.rows ? [] : (Array.isArray(s.rows) ? s.rows : [s.rows]);
+    const hit = specs.find((r) => r && r.key === key);
+    if (hit) return hit;
+  }
+  return null;
+}
+const TICKET_COLS = ((findRowSpecByKey('sublot_tickets') || {}).seed || []).map((r) => r.ac_method);
 
 const DIR = process.argv[2] ||
   '/tmp/claude-0/-home-user-Mix/c9cd3888-ef57-5ba4-8674-a56236907f1c/scratchpad';

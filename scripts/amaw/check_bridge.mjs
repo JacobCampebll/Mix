@@ -83,13 +83,25 @@ const valueFor = (col) => {
   return `${col.key}-${++tick}`;
 };
 
-/** Every row table in the PlantBook schema, section by section. */
+/** Every row table in the PlantBook schema, section by section, ONE per
+ *  distinct table key. PlantBook's Sublot 1-4 tabs (2026-09-14) declare the
+ *  same table (`sublot_tickets`, `mat_cores`, ...) on all four sections via
+ *  sliceSpec() - same key, same full seed and columns, only `sliceIndices`
+ *  differs - so without the dedupe this would fill and overwrite the same
+ *  table four times over for no reason, each time with different synthetic
+ *  values (valueFor()'s counters are global), which is confusing to debug
+ *  even though the final value happens to still be a complete, valid table. */
 function rowTables() {
   const out = [];
+  const seen = new Set();
   for (const s of PLANTBOOK_SECTIONS) {
     const rows = s.rows;
     if (!rows) continue;
-    for (const t of (Array.isArray(rows) ? rows : [rows])) out.push({ section: s.id, table: t });
+    for (const t of (Array.isArray(rows) ? rows : [rows])) {
+      if (seen.has(t.key)) continue;
+      seen.add(t.key);
+      out.push({ section: s.id, table: t });
+    }
   }
   return out;
 }
