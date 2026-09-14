@@ -12848,6 +12848,21 @@ const INPUTS = {
   gradation: {
     sheet: GRADATION.sheet, first: GRADATION.first, cols: ['B', 'E', 'H', 'K'],
     panRow: 24, totalRow: 25,
+    // B/E/H/K are GRAMS RETAINED; C/F/I/L are % retained = (B/B25)*100 and
+    // D/G/J/M are % passing derived from those. PlantBook's form collects
+    // % PASSING and has no total mass, so grams cannot be recovered from it —
+    // Jake's call 2026-09-14 was to write the two derived columns over their
+    // formulas and leave grams blank.
+    //
+    // BOTH of the pair have to be written, never just the passing one.
+    // `Superpave!O14` — the D/A dust ratio, a staged loader field — is
+    // `IF(OR(Gradation!D23="",L14=""),"",IF((100-Gradation!C23)/L14>1.6,">1.6",...))`:
+    // it GATES on the passing column and DIVIDES using the retained one. Fill
+    // D23 alone and C23 stays blank, so `100-C23` is 100, the ratio is ~20,
+    // and MEDL is handed a confident ">1.6" on every block. Checked in the
+    // shipped template, not inferred.
+    retainedCols: ['C', 'F', 'I', 'L'],
+    passingCols: ['D', 'G', 'J', 'M'],
     dateRow: 6, dateCols: ['D', 'G', 'J', 'M'],
     // Row 32 is "As Tested % AC"; row 33 subtracts the moisture and row 34
     // back-calculates from the ignition furnace. `Superpave!B14` — the
@@ -12884,7 +12899,10 @@ const INPUTS = {
     sheet: VERIFY.sheet,
     specimens: { first: 8, stride: VERIFY.stride, count: 2, cols: { wtAir: 'C', wtWater: 'D', wtSsd: 'E' } },
     gmm: { cols: [['C', 'D'], ['E', 'F']], rows: { mix: 20, calibration: 21, total: 22, final: 23, absorbed: 24, msg: 25 } },
-    gradation: { first: VERIFY.gradation.first, cols: ['B', 'E'], panRow: 47, totalRow: 48 },
+    // Same pair as the QC side: 'Super Verify'!C33 = (B33/B48)*100 and
+    // D33 = IF(B33="","",(100-C33)), both formulas, both written over.
+    gradation: { first: VERIFY.gradation.first, cols: ['B', 'E'], panRow: 47, totalRow: 48,
+      retainedCols: ['C', 'F'], passingCols: ['D', 'G'] },
     moisture: { cols: ['M', 'N'], rows: { panAndMixBefore: 36, panAndMixAfter: 37, pan: 38 } },
     inspectorId: VERIFY.technician,      // E5 / E12
     inspectorName: ['H5', 'H12'],
@@ -13084,6 +13102,350 @@ function lotScalars(values) {
 }
 
 // =====================================================================
+//  THE SECOND SEAM: flat form TABLES -> the seven test records
+// =====================================================================
+//
+// LOT_FIELD_ALIASES above is this seam for SCALARS. This is the same seam for
+// ROWS, and it went unbuilt for a day longer: PlantBook's form produces flat
+// tables keyed by an identity column at `lot.rows.<key>`, while everything
+// below reads `lot.records[block].values` / `.rows.<name>`. Measured before
+// this existed: a lot with 15 filled tables and 72 rows wrote 13 cells and
+// left all seven records empty, and only the lot header landed.
+//
+// It is a TABLE and not a convention for the reason CLAUDE.md already
+// records: a convention is invisible the moment it stops holding, and
+// `undefined` is the quietest failure in this codebase. check_sections.mjs
+// fails both directions off it.
+//
+// A value already under the mapper's own name WINS, exactly as it does for
+// the scalars — check_mapper.mjs builds its records straight off two real
+// completed AMAWs, so it must pass through here untouched.
+
+/** Workbook sieve row -> the FORM's sieve key, BY INDEX INTO
+ *  `GRADATION.sieves`, because the two spell the same sieve differently and
+ *  a label match silently loses one.
+ *
+ *  The workbook writes `1 1/2"` (space) where the form writes `1-1/2"`
+ *  (hyphen) — checked, not assumed — so a bridge that matched on the label
+ *  would drop the 37.5 mm sieve from the JMF target AND all six measured
+ *  columns of every lot, with nothing said. Index 6 is the 1/4", which
+ *  CLAUDE.md records as dead on both books and absent from the form; it is
+ *  `null` here and must stay null rather than being removed, or every sieve
+ *  below it shifts up a row. NEVER renumber this to match the form's list. */
+const JMF_SIEVE_KEYS = [
+  's50', 's37_5', 's25', 's19', 's12_5', 's9_5',
+  null,              // 1/4" — on the workbook, never on the form
+  's4_75', 's2_36', 's1_18', 's0_6', 's0_3', 's0_15', 's0_075',
+];
+
+/** The Gradation step is not a row table: its values live in `values` under
+ *  composed `${column}_${sieve}` keys. This is which block each column is. */
+const GRADATION_COLUMNS = {
+  jmf: null,            // lot-level: the JMF target, not a record
+  sub1: 'QC01', sub2: 'QC02', sub3: 'QC03', sub4: 'QC04',
+  qa: 'QA01', iq: 'IQ01',
+};
+
+/**
+ * Every PlantBook row table, and where its rows go.
+ *
+ *   by      'sublot'  the identity cell holds "<lot>-<sublot>"; block QC0n
+ *           'record'  the identity cell names the record (QA01 / IQ01)
+ *           'lot'     lot-level; no block
+ *   into    'values'  merge `cols` onto records[block].values
+ *           'rows.X'  push a row onto records[block].rows.X
+ *           'rows@X'  lot-level rows.X on the lot itself
+ *   id      the identity column, excluded from the emptiness test
+ *   slot    column holding a 1-based slot, emitted 0-based as `slot`
+ *   cols    form column -> record key. A column mapped to `null` is a
+ *           DELIBERATE drop and must say why in `drop`.
+ */
+const LOT_TABLE_ROUTES = {
+  // -- the four production sublots ------------------------------------
+  sublot_tickets: {
+    by: 'sublot', id: 'sublot', into: 'values',
+    cols: {
+      date: 'date', time: 'time', truck: 'truck',
+      tons_cum: 'tons',                 // RENAME: cumulative ticket tonnage
+      temperature: 'temperature', binder_lot: 'binder_lot', tack_lot: 'tack_lot',
+      technician: 'tested_by',          // RENAME
+      ac_method: 'acceptance_label',    // RENAME; the CODE is derived from it
+    },
+  },
+  sublot_bsg: {
+    by: 'sublot', id: 'sublot', slot: 'specimen', into: 'rows.specimens',
+    cols: { wt_air: 'wt_air', wt_water: 'wt_water', wt_ssd: 'wt_ssd' },
+    drop: { bulk_volume: 'Superpave F = ROUND(E-D,1), a template formula',
+            bsg: 'Superpave G = ROUND(C/F,3), a template formula' },
+  },
+  sublot_msg: {
+    by: 'sublot', id: 'sublot', slot: 'specimen', into: 'rows.gmm',
+    cols: { wt_mix: 'wt_mix', calibration: 'calibration', final_wt: 'final_wt',
+            absorbed_water: 'absorbed_water', msg: 'msg' },
+  },
+  sublot_volumetrics: {
+    by: 'sublot', id: 'sublot', into: 'values',
+    cols: { binder_pct: 'ac_pct' },     // RENAME; the only column routed
+    drop: { gmb: 'Superpave G14, a formula over the specimen weights',
+            gmm: 'Superpave I14', va: 'Superpave K14', pbe: 'Superpave L14',
+            vma: 'Superpave M14', vfa: 'Superpave N14', dust_ratio: 'Superpave O14' },
+  },
+  // -- the Department's two samples -----------------------------------
+  verification: {
+    by: 'record', id: 'record', into: 'values',
+    cols: { sublot_verified: 'sublot_verified', technician: 'tested_by',
+            ac_method: 'acceptance_label' },
+  },
+  verify_bsg: {
+    by: 'record', id: 'record', slot: 'specimen', into: 'rows.specimens',
+    cols: { wt_air: 'wt_air', wt_water: 'wt_water', wt_ssd: 'wt_ssd' },
+    drop: { bulk_volume: "'Super Verify' F = E-D, a formula",
+            bsg: "'Super Verify' G = C/F, a formula" },
+  },
+  verify_msg: {
+    by: 'record', id: 'record', slot: 'specimen', into: 'rows.gmm',
+    cols: { wt_mix: 'wt_mix', calibration: 'calibration', final_wt: 'final_wt',
+            absorbed_water: 'absorbed_water', msg: 'msg' },
+  },
+  verify_moisture: {
+    by: 'record', id: 'record', into: 'values',
+    cols: { wt_before: 'moisture_before', wt_after: 'moisture_after',
+            wt_pan: 'moisture_pan' },   // three RENAMEs
+    drop: { moisture: 'computed by volumetrics.mjs and by the sheet' },
+  },
+  verify_volumetrics: {
+    by: 'record', id: 'record', into: 'values', cols: {},
+    drop: { binder_pct: 'BACK-CALCULATED, never typed - Super Verify J27/J28',
+            gmb: "'Super Verify' G", gmm: 'C25', va: 'J30', pbe: 'J31',
+            vma: 'J32', vfa: 'J33' },
+  },
+  // -- cores: two banks, different strides, slot by position in its sublot
+  mat_cores: {
+    by: 'sublot', id: 'sublot', into: 'rows.cores', bank: 0,
+    cols: { station: 'station', wt_air: 'wt_air', wt_water: 'wt_water', wt_ssd: 'wt_ssd' },
+    drop: { core_id: "CONCATENATE('Pay Values'!F3,...) in the template, built not typed",
+            bsg: 'Cores G, a formula', density: 'Cores H = IF(G="","",G*62.4), a formula',
+            pct_solid: 'Cores I, a formula', pay_value: 'written from pay.mjs, not from the row' },
+  },
+  joint_cores: {
+    by: 'sublot', id: 'sublot', into: 'rows.cores', bank: 1,
+    cols: { station: 'station', wt_air: 'wt_air', wt_water: 'wt_water', wt_ssd: 'wt_ssd' },
+    drop: { core_id: 'built from the lot number', bsg: 'formula', density: 'formula',
+            pct_solid: 'formula', pay_value: 'written from pay.mjs' },
+  },
+  // -- lot-level ------------------------------------------------------
+  handmix_msg: {
+    by: 'lot', id: 'determination', into: 'rows@hand_mixed',   // RENAME of the list
+    cols: { wt_mix: 'wt_mix', calibration: 'calibration', final_wt: 'final_wt',
+            absorbed_water: 'absorbed_water', msg: 'msg' },
+  },
+  // -- already in the mapper's vocabulary; listed so the table is total --
+  project_items: { by: 'lot', into: 'rows@project_items', passthrough: true,
+    cols: { project: 'project', line: 'line', quantity: 'quantity', unit: 'unit' },
+    drop: { description: 'screen-only: INPUTS.projectItems is A..D = project/line/qty/unit' } },
+  blend: { by: 'lot', into: 'rows@aggregate', blend: true,
+    cols: { producer: 'producer', agp: 'agp_number', type_size: 'type_size', bod: 'bod' },
+    drop: { pct_1: 'fans out per sublot', pct_2: '', pct_3: '', pct_4: '' } },
+  blend_gsb: { by: 'lot', into: null,
+    drop: { gsb_1: 'Superpave R9:U9, a formula over the blend', gsb_2: '', gsb_3: '', gsb_4: '' } },
+};
+
+/** "<lot>-<sublot>" -> 1..4, and NOTHING else.
+ *
+ *  The page's own sublotIndexOf() is `/(\d+)\s*$/` and does not clamp, so it
+ *  answers 0 for "1-0", 10 for "10" and 5 for "1.5". Composing `'QC0' + n`
+ *  from any of those files a whole sublot's weights under a block that does
+ *  not exist — confidently, and with nothing in the report. This one refuses
+ *  instead, and the caller reports the refusal. */
+function sublotIndex(value) {
+  const m = /(\d+)\s*$/.exec(String(value == null ? '' : value).trim());
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 1 && n <= 4 ? n : null;
+}
+
+/** The identity cell of a Department row. The `verification` table seeds it
+ *  as "QA01 — Department acceptance" while `verify_bsg` seeds a bare "QA01",
+ *  so match the leading token rather than the whole cell. */
+function recordName(value) {
+  const m = /^\s*(VI01|QC0[1-4]|QA01|IQ01)/i.exec(String(value == null ? '' : value));
+  return m ? m[1].toUpperCase() : null;
+}
+
+/** Is this row worth a record at all?
+ *
+ *  Every FIXED PlantBook table reaches the payload at its full seeded length:
+ *  collectForm keeps a row if ANY cell is non-null, and the identity columns
+ *  are always painted. So routing rows unconditionally would create seven
+ *  records on a brand-new lot and SILENCE every `need()` below — the mapper
+ *  would stop saying "QC01 has no gyratory specimen weights" on exactly the
+ *  lot that has none. A row counts only if something MEASURED is in it. */
+function hasMeasurement(row, route) {
+  const id = route.id;
+  return Object.keys(route.cols || {}).some((k) => k !== id && amHas(row[k]));
+}
+
+/**
+ * Build the seven records from the form's flat tables.
+ *
+ * @returns {{records: object, unmapped: string[]}}
+ */
+function lotRecords(values, rows, existing) {
+  const src = rows || {};
+  const out = {};
+  const unmapped = [];
+  // Start from whatever is already in the mapper's own vocabulary. A lot read
+  // back off a real workbook arrives fully formed and must come out unchanged.
+  for (const b of Object.keys(existing || {})) out[b] = { ...(existing[b] || {}) };
+
+  const block = (name) => (out[name] = out[name] || {});
+  const valuesOf = (name) => {
+    const r = block(name); r.values = { ...(r.values || {}) }; return r.values;
+  };
+  const listOf = (name, list) => {
+    const r = block(name); r.rows = { ...(r.rows || {}) };
+    r.rows[list] = (r.rows[list] || []).slice(); return r.rows[list];
+  };
+
+  const lotRows = {};   // lot-level lists this bridge renames into place
+
+  // Which `records[block].rows.<list>` already came in with content. The
+  // "already under the mapper's own name wins" rule has to cover ROW LISTS
+  // and not just scalars: a lot read back off a real workbook carries
+  // `specimens` for every sublot, and appending the form's rows to it puts
+  // two specimens in slot 0 whose cells then fight over the same address.
+  // Caught by a pass-through test, not by reading.
+  const locked = new Set();
+  for (const b of Object.keys(existing || {})) {
+    const r = (existing[b] || {}).rows || {};
+    for (const list of Object.keys(r)) if ((r[list] || []).length) locked.add(`${b}.${list}`);
+  }
+
+  for (const key of Object.keys(LOT_TABLE_ROUTES)) {
+    const route = LOT_TABLE_ROUTES[key];
+    const table = src[key];
+    if (!Array.isArray(table) || !table.length) continue;
+    if (route.into === null) continue;                 // declared orphan
+
+    // -- lot-level lists: rename the list, keep the rows
+    if (route.by === 'lot') {
+      const name = String(route.into).slice('rows@'.length);
+      const kept = [];
+      table.forEach((row) => {
+        // `project_items` already speaks the mapper's words, and its rows are
+        // a lookup's output rather than a measurement, so it passes whole.
+        if (route.passthrough) { kept.push(row); return; }
+        // A blend component is a declaration, not a measurement: a row naming
+        // only a producer is still a component and must keep its POSITION,
+        // which is what INPUTS.blend's `first + i` assumes. So no emptiness
+        // test and no compaction here.
+        if (!route.blend && !hasMeasurement(row, route)) return;
+        const o = {};
+        for (const from of Object.keys(route.cols || {})) {
+          if (amHas(row[from])) o[route.cols[from]] = row[from];
+        }
+        // NOTE the blend's `pct` is deliberately NOT set from pct_1.
+        // mapper.mjs reads `amNum(over[i].pct) ?? amNum(c.pct)` - a NULLISH
+        // fallback from the per-sublot value to this lot-level one - so
+        // seeding it from sublot 1 would make a plant that adjusted its blend
+        // mid-lot silently fall back to sublot 1's percentages wherever a
+        // later sublot's cell was blank. Left absent, the ?? has nothing to
+        // reach for and the blank stays a blank.
+        kept.push(o);
+      });
+      if (kept.length) lotRows[name] = kept;
+      continue;
+    }
+
+    // -- per-block tables
+    const seen = {};
+    table.forEach((row, i) => {
+      const name = route.by === 'sublot'
+        ? (sublotIndex(row[route.id]) ? `QC0${sublotIndex(row[route.id])}` : null)
+        : recordName(row[route.id]);
+      if (!hasMeasurement(row, route)) return;
+      if (!name) {
+        // A row dropped inside the bridge never reaches the mapper's own
+        // unmapped channel, so say it here or the measurement is simply gone.
+        unmapped.push(`${key} row ${i + 1}: cannot read "${route.id}" `
+          + `(${JSON.stringify(row[route.id])}), so ${Object.keys(route.cols)
+            .filter((k) => k !== route.id && amHas(row[k])).length} value(s) have no record`);
+        return;
+      }
+      const mapped = {};
+      for (const from of Object.keys(route.cols || {})) {
+        if (from === route.id) continue;
+        if (amHas(row[from])) mapped[route.cols[from]] = row[from];
+      }
+      if (route.into === 'values') {
+        const dest = valuesOf(name);
+        // The mapper's own name wins: only fill what is not already there.
+        for (const k of Object.keys(mapped)) if (!amHas(dest[k])) dest[k] = mapped[k];
+        return;
+      }
+      const list = String(route.into).slice('rows.'.length);
+      if (locked.has(`${name}.${list}`)) return;   // the workbook's own rows stand
+      // The slot is EXPLICIT. slotOf() falls back to array position, and a
+      // table that dropped an empty row would then compact the rest upwards
+      // into the wrong slots - the same shift Field Rutting already produces.
+      const n = (seen[name + list] = (seen[name + list] || 0) + 1) - 1;
+      const declared = route.slot ? Number(row[route.slot]) : NaN;
+      const slot = Number.isFinite(declared) && declared >= 1 ? declared - 1 : n;
+      const entry = { ...mapped, slot };
+      if (route.bank !== undefined) entry.bank = route.bank;
+      // Cores share one list across two banks, so the per-bank slot has to
+      // count within its own bank rather than across both.
+      if (route.bank !== undefined) {
+        const k = `${name}${list}b${route.bank}`;
+        entry.slot = (seen[k] = (seen[k] || 0) + 1) - 1;
+      }
+      listOf(name, list).push(entry);
+    });
+  }
+
+  // -- the blend fans out the other way: ONE form row, four sublot records.
+  //    Each component keeps its position, which is what INPUTS.blend's
+  //    `first + i` already assumes.
+  const blendRows = src.blend;
+  if (Array.isArray(blendRows) && blendRows.length) {
+    [1, 2, 3, 4].forEach((s) => {
+      const name = `QC0${s}`;
+      const per = blendRows.map((c) => ({ pct: c[`pct_${s}`] }));
+      if (!per.some((c) => amHas(c.pct))) return;
+      const r = block(name); r.rows = { ...(r.rows || {}) };
+      if (!r.rows.blend) r.rows.blend = per;
+    });
+  }
+
+  // -- the Gradation step, which is not a row table at all
+  const v = values || {};
+  const grad = {};
+  for (const col of Object.keys(GRADATION_COLUMNS)) {
+    const list = [];
+    JMF_SIEVE_KEYS.forEach((key, i) => {
+      if (!key) return;                      // the 1/4", absent from the form
+      const val = v[`${col}_${key}`];
+      if (amHas(val)) list.push({ sieve: GRADATION.sieves[i], pct_passing: val });
+    });
+    if (list.length) grad[col] = list;
+  }
+  for (const col of Object.keys(grad)) {
+    const name = GRADATION_COLUMNS[col];
+    if (!name) continue;                     // the JMF target, handled below
+    const r = block(name); r.rows = { ...(r.rows || {}) };
+    if (!(r.rows.gradation || []).length) r.rows.gradation = grad[col];
+  }
+
+  // The JMF target is a lot-level column keyed by the WORKBOOK's sieve
+  // string, which is what `jmf[sieve]` below looks it up by.
+  const jmf = {};
+  for (const g of grad.jmf || []) jmf[g.sieve] = g.pct_passing;
+
+  return { records: out, unmapped, lotRows, jmf };
+}
+
+
+// =====================================================================
 //  THE MAPPER
 // =====================================================================
 
@@ -13130,9 +13492,32 @@ function amawCells(lot, tpl, ref) {
   const need = (what, why) => missing.push(why ? `${what} - ${why}` : what);
   const note = (s) => { if (notes.indexOf(s) < 0) notes.push(s); };
 
+  /** % passing for one sieve, written as the MATCHED PAIR the sheet needs.
+   *
+   *  Both columns are formulas over the grams column, and PlantBook has no
+   *  grams (see INPUTS.gradation), so both are written over. Writing only the
+   *  passing column leaves % retained blank and hands the dust ratio at
+   *  `Superpave!O14` a confident ">1.6" — which is why this is one function
+   *  called from both sheets rather than two call sites that can drift, the
+   *  same rule that makes `trimFlatCoarseEnd` shared in DesignBook. */
+  const writeGradationPair = (spec, col, i, pctPassing, sheet) => {
+    const passing = amNum(pctPassing);
+    if (passing == null) return;
+    const on = sheet || spec.sheet;
+    const row = spec.first + i;
+    const ret = (spec.retainedCols || [])[col], pas = (spec.passingCols || [])[col];
+    if (ret) writeOver(A(on, `${ret}${row}`), Math.round((100 - passing) * 1000) / 1000);
+    if (pas) writeOver(A(on, `${pas}${row}`), passing);
+  };
+
   const v = lotScalars(lot.values);
-  const rows = lot.rows || {};
-  const records = lot.records || {};
+  // The form's flat tables, translated into the seven records everything
+  // below reads. A lot that already carries records (one read back off a real
+  // workbook) passes through untouched — see lotRecords().
+  const bridged = lotRecords(lot.values, lot.rows, lot.records);
+  const rows = { ...(lot.rows || {}), ...bridged.lotRows };
+  const records = bridged.records;
+  for (const u of bridged.unmapped) unmapped.push(u);
   const rec = (block) => records[block] || null;
   const recVals = (block) => (rec(block) || {}).values || {};
   const recRows = (block) => (rec(block) || {}).rows || {};
@@ -13442,6 +13827,7 @@ function amawCells(lot, tpl, ref) {
     GRADATION.sieves.forEach((sieve, i) => {
       const g = grad.find((x) => amStr(x.sieve) === sieve) || {};
       write(A(GR.sheet, `${gcol}${GR.first + i}`), amNum(g.grams_retained));
+      writeGradationPair(GR, s - 1, i, g.pct_passing);
     });
     write(A(GR.sheet, `${gcol}${GR.panRow}`), amNum(rv.grams_pan));
     write(A(GR.sheet, `${gcol}${GR.totalRow}`), amNum(rv.grams_total));
@@ -13451,7 +13837,13 @@ function amawCells(lot, tpl, ref) {
       need(A(GR.sheet, `${GR.acCols[s - 1]}${GR.acRow}`),
         `${block} has no as-tested %AC, so 'Superpave'!${SUBLOT.volumetric.cols.binderPct}${SUBLOT.volumetric.first + (s - 1) * SUBLOT.volumetric.stride} and its AC pay value are blank`);
     }
-    if (!grad.length) need(A(GR.sheet, `${gcol}${GR.first}`), `${block} has no gradation`);
+    // NOT `!grad.length`. A table can arrive full of rows this mapper has no
+    // way to write - a shape it does not know, or a column that never made it
+    // through the bridge - and a length test would read that as "gradation
+    // present" and go quiet on the one case worth reporting.
+    if (!grad.some((g) => amHas(g.grams_retained) || amHas(g.pct_passing))) {
+      need(A(GR.sheet, `${gcol}${GR.first}`), `${block} has no gradation`);
+    }
 
     // -- the binder and tack lot numbers, one column per sublot on row 43/44.
     write(addressOf({ at: { family: 'payLotNo' } }, block), amStr(rv.binder_lot));
@@ -13630,6 +14022,7 @@ function amawCells(lot, tpl, ref) {
     GRADATION.sieves.forEach((sieve, i) => {
       const g = grad.find((x) => amStr(x.sieve) === sieve) || {};
       write(A(V.sheet, `${gcol}${V.gradation.first + i}`), amNum(g.grams_retained));
+      writeGradationPair(V.gradation, slot, i, g.pct_passing, V.sheet);
     });
     write(A(V.sheet, `${gcol}${V.gradation.panRow}`), amNum(rv.grams_pan));
     write(A(V.sheet, `${gcol}${V.gradation.totalRow}`), amNum(rv.grams_total));
@@ -14151,6 +14544,7 @@ return {
   // mapper.mjs
   A, colShift, INPUTS, FLAGS, UNCLASSIFIED_CELLS,
   amDateSerial, amTimeFraction, amawCells, LOT_FIELD_ALIASES, lotScalars,
+  lotRecords, LOT_TABLE_ROUTES, JMF_SIEVE_KEYS, GRADATION_COLUMNS,
   // the browser half of generate.mjs
   STAGING_SHEETS, FIRST_DATA_ROW, DIRECT_READ, REFERENCE_SHEETS,
   LOADER_REQUIRES, splitAddr, amawTemplate, loadAmawTemplate, generateAmaw,

@@ -2139,6 +2139,114 @@ TBD — cite the governing spec section when encoding a limit in code.
   the four cells the whole pay schedule gates on.
 
 
+
+- **Every generated AMAW was nearly empty, and the end-to-end check that said
+  otherwise - mine, 2026-09-13 - only ever looked at the four cells it
+  named.** Measured 2026-09-14: a lot built on the form reached `amawCells()`
+  with 15 filled row tables and 72 rows and wrote **13 cells**, with
+  `coverage.blocks` at zero for all seven test records. Every ticket, every
+  gyratory specimen weight, every Gmm bowl, every gradation, all 24 cores and
+  both verification records went nowhere. What DID land is the lot header -
+  including `Calculations!J1`, `!D15`, `!H20` and `!H12`, which is exactly
+  what the entry above reports checking. **A verification that names the
+  cells it checked is not thereby a verification of the file**; the honest
+  version of that sentence would have been "the four cells the pay schedule
+  gates on are present, and I did not look at the test data".
+  **The cause is the second seam, and it is the same one as
+  `LOT_FIELD_ALIASES` one level up.** That table translates the form's
+  `lot_`-prefixed SCALARS into the workbook's words. Nothing did it for the
+  TABLES: the form produces flat lists keyed by an identity column at
+  `lot.rows.<key>`, while the mapper reads seven per-block records at
+  `lot.records[block].values` / `.rows.<name>`, and `lot.records` was never
+  created at all. `LOT_TABLE_ROUTES` + `lotRecords()` in `mapper.mjs` is the
+  fix, declared as a table for the reason the scalars are: a convention is
+  invisible the moment it stops holding, and `undefined` is the quietest
+  failure in this codebase.
+  **Why no check caught it, which is the part worth carrying.**
+  `check_mapper.mjs` builds its `records` by READING TWO REAL COMPLETED
+  AMAWs, so it speaks the mapper's vocabulary natively and this seam has
+  never been on either side of a test. `check_sections.mjs` checks the schema
+  against itself. Both were green throughout. The missing check was the one
+  that starts where a TECHNICIAN starts - `check_bridge.mjs` now builds a lot
+  from `PLANTBOOK_SECTIONS`, fills every cell the form offers, and asks what
+  came out the far end (56 assertions; it was committed RED at `6bb2f6f`
+  before any fix existed, which is why its header says so).
+  **Four traps the naive bridge would have shipped, all caught by an
+  adversarial pass before any of it ran** - three independent lenses over a
+  proposed routing table, all three returning FLAWED, 27 defects:
+  **(1) Silencing.** Every FIXED PlantBook table reaches the payload at full
+  seeded length - `collectForm()` keeps a row if ANY cell is non-null and the
+  identity columns are always painted - so routing rows unconditionally would
+  have created seven records on a brand-new lot and stopped
+  `if (!(rr.specimens||[]).length) need(...)` and its siblings firing on
+  exactly the empty lot they exist for. A route drops a row whose
+  non-identity, non-`readonly` cells are all null. Proved both ways round.
+  **(2) The gradation is a UNIT mismatch, not a rename.** The form collects
+  **% passing**; the workbook's input column is **grams retained**
+  (`Gradation!B/E/H/K`, pan row 24, total row 25) with `C = (B/B25)*100` and
+  `D` derived from `C`. There is no way back without a total mass. Jake chose
+  (2026-09-14) to write the two derived columns over their formulas and leave
+  grams blank. **Both halves of the pair, always** - `Superpave!O14`, the D/A
+  dust ratio and a staged loader field, is
+  `IF(OR(Gradation!D23="",L14=""),"",IF((100-Gradation!C23)/L14>1.6,">1.6",...))`:
+  it GATES on the passing column and DIVIDES using the retained one, so
+  filling only D hands MEDL a confident `">1.6"` on every block. One shared
+  `writeGradationPair()` serves both sheets, same rule as `trimFlatCoarseEnd`.
+  **(3) The two lists spell the same sieve differently.** The workbook says
+  `1 1/2"` (space), the form says `1-1/2"` (hyphen) - so a label match
+  silently loses 37.5 mm from the JMF target AND all six measured columns of
+  every lot. `JMF_SIEVE_KEYS` maps BY INDEX into `GRADATION.sieves`, with
+  index 6 (the 1/4", on the workbook and never on the form) held as `null`
+  so nothing below it shifts up a row. Never renumber it to match the form.
+  **(4) The page's `sublotIndexOf()` does not clamp.** It is `/(\d+)\s*$/`,
+  so `"1-0"` is 0, `"10"` is 10 and `"1.5"` is 5, and `'QC0' + n` files a
+  whole sublot's weights under a block that does not exist. The bridge has
+  its own helper that clamps to 1..4 and REPORTS the refusal - a row dropped
+  inside the bridge never reaches the mapper's own `unmapped` channel, so it
+  would otherwise be the quietest possible loss of a measurement.
+  **One correction the adversarial pass got wrong, and it is worth knowing
+  that it can be:** it asserted `Superpave!F41:J41` are formulas and that the
+  existing comment was false. Probed the shipped template - `C41`/`D41`/`E41`
+  are formulas, `F41` through `J41` are **empty**. The comment was right and
+  the correction was rejected. Check the workbook, not the confident report
+  about the workbook.
+  **Records still win.** A lot read back off a real AMAW passes through
+  untouched, scalars AND row lists - the row-list half was a real bug in the
+  first cut of `lotRecords()`, found by a pass-through test rather than by
+  reading: the form's specimen row was APPENDED to the workbook's, putting
+  two specimens in slot 0 to fight over the same address.
+  After: **533 cells, all six storing blocks populated, `missing` 27 -> 7.**
+
+- **Three cells the AMAW mapper writes to the wrong place or not at all,
+  found while building the bridge and all verified against
+  `public/AMAW_VER14_01.xlsm` rather than inferred.** They are pre-existing
+  and independent of the bridge; tasks #40-#42.
+  **`Gradation!D32` is EMPTY** - no value, no formula, no label - and no
+  formula on any sheet references it, but `INPUTS.gradation.acRow` is 32. So
+  the one figure a technician still types on the Sublots step, the
+  ignition-furnace %AC the AC pay property is judged on, is written to a dead
+  cell and the workbook silently substitutes its own back-calculation
+  (`D34`, via `D33`, into `Superpave!B14`). The mapper's comment describing
+  row 32 as "the typed one" was true of an older AMAW and did not follow
+  VER 14.01's rewiring - the same stale-label trap as "ESAL Class" and
+  "Hamburg Pass 100 Left Max", and the same remedy: resolve a cell by what it
+  DRIVES, not by what it is called.
+  **`Calculations!O1`/`O2` are `IF(M1,1,2)`** and `M1`/`M2` are the empty,
+  writable booleans. `CALC.equipmentVerified` names O1/O2 - right for the
+  loader's read side, wrong to write to - so a write lands in `evalOnly`,
+  Excel recomputes from a blank `M1`, gets 2, and sn 114/115 ship **"No"**.
+  That is a confident wrong answer, not a blank, on two technician-answerable
+  fields. Same boolean-vs-1/2 shape as `Calculations!M11`, which this file
+  already records getting wrong in the dangerous direction once.
+  **`'Pay Values'!H13:H16` (minimum VMA) is typed and EMPTY**, while its
+  neighbour `E13` (target %AV) IS a formula - which is why the mapper's
+  comment lumps them together and skips both. `J13 = IF(I13="","",(I13-H13))`,
+  so with H13 blank Excel reads 0 and the VMA pay deviation becomes the raw
+  VMA (~15.6) instead of ~0.6. `'Pay Values'!J20` (wedge tons) is the same
+  shape: `lot_wedge_tons` is a typed field WITH an alias and `amawCells()`
+  never writes it anywhere. **An aliased field with no write is the quietest
+  gap there is** - grep finds the alias and stops.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by

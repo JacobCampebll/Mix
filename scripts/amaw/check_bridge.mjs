@@ -33,7 +33,7 @@ import PLANTBOOK_SECTIONS from './sections.mjs';
 // INPUTS lives in mapper.mjs (the raw-input addresses it writes), the rest in
 // addresses.mjs (the loader's own map) — one seam per file, so import each
 // from where it is actually declared rather than from whichever re-exports.
-import { amawCells, A, INPUTS } from './mapper.mjs';
+import { amawCells, A, INPUTS, LOT_TABLE_ROUTES } from './mapper.mjs';
 import { SUBLOT, CORES, GRADATION } from './addresses.mjs';
 
 let pass = 0, fail = 0;
@@ -175,7 +175,19 @@ function buildFormLot() {
 // it. `check_mapper.mjs` runs against real templates; this one is isolating
 // the seam, and a real template would let a missing route hide behind a
 // legitimately-skipped formula cell.
-const tpl = { has: () => true, formula: () => null };
+// NOT `formulaAt: () => null`. A stub that says nothing is a formula cannot
+// tell write() from writeOver(), and the gradation route exists precisely
+// because those two columns ARE formulas — so the check that guards it would
+// have been blind to the thing it guards. These addresses were read out of
+// public/AMAW_VER14_01.xlsm rather than assumed; each is a cell this file
+// asserts something about.
+const FORMULA_CELLS = new Set([
+  'Gradation!C10', 'Gradation!D10', 'Gradation!C23', 'Gradation!D23',
+  "'Super Verify'!C33", "'Super Verify'!D33",
+  'Cores!H10', 'Superpave!H12', 'Superpave!G12', 'Superpave!F12',
+  'Calculations!O1', 'Calculations!O2',
+]);
+const tpl = { has: () => true, formulaAt: (addr) => (FORMULA_CELLS.has(addr) ? '=…' : null) };
 
 const lot = buildFormLot();
 const out = amawCells(lot, tpl, {}) || {};
@@ -221,11 +233,38 @@ is('QC01 Gmm bowl 1, weight of mix',
   cells[A(GM.sheet, `${GM.cols[0][0]}${GM.rows.mix}`)] != null,
   A(GM.sheet, `${GM.cols[0][0]}${GM.rows.mix}`));
 
+// The form collects % PASSING and has no total mass, so grams are NOT
+// written (Jake, 2026-09-14) - the two derived columns are written over
+// instead. Both halves of the pair, because Superpave!O14 gates on the
+// passing column and divides using the retained one: fill only one and MEDL
+// gets a confident ">1.6" dust ratio on every block.
 const GR = INPUTS.gradation;
-is('QC01 gradation, first sieve grams retained',
-  cells[A(GR.sheet, `${GR.cols[0]}${GR.first}`)] != null);
+const gradRet = A(GR.sheet, `${GR.retainedCols[0]}${GR.first}`);
+const gradPas = A(GR.sheet, `${GR.passingCols[0]}${GR.first}`);
+is('QC01 gradation, first sieve % passing', cells[gradPas] != null, gradPas);
+is('QC01 gradation, first sieve % retained (the matched half)',
+  cells[gradRet] != null, gradRet);
+is('% retained is 100 - % passing',
+  cells[gradRet] != null && cells[gradPas] != null
+    && Math.abs(cells[gradRet] + cells[gradPas] - 100) < 1e-6,
+  [cells[gradRet], cells[gradPas]]);
+// Both are formulas in the real template, so a plain write() would land them
+// in evalOnly and Excel would blank them the moment the archived copy opens.
+is('the gradation pair is written OVER its formulas, not banked',
+  out.values[gradRet] != null && out.values[gradPas] != null
+    && (out.evalOnly || {})[gradPas] == null,
+  Object.keys(out.evalOnly || {}).filter((k) => k.startsWith('Gradation!')).slice(0, 3));
 is('the JMF target gradation column',
   cells[A(GRADATION.sheet, `${GRADATION.jmfCol}${GRADATION.first}`)] != null);
+// The workbook spells it `1 1/2"` and the form `1-1/2"`, so a label match
+// silently loses 37.5 mm on all seven columns. Assert it arrived.
+const i37 = GRADATION.sieves.indexOf('1 1/2"');
+is('the 37.5 mm sieve survives the two spellings',
+  i37 > 0 && cells[A(GR.sheet, `${GR.passingCols[0]}${GR.first + i37}`)] != null, i37);
+// Index 6 is the 1/4", which is on the workbook and not on the form. It must
+// stay blank AND must not have shifted every sieve below it up a row.
+is('the 1/4" row is left blank rather than shifting the list',
+  cells[A(GR.sheet, `${GR.passingCols[0]}${GR.first + 6}`)] == null);
 
 const CO = INPUTS.cores;
 is('a mat core weight in air',
@@ -275,18 +314,55 @@ for (const [re, what] of STILL_ASKED) {
 // recalculates, or one with no workbook home. What it must not do is decline
 // it silently: an unrouted table has to show up in the report, so the reason
 // is a written line rather than an absence nobody notices.
-console.log('\nE. an unrouted table is reported, not dropped');
-const unmapped = report.unmapped || [];
-const said = [...missing, ...unmapped, ...(report.notes || [])].map(String).join(' | ');
+// The first version of this section asked `coverage.QC01 > 0 || named`, which
+// every table satisfies the instant ANY table routes - it passed all fifteen
+// while fourteen of them were being dropped. A check that goes green for the
+// wrong reason is worse than no check, so this one is per table and per value.
+console.log('\nE. every table either reaches a cell or is declared dropped');
+const written = new Set(Object.values(cells).map((x) => JSON.stringify(x)));
 for (const { table } of rowTables()) {
-  const rowsIn = (lot.rows[table.key] || []).length;
-  if (!rowsIn) continue;
-  const reached = Object.keys(cells).length > 0;   // cheap guard; per-table below
-  const named = said.includes(table.key);
-  // Either the table's data is somewhere in the workbook, or its key is named
-  // in the report. This is deliberately loose: it is the ONE assertion here
-  // that a future bridge design gets to satisfy either way.
-  is(`${table.key} is routed or reported`, reached && (coverage.QC01 > 0 || named), table.key);
+  const rowsIn = lot.rows[table.key] || [];
+  if (!rowsIn.length) continue;
+  const route = LOT_TABLE_ROUTES[table.key];
+  if (!route) { bad(`${table.key} has no entry in LOT_TABLE_ROUTES`); continue; }
+
+  // A table whose every column is a declared drop is accounted for by the
+  // routing table itself - blend_gsb and verify_volumetrics are computed by
+  // the sheet and have nothing to send.
+  const routed = Object.keys(route.cols || {}).filter((k) => k !== route.id);
+  if (!routed.length) {
+    const dropped = Object.keys(route.drop || {});
+    is(`${table.key} is declared fully dropped, with reasons`,
+      dropped.length > 0 && Object.values(route.drop).some(Boolean), dropped);
+    continue;
+  }
+
+  // Otherwise SOME value this fixture put in the table has to appear in some
+  // cell. The fixture makes every value distinct precisely so this can be an
+  // identity test rather than a count.
+  const mine = rowsIn.flatMap((r) => routed.map((c) => r[c]))
+    .filter((x) => x !== null && x !== undefined && x !== '');
+  const landed = mine.filter((x) => written.has(JSON.stringify(x))).length;
+  is(`${table.key}: ${landed}/${mine.length} routed values reach a cell`,
+    landed > 0, { table: table.key, sample: mine.slice(0, 3) });
+}
+
+// And the reverse direction: a column the schema has that the routing table
+// mentions in neither `cols` nor `drop` is a value with nowhere to go and no
+// line saying so - the exact shape of the bug this file was written for.
+console.log('\nF. every schema column is routed or explicitly dropped');
+for (const { table } of rowTables()) {
+  const route = LOT_TABLE_ROUTES[table.key];
+  if (!route) continue;
+  const unaccounted = (table.columns || [])
+    .map((c) => c.key)
+    // The identity column and the slot column are both accounted for by
+    // being declared as such — `by`/`id` and `slot` on the route.
+    .filter((k) => k !== route.id && k !== route.slot
+      && !(route.cols || {})[k]
+      && !Object.prototype.hasOwnProperty.call(route.drop || {}, k));
+  is(`${table.key} accounts for all ${(table.columns || []).length} columns`,
+    unaccounted.length === 0, unaccounted);
 }
 
 // ---------------------------------------------------------------------

@@ -779,6 +779,49 @@ namespace('PB_AMAW', '5. PB_AMAW vs scripts/amaw/addresses.mjs + mapper.mjs + ge
   ];
   sweep('lotScalars()', P.lotScalars, MOD_MAPPER.lotScalars, scalarCases);
 
+  // The SECOND seam: the form's flat tables against the seven records. Same
+  // argument as the scalars above, and a bigger surface - this is the one
+  // that decides whether a lot built in the browser reaches the same cells as
+  // one built in Node. The three declared tables are compared whole, then the
+  // engine is swept over the cases that actually bite: a refused identity, a
+  // seeded-but-blank row, a slot given out of order, the two spellings of a
+  // Department record, and a lot that already carries the workbook's own
+  // records and must come back unchanged.
+  same('LOT_TABLE_ROUTES is identical', P.LOT_TABLE_ROUTES, MOD_MAPPER.LOT_TABLE_ROUTES);
+  same('JMF_SIEVE_KEYS is identical', P.JMF_SIEVE_KEYS, MOD_MAPPER.JMF_SIEVE_KEYS);
+  same('GRADATION_COLUMNS is identical', P.GRADATION_COLUMNS, MOD_MAPPER.GRADATION_COLUMNS);
+  const R = (rows, values, existing) => [values || {}, rows, existing || {}];
+  const recordCases = [
+    // an ordinary filled sublot, and the same row with a lot-2 identity
+    R({ sublot_bsg: [{ sublot: '1-1', specimen: '1', wt_air: 4631.2, wt_water: 2706.9, wt_ssd: 4632.9 }] }),
+    R({ sublot_bsg: [{ sublot: '7-4', specimen: '2', wt_air: 1, wt_water: 2, wt_ssd: 3 }] }),
+    // identities that must be REFUSED rather than composed into 'QC0'+n
+    R({ sublot_bsg: [{ sublot: '1-0', specimen: '1', wt_air: 1, wt_water: 2, wt_ssd: 3 }] }),
+    R({ sublot_bsg: [{ sublot: '10', specimen: '1', wt_air: 1, wt_water: 2, wt_ssd: 3 }] }),
+    R({ sublot_bsg: [{ sublot: '', specimen: '1', wt_air: 1, wt_water: 2, wt_ssd: 3 }] }),
+    R({ sublot_bsg: [{ sublot: '1.5', specimen: '1', wt_air: 1, wt_water: 2, wt_ssd: 3 }] }),
+    // a seeded row with nothing measured in it makes NO record
+    R({ sublot_bsg: [{ sublot: '1-1', specimen: '1' }], sublot_tickets: [{ sublot: '1-1' }] }),
+    // the two spellings of a Department record's identity cell
+    R({ verification: [{ record: 'QA01 — Department acceptance', sublot_verified: '3' }] }),
+    R({ verify_bsg: [{ record: 'QA01', specimen: '1', wt_air: 1, wt_water: 2, wt_ssd: 3 }] }),
+    R({ verify_bsg: [{ record: 'iq01', specimen: '2', wt_air: 1, wt_water: 2, wt_ssd: 3 }] }),
+    // cores: two banks sharing one list, slots counted within their own bank
+    R({ mat_cores: [{ sublot: '1-2', station: 'A', wt_air: 1, wt_water: 2, wt_ssd: 3 },
+                    { sublot: '1-2', station: 'B', wt_air: 4, wt_water: 5, wt_ssd: 6 }],
+        joint_cores: [{ sublot: '1-2', station: 'J', wt_air: 7, wt_water: 8, wt_ssd: 9 }] }),
+    // the blend fans one row out to four sublots; the lot-level pct stays absent
+    R({ blend: [{ producer: 'P', agp: 'AGP007401', type_size: 'Limestone #8s',
+                  pct_1: 30, pct_2: 31, pct_3: 30, pct_4: 30 }] }),
+    // the gradation lives in `values` under composed keys, not in a table
+    R({}, { sub1_s37_5: 94.2, sub1_s0_075: 5.1, jmf_s37_5: 95, qa_s4_75: 55 }),
+    // a lot already in the mapper's vocabulary comes back untouched
+    R({ sublot_bsg: [{ sublot: '1-1', specimen: '1', wt_air: 9, wt_water: 9, wt_ssd: 9 }] }, {},
+      { QC01: { values: { ac_pct: 5.91 }, rows: { specimens: [{ slot: 0, wt_air: 4631.2 }] } } }),
+    R({}, {}, {}), R({}), [undefined, undefined, undefined],
+  ];
+  sweep('lotRecords()', P.lotRecords, MOD_MAPPER.lotRecords, recordCases);
+
   if (!AMAW_LOTS.length) {
     skip('amawCells() on a real completed lot',
          'no AMAW workbook passed — pass the two completed lots as arguments');
