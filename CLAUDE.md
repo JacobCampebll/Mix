@@ -2247,6 +2247,37 @@ TBD — cite the governing spec section when encoding a limit in code.
   never writes it anywhere. **An aliased field with no write is the quietest
   gap there is** - grep finds the alias and stops.
 
+- **FIXED 2026-09-14, and it was a THIRD seam rather than the two cells the
+  note above describes.** Probing a lot shaped the way `intake.mjs` actually
+  builds one showed all three of `'Pay Values'!A13:A16` (JMF %AC), `H13:H16`
+  (minimum VMA) and `J20` (wedge tons) unwritten - **the JMF %AC included**,
+  which the note had not suspected because the mapper plainly reads
+  `v.jmf_ac` and writes it.
+  **The reason is that `values.design` is one level down.** The three figures
+  the pay schedule is measured against come off the SIGNED APPROVAL rather
+  than off the form, so `intake.mjs` writes them to `lot.values.design` and
+  the Lot Pay step prints them as readouts - a signature that covers a value
+  and a form that lets someone retype it are contradictory. `lotScalars()`
+  spreads `lot.values`, so `v.jmf_ac` was simply `undefined` on every real
+  lot. `DESIGN_LIFTS` is the declared table that lifts them, on the same
+  footing as `LOT_FIELD_ALIASES` and `LOT_TABLE_ROUTES`, with the same
+  "a value already under the mapper's own name wins" rule.
+  **Three seams for one payload, and that is the thing to carry**: scalars
+  (`LOT_FIELD_ALIASES`), tables (`LOT_TABLE_ROUTES`) and now the approval's
+  own block (`DESIGN_LIFTS`). Each was found separately, each failed
+  silently, and each looked like the only one at the time. When a value does
+  not reach a cell, ask which of the three it should have travelled by before
+  assuming the write is missing.
+  **`target_va` is deliberately NOT lifted** and `check_bridge.mjs` asserts
+  the refusal, because `'Pay Values'!E13` IS a formula (a LOOKUP on
+  `Calculations!J1`) - so Excel supplies it and a write would land in
+  `evalOnly`. That asymmetry between E13 and H13 is exactly what made the
+  original comment skip both; assert the refusal or a later tidy-up
+  "completing the set" puts a value in a formula cell.
+  Wedge tons raises no `need()` - a lot with no pavement wedge is the
+  ordinary case, and reporting it every run teaches people to skim the
+  report. The minimum VMA does, because a blank one is a wrong number.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by

@@ -775,6 +775,14 @@ namespace('PB_AMAW', '5. PB_AMAW vs scripts/amaw/addresses.mjs + mapper.mjs + ge
     [{ mix_type_code: 14, lot_nominal_size: '0.38' }],
     [{ lot_kytc_lab: 'LU00642', lot_ps_lab: 'LU01210', lot_binder_terminal: 'X',
        lot_binder_grade: 'PG64-22', lot_additive: 'Y', lot_handmix_binder_pct: 5.2 }],
+    // The approval's own figures, which live one level down on
+    // `values.design` and have to be lifted. `target_va` must NOT be lifted
+    // ('Pay Values'!E13 is a formula), and a value already under the
+    // mapper's own name must win over the design block.
+    [{ design: { jmf_ac: 5.9, target_va: 3.5, min_vma: 15 } }],
+    [{ design: { jmf_ac: 5.9 }, jmf_ac: 6.1 }],
+    [{ design: { min_vma: null, jmf_ac: '' } }],
+    [{ design: {} }], [{ design: null }],
     [{}], [null], [undefined],
   ];
   sweep('lotScalars()', P.lotScalars, MOD_MAPPER.lotScalars, scalarCases);

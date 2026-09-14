@@ -148,6 +148,13 @@ function buildFormLot() {
     lot_joint_density: 'Yes', lot_unit_price: 50, lot_mix_id: '00260467',
   });
 
+  // -- the approval's own block. NOT form fields: intake.mjs writes these
+  //    from the signed approval and the Lot Pay step prints them as
+  //    readouts, so they live one level down and the mapper has to lift
+  //    them. A fixture without this block cannot see that seam at all.
+  values.design = { jmf_ac: 5.9, target_va: 3.5, min_vma: 15.0 };
+  values.lot_wedge_tons = 120;
+
   // -- row tables
   for (const { table } of rowTables()) {
     rows[table.key] = paintSublotIds(fillTable(table), lotNo);
@@ -276,6 +283,36 @@ is('QC01 as-tested %AC',
   cells[A(GR.sheet, `${GR.acCols[0]}${GR.acRow}`)] != null);
 is('QC01 truck ticket tonnage',
   cells[A(SUBLOT.sheet, `${SUBLOT.ticket.cols.tons}${SUBLOT.ticket.first}`)] != null);
+
+// ---------------------------------------------------------------------
+//  B2. the three constants the pay schedule is measured against
+// ---------------------------------------------------------------------
+// These come off the signed approval and live on `values.design`, one level
+// below where the mapper reads. All three were unwritten until 2026-09-14;
+// only the JMF %AC said so, and a blank minimum VMA is not a blank in the
+// workbook - `J13 = IF(I13="","",(I13-H13))` reads it as 0 and prints the
+// raw VMA as the deviation.
+console.log('\nB2. the approval\'s pay constants reach their cells');
+const jmfCell = A(INPUTS.jmfAc.sheet, `${INPUTS.jmfAc.col}${INPUTS.jmfAc.first}`);
+const mvCell = A(INPUTS.minVma.sheet, `${INPUTS.minVma.col}${INPUTS.minVma.first}`);
+is('the JMF %AC reaches \'Pay Values\'!A13', cells[jmfCell] === 5.9, cells[jmfCell]);
+is('the minimum VMA reaches \'Pay Values\'!H13', cells[mvCell] === 15.0, cells[mvCell]);
+is('wedge tons reaches \'Pay Values\'!J20', cells[INPUTS.wedgeTons] === 120, cells[INPUTS.wedgeTons]);
+is('the minimum VMA is written for all four sublots',
+  [0, 1, 2, 3].every((i) =>
+    cells[A(INPUTS.minVma.sheet, `${INPUTS.minVma.col}${INPUTS.minVma.first + i}`)] === 15.0));
+// target_va is deliberately NOT written - 'Pay Values'!E13 is a LOOKUP on
+// Calculations!J1, so Excel supplies it. Assert the refusal, or a later
+// tidy-up "completing the set" would put a value in a formula cell.
+is('the target %AV is NOT written (E13 is a formula Excel evaluates)',
+  cells[A('Pay Values', 'E13')] == null, cells[A('Pay Values', 'E13')]);
+
+// And the other direction: a lot with no approval block must still SAY the
+// minimum VMA is missing rather than writing a confident blank.
+const bare = amawCells({ values: { lot_number: '1', lot_nominal_size: '0.38B' },
+                         rows: {}, records: {} }, tpl, {});
+is('a lot with no approval reports the missing minimum VMA',
+  (bare.report.missing || []).some((m) => /minimum VMA/.test(String(m))));
 
 // ---------------------------------------------------------------------
 //  C. distinct values land in distinct cells

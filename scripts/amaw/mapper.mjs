@@ -138,6 +138,26 @@ export const INPUTS = {
   // off Calculations!H13/J1, so only column A is typed.
   jmfAc: { sheet: 'Pay Values', first: PAY.sublot.first, stride: PAY.sublot.stride, col: 'A' },
 
+  // The SPEC MINIMUM VMA the lot is judged against, one per sublot beside
+  // the JMF %AC. Checked in the shipped template: H13:H16 carry NO formula
+  // - they are typed cells exactly like column A - while their neighbour
+  // E13 (target %AV) IS a LOOKUP on Calculations!J1. That asymmetry is why
+  // an earlier comment lumped the two together and skipped both, and it
+  // cost a real number: `'Pay Values'!J13 = IF(I13="","",(I13-H13))`, so a
+  // blank H13 reads as 0 in Excel and the VMA pay deviation becomes the
+  // sublot's RAW VMA (~15.6) instead of its margin above the minimum
+  // (~0.6). Not a blank - a wrong number, in the pay chain.
+  minVma: { sheet: 'Pay Values', first: PAY.sublot.first, stride: PAY.sublot.stride,
+            col: PAY.sublot.cols.minVma },
+
+  // Pavement wedge tons, taken off the top of the lot tonnage before the
+  // adjustment: `J24 = IF(J21="","",(((J21-100)*(F4-J20)*F5/100)))`, and the
+  // loader reads it as sn 103. `lot_wedge_tons` has been a typed field with
+  // an alias since the mapper was written and nothing ever wrote it - an
+  // aliased field with no write is the quietest gap there is, because a grep
+  // finds the alias and stops.
+  wedgeTons: A('Pay Values', PAY.lot.wedgeTons),
+
   // The binder header. B46 (LAP number) is read by `Field Rutting!B15` and by
   // the loader's sn 112; C46 is the "% and type of additive" free text.
   binderProducer: A('Pay Values', PAY.lot.binderProducer),
@@ -409,6 +429,24 @@ export const LOT_FIELD_ALIASES = {
  *  written as a letter into a cell whose own IFs only ever test 1 and 2. */
 const DENSITY_OPTION_CODES = { A: 1, B: 2 };
 
+/** A THIRD seam, and the narrowest: the three figures the pay schedule is
+ *  measured against live on the lot's `values.design` block, because they
+ *  come off the approval rather than off the form (intake.mjs writes them
+ *  there, and the Lot Pay step prints them as READOUTS - a signature that
+ *  covers a value and a form that lets someone retype it are contradictory).
+ *  The mapper reads them at the top of `values`, so nothing connected them.
+ *
+ *  Measured 2026-09-14 on a lot shaped the way intake.mjs actually builds
+ *  one: `'Pay Values'!A13:A16`, `H13:H16` and `J20` were ALL unwritten.
+ *  A13 at least raised a `need()`; the other two were silent.
+ *
+ *  `target_va` is deliberately absent: `'Pay Values'!E13` is a LOOKUP on
+ *  `Calculations!J1`, so Excel supplies it and writing it would land in
+ *  evalOnly. Checked in the shipped template rather than assumed - its
+ *  neighbour H13 carries no formula at all, which is exactly why the two
+ *  were lumped together and both skipped. */
+const DESIGN_LIFTS = { jmf_ac: 'jmf_ac', min_vma: 'min_vma' };
+
 /** The lot's scalars under the names this file reads them by. */
 export function lotScalars(values) {
   const v = values || {};
@@ -435,6 +473,16 @@ export function lotScalars(values) {
   if (out.mix_type_code == null && v.mix_type_code == null) {
     const mt = mixTypeFor(out.nominal_size || '');
     if (mt) out.mix_type_code = mt.code;
+  }
+  // The approval's own figures, lifted out of `values.design`. Same rule as
+  // every other translation here: a value already under the mapper's own
+  // name wins, because check_mapper.mjs reads these cells off a real
+  // workbook and is already speaking the mapper's words.
+  const design = v.design || {};
+  for (const from of Object.keys(DESIGN_LIFTS)) {
+    const to = DESIGN_LIFTS[from];
+    if (design[from] !== undefined && design[from] !== null && design[from] !== ''
+        && v[to] === undefined) out[to] = design[from];
   }
   return { ...out, ...v };
 }
@@ -893,6 +941,10 @@ export function amawCells(lot, tpl, ref) {
   write(L('unit'), amStr(v.unit) || INPUTS.projectItems.UNIT);
   write(L('lotTons'), amNum(v.lot_tons));
   write(L('unitPrice'), amNum(v.unit_price));
+  // Optional and blank in both real lots, so NO need() - a lot with no
+  // pavement wedge is the ordinary case, and reporting it every run would
+  // teach people to skim the report.
+  write(INPUTS.wedgeTons, amNum(v.wedge_tons));
   write(L('kytcLabId'), amStr(v.kytc_lab_id));
   write(L('psLabId'), amStr(v.ps_lab_id));
   // LOT.esalClass ('Pay Values'!I4) is deliberately NOT written: that cell is
@@ -1189,6 +1241,16 @@ export function amawCells(lot, tpl, ref) {
     write(A(J.sheet, `${J.col}${J.first + (s - 1) * J.stride}`), amNum(rv.jmf_ac) ?? amNum(v.jmf_ac));
     if (!amHas(rv.jmf_ac) && !amHas(v.jmf_ac)) {
       need(A(J.sheet, `${J.col}${J.first + (s - 1) * J.stride}`), 'the JMF %AC - the AC pay value is a deviation from it');
+    }
+
+    // -- the spec minimum VMA this sublot is judged against. One value for
+    //    all four rows (it is the mix's minimum, not the sublot's), but
+    //    written per row because that is how the sheet holds it.
+    const MV = INPUTS.minVma, mvAddr = A(MV.sheet, `${MV.col}${MV.first + (s - 1) * MV.stride}`);
+    write(mvAddr, amNum(rv.min_vma) ?? amNum(v.min_vma));
+    if (!amHas(rv.min_vma) && !amHas(v.min_vma)) {
+      need(mvAddr, 'the minimum VMA - with it blank Excel reads 0 and the VMA pay '
+        + 'deviation becomes the raw VMA rather than the margin above the minimum');
     }
 
     // -- polish-resistant data, on the sheet and on KYTC's record but never
