@@ -316,10 +316,31 @@ const VERIFY_RECORDS = [
 // QA01 is, and the bare code on the four tables that repeat it. Five
 // full-width copies of "QA01 - Department acceptance" is most of this step on
 // a 360px screen, and after the first one it says nothing new.
-const VERIFY_SEED = VERIFY_RECORDS.map((r) => ({ record: r.label }));
-const VERIFY_ROW_SEED = VERIFY_RECORDS.map((r) => ({ record: r.key }));
+//
+// Andrew, 2026-09-14: "Department Verification... should be on each sublot
+// tab. If the state does not verify a given sublot, this section will
+// remain blank." Each record now has FOUR possible homes, one per sublot
+// tab, of which normally exactly one is ever filled - the seeds below carry
+// `sublot` on every table (not just the identity one, which already had
+// `sublot_verified`) so computeVerification() can join a record's BSG/MSG/
+// moisture/computed rows to the RIGHT slot instead of every same-named row
+// across all four tabs. See verifyRowOf4()/verifySpecimenOf4() below for the
+// slice indices, and the section's own comment for what did and did not
+// need a mapper.mjs change to get here.
+const VERIFY_SEED = VERIFY_RECORDS.flatMap((r) =>
+  ["1", "2", "3", "4"].map((sublot) => ({ record: r.label, sublot })));
+const VERIFY_ROW_SEED = VERIFY_RECORDS.flatMap((r) =>
+  ["1", "2", "3", "4"].map((sublot) => ({ record: r.key, sublot })));
 const VERIFY_SPECIMEN_SEED = VERIFY_RECORDS.flatMap((r) =>
-  ["1", "2"].map((specimen) => ({ record: r.key, specimen })));
+  ["1", "2", "3", "4"].flatMap((sublot) =>
+    ["1", "2"].map((specimen) => ({ record: r.key, sublot, specimen }))));
+// n is 1..4. Both seeds above are ordered [QA-sub1..QA-sub4, IQ-sub1..IQ-sub4]
+// (VERIFY_RECORDS.flatMap outer loop is the record), so sublot n's QA slot is
+// at index n-1 and its IQ slot at 4+(n-1) - same arithmetic family as
+// oneOf4()/twoOf4()/fourOf4() above, just two records instead of one table.
+const verifyRowOf4 = (n) => [n - 1, 4 + (n - 1)];
+const verifySpecimenOf4 = (n) =>
+  [2 * (n - 1), 2 * (n - 1) + 1, 8 + 2 * (n - 1), 8 + 2 * (n - 1) + 1];
 
 // The two Rice determinations of the lot's hand-mixed check sample
 // (`Superpave` columns M and N). One per lot, not per sublot.
@@ -595,12 +616,16 @@ function buildSublotTabSections() {
       tag: `AMAW · QC0${n} — this sublot's ticket, BSG/MSG, gradation weights and cores`,
       type: "rows",
       cites: ["accept402", "volumetric", "density402"],
-      // Andrew, 2026-09-14: the per-sublot Combined Gsb readout Aggregate
-      // Blend's `blend_gsb` row computes follows its data here rather than
-      // staying only on the Blend step. `blend_gsb` ITSELF is untouched and
-      // stays on Aggregate Blend - this is a read-only mirror of one of its
-      // four cells, painted by paintLotReadouts(), same footing as Contract
-      // & Mix's two design mirrors. Nothing new is collected or saved.
+      // Andrew, 2026-09-14: the per-sublot Combined Gsb readout follows the
+      // Blend section's `blend_gsb` row here rather than only being visible
+      // where that row lives (Aggregate Blend, itself moved `into:
+      // "sublot-1"` the same day). `blend_gsb` ITSELF is untouched - this is
+      // a read-only mirror of one of its four cells, painted by
+      // paintLotReadouts(), same footing as Contract & Mix's two design
+      // mirrors. Nothing new is collected or saved, and since
+      // computeBlendGsb() (designbook.html) now computes `blend_gsb` LIVE
+      // from the blend's own percentages and BODs instead of a static seed,
+      // this readout is live too.
       fields: [
         { type: "readout", label: "Combined Gsb", out: `blend_gsb_${n}`,
           sub: "from Aggregate Blend" },
@@ -661,6 +686,148 @@ function buildSublotGradationSections() {
       columns: [jmf, sub],
       weights: true,
       noChart: true,
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------
+//  Department Verification, also per sublot (Andrew, 2026-09-14)
+// ---------------------------------------------------------------------
+//
+//  "The verification tab which is one sublot verification per lot should
+//  be on each sublot tab. If the state does not verify a given sublot,
+//  this section will remain blank." QA01 and IQ01 are still exactly one
+//  record each (matching `Super Verify`'s real shape) - each now has FOUR
+//  possible homes, one per sublot tab, and normally exactly one is filled.
+//
+//  THE "VERIFIES" DROPDOWN IS GONE. Which sublot a record verifies used to
+//  be typed; now it is which tab the record was filled in on, so
+//  `sublot_verified` is seeded and `readonly` instead. Its value and its
+//  column key are UNCHANGED - the bridge and mapper.mjs still read exactly
+//  what they always did.
+//
+//  A `sublot` column is NEW on the four repeating tables (BSG/MSG/moisture/
+//  computed), which previously joined to the identity table by `record`
+//  alone - fine when there were only two records total, wrong now that
+//  four blank copies of "QA01" exist alongside the one real one.
+//  computeVerification() (designbook.html) joins on record AND sublot as
+//  of this change. The bridge does NOT need this column: a blank slot has
+//  no measurement, and LOT_TABLE_ROUTES' `hasMeasurement()` already drops
+//  a measurement-less row before it ever reaches `records[block]` - see
+//  mapper.mjs. Confirmed by re-reading that file, not by guessing.
+//
+//  EQUIPMENT VERIFIED MOVED HERE FROM THE LOT STEP'S SCALAR `fields` - the
+//  ONE PIECE OF THIS THAT DOES TOUCH mapper.mjs. `lot_equipment_verified_qa`/
+//  `_iq` were global scalars; repeating either across four tabs would have
+//  been the unsafe kind of duplication (collectForm() overwrites a scalar
+//  `data-field` by DOM order, so filling it in on one tab and leaving the
+//  other three at their untouched default could silently lose the answer
+//  on the next save). A row column scoped to one record's own slot has no
+//  such risk - only ONE of the four physical `equipment_verified` cells for
+//  a given record is ever expected to hold anything. mapper.mjs's write
+//  step for it now reads `recVals(block).equipment_verified` (already in
+//  scope there) instead of the old lot-level scalar; LOT_TABLE_ROUTES gained
+//  one `cols` entry to route it. Both are one-line changes, not a new
+//  selection algorithm - unlike the "pick the one filled slot" logic this
+//  looked at first, the record-scoped write already existed for every
+//  OTHER field on this table (`tested_by`, `acceptance_label`); this one
+//  had simply never needed it before there were four possible homes.
+//
+//  NOT YET RUN AGAINST A REAL AMAW WITH A QA OR IQ SAMPLE - see the note on
+//  the old "Department Verification" step this replaces: neither of Jake's
+//  two real lots has ever had one, so there is nothing to verify the new
+//  routing against yet regardless of who writes it or when.
+const VERIFY_IDENTITY_SPEC = {
+  key: "verification", heading: "Verification records", banded: true, fixed: true,
+  grid: "1.5fr .5fr .8fr 1fr .8fr",
+  seed: VERIFY_SEED,
+  columns: [
+    { key: "record", label: "Record", type: "text", readonly: true },
+    { key: "sublot_verified", label: "Verifies", type: "text", mono: true, readonly: true },
+    { key: "technician", label: "Tech (SM ID)", type: "text", req: false, mono: true },
+    { key: "ac_method", label: "AC method", type: "select", req: false, options: AC_METHODS },
+    { key: "equipment_verified", label: "Equipment verified", type: "select", req: false,
+      options: ["Yes", "No"] },
+  ],
+};
+const VERIFY_BSG_SPEC = {
+  key: "verify_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for this record",
+  banded: true, fixed: true,
+  grid: ".7fr .5fr .5fr 1fr 1fr 1fr .9fr .9fr",
+  seed: VERIFY_SPECIMEN_SEED,
+  columns: [
+    { key: "record", label: "Record", type: "text", readonly: true },
+    { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+    { key: "specimen", label: "Sample #", type: "text", mono: true, readonly: true },
+    { key: "wt_air", label: "Wt in air (g)", type: "number", req: false, mono: true },
+    { key: "wt_water", label: "Wt in water (g)", type: "number", req: false, mono: true },
+    { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: false, mono: true },
+    { key: "bulk_volume", label: "Bulk vol.", type: "number", req: false, mono: true, readonly: true },
+    { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
+  ],
+};
+const VERIFY_MSG_SPEC = {
+  key: "verify_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for this record",
+  banded: true, fixed: true,
+  grid: ".7fr .5fr .5fr 1fr 1fr 1fr 1fr .8fr",
+  seed: VERIFY_SPECIMEN_SEED,
+  columns: [
+    { key: "record", label: "Record", type: "text", readonly: true },
+    { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+    { key: "specimen", label: "Bowl #", type: "text", mono: true, readonly: true },
+    { key: "wt_mix", label: "Wt of mix (g)", type: "number", req: false, mono: true },
+    { key: "calibration", label: "Calibration (g)", type: "number", req: false, mono: true },
+    { key: "final_wt", label: "Final wt (g)", type: "number", req: false, mono: true },
+    { key: "absorbed_water", label: "Absorbed water (g)", type: "number", req: false, mono: true },
+    { key: "msg", label: "MSG", type: "number", req: false, mono: true, readonly: true },
+  ],
+};
+const VERIFY_MOISTURE_SPEC = {
+  key: "verify_moisture", heading: "Moisture in the mixture — the %AC correction",
+  banded: true, fixed: true,
+  grid: ".7fr .5fr 1fr 1fr 1fr .9fr",
+  seed: VERIFY_ROW_SEED,
+  columns: [
+    { key: "record", label: "Record", type: "text", readonly: true },
+    { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+    { key: "wt_before", label: "Pan + mix, before drying (g)", type: "number", req: false, mono: true },
+    { key: "wt_after", label: "Pan + mix, after drying (g)", type: "number", req: false, mono: true },
+    { key: "wt_pan", label: "Pan (g)", type: "number", req: false, mono: true },
+    { key: "moisture", label: "% moisture", type: "number", req: false, mono: true, readonly: true },
+  ],
+};
+const VERIFY_VOLUMETRICS_SPEC = {
+  key: "verify_volumetrics", heading: "Verification volumetrics — computed", banded: true, fixed: true,
+  grid: ".7fr .5fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
+  seed: VERIFY_ROW_SEED,
+  columns: [
+    { key: "record", label: "Record", type: "text", readonly: true },
+    { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+    { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
+    { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
+    { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
+    { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
+    { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
+    { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true, readonly: true },
+    { key: "vfa", label: "VFA (%)", type: "number", req: false, mono: true, readonly: true },
+  ],
+};
+function buildSublotVerificationSections() {
+  const out = [];
+  for (let n = 1; n <= 4; n++) {
+    out.push({
+      id: `sublot-${n}-verify`, label: "Department Verification", into: `sublot-${n}`, banded: true,
+      tag: "AMAW · Super Verify — QA01 / IQ01, this sublot's slot",
+      type: "grid",
+      cites: ["accept402", "km443"],
+      rows: [
+        sliceSpec(VERIFY_IDENTITY_SPEC, verifyRowOf4(n)),
+        sliceSpec(VERIFY_BSG_SPEC, verifySpecimenOf4(n)),
+        sliceSpec(VERIFY_MSG_SPEC, verifySpecimenOf4(n)),
+        sliceSpec(VERIFY_MOISTURE_SPEC, verifyRowOf4(n)),
+        sliceSpec(VERIFY_VOLUMETRICS_SPEC, verifyRowOf4(n)),
+      ],
     });
   }
   return out;
@@ -912,11 +1079,13 @@ export const PLANTBOOK_SECTIONS = [
     //  its own heading; only where it draws changes. A section with `into`
     //  is not a step. PlantBook was eight steps (not ten) before the Sublot
     //  1-4 split (2026-09-14), ten steps (not thirteen) right after it -
-    //  buildSublotTabSections() turned one step into four - and is NINE
-    //  steps now (not sixteen): the later-the-same-day Gradation split
-    //  removed "sublot-gradation" as a step of its own (it draws `into` a
-    //  Sublot tab now, same as Binder does into Lot), which the Sublots
-    //  split had not touched.
+    //  buildSublotTabSections() turned one step into four - nine once the
+    //  Gradation split folded "sublot-gradation" `into` a Sublot tab too,
+    //  eight again once Aggregate Blend moved `into: "sublot-1"` the same
+    //  day, and is SEVEN STEPS now that Department Verification has too -
+    //  Lot, Sublot 1-4, Lot Pay, Submit. This IS Andrew's target shape: the
+    //  seven tabs he asked for. Twenty-one total array entries; seven of
+    //  them are steps.
     //
     //  Pay Values!B46/C46 plus the grade the workbook VLOOKUPs at
     //  Calculations!D147 into A147:B161. addresses.mjs says it outright:
@@ -1055,7 +1224,32 @@ export const PLANTBOOK_SECTIONS = [
     //  fixed, one-row readonly table below the blend rather than four more
     //  columns on it. Same pattern as TSR's readonly Gmb / air voids
     //  columns: computed by the page, still collected, still round-tripped.
-    id: "blend", label: "Aggregate Blend", step: "Blend",
+    //  CORRECTION to this comment's own earlier claim ("the mapper is a
+    //  straight copy rather than a fan-out"): it is a fan-out after all -
+    //  mapper.mjs's `lotRecords()` bridge (task #39, commit d140866) reads
+    //  this table's `pct_1..pct_4` and pushes `{pct}` into each QC0n
+    //  record's `rows.blend[i]`, matching what its own write loop already
+    //  expected. Found correcting this comment, not by anything broken.
+    //
+    //  Andrew, 2026-09-14: moved `into: "sublot-1"` (was its own "Blend"
+    //  step) - "the Blend tab needs to be broken up among the four sublot
+    //  tabs... provide opportunity to adjust aggregate component
+    //  percentages... calculate an updated Combined Gsb for each sublot."
+    //  THE DATA MODEL DOES NOT CHANGE - this is still the one growable
+    //  table it always was, still all four pct_N columns, still fed to the
+    //  SAME mapper.mjs fan-out untouched. What moved is where it draws.
+    //  Producer/Type/AGP/BOD stay lot-level and get typed here, on Sublot
+    //  1's tab, same as before under "Blend" - Andrew's call (2026-09-14,
+    //  answering the follow-up this raised: AGP sometimes has no other
+    //  source, since the approval carries producer names, not AGP numbers)
+    //  was to accept losing a SEPARATE per-tab identity view rather than
+    //  invent one; visiting Sublot 1 to edit the blend (any sublot's
+    //  percentage) is the accepted tradeoff. Each Sublot 2-4 tab still gets
+    //  its own live "Combined Gsb" readout (buildSublotTabSections()) -
+    //  see computeBlendGsb() in designbook.html, which now computes it
+    //  LIVE from these percentages and BODs instead of the static value
+    //  the design's approval seeded once and never revisited.
+    id: "blend", label: "Aggregate Blend", into: "sublot-1", banded: true,
     tag: "AMAW · Superpave rows 3-8 · % is PER SUBLOT",
     type: "rows",
     cites: ["agg805"],
@@ -1209,208 +1403,17 @@ export const PLANTBOOK_SECTIONS = [
   // unchanged): lane density and joint density are two different pay
   // properties, run through two different pay curves in pay.mjs.
 
-  {
-    // ---------------------------------------------------------------
-    //  6. VERIFICATION — QA01 and IQ01, on `Super Verify`
-    // ---------------------------------------------------------------
-    //
-    //  The KYTC district technician's records: QA01 is Department
-    //  acceptance, IQ01 independent assurance. Both are filled by KYTC, not
-    //  by the plant — which is the single fact that makes the file-is-the-
-    //  record model hard for PlantBook (the district never holds the
-    //  contractor's file) and is why docs/plantbook-storage.md exists. This
-    //  schema is neutral on that: the section is the same either way.
-    //
-    //  A fixed two-row table rather than twenty `qa_`/`iq_` fields, because
-    //  it is the sublot-volumetrics table with two rows instead of four and
-    //  should read as one.
-    //
-    //  ---- THE TRAP IN THIS SECTION ------------------------------------
-    //
-    //  `Super Verify`'s columns are NOT `Superpave`'s. The same eight
-    //  quantities sit one column left from `pbe` on (pbe K/L, vma L/M,
-    //  vfa M/N, dustRatio N/O). The column KEYS here are the same as the
-    //  sublot table's on purpose — they are the same quantity and should
-    //  share CONFIG.DP — but the mapper must resolve them through
-    //  VERIFY.cols and never through SUBLOT.volumetric.cols. Copying one set
-    //  onto the other silently reads the NEIGHBOURING quantity, which looks
-    //  like bad data rather than a bug.
-    //
-    //  `sublot_verified` is the value every INDIRECT in the workbook is
-    //  built on ('Super Verify'!B5/B12, off Calculations!L1/L2). In BOTH
-    //  completed lots it is empty — no QA/IQ sample was taken — so every
-    //  INDIRECT-resolved field has no answer there. That is a real absence,
-    //  not a parse failure, which is why nothing in this section is `req`.
-    id: "verify", label: "Department Verification", step: "Verification",
-    tag: "AMAW · Super Verify — QA01 / IQ01, stride 7",
-    type: "grid",
-    cites: ["accept402", "km443"],
-    fields: [
-      // Calculations!O1/O2 — the technician's confirmation that the plant's
-      // equipment was checked. Two flags, one per verification block.
-      { key: "lot_equipment_verified_qa", label: "Equipment verified (QA)", type: "select", req: false,
-        options: ["Yes", "No"] },
-      { key: "lot_equipment_verified_iq", label: "Equipment verified (IQ)", type: "select", req: false,
-        options: ["Yes", "No"] },
-    ],
-    rows: [
-      {
-        key: "verification", heading: "Verification records", fixed: true,
-        // The record column is the only one here that is not mono: it holds a
-        // 28-character label ("QA01 — Department acceptance") rather than a
-        // figure, and proportional text is about a fifth narrower for the
-        // same string. It clips and says the whole thing in its `title`,
-        // which is what CLAUDE.md concluded for the producer name: some
-        // clipping is accepted, and the baseline in
-        // scripts/amaw/harness/baseline/clipping.json is where it is recorded
-        // rather than quietly tolerated. It has room to breathe now that the
-        // seven computed figures have moved off this table.
-        //
-        // The AC method's track was 1fr and is 1.15fr (out of the technician's
-        // 1.1), because a select does NOT report clipping - its scrollWidth
-        // equals its clientWidth whatever the option text does - so the
-        // harness cannot see a truncated one and this had to be measured
-        // against the widest option's text directly. At 1fr the widest
-        // ("Back-Calculation of MSG", 140px) had exactly 140px from 701px to
-        // 1244px; it has 181 now. Measure the same way if these tracks move.
-        grid: "1.9fr .8fr .95fr 1.15fr",
-        seed: VERIFY_SEED,
-        columns: [
-          { key: "record", label: "Record", type: "text", readonly: true },
-          // WHICH sublot this record verifies. It is not a label: every
-          // INDIRECT on that sheet resolves through it, and the Gsb the row's
-          // Pbe and VMA are measured against is that sublot's
-          // (`Superpave!R9`/`S9`/`T9`/`U9`, picked by this value). A record
-          // with weights and no sublot computes nothing, and says so.
-          { key: "sublot_verified", label: "Verifies", type: "select", req: false, mono: true,
-            options: ["1", "2", "3", "4"] },
-          { key: "technician", label: "Tech (SM ID)", type: "text", req: false, mono: true },
-          // Calculations!AU33/AU34 — per-record, and note those sit ABOVE the
-          // four sublot rows (AU35..AU38), not after them.
-          //
-          // CORRECTED 2026-09-13: this offered Volumetrics / Gradation /
-          // Visual, which is the LOT's acceptance method at `Calculations`
-          // !H20 - a different question, asked once for the whole lot on the
-          // Contract & Mix step. AU33/AU34 are fed by the same
-          // VLOOKUP(AP.., AJ33:AK37) as the four sublot rows below them, and
-          // that table is the AC DETERMINATION METHOD: how the binder
-          // content was measured. Both real lots read "Ignition Furnace" on
-          // all four sublots. Two controls a step apart, one of them
-          // mislabelled with the other's options, is exactly what made the
-          // question "what does that even mean?" - so the options are the
-          // workbook's own five now.
-          // The same five, from the same definition - see AC_METHODS. A
-          // verification record is a box of mix somebody else re-tested, so
-          // it is NOT seeded: the Department's method is the Department's to
-          // state, and inheriting the plant's would be inventing it.
-          { key: "ac_method", label: "AC method", type: "select", req: false,
-            options: AC_METHODS },
-        ],
-      },
-      // ---- THE RAW WEIGHTS, AND THE CALCULATION THEY DRIVE -------------
-      //
-      // Jake, 2026-09-13: "verification needs to be similar to lot pay in
-      // terms of the full calc and information on the bsg msg and air
-      // voids". It is the same argument the Sublots step won three days
-      // earlier and for the same reason: the AMAW computes every one of
-      // these from weights already on the technician's bench sheet, so
-      // typing them is how a lot ends up disagreeing with the workbook it
-      // will be loaded from. Seven typed figures per record became three
-      // weighings.
-      //
-      // WHAT IS DIFFERENT HERE, and none of it is guessable from the QC
-      // side - all four read out of KYTC's own blank template:
-      //
-      //   * `Super Verify` ROUNDS NOTHING. `Superpave` rounds the bulk
-      //     volume to 0.1 and the BSG and each MSG to 0.001; the same
-      //     quantities here are bare quotients. See verifyVolumetrics().
-      //   * THE %AC IS BACK-CALCULATED. A verification sample is a box of
-      //     mix off the road - nobody weighed binder into it - so its binder
-      //     content is recovered from its own Gmm against the lot's Gse and
-      //     then corrected for moisture. That is why there is a moisture
-      //     table below and none on the Sublots step.
-      //   * THE Gsb IS THE VERIFIED SUBLOT'S, not the lot's.
-      //
-      // NOT YET PROVEN AGAINST A REAL LOT: neither of Jake's completed AMAWs
-      // has a QA or IQ sample at all, so `Super Verify` is blank in both.
-      // `check_verify.mjs` evaluates the template's OWN formulas instead and
-      // matches this to them cell for cell - which checks the transcription,
-      // not the field experience.
-      {
-        key: "verify_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for each record",
-        fixed: true,
-        grid: ".7fr .5fr 1fr 1fr 1fr .9fr .9fr",
-        seed: VERIFY_SPECIMEN_SEED,
-        columns: [
-          { key: "record", label: "Record", type: "text", readonly: true },
-          { key: "specimen", label: "Sample #", type: "text", mono: true, readonly: true },
-          // Super Verify C/D/E, rows 8/9 and 15/16.
-          { key: "wt_air", label: "Wt in air (g)", type: "number", req: false, mono: true },
-          { key: "wt_water", label: "Wt in water (g)", type: "number", req: false, mono: true },
-          { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: false, mono: true },
-          // F = E-D and G = C/F, both UNROUNDED on this sheet.
-          { key: "bulk_volume", label: "Bulk vol.", type: "number", req: false, mono: true, readonly: true },
-          { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
-        ],
-      },
-      {
-        key: "verify_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for each record",
-        fixed: true,
-        grid: ".7fr .5fr 1fr 1fr 1fr 1fr .8fr",
-        seed: VERIFY_SPECIMEN_SEED,
-        columns: [
-          { key: "record", label: "Record", type: "text", readonly: true },
-          { key: "specimen", label: "Bowl #", type: "text", mono: true, readonly: true },
-          // Super Verify rows 20/21/23/24, in COLUMN pairs per record:
-          // C,D for QA01 and E,F for IQ01.
-          { key: "wt_mix", label: "Wt of mix (g)", type: "number", req: false, mono: true },
-          { key: "calibration", label: "Calibration (g)", type: "number", req: false, mono: true },
-          { key: "final_wt", label: "Final wt (g)", type: "number", req: false, mono: true },
-          // Row 24. Blank in every real lot on file and a blank reads as 0
-          // inside the sum, which is the workbook's own behaviour rather than
-          // a convenience - so optional, not missing.
-          { key: "absorbed_water", label: "Absorbed water (g)", type: "number", req: false, mono: true },
-          { key: "msg", label: "MSG", type: "number", req: false, mono: true, readonly: true },
-        ],
-      },
-      {
-        key: "verify_moisture", heading: "Moisture in the mixture — the %AC correction",
-        fixed: true,
-        grid: ".7fr 1fr 1fr 1fr .9fr",
-        seed: VERIFY_ROW_SEED,
-        columns: [
-          { key: "record", label: "Record", type: "text", readonly: true },
-          // Super Verify M36/M37/M38 for QA01, N36/N38 for IQ01.
-          { key: "wt_before", label: "Pan + mix, before drying (g)", type: "number", req: false, mono: true },
-          { key: "wt_after", label: "Pan + mix, after drying (g)", type: "number", req: false, mono: true },
-          { key: "wt_pan", label: "Pan (g)", type: "number", req: false, mono: true },
-          { key: "moisture", label: "% moisture", type: "number", req: false, mono: true, readonly: true },
-        ],
-      },
-      {
-        key: "verify_volumetrics", heading: "Verification volumetrics — computed", fixed: true,
-        // Even tracks past the record name, same reasoning as the sublot
-        // volumetrics table: every value is 2-6 characters, so none has a
-        // claim on more room than the others.
-        grid: ".7fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
-        seed: VERIFY_ROW_SEED,
-        columns: [
-          { key: "record", label: "Record", type: "text", readonly: true },
-          // Computed, unlike the sublot table's - see the note above. The
-          // moisture-corrected figure, which is what the workbook's own
-          // average row carries (`B10` falls back to the uncorrected `J28`
-          // when there is no moisture block).
-          { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
-          { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
-          { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
-          { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
-          { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
-          { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true, readonly: true },
-          { key: "vfa", label: "VFA (%)", type: "number", req: false, mono: true, readonly: true },
-        ],
-      },
-    ],
-  },
+  // 6. VERIFICATION — folded into the four Sublot tabs above
+  // (buildSublotVerificationSections()), Andrew's 2026-09-14 ask. See that
+  // function's own comment for the full reasoning (the dropped "Verifies"
+  // dropdown, the new per-table `sublot` join column, and the one
+  // mapper.mjs change this needed - equipment_verified moving from a
+  // lot-wide scalar into this table's own row column). `Super Verify`'s
+  // columns are NOT `Superpave`'s (the same eight quantities sit one
+  // column left of `pbe` on: pbe K/L, vma L/M, vfa M/N, dustRatio N/O) -
+  // the mapper resolves them through VERIFY.cols and never through
+  // SUBLOT.volumetric.cols, unchanged by this move.
+  ...buildSublotVerificationSections(),
 
   {
     // ---------------------------------------------------------------

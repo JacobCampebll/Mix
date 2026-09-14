@@ -455,15 +455,17 @@ namespace('PB_SECTIONS', '2. PB_SECTIONS vs scripts/amaw/sections.mjs');
 
   // Shape facts worth failing on directly, because a schema that still
   // stringifies identically but has lost a step is a different page.
-  // Sixteen since 2026-09-14 (was eleven, then thirteen the same day):
-  // the Sublot 1-4 split (buildSublotTabSections() in sections.mjs)
-  // removed "sublots" and "cores" (-2) and added four "sublot-N" sections
-  // (+4), net +2 - 11 + 2 = 13. Later the same day the Gradation split
-  // (buildSublotGradationSections()) removed "sublot-gradation" (-1) and
-  // added four "sublot-N-gradation" sections (+4), net +3 - 13 + 3 = 16.
-  // A count rather than a list on purpose - a schema that still
-  // stringifies identically but has lost a section is a different page.
-  ok('SECTIONS carries sixteen sections', P.SECTIONS.length === 16, P.SECTIONS.length);
+  // Twenty-one as of 2026-09-14's Verification split - counted directly
+  // against the schema rather than re-deriving the running total by hand,
+  // which is how an earlier version of this comment (asserting "sixteen")
+  // undercounted by 2: it walked the day's changes one at a time from
+  // "eleven" but never added the +2 for PR #18's design-aggregate/
+  // design-values-ref sections, which had already landed on this branch by
+  // then. Count what P.SECTIONS actually holds before asserting a number,
+  // not what a chain of deltas implies it should hold. A count rather than
+  // a list on purpose - a schema that still stringifies identically but has
+  // lost a section is a different page.
+  ok('SECTIONS carries twenty-one sections', P.SECTIONS.length === 21, P.SECTIONS.length);
   const ids = P.SECTIONS.map((s) => s.id);
   ok('every section id is unique', new Set(ids).size === ids.length, ids);
   ok('the status step is `lot-status`, not `status` — DesignBook owns that id '
