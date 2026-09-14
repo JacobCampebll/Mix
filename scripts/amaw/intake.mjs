@@ -847,6 +847,20 @@ export function lotFromApproval(payload, opts = {}) {
      Seeded into all four sublots as the design's target, and a plant that
      shifts its blend mid-lot overwrites the sublot it shifted. */
   const agg = Array.isArray(rows.aggregate) ? rows.aggregate : [];
+  // DesignBook's own Aggregate Structure table, verbatim - producer / type &
+  // size / mat code / % blend / Gsb, the same five columns `CONFIG.SECTIONS`
+  // renders on that book. Carried alongside `blend` below rather than instead
+  // of it: `blend` is reshaped for the AMAW's own columns (no mat_code, `gsb`
+  // renamed `bod`, one percentage per sublot) and is the plant's working
+  // data; this is what was APPROVED, read-only, for the Lot step's mirror of
+  // the design. Two different jobs, so two different shapes of the same rows.
+  const aggregateStructure = agg.map((r) => ({
+    producer: str(r.producer) || null,
+    type_size: str(r.type_size) || null,
+    mat_code: str(r.mat_code) || null,
+    pct_blend: num(r.pct_blend),
+    gsb: num(r.gsb),
+  }));
   // sections.mjs's `blend` columns exactly: producer / agp / type_size / bod
   // and one percentage per sublot. Four explicit percentage columns rather
   // than one is that file's own decision and the right one - a plant that
@@ -1138,6 +1152,10 @@ export function lotFromApproval(payload, opts = {}) {
     volumetrics: achieved,
     combined_gsb: combinedGsb,
     blend,
+    // The design's own Aggregate Structure table, unreshaped - see
+    // `aggregateStructure` above. Read-only reference; `lot.rows.blend` above
+    // is the plant's working copy of the same components.
+    aggregate: aggregateStructure,
     jmf_gradation: jmf,
   };
 

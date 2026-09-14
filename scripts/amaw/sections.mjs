@@ -602,6 +602,66 @@ export const PLANTBOOK_SECTIONS = [
 
   {
     // ---------------------------------------------------------------
+    //  1a. AGGREGATE STRUCTURE (approved design) — read-only mirror
+    // ---------------------------------------------------------------
+    //
+    //  Andrew, 2026-09-14: Contract & Mix should show what the aggregate
+    //  structure and design values WERE on the approved design, not just the
+    //  three pay-schedule numbers `jmf-figures` already prints under Lot Pay.
+    //  A reviewer opening a lot should be able to see what was approved
+    //  without leaving step 1 or reaching for the PDF.
+    //
+    //  This is `lot.values.design.aggregate` (intake.mjs), which is
+    //  DesignBook's own five columns UNRESHAPED — producer, type & size, mat
+    //  code, % blend, Gsb — the same rows CONFIG.SECTIONS renders on that
+    //  book's Aggregate Structure step. It is NOT `lot.rows.blend`: that is
+    //  the AMAW-shaped, per-sublot, EDITABLE working copy of these same
+    //  components (Aggregate Blend, below), and the two must not be
+    //  confused — one is what the plant is producing, this is what KYTC
+    //  approved.
+    //
+    //  `type: "design-mirror"` is new and deliberately narrow: a section with
+    //  neither `fields` nor `rows`, painted straight from `lotDesign()` by
+    //  `paintDesignMirror()` on the page side. Nothing in it carries
+    //  data-col/data-field/data-dv, so collectForm() cannot see it and there
+    //  is nothing on it for a technician to edit or for check_sections.mjs's
+    //  scalar/row-key checks to have an opinion about — it is pure display,
+    //  same footing as a static caption. Andrew's call: the CONSENSUS
+    //  PROPERTIES half of DesignBook's Aggregate Structure section is left
+    //  out here — just the component table.
+    //
+    //  `banded: true` is also new: Andrew asked for "the bold navy blue
+    //  header the rest of the boxes have" rather than the plain `.subhead`
+    //  every other `into` sub-block gets (Binder & additive, Hand-mixed
+    //  check sample). See the page-side CSS comment on `.subhead.banded`.
+    id: "design-aggregate", label: "Aggregate Structure", into: "lot",
+    tag: "from the approved design — read-only", banded: true,
+    type: "design-mirror", show: "aggregate",
+    cites: ["agg805"],
+  },
+
+  {
+    // ---------------------------------------------------------------
+    //  1b. DESIGN VALUES (approved design) — read-only mirror
+    // ---------------------------------------------------------------
+    //
+    //  Same decision, same mechanism, the other read-only mirror Andrew
+    //  asked for: all ten of DesignBook's own Design Values figures — AC/
+    //  design Pb, air voids, VMA, VFA, Gmm, Gmb, Gse, Pbe, dust ratio, unit
+    //  weight — as the design achieved them, not as a sublot measures them.
+    //  `design_pb` comes off `lotDesign().jmf_ac` (the same figure
+    //  `jmf-figures` already prints under Lot Pay); the other nine are
+    //  `lotDesign().volumetrics`, intake.mjs's `achieved` object. Nothing
+    //  new to inherit — both were already on the lot envelope before this,
+    //  just not shown here.
+    id: "design-values-ref", label: "Design Values", into: "lot",
+    tag: "from the approved design — read-only", banded: true,
+    type: "design-mirror", show: "design-values",
+    cites: ["volumetric"],
+  },
+
+  {
+    // ---------------------------------------------------------------
     //  2. BLEND — `Superpave` rows 3..8, the aggregate structure
     // ---------------------------------------------------------------
     //
