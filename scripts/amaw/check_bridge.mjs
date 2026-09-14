@@ -3,12 +3,14 @@
 //
 //   node scripts/amaw/check_bridge.mjs
 //
-// IT FAILS TODAY, ON PURPOSE — 0 passed, 30 failed as of 2026-09-14, and that
-// is the bug rather than a broken check. A lot built from the form reaches the
-// mapper with 15 filled row tables and 72 rows and writes 32 cells, all seven
-// test records empty. Task #39 is the fix; this file is what proves it, and
-// what stops it coming back. If you have pulled this branch and are wondering
-// why a checker is red: nothing regressed, this one arrived red.
+// IT FAILED ON ARRIVAL, ON PURPOSE (2026-09-14) — 0 passed, 30 failed: a lot
+// built from the form reached the mapper with 15 filled row tables and 72
+// rows and wrote 32 cells, all seven test records empty. Task #39 was the
+// fix, landed the same day in commit d140866 ("Route the form's tables into
+// the AMAW's seven records") — this file is what proved it, and what stops
+// it coming back, so it stays in the suite green rather than being deleted
+// once it stopped catching anything. If a future pull finds it red again:
+// that IS a regression this time, not the day-one arrival state above.
 //
 // PlantBook's form produces flat row tables keyed by an identity column and
 // hands them to the mapper as `lot.rows.<tableKey>`. The mapper reads seven
