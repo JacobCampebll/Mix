@@ -404,7 +404,17 @@ export const CALC = {
   // read AU33/AU34 — note those sit ABOVE the sublot rows, not after them.
   sublotAcceptanceMethod: { first: 35, stride: 1, col: "AU",
                             verify: ["AU33", "AU34"] },
-  equipmentVerified: ["O1", "O2"],
+  // Equipment verified, QA and IQ. TWO cells per flag and only one of them is
+  // writable: `O1 = IF(M1,1,2)` and `O2 = IF(M2,1,2)` are FORMULAS over the
+  // booleans at M1/M2, which ship empty. The loader reads the O pair
+  // (`IF(Calculations!$O$1=1,"Yes","No")`, sn 114/115), so those are the right
+  // addresses to READ and the wrong ones to WRITE - a write there lands in
+  // evalOnly, Excel recomputes O1 from a blank M1, gets 2, and MEDL is told
+  // "No". Same boolean-under-a-1/2-formula shape as `Calculations!M11` for
+  // joint density, which CLAUDE.md records getting wrong in the dangerous
+  // direction once already.
+  equipmentVerified: ["M1", "M2"],
+  equipmentVerifiedRead: ["O1", "O2"],
   verifySublotIndex: ["L1", "L2"], // what VERIFY.sublotIndex resolves from
 };
 

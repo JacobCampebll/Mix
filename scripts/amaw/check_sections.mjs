@@ -414,10 +414,10 @@ const NO_WORKBOOK_CELL = new Set([
   // Half of the mix designation. Calculations!J1 is derived from the SIZE
   // alone, and the letter reaches the workbook inside the D9 mix line.
   "lot_mix_type",
-  // Task #36: the mapper still reads the hand-mix and equipment blocks in a
-  // per-record shape, and these three live in flat tables on the form.
+  // Readouts, not fields: the page computes both from the hand-mixed check
+  // sample and paints them, and the workbook computes its own from the same
+  // weights (Superpave row 41 / J8).
   "lot_handmix_gmm", "lot_gse",
-  "lot_equipment_verified_qa", "lot_equipment_verified_iq",
 ]);
 // Only the `lot_`-prefixed scalars: sections.mjs reserves that prefix for the
 // lot header, which is exactly what the mapper's 'Pay Values' block writes.

@@ -2375,6 +2375,42 @@ TBD — cite the governing spec section when encoding a limit in code.
   reads `state.gradPassing` now. A key whose MEANING changes is not caught by
   anything that only checks the key still exists; grep for every reader when
   one does.
+
+- **"Equipment verified" shipped a confident "No" to MEDL, and it was never
+  written at all** (task #40, fixed 2026-09-14). `Calculations!O1` and `O2`
+  are FORMULAS - `IF(M1,1,2)` / `IF(M2,1,2)` - over booleans at M1/M2 that
+  ship empty, and the loader reads the O pair
+  (`IF(Calculations!$O$1=1,"Yes","No")`, sn 114/115).
+  `CALC.equipmentVerified` named O1/O2, which is right for the READ side and
+  wrong for the write side; and in fact nothing in the mapper referenced it,
+  so the two technician-answerable selects reached no cell whatever. A blank
+  M1 makes O1 evaluate to 2, so every generated AMAW told the Department the
+  plant's equipment had NOT been verified. **That is a confident wrong answer
+  rather than a blank**, which is the worse failure of the two.
+  `equipmentVerified` is `["M1","M2"]` now with `equipmentVerifiedRead`
+  carrying O1/O2, so both sides are named and neither can be mistaken for the
+  other.
+  **The conversion is "Yes" -> 1 and "No" -> 0, NOT the 1/2 the formula above
+  produces**, and the distinction is the whole bug: writing 2 for No would
+  read back through `IF(M1,1,2)` as TRUE - the exact inversion CLAUDE.md
+  already records for joint density at `Calculations!M11`. A TEXT value is
+  equally wrong (`IF("No",1,2)` is a #VALUE!, not a flag). `YES_NO_BOOL` does
+  it in `lotScalars()`, only for a value that came off the FORM, because one
+  already under the mapper's own name is in M1's words and `check_mapper`
+  reads M1. **An unreadable answer writes NOTHING rather than defaulting to a
+  No** - a guess there is a claim about a Department inspection.
+  **Silence is not neutral here, so it is reported.** A lot with a QA or IQ
+  record and no answer to the flag gets a `note()` saying O1 will evaluate to
+  2 and the loader will report "No". The workbook's behaviour is reproduced
+  rather than worked around, but the file makes a claim the lot never made and
+  that is worth saying once.
+  **The two fields had been sitting on `check_sections`'s `NO_WORKBOOK_CELL`
+  exception list**, whose stated reason was "Task #36: the mapper still reads
+  the hand-mix and equipment blocks in a per-record shape". That was stale -
+  #36 is closed and these were always ordinary lot scalars with a real cell.
+  Worth carrying as a class: **an exception list is a place bugs hide**, and
+  its entries need re-reading whenever the reason they cite is closed. Only
+  the two genuine readouts (`lot_handmix_gmm`, `lot_gse`) remain on it.
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by

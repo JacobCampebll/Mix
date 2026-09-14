@@ -34,7 +34,7 @@ import PLANTBOOK_SECTIONS from './sections.mjs';
 // addresses.mjs (the loader's own map) — one seam per file, so import each
 // from where it is actually declared rather than from whichever re-exports.
 import { amawCells, A, INPUTS, LOT_TABLE_ROUTES } from './mapper.mjs';
-import { SUBLOT, CORES, GRADATION } from './addresses.mjs';
+import { SUBLOT, CORES, GRADATION, CALC } from './addresses.mjs';
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -357,6 +357,41 @@ const bare = amawCells({ values: { lot_number: '1', lot_nominal_size: '0.38B' },
                          rows: {}, records: {} }, tpl, {});
 is('a lot with no approval reports the missing minimum VMA',
   (bare.report.missing || []).some((m) => /minimum VMA/.test(String(m))));
+
+// ---------------------------------------------------------------------
+//  B3. the two equipment flags, and the cell they must NOT go in
+// ---------------------------------------------------------------------
+// `Calculations!O1` is `IF(M1,1,2)` and the loader reads it as
+// `IF(O1=1,"Yes","No")` (sn 114/115). Writing the flag to O1 lands in
+// evalOnly, Excel recomputes it from a blank M1 and MEDL is told "No" - a
+// confident wrong answer on a question the technician did answer.
+console.log('\nB3. equipment verified reaches the boolean, not the formula');
+const eqW = A(CALC.sheet, CALC.equipmentVerified[0]);
+const eqR = A(CALC.sheet, CALC.equipmentVerifiedRead[0]);
+is('the QA flag is written to the boolean at M1', cells[eqW] === 1, cells[eqW]);
+is('nothing is written to the formula at O1', cells[eqR] == null, cells[eqR]);
+is('the IQ flag reaches M2',
+  cells[A(CALC.sheet, CALC.equipmentVerified[1])] === 1);
+// "Yes" -> 1 and "No" -> 0, NOT the 1/2 the formula above produces. A text
+// value would make IF("No",1,2) a #VALUE! rather than a flag, and writing 2
+// for No would read back as TRUE - the same inversion CLAUDE.md records for
+// joint density at M11.
+const flags = (qa) => {
+  const o = amawCells({ values: { lot_number: '1', lot_nominal_size: '0.38B',
+    lot_equipment_verified_qa: qa }, rows: {}, records: { QA01: { values: { tested_by: 'x' } } } }, tpl, {});
+  return { ...o.values, ...o.evalOnly }[eqW];
+};
+is('"Yes" converts to 1', flags('Yes') === 1, flags('Yes'));
+is('"No" converts to 0, never 2', flags('No') === 0, flags('No'));
+is('an unreadable answer writes nothing rather than a No',
+  flags('maybe') === undefined, flags('maybe'));
+// And the silence that is not neutral: no answer at all still reads as "No"
+// to MEDL, so a lot with a Department sample says so once.
+const quiet = amawCells({ values: { lot_number: '1', lot_nominal_size: '0.38B' },
+  rows: {}, records: { QA01: { values: { tested_by: 'x' } } } }, tpl, {});
+is('a Department sample with no answer is reported',
+  (quiet.report.notes || []).some((n) => /equipment verified/.test(String(n))),
+  quiet.report.notes);
 
 // ---------------------------------------------------------------------
 //  C. distinct values land in distinct cells

@@ -773,6 +773,15 @@ namespace('PB_AMAW', '5. PB_AMAW vs scripts/amaw/addresses.mjs + mapper.mjs + ge
     [{ lot_joint_density: '1' }], [{ lot_joint_density: '2' }], [{ lot_joint_density: 2 }],
     [{ lot_joint_density: '' }], [{ joint_density: true }], [{ joint_density: false }],
     [{ mix_type_code: 14, lot_nominal_size: '0.38' }],
+    // The equipment flags, into Calculations!M1/M2's BOOLEAN rather than the
+    // IF(M,1,2) above it. Asymmetric cases on purpose: "No" -> 0 and not 2,
+    // because 2 would read back as TRUE - the inversion joint density already
+    // suffered at M11 - and an unreadable answer must vanish rather than
+    // become a No.
+    [{ lot_equipment_verified_qa: 'Yes', lot_equipment_verified_iq: 'No' }],
+    [{ lot_equipment_verified_qa: 'No' }], [{ lot_equipment_verified_qa: 'yes' }],
+    [{ lot_equipment_verified_qa: 'maybe' }], [{ lot_equipment_verified_qa: '' }],
+    [{ lot_equipment_verified_qa: 2 }], [{ equipment_verified_qa: 1 }],
     [{ lot_kytc_lab: 'LU00642', lot_ps_lab: 'LU01210', lot_binder_terminal: 'X',
        lot_binder_grade: 'PG64-22', lot_additive: 'Y', lot_handmix_binder_pct: 5.2 }],
     // The approval's own figures, which live one level down on

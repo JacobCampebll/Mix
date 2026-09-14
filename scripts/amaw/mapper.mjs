@@ -421,7 +421,16 @@ export const LOT_FIELD_ALIASES = {
   lot_binder_grade: 'binder_grade_key',
   lot_additive: 'additive',
   lot_handmix_binder_pct: 'hand_mixed_ac',
+  lot_equipment_verified_qa: 'equipment_verified_qa',
+  lot_equipment_verified_iq: 'equipment_verified_iq',
 };
+
+/** "Yes"/"No" -> the BOOLEAN `Calculations!M1`/`M2` hold, not the 1/2 the
+ *  formulas above them produce. `O1 = IF(M1,1,2)`, so 1 is Yes and 0 is No -
+ *  and a TEXT value would make `IF("No",1,2)` a #VALUE! rather than a flag.
+ *  Converted here for the same reason `joint_density` is: a value already
+ *  under the mapper's own name is in M1's words, and check_mapper reads M1. */
+const YES_NO_BOOL = { YES: 1, Y: 1, TRUE: 1, '1': 1, NO: 0, N: 0, FALSE: 0, '0': 0, '2': 0 };
 
 /** The FORM spells the density option the way the proposal writes it
  *  ("Option A" / "Option B"), which is deliberate - see sections.mjs -
@@ -466,6 +475,15 @@ export function lotScalars(values) {
   if (out.joint_density !== undefined) {
     const jd = Number(out.joint_density);
     if (jd === 1 || jd === 2) out.joint_density = jd === 1 ? 1 : 0;
+  }
+  // The two equipment flags, form words -> M1/M2's boolean. Only a value that
+  // came off the FORM is converted: one already under the mapper's own name
+  // is in M1's words already, which is what check_mapper reads.
+  for (const k of ['equipment_verified_qa', 'equipment_verified_iq']) {
+    if (out[k] === undefined || v[k] !== undefined) continue;
+    const b = YES_NO_BOOL[String(out[k]).trim().toUpperCase()];
+    if (b === undefined) delete out[k];        // an unreadable answer is not a No
+    else out[k] = b;
   }
   // Calculations!J1 is a TRANSLATION of the nominal size and not a field at
   // all (sections.mjs), so a lot built on the form carries no code to read.
@@ -1440,6 +1458,19 @@ export function amawCells(lot, tpl, ref) {
 
     write(A(V.sheet, V.inspectorId[slot]), amStr(rv.tested_by));
     write(A(V.sheet, V.inspectorName[slot]), amStr(rv.tested_by_name));
+
+    // Equipment verified, into the BOOLEAN at `Calculations!M1`/`M2` rather
+    // than the `IF(M,1,2)` formula above it that the loader reads.
+    const flag = v[slot === 0 ? 'equipment_verified_qa' : 'equipment_verified_iq'];
+    write(A(CALC.sheet, CALC.equipmentVerified[slot]), amNum(flag));
+    // A BLANK flag is not neutral: O1 evaluates to 2 and sn 114/115 tell MEDL
+    // "No". That is the workbook's own behaviour and is reproduced rather than
+    // worked around - but a Department sample WITH no answer is worth saying
+    // once, because the file makes a claim the lot never made.
+    if (!amHas(flag)) {
+      note(`${block} has no "equipment verified" answer, so ${A(CALC.sheet, CALC.equipmentVerifiedRead[slot])} `
+        + 'evaluates to 2 and the loader reports it as "No"');
+    }
 
     (rr.specimens || []).forEach((sp, i) => {
       const k = slotOf(sp, i); if (k >= V.specimens.count) return;
