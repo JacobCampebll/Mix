@@ -56,33 +56,57 @@
 //  `volumetric`.
 //
 //  Acceptance, in-place density and the pay schedule are PlantBook's own
-//  governing sections and are NOT in CONFIG.SPECS.CITES yet. They are
-//  carried here with `verified: false` and NO page number, because a cite
-//  chip is a link and a link to a guessed page is worse than no chip. The
-//  checker prints every unverified cite on every run — same rule as
-//  UNCLASSIFIED in addresses.mjs: carried explicitly rather than guessed at.
+//  governing sections. They shipped on 2026-09-13 as three GUESSES carrying
+//  `verified: false` and no page number, because a cite chip is a link and a
+//  link to a guessed page is worse than no chip; the checker printed them on
+//  every run rather than letting them pass as fact.
 //
-//  TO CLOSE THIS: open the 2026 Standard Specifications (CONFIG.SPECS.DOCS
-//  .STD), find each section, record its PHYSICAL page and its section-
-//  relative footer ("403-7"), and move the entry into CONFIG.SPECS.CITES.
-//  The book has no named destinations and no running page numbers, which is
-//  why the footer is recorded too — it is how you re-find the page in one
-//  search when the next edition moves it.
+//  CLOSED 2026-09-14 — see the note on each entry below. Verifying them was
+//  worth more than a page number: all three named the wrong SECTION, and the
+//  numbers they guessed are real clauses about something else. A citation
+//  that resolves to a real page is not thereby a correct citation.
+//
+//  The method, for the next one: the book has no named destinations and no
+//  running page numbers (footers are section-relative, "402-3"), so find the
+//  section, record its PHYSICAL page AND that footer, and confirm the page
+//  numbering by checking one citation this file already trusts —
+//  `ctrlpts` is PDF 193 / footer 403-4, so a copy that disagrees is a
+//  different edition and every page here needs re-deriving.
 export const PLANTBOOK_CITES = {
-  accept403: {
-    doc: "STD", page: null, footer: null, verified: false,
-    label: "KYTC 403.03.04",
-    what: "acceptance of asphalt mixtures — lots, sublots and sampling",
+  // VERIFIED 2026-09-14 against the real 2026 Standard Specifications, and
+  // all three were wrong about the SECTION rather than merely the page -
+  // which is exactly why they were carried unverified instead of being
+  // guessed into CONFIG.SPECS.CITES.
+  //
+  // The guesses pointed at 403. In the real book `403.03.04` is
+  // "Transporting Material" and `403.03.05` is "Spreading and Finishing":
+  // plausible-looking numbers beside the mix-design clauses DesignBook
+  // already cites, and about something else entirely. PlantBook's governing
+  // section is 402 - CONTROL AND ACCEPTANCE OF ASPHALT MIXTURES. 403 is the
+  // mixture's own composition and construction requirements, which is why
+  // DesignBook's citations legitimately live there and a lot's do not.
+  //
+  // `402.03.02 A)` is worth reading once: "The Department will accept asphalt
+  // mixtures from the plant on a lot basis. A lot is 4,000 tons. A sublot is
+  // 1,000 tons... Document and report all quality control tests for the
+  // Department's acceptance determination on the Asphalt Mixtures Acceptance
+  // Workbook (AMAW)." The spec names this workbook, and that sentence is
+  // where LOT_TONS comes from independently of the two real lots that also
+  // carry 4000 at 'Pay Values'!F4.
+  accept402: {
+    doc: "STD", page: 176, footer: "402-1",
+    label: "KYTC 402.03.02",
+    what: "Contractor quality control and Department acceptance — a lot is 4,000 tons, a sublot 1,000",
   },
-  density403: {
-    doc: "STD", page: null, footer: null, verified: false,
-    label: "KYTC 403.03.05",
-    what: "in-place density — mat and longitudinal-joint cores",
+  density402: {
+    doc: "STD", page: 178, footer: "402-3",
+    label: "KYTC 402.03.02 D) 6)",
+    what: "in-place density — the compaction option the Contract states, and the mat and joint cores",
   },
-  pay403: {
-    doc: "STD", page: null, footer: null, verified: false,
-    label: "KYTC 403.05",
-    what: "price adjustment for asphalt mixtures",
+  pay402: {
+    doc: "STD", page: 182, footer: "402-7",
+    label: "KYTC 402.05.02",
+    what: "the Lot Pay Adjustment — the three schedules are on PDF 185 (402-10), 186 (402-11) and 188 (402-13)",
   },
 };
 
@@ -338,7 +362,7 @@ export const PLANTBOOK_SECTIONS = [
     id: "lot", label: "Contract & Mix", step: "Contract & Mix",
     tag: "AMAW · Pay Values header — from the approved design, or typed",
     type: "grid",
-    cites: ["jmf", "accept403"],
+    cites: ["jmf", "accept402"],
     // A button in the section head, the same shape Contract Information's
     // contract lookup has. `key` is what the page dispatches on; the schema
     // names the lookup and never holds a handler, because this module is
@@ -566,7 +590,7 @@ export const PLANTBOOK_SECTIONS = [
     id: "binder", label: "Binder & additive", into: "lot",
     tag: "AMAW · Pay Values B46/C46 — dropdowns from Supabase reference",
     type: "grid",
-    cites: ["accept403"],
+    cites: ["accept402"],
     fields: [
       { key: "lot_binder_terminal", label: "Binder producer", type: "text", req: true,
         source: "binder_terminals" },
@@ -726,7 +750,7 @@ export const PLANTBOOK_SECTIONS = [
     id: "sublots", label: "Sublots", step: "Sublots",
     tag: "AMAW · QC01-QC04 — tickets stride 1 row, volumetrics stride 6",
     type: "rows",
-    cites: ["accept403", "volumetric"],
+    cites: ["accept402", "volumetric"],
     rows: [
       {
         key: "sublot_tickets", heading: "Sublot tickets", fixed: true,
@@ -954,7 +978,7 @@ export const PLANTBOOK_SECTIONS = [
     id: "handmix", label: "Hand-mixed check sample", into: "sublots",
     tag: "AMAW · Superpave N42/N43 — one per lot",
     type: "grid",
-    cites: ["accept403"],
+    cites: ["accept402"],
     fields: [
       // N43, typed - the whole point of a hand-mixed sample is that somebody
       // weighed the binder in, so this is known rather than measured.
@@ -1091,7 +1115,7 @@ export const PLANTBOOK_SECTIONS = [
     id: "cores", label: "Cores & Density", step: "Cores",
     tag: "AMAW · Cores sheet — mat rows 10-13, joint rows 33-34",
     type: "rows",
-    cites: ["density403"],
+    cites: ["density402"],
     rows: [
       {
         key: "mat_cores", heading: "Mat cores (lane density) — 4 per sublot",
@@ -1199,7 +1223,7 @@ export const PLANTBOOK_SECTIONS = [
     id: "verify", label: "Department Verification", step: "Verification",
     tag: "AMAW · Super Verify — QA01 / IQ01, stride 7",
     type: "grid",
-    cites: ["accept403", "km443"],
+    cites: ["accept402", "km443"],
     fields: [
       // Calculations!O1/O2 — the technician's confirmation that the plant's
       // equipment was checked. Two flags, one per verification block.
@@ -1413,7 +1437,7 @@ export const PLANTBOOK_SECTIONS = [
     id: "pay", label: "Lot Pay", step: "Lot Pay",
     tag: "computed from the sublots, cores and the approved JMF",
     type: "computed",
-    cites: ["pay403", "density403"],
+    cites: ["pay402", "density402"],
     // computedHTML()'s head band names the table, and its default is
     // DesignBook's "From Four Points". A lot's figures come from the
     // sublots, the cores and the approved JMF, so it says so.

@@ -2411,6 +2411,45 @@ TBD — cite the governing spec section when encoding a limit in code.
   Worth carrying as a class: **an exception list is a place bugs hide**, and
   its entries need re-reading whenever the reason they cite is closed. Only
   the two genuine readouts (`lot_handmix_gmm`, `lot_gse`) remain on it.
+
+- **PlantBook's three unverified citations are closed, and all three named the
+  WRONG SECTION** (2026-09-14). They shipped a day earlier as deliberate
+  guesses carrying `verified: false` and no page number, printed by
+  `check_sections.mjs` on every run. Verifying them against the real 2026
+  Standard Specifications was worth more than three page numbers:
+  **`403.03.04` is "Transporting Material" and `403.03.05` is "Spreading and
+  Finishing"** - real clauses, sitting right beside the mix-design ones
+  DesignBook legitimately cites, and about something else entirely. A guessed
+  citation that resolves to a real page is the worst kind, because nothing on
+  screen looks wrong.
+  **PlantBook's governing section is 402 - CONTROL AND ACCEPTANCE OF ASPHALT
+  MIXTURES.** 403 is the mixture's own composition and construction
+  requirements, which is why DesignBook's citations are there and a lot's are
+  not. The three are now `accept402` / `density402` / `pay402`:
+  **KYTC 402.03.02** (PDF **176**, footer `402-1`) - Contractor quality
+  control and Department acceptance; **402.03.02 D) 6)** (PDF **178**,
+  `402-3`) - in-place density, the compaction option and the cores; and
+  **402.05.02** (PDF **182**, `402-7`) - the Lot Pay Adjustment, whose three
+  schedules are on PDF 185/186/188 (`402-10`/`402-11`/`402-13`).
+  **`402.03.02 A)` is worth reading once**, because it is the spec naming this
+  workbook and confirming a constant we had only from two files: "The
+  Department will accept asphalt mixtures from the plant on a lot basis. **A
+  lot is 4,000 tons. A sublot is 1,000 tons.** Monitor and evaluate the AC,
+  air voids (AV), voids-in-mineral aggregate (VMA), density, and gradation.
+  Document and report all quality control tests for the Department's
+  acceptance determination on the **Asphalt Mixtures Acceptance Workbook
+  (AMAW)**." `LOT_TONS` now has a spec citation as well as two real lots.
+  **The method, for the next edition.** The book has no named destinations and
+  no running page numbers, so record the PHYSICAL page and the
+  section-relative footer together. And **calibrate before trusting any page**:
+  `ctrlpts` is PDF 193 / footer `403-4` and was already verified, so a copy
+  that disagrees is a different edition and every page in `CONFIG.SPECS.CITES`
+  needs re-deriving. That check took one probe and is what made the rest
+  trustworthy.
+  Verified in a browser afterwards rather than assumed: all eight distinct
+  citation chips on PlantBook render as real `<a>` links with a `#page=`
+  anchor, none muted. The dashed non-linking `span.cite` path stays in the
+  stylesheet for the next unverified cite; it currently renders nothing.
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
