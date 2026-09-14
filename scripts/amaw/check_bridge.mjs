@@ -164,9 +164,22 @@ function buildFormLot() {
   //    under composed keys, which is a third shape again.
   const grad = PLANTBOOK_SECTIONS.find((s) => s.id === 'sublot-gradation');
   if (grad) {
+    // The JMF column is a TARGET and stays % passing; the six measured
+    // columns are cumulative grams retained plus a pan and a total. A
+    // cumulative series must never fall, so the fixture builds a real one
+    // rather than scattering distinct numbers - a descending column would
+    // trip the form's own guard and this fixture would be testing that
+    // instead of the route.
+    const TOTAL = 1500;
+    const CUM = [0, 0, 0, 15, 120, 285, 600, 840, 1005, 1140, 1245, 1335, 1410];
     for (const col of grad.columns || []) {
-      for (const sieve of grad.sieves || []) {
-        values[`${col.key}_${sieve.key}`] = nextNum('grams');
+      (grad.sieves || []).forEach((sieve, i) => {
+        if (col.target) { values[`${col.key}_${sieve.key}`] = 100 - (CUM[i] / TOTAL) * 100; return; }
+        values[`${col.key}_wt_${sieve.key}`] = CUM[i];
+      });
+      if (!col.target) {
+        values[`${col.key}_wt_pan`] = TOTAL - CUM[CUM.length - 1];
+        values[`${col.key}_wt_total`] = TOTAL;
       }
     }
   }
@@ -246,32 +259,50 @@ is('QC01 Gmm bowl 1, weight of mix',
 // passing column and divides using the retained one: fill only one and MEDL
 // gets a confident ">1.6" dust ratio on every block.
 const GR = INPUTS.gradation;
+// Since 2026-09-14 the form collects CUMULATIVE GRAMS RETAINED and the
+// workbook computes both percentage columns itself, so what has to land is
+// column B plus the pan and the total - and the two derived columns must be
+// left ALONE. Writing over a formula Excel can evaluate is strictly worse:
+// it loses the weights a reviewer can check on the printed sheet.
 const gradRet = A(GR.sheet, `${GR.retainedCols[0]}${GR.first}`);
 const gradPas = A(GR.sheet, `${GR.passingCols[0]}${GR.first}`);
-is('QC01 gradation, first sieve % passing', cells[gradPas] != null, gradPas);
-is('QC01 gradation, first sieve % retained (the matched half)',
-  cells[gradRet] != null, gradRet);
-is('% retained is 100 - % passing',
-  cells[gradRet] != null && cells[gradPas] != null
-    && Math.abs(cells[gradRet] + cells[gradPas] - 100) < 1e-6,
-  [cells[gradRet], cells[gradPas]]);
-// Both are formulas in the real template, so a plain write() would land them
-// in evalOnly and Excel would blank them the moment the archived copy opens.
-is('the gradation pair is written OVER its formulas, not banked',
-  out.values[gradRet] != null && out.values[gradPas] != null
-    && (out.evalOnly || {})[gradPas] == null,
-  Object.keys(out.evalOnly || {}).filter((k) => k.startsWith('Gradation!')).slice(0, 3));
+const gradGrams = (i) => A(GR.sheet, `${GR.cols[0]}${GR.first + i}`);
+is("QC01 gradation, a sieve's cumulative grams retained", cells[gradGrams(3)] === 15, cells[gradGrams(3)]);
+is('QC01 gradation, the pan weight', cells[A(GR.sheet, `${GR.cols[0]}${GR.panRow}`)] === 90);
+is('QC01 gradation, the total sample mass', cells[A(GR.sheet, `${GR.cols[0]}${GR.totalRow}`)] === 1500);
+is('the derived % retained is NOT written over (Excel computes it)',
+  cells[gradRet] == null, cells[gradRet]);
+is('the derived % passing is NOT written over (Excel computes it)',
+  cells[gradPas] == null, cells[gradPas]);
+
+// The older shape still reaches the workbook: a lot saved before the change
+// carries percentages and no weights, and must not silently lose its
+// gradation. That one DOES take the writeOver pair, both halves, because
+// there are no grams for Excel to compute from.
+const legacy = amawCells({
+  values: { lot_number: '1', lot_nominal_size: '0.38B', sub1_s19: 99 },
+  rows: {}, records: {},
+}, tpl, {});
+const lc = { ...legacy.values, ...legacy.evalOnly };
+is("a pre-change lot's % passing still reaches the sheet",
+  lc[A(GR.sheet, `${GR.passingCols[0]}${GR.first + 3}`)] === 99);
+is('and its matched % retained half goes with it',
+  lc[A(GR.sheet, `${GR.retainedCols[0]}${GR.first + 3}`)] === 1,
+  lc[A(GR.sheet, `${GR.retainedCols[0]}${GR.first + 3}`)]);
 is('the JMF target gradation column',
   cells[A(GRADATION.sheet, `${GRADATION.jmfCol}${GRADATION.first}`)] != null);
 // The workbook spells it `1 1/2"` and the form `1-1/2"`, so a label match
 // silently loses 37.5 mm on all seven columns. Assert it arrived.
 const i37 = GRADATION.sieves.indexOf('1 1/2"');
 is('the 37.5 mm sieve survives the two spellings',
-  i37 > 0 && cells[A(GR.sheet, `${GR.passingCols[0]}${GR.first + i37}`)] != null, i37);
+  i37 > 0 && cells[gradGrams(i37)] != null, { i37, cell: cells[gradGrams(i37)] });
 // Index 6 is the 1/4", which is on the workbook and not on the form. It must
-// stay blank AND must not have shifted every sieve below it up a row.
+// stay blank AND must not have shifted every sieve below it up a row. The
+// row BELOW it proves the second half: index 7 is the #4, and the fixture
+// gives it 600 g, so a shifted list would put 600 in the 1/4" row instead.
 is('the 1/4" row is left blank rather than shifting the list',
-  cells[A(GR.sheet, `${GR.passingCols[0]}${GR.first + 6}`)] == null);
+  cells[gradGrams(6)] == null && cells[gradGrams(7)] === 600,
+  { quarter: cells[gradGrams(6)], no4: cells[gradGrams(7)] });
 
 const CO = INPUTS.cores;
 is('a mat core weight in air',

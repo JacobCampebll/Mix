@@ -2278,6 +2278,55 @@ TBD — cite the governing spec section when encoding a limit in code.
   ordinary case, and reporting it every run teaches people to skim the
   report. The minimum VMA does, because a blank one is a wrong number.
 
+
+- **The Gradation step takes WEIGHTS now and computes the percentages**
+  (Jake, 2026-09-14: "the gradation page needs to be where you can put in the
+  weights and it generates the percent passing for you"). Same argument the
+  Sublots step settled a day earlier, landing the same way: the AMAW computes
+  % passing for itself from weights already on the bench sheet, so typing the
+  percentage is how a lot ends up disagreeing with the workbook it will be
+  loaded into.
+  **It retires a decision taken the SAME MORNING**, and that is worth knowing
+  rather than discovering. The bridge had been writing % passing and %
+  retained OVER their formulas, because the form had no grams to give and
+  `Superpave!O14` (the D/A dust ratio) gates on one column and divides using
+  the other. With grams the workbook computes both natively - nothing is
+  written over, the printed sheet carries the weights a reviewer can check,
+  and the dust ratio falls out correctly on its own. Strictly better, and it
+  means `writeGradationPair()` is now the FALLBACK path rather than the main
+  one.
+  **Column B is CUMULATIVE grams retained, and that was verified rather than
+  reasoned.** `Gradation!C = (B/B25)*100` and `D = 100 - C`, and the sheet's
+  own header cells (rows 8/9) read "Grams" / "Retained", "Percent" /
+  "Retained", "Percent" / "Passing". `D = 100 - C` is only percent passing if
+  C is cumulative. Confirmed with Jake. Row 24 is the Pan and row 25 the
+  Total, and **the total is TYPED - the workbook does not sum column B** - so
+  a column of weights with no total computes nothing at all, which is why it
+  is the one `req` cell on the two foot rows.
+  **The measured columns' field keys carry `_wt_` and are therefore NEW**,
+  not a reinterpretation of the old `${col}_${sieve}` ones. Those held %
+  passing, and silently reading 94.2 as 94.2 grams is exactly the quiet
+  wrongness this file exists to prevent. `mapper.mjs` still READS the old
+  keys, so a lot saved before the change still reaches the workbook and takes
+  the writeOver pair; it simply stops being asked for on the form. Same rule
+  as every other provisional value - never drop what a file already carries.
+  **The JMF column stays a typed percentage.** `Gradation!N10:N23` are typed
+  cells and a job mix formula is published as % passing - it is a target,
+  not something anybody weighed.
+  **The one guard worth copying: a cumulative series can only grow.** Per-sieve
+  masses typed into a cumulative field is the single mistake this form cannot
+  otherwise see - the arithmetic stays plausible and every number comes out
+  wrong - so `gradationColumn()` counts the descents and says so by name, and
+  cross-checks the finest cumulative plus the pan against the total sample
+  mass. Both fire as non-blocking rail warnings, named by column. Verified in
+  a browser: a real cumulative column reads
+  100/100/100/99/92/81/60/44/33/24/17/11/6 with no warnings, and the same
+  sample entered per-sieve raises both.
+  **`computeGradation()` is the single producer** of the computed
+  percentages; the readouts, the 0.45 chart and the rail all read
+  `state.gradPassing`. `drawChart()` must NOT fall back to reading the input
+  beside the readout for a weighed column - that input is grams now, and
+  plotting 1410 as a percentage draws a curve off the top of the chart.
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by

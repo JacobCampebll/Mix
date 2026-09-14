@@ -653,6 +653,16 @@
   table.sievetable th{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);
                       text-align:left; padding:6px 8px; border-bottom:1px solid var(--line);}
   table.sievetable td{padding:4px 8px; border-bottom:1px solid var(--line);}
+  /* The computed % passing, beside the weight it came from rather than in a
+     column of its own - six samples already make this the widest table in
+     either book and twelve columns would not fit a laptop. Accent-coloured
+     because it is DERIVED, the same signal `.prefilled` carries elsewhere. */
+  .gpct{display:block; font-size:10px; line-height:1.2; margin-top:2px;
+        color:var(--accent); font-variant-numeric:tabular-nums; text-align:right;}
+  /* Pan and Total: the workbook's own rows 24 and 25, set apart from the
+     sieve stack because they are not sieves. */
+  table.sievetable tr.gfoot td{background:var(--well);}
+  table.sievetable tr.gfoot td.sz{font-weight:600;}
   table.sievetable td.sz{font-family:'Roboto Mono',monospace; font-size:12.5px; color:var(--ink); white-space:nowrap;}
   table.sievetable input{width:100%; border:1px solid transparent; background:var(--well);
                          border-radius:var(--radius-field);
@@ -3622,12 +3632,44 @@ const PB_SECTIONS = (() => {
       //  QA/IQ read `Super Verify` rows 33..46 columns D and G, not the
       //  `Gradation` sheet. Same quantity, different sheet; the mapper cares,
       //  the technician does not.
+      // ---------------------------------------------------------------
+      //  WEIGHTS IN, PERCENT PASSING OUT (Jake, 2026-09-14: "the gradation
+      //  page needs to be where you can put in the weights and it generates
+      //  the percent passing for you").
+      //
+      //  This is the same argument the Sublots step settled a day earlier and
+      //  it lands the same way: the AMAW computes % passing for itself from
+      //  weights already on the bench sheet, so typing the percentage is how a
+      //  lot ends up disagreeing with the workbook it will be loaded into.
+      //  `Gradation!C = (B/B25)*100` and `D = 100 - C`, over column B's
+      //  CUMULATIVE grams retained - verified against the shipped template's
+      //  own header cells, which read "Grams Retained" / "Percent Retained" /
+      //  "Percent Passing", and confirmed with Jake.
+      //
+      //  It also retires a decision taken the SAME MORNING: the bridge used to
+      //  write % passing and % retained OVER their formulas because the form
+      //  had no grams to give. With grams the workbook computes both natively,
+      //  which is strictly better - nothing is written over, and the printed
+      //  sheet carries the weights a reviewer can check.
+      //
+      //  THE JMF COLUMN STAYS A PERCENTAGE. `Gradation!N10:N23` are typed
+      //  cells and a job mix formula is published as % passing - it is a
+      //  target, not something anybody weighed. Its keys are unchanged.
+      //
+      //  The measured columns' keys carry `_wt_` and are therefore NEW rather
+      //  than a reinterpretation of the old `${col}_${sieve}` ones. That is
+      //  deliberate: those held % passing, and silently reading 94.2 as 94.2
+      //  grams is precisely the kind of quiet wrongness this file exists to
+      //  prevent. An older lot's percentages are still read on the way to the
+      //  workbook (mapper.mjs falls back to them) and simply stop being asked
+      //  for on the form.
       id: "sublot-gradation", label: "Gradation", step: "Gradation",
-      tag: "% passing by sublot · 0.45 power chart",
+      tag: "cumulative grams retained · % passing computed · 0.45 power chart",
       type: "sieves",
       cites: ["ctrlpts"],
       sieves: AMAW_SIEVES,
       columns: GRADATION_COLUMNS,
+      weights: true,
     },
 
     {
@@ -4571,19 +4613,51 @@ function rowsBlockHTML(rows) {
 function sievesHTML(section) {
   const cols = section.columns || [{ key: null, label: "% passing" }];
   const fieldKey = (col, s) => (col.key ? `${col.key}_${s.key}` : s.key);
+  // WEIGHTS IN, PERCENT PASSING OUT (Jake, 2026-09-14). A measured column
+  // takes CUMULATIVE grams retained, plus a pan and a total at the foot, and
+  // prints the percentage the workbook would compute from them
+  // (`Gradation!C = (B/B25)*100`, `D = 100 - C`). The JMF column is a TARGET
+  // and stays a typed percentage - nobody weighed a job mix formula.
+  const weights = !!section.weights;
+  const isWeighed = (col) => weights && col.key && !col.target;
+  const val = (key) => (state.extracted ? (state.extracted.scalars[key] || "") : "");
   const rows = section.sieves.map((s) => {
     const cells = cols.map((col) => {
-      const key = fieldKey(col, s);
-      const v = state.extracted ? (state.extracted.scalars[key] || "") : "";
-      const req = col.department ? "" : " req";
-      return `<td><input type="text" inputmode="decimal" class="${req.trim()}" data-field="${key}"
-             data-mm="${s.mm}" value="${esc(v)}" placeholder="—"></td>`;
+      if (!isWeighed(col)) {
+        const key = fieldKey(col, s);
+        const req = col.department ? "" : " req";
+        return `<td><input type="text" inputmode="decimal" class="${req.trim()}" data-field="${key}"
+               data-mm="${s.mm}" value="${esc(val(key))}" placeholder="—"></td>`;
+      }
+      const key = `${col.key}_wt_${s.key}`;
+      // The computed percentage sits WITH its weight rather than in a column
+      // of its own: six samples already make this the widest table in either
+      // book, and twelve would make it unreadable on anything but a monitor.
+      return `<td><input type="text" inputmode="decimal" class="${col.department ? "" : "req"}"
+             data-field="${key}" data-mm="${s.mm}" value="${esc(val(key))}" placeholder="—">
+             <span class="gpct" data-gpct="${esc(col.key)}_${esc(s.key)}">—</span></td>`;
     }).join("");
     return `<tr>
       <td class="sz">${s.label}</td>
       ${cells}
     </tr>`;
   }).join("");
+  // The pan and the total are the workbook's own rows 24 and 25. The total is
+  // TYPED, not summed - `C = (B/B25)*100` reads it, and the workbook does not
+  // add column B up either - so a column of weights with no total computes
+  // nothing at all, which is why it is `req`.
+  const footRow = (label, suffix, req, note) => `<tr class="gfoot">
+      <td class="sz">${esc(label)}</td>
+      ${cols.map((col) => (isWeighed(col)
+        ? `<td><input type="text" inputmode="decimal" class="${req ? "req" : ""}"
+             data-field="${esc(col.key)}_wt_${suffix}" value="${esc(val(`${col.key}_wt_${suffix}`))}"
+             placeholder="—" title="${esc(note)}"></td>`
+        : "<td></td>")).join("")}
+    </tr>`;
+  const foot = weights
+    ? footRow("Pan", "pan", false, "What fell through the finest sieve. Used to check the column adds up.")
+      + footRow("Total", "total", true, "Total sample mass - every percentage on this column is computed against it.")
+    : "";
   const head = cols.map((col) => {
     const cls = [col.target ? "target" : "", col.department ? "dept" : ""].filter(Boolean).join(" ");
     return `<th${cls ? ` class="${cls}"` : ""}>${esc(col.label)}</th>`;
@@ -4593,7 +4667,7 @@ function sievesHTML(section) {
       <div class="sievescroll">
       <table class="sievetable">
         <thead><tr><th>Sieve</th>${head}</tr></thead>
-        <tbody>${rows}</tbody>
+        <tbody>${rows}${foot}</tbody>
       </table>
       </div>
       <div class="chartwrap">
@@ -5199,13 +5273,55 @@ function seriesColours(cols) {
         : SERIES_STROKE.measured[(m++) % SERIES_STROKE.measured.length]);
 }
 
+/**
+ * The ONE producer of computed % passing, from the cumulative grams a
+ * technician typed. `recompute()` calls it; the readouts, the chart and the
+ * rail all read what it leaves in `state.gradPassing`. Resist a second
+ * reader that recomputes from the DOM - the moment there are two, one of
+ * them is wrong, the same rule `outstanding` already follows.
+ */
+function computeGradation() {
+  state.gradPassing = {};
+  const warnings = [];
+  const sec = gradSection();
+  if (!sec || !sec.weights) return warnings;
+  const num = (key) => {
+    const el = document.querySelector(`[data-field="${key}"]`);
+    const v = parseFloat((el && el.value) || "");
+    return Number.isFinite(v) ? v : null;
+  };
+  for (const col of sec.columns || []) {
+    if (!col.key || col.target) continue;
+    const retained = sec.sieves.map((sv) => ({ key: sv.key, grams: num(`${col.key}_wt_${sv.key}`) }));
+    const r = PB_VOL.gradationColumn(retained, num(`${col.key}_wt_total`), num(`${col.key}_wt_pan`));
+    const byKey = {};
+    for (const s of r.sieves) if (s.pctPassing != null) byKey[s.key] = s.pctPassing;
+    state.gradPassing[col.key] = byKey;
+    // Paint each computed percentage beside the weight it came from.
+    for (const sv of sec.sieves) {
+      const el = document.querySelector(`[data-gpct="${col.key}_${sv.key}"]`);
+      if (el) el.textContent = byKey[sv.key] == null ? "—" : `${fmt(byKey[sv.key], 1)}%`;
+    }
+    for (const w of r.warnings) warnings.push(`${col.label}: ${w}`);
+  }
+  return warnings;
+}
+
 function drawChart() {
   const chart = $("chart");
   if (!chart) return;
   const sec = gradSection();
   if (!sec) return;
   const cols = sec.columns || [{ key: null, label: "% passing" }];
+  const computed = state.gradPassing || {};
   const readSeries = (col) => sec.sieves.map((sv) => {
+    // A weighed column is plotted from what computeGradation() worked out,
+    // never from the input beside it - that input is now GRAMS, and plotting
+    // 1410 as a percentage would draw a curve off the top of the chart.
+    if (col.key && computed[col.key]) {
+      const p = computed[col.key][sv.key];
+      return { mm: sv.mm, label: sv.label, p: p == null ? null : p };
+    }
     const key = col.key ? `${col.key}_${sv.key}` : sv.key;
     const el = document.querySelector(`[data-field="${key}"]`);
     const v = parseFloat((el && el.value) || "");
@@ -6821,6 +6937,17 @@ function recompute() {
       outstanding.push({ id: "pay", label, kind: "warn", text: w.text });
     });
   }
+  // The gradation's own weights, BEFORE the readouts and the chart below
+  // read them - same "compute first, then count" rule computeConsensus() and
+  // computeFourPoint() already follow. Non-blocking: a column that does not
+  // add up is arithmetic the Department would query, not a field to fill.
+  const gsec = gradSection();
+  computeGradation().forEach((text) => {
+    outstanding.push({
+      id: gsec ? gsec.id : "sublot-gradation",
+      label: gsec ? gsec.label : "Gradation", kind: "warn", text,
+    });
+  });
   paintLotReadouts();
 
   // ---- the completeness meter, in the action bar ----
@@ -10619,7 +10746,71 @@ const PB_VOL = (() => {
     };
   }
 
-  /** `Superpave!O15` prints this verbatim when the D/A ratio leaves the band. */
+  /**
+ * One gradation column, from the bench weights the technician actually has.
+ *
+ * The AMAW's `Gradation` sheet is CUMULATIVE grams retained in column B, with
+ * `C = (B/B25)*100` (percent retained) and `D = 100 - C` (percent passing).
+ * That is verified rather than inferred: the sheet's own header cells read
+ * "Grams Retained" / "Percent Retained" / "Percent Passing", and `D = 100 - C`
+ * is only percent passing if C is cumulative.
+ *
+ * @param {Array<{key: string, grams: number}>} retained  coarse -> fine, as
+ *        `GRADATION.sieves` orders them. A blank sieve is skipped, not zeroed:
+ *        a sieve nobody ran is not a sieve that caught nothing.
+ * @param {number} total  the total sample mass ('Gradation'!B25), TYPED - the
+ *        workbook does not sum column B, and neither do we.
+ * @param {number} pan    the pan weight, optional; used only for the check.
+ */
+function gradationColumn(retained, total, pan) {
+  const rows = Array.isArray(retained) ? retained : [];
+  const tot = num(total);
+  const out = [];
+  const warnings = [];
+
+  let last = null, descending = 0;
+  for (const r of rows) {
+    const g = num(r && r.grams);
+    if (g == null) { out.push({ key: r && r.key, grams: null, pctRetained: null, pctPassing: null }); continue; }
+    // A cumulative series only ever grows. Individual per-sieve masses typed
+    // into a cumulative field is the one mistake this form cannot otherwise
+    // see - the arithmetic stays plausible and every number comes out wrong -
+    // so count it and say so rather than computing over it.
+    if (last != null && g < last) descending += 1;
+    last = g;
+    const pctRetained = tot ? (g / tot) * 100 : null;
+    out.push({
+      key: r.key, grams: g,
+      pctRetained,
+      pctPassing: pctRetained == null ? null : 100 - pctRetained,
+    });
+  }
+
+  if (descending) {
+    warnings.push(`${descending} sieve(s) weigh LESS than the one above them. `
+      + 'This column asks for CUMULATIVE grams retained - the running total down '
+      + 'the sieve stack - so it should never fall. Per-sieve weights entered '
+      + 'here would compute a wrong gradation that still looks reasonable.');
+  }
+  // The cross-check the workbook itself cannot do: the coarsest-to-finest
+  // cumulative plus whatever fell through must be the sample you started with.
+  const lastG = out.filter((o) => o.grams != null).map((o) => o.grams).pop();
+  const p = num(pan);
+  if (tot && lastG != null && p != null) {
+    const diff = Math.abs(lastG + p - tot);
+    if (diff / tot > 0.005) {
+      warnings.push(`the finest cumulative weight (${lastG}) plus the pan (${p}) `
+        + `is ${xlRound(lastG + p, 1)}, which is ${xlRound(diff, 1)} g off the total `
+        + `sample mass (${tot}).`);
+    }
+  }
+  if (!tot && out.some((o) => o.grams != null)) {
+    warnings.push('no total sample mass, so no percentage can be computed from these weights.');
+  }
+  return { sieves: out, total: tot, pan: p, warnings };
+}
+
+/** `Superpave!O15` prints this verbatim when the D/A ratio leaves the band. */
   const DUST_RATIO_NOTE =
     "* Does not satisfy KY Specification Subsection 402.03.02 D) 5)";
 
@@ -10628,7 +10819,7 @@ const PB_VOL = (() => {
     PCF_PER_SG, BINDER_SG, DP, DUST_RATIO_NOTE,
     xlRound, bsgSpecimen, msgDetermination, averagePresent,
     bsgAverage, msgAverage, gseFromHandMix, handMixedGse, sublotVolumetrics,
-    coreDerived, backCalcBinderPct, moisturePct, verifyVolumetrics,
+    coreDerived, backCalcBinderPct, moisturePct, verifyVolumetrics, gradationColumn,
   };
 })();
 /* ===== END PLANTBOOK VOLUMETRICS ===== */

@@ -446,6 +446,70 @@ export function verifyVolumetrics(o = {}) {
   };
 }
 
+/**
+ * One gradation column, from the bench weights the technician actually has.
+ *
+ * The AMAW's `Gradation` sheet is CUMULATIVE grams retained in column B, with
+ * `C = (B/B25)*100` (percent retained) and `D = 100 - C` (percent passing).
+ * That is verified rather than inferred: the sheet's own header cells read
+ * "Grams Retained" / "Percent Retained" / "Percent Passing", and `D = 100 - C`
+ * is only percent passing if C is cumulative.
+ *
+ * @param {Array<{key: string, grams: number}>} retained  coarse -> fine, as
+ *        `GRADATION.sieves` orders them. A blank sieve is skipped, not zeroed:
+ *        a sieve nobody ran is not a sieve that caught nothing.
+ * @param {number} total  the total sample mass ('Gradation'!B25), TYPED - the
+ *        workbook does not sum column B, and neither do we.
+ * @param {number} pan    the pan weight, optional; used only for the check.
+ */
+export function gradationColumn(retained, total, pan) {
+  const rows = Array.isArray(retained) ? retained : [];
+  const tot = num(total);
+  const out = [];
+  const warnings = [];
+
+  let last = null, descending = 0;
+  for (const r of rows) {
+    const g = num(r && r.grams);
+    if (g == null) { out.push({ key: r && r.key, grams: null, pctRetained: null, pctPassing: null }); continue; }
+    // A cumulative series only ever grows. Individual per-sieve masses typed
+    // into a cumulative field is the one mistake this form cannot otherwise
+    // see - the arithmetic stays plausible and every number comes out wrong -
+    // so count it and say so rather than computing over it.
+    if (last != null && g < last) descending += 1;
+    last = g;
+    const pctRetained = tot ? (g / tot) * 100 : null;
+    out.push({
+      key: r.key, grams: g,
+      pctRetained,
+      pctPassing: pctRetained == null ? null : 100 - pctRetained,
+    });
+  }
+
+  if (descending) {
+    warnings.push(`${descending} sieve(s) weigh LESS than the one above them. `
+      + 'This column asks for CUMULATIVE grams retained - the running total down '
+      + 'the sieve stack - so it should never fall. Per-sieve weights entered '
+      + 'here would compute a wrong gradation that still looks reasonable.');
+  }
+  // The cross-check the workbook itself cannot do: the coarsest-to-finest
+  // cumulative plus whatever fell through must be the sample you started with.
+  const lastG = out.filter((o) => o.grams != null).map((o) => o.grams).pop();
+  const p = num(pan);
+  if (tot && lastG != null && p != null) {
+    const diff = Math.abs(lastG + p - tot);
+    if (diff / tot > 0.005) {
+      warnings.push(`the finest cumulative weight (${lastG}) plus the pan (${p}) `
+        + `is ${xlRound(lastG + p, 1)}, which is ${xlRound(diff, 1)} g off the total `
+        + `sample mass (${tot}).`);
+    }
+  }
+  if (!tot && out.some((o) => o.grams != null)) {
+    warnings.push('no total sample mass, so no percentage can be computed from these weights.');
+  }
+  return { sieves: out, total: tot, pan: p, warnings };
+}
+
 /** `Superpave!O15` prints this verbatim when the D/A ratio leaves the band. */
 export const DUST_RATIO_NOTE =
   "* Does not satisfy KY Specification Subsection 402.03.02 D) 5)";
@@ -454,5 +518,5 @@ export default {
   PCF_PER_SG, BINDER_SG, DP, DUST_RATIO_NOTE,
   xlRound, bsgSpecimen, msgDetermination, averagePresent,
   bsgAverage, msgAverage, gseFromHandMix, handMixedGse, sublotVolumetrics,
-  coreDerived, backCalcBinderPct, moisturePct, verifyVolumetrics,
+  coreDerived, backCalcBinderPct, moisturePct, verifyVolumetrics, gradationColumn,
 };

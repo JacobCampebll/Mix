@@ -989,12 +989,44 @@ export const PLANTBOOK_SECTIONS = [
     //  QA/IQ read `Super Verify` rows 33..46 columns D and G, not the
     //  `Gradation` sheet. Same quantity, different sheet; the mapper cares,
     //  the technician does not.
+    // ---------------------------------------------------------------
+    //  WEIGHTS IN, PERCENT PASSING OUT (Jake, 2026-09-14: "the gradation
+    //  page needs to be where you can put in the weights and it generates
+    //  the percent passing for you").
+    //
+    //  This is the same argument the Sublots step settled a day earlier and
+    //  it lands the same way: the AMAW computes % passing for itself from
+    //  weights already on the bench sheet, so typing the percentage is how a
+    //  lot ends up disagreeing with the workbook it will be loaded into.
+    //  `Gradation!C = (B/B25)*100` and `D = 100 - C`, over column B's
+    //  CUMULATIVE grams retained - verified against the shipped template's
+    //  own header cells, which read "Grams Retained" / "Percent Retained" /
+    //  "Percent Passing", and confirmed with Jake.
+    //
+    //  It also retires a decision taken the SAME MORNING: the bridge used to
+    //  write % passing and % retained OVER their formulas because the form
+    //  had no grams to give. With grams the workbook computes both natively,
+    //  which is strictly better - nothing is written over, and the printed
+    //  sheet carries the weights a reviewer can check.
+    //
+    //  THE JMF COLUMN STAYS A PERCENTAGE. `Gradation!N10:N23` are typed
+    //  cells and a job mix formula is published as % passing - it is a
+    //  target, not something anybody weighed. Its keys are unchanged.
+    //
+    //  The measured columns' keys carry `_wt_` and are therefore NEW rather
+    //  than a reinterpretation of the old `${col}_${sieve}` ones. That is
+    //  deliberate: those held % passing, and silently reading 94.2 as 94.2
+    //  grams is precisely the kind of quiet wrongness this file exists to
+    //  prevent. An older lot's percentages are still read on the way to the
+    //  workbook (mapper.mjs falls back to them) and simply stop being asked
+    //  for on the form.
     id: "sublot-gradation", label: "Gradation", step: "Gradation",
-    tag: "% passing by sublot · 0.45 power chart",
+    tag: "cumulative grams retained · % passing computed · 0.45 power chart",
     type: "sieves",
     cites: ["ctrlpts"],
     sieves: AMAW_SIEVES,
     columns: GRADATION_COLUMNS,
+    weights: true,
   },
 
   {

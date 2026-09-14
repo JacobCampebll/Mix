@@ -806,20 +806,43 @@ export function lotRecords(values, rows, existing) {
   // -- the Gradation step, which is not a row table at all
   const v = values || {};
   const grad = {};
+  const gradTotals = {};
   for (const col of Object.keys(GRADATION_COLUMNS)) {
     const list = [];
     JMF_SIEVE_KEYS.forEach((key, i) => {
       if (!key) return;                      // the 1/4", absent from the form
-      const val = v[`${col}_${key}`];
-      if (amHas(val)) list.push({ sieve: GRADATION.sieves[i], pct_passing: val });
+      // WEIGHTS FIRST. The form collects cumulative grams retained since
+      // 2026-09-14 and the workbook computes both percentage columns from
+      // them. The `${col}_${key}` percentage is the OLDER shape and is still
+      // read, so a lot saved before that change still reaches the workbook -
+      // the provisional-values rule applied to a schema change.
+      const grams = v[`${col}_wt_${key}`];
+      const pct = v[`${col}_${key}`];
+      if (amHas(grams)) list.push({ sieve: GRADATION.sieves[i], grams_retained: grams });
+      else if (amHas(pct)) list.push({ sieve: GRADATION.sieves[i], pct_passing: pct });
     });
     if (list.length) grad[col] = list;
+    // The pan and the total are per column and are what the percentages are
+    // computed FROM - `C = (B/B25)*100` reads B25, so a column of weights
+    // with no total produces nothing at all.
+    const pan = v[`${col}_wt_pan`], total = v[`${col}_wt_total`];
+    if (amHas(pan) || amHas(total)) gradTotals[col] = { pan, total };
   }
   for (const col of Object.keys(grad)) {
     const name = GRADATION_COLUMNS[col];
     if (!name) continue;                     // the JMF target, handled below
     const r = block(name); r.rows = { ...(r.rows || {}) };
     if (!(r.rows.gradation || []).length) r.rows.gradation = grad[col];
+  }
+  // The pan and total are per-RECORD values, not rows, and the mapper
+  // already reads them as `rv.grams_pan` / `rv.grams_total`.
+  for (const col of Object.keys(gradTotals)) {
+    const name = GRADATION_COLUMNS[col];
+    if (!name) continue;
+    const dest = valuesOf(name);
+    const { pan, total } = gradTotals[col];
+    if (amHas(pan) && !amHas(dest.grams_pan)) dest.grams_pan = pan;
+    if (amHas(total) && !amHas(dest.grams_total)) dest.grams_total = total;
   }
 
   // The JMF target is a lot-level column keyed by the WORKBOOK's sieve
