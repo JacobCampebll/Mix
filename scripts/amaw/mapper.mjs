@@ -569,9 +569,19 @@ export const LOT_TABLE_ROUTES = {
     cols: { wt_mix: 'wt_mix', calibration: 'calibration', final_wt: 'final_wt',
             absorbed_water: 'absorbed_water', msg: 'msg' },
   },
+  sublot_moisture: {
+    by: 'sublot', id: 'sublot', into: 'values',
+    cols: { wt_before: 'moisture_before', wt_after: 'moisture_after',
+            wt_pan: 'moisture_pan' },   // three RENAMEs, as on the verify side
+    drop: { moisture: 'Superpave G48, a formula over the three weights' },
+  },
   sublot_volumetrics: {
     by: 'sublot', id: 'sublot', into: 'values',
-    cols: { binder_pct: 'ac_pct' },     // RENAME; the only column routed
+    // `binder_pct` is COMPUTED now (back-calculated from Gse and this
+    // sublot's Gmm, less the moisture) and there is no cell to write it to -
+    // `Gradation`!D32 is dead. Carried as `ac_pct` all the same so a lot
+    // saved before that change still reaches volumetrics.mjs's fallback.
+    cols: { binder_pct: 'ac_pct' },
     drop: { gmb: 'Superpave G14, a formula over the specimen weights',
             gmm: 'Superpave I14', va: 'Superpave K14', pbe: 'Superpave L14',
             vma: 'Superpave M14', vfa: 'Superpave N14', dust_ratio: 'Superpave O14' },
@@ -1242,10 +1252,22 @@ export function amawCells(lot, tpl, ref) {
     write(A(GR.sheet, `${gcol}${GR.panRow}`), amNum(rv.grams_pan));
     write(A(GR.sheet, `${gcol}${GR.totalRow}`), amNum(rv.grams_total));
     write(A(GR.sheet, `${GR.dateCols[s - 1]}${GR.dateRow}`), amDateSerial(rv.gradation_date ?? rv.date));
-    write(A(GR.sheet, `${GR.acCols[s - 1]}${GR.acRow}`), amNum(rv.ac_pct));
-    if (!amHas(rv.ac_pct)) {
-      need(A(GR.sheet, `${GR.acCols[s - 1]}${GR.acRow}`),
-        `${block} has no as-tested %AC, so 'Superpave'!${SUBLOT.volumetric.cols.binderPct}${SUBLOT.volumetric.first + (s - 1) * SUBLOT.volumetric.stride} and its AC pay value are blank`);
+    // NOTHING IS WRITTEN TO `Gradation`!D32/G32/J32/M32 any more. That row is
+    // EMPTY in the shipped template - no value, no formula, no label - and no
+    // formula on any sheet references it, so every %AC ever written there went
+    // nowhere while the workbook used its own back-calculation instead.
+    //
+    // The live chain is `D34` (back-calculated from Gse and this sublot's
+    // Gmm), less the moisture at `Superpave!G48`, into `B14`. Both inputs are
+    // cells this mapper writes - the Rice bowls and the hand-mixed sample -
+    // so the workbook computes it natively and there is nothing to write.
+    //
+    // What IS still needed is the moisture, or `D33` has nothing to subtract
+    // and `B14` falls back to the uncorrected back-calculation.
+    if (!amHas(rv.moisture_before)) {
+      need(A(MO.sheet, `${MO.cols[s - 1]}${MO.rows.panAndMixBefore}`),
+        `${block} has no moisture weights, so 'Gradation'!D33 cannot correct the `
+        + 'back-calculated %AC and the lot is paid on the uncorrected figure');
     }
     // NOT `!grad.length`. A table can arrive full of rows this mapper has no
     // way to write - a shape it does not know, or a column that never made it

@@ -2327,6 +2327,54 @@ TBD — cite the governing spec section when encoding a limit in code.
   `state.gradPassing`. `drawChart()` must NOT fall back to reading the input
   beside the readout for a weighed column - that input is grams now, and
   plotting 1410 as a percentage draws a curve off the top of the chart.
+
+- **The sublot %AC is BACK-CALCULATED now, and `Gradation` row 32 was dead all
+  along** (task #42, fixed 2026-09-14). PlantBook asked a technician to type
+  the as-tested %AC and `INPUTS.gradation.acRow` wrote it to
+  `Gradation`!D32/G32/J32/M32. Those cells are **EMPTY in the shipped
+  template** - no value, no formula, no label - and referenced by **no formula
+  on any sheet**. So the one figure a person still typed on that table went
+  nowhere, and the workbook used its own back-calculation regardless.
+  **The live chain, read off the template rather than inferred:**
+  `Gradation!D34 = 1.03(Gse - Gmm) / (Gmm(Gse - 1.03)) x 100` - the
+  back-calculation from the hand-mixed sample's Gse and this sublot's Gmm;
+  `D33 = D34 - Superpave!G48` - less the moisture; and
+  `Superpave!B14 = IF(D33="", D34, D33)`, which is the "% Binder in Mix" every
+  AC pay value is a deviation from. Both inputs are cells the mapper already
+  writes, so **the workbook computes it natively and there is nothing to
+  write**. `volumetrics.mjs` reproduces the same chain for the page.
+  **The AC determination method does NOT switch the source**, which is the
+  question that had to be settled before any of this was safe.
+  `Calculations!AU33:AU38` is read by the MEDL staging rows and one label
+  lookup, and by nothing else - eight formulas in the whole workbook, all
+  accounted for. So "Ignition Furnace" records how the lab measured it; the
+  acceptance figure is the back-calculation either way. Same lesson as the
+  ESAL Class correction: **resolve a cell by what it DRIVES, not by what it is
+  called** - and the same method, a whole-workbook search for references.
+  **Three consequences worth knowing.**
+  **(1) The Sublots step gained a moisture table** (`sublot_moisture`,
+  `Superpave` G/H/I/J rows 45/46/47), mirroring the one the Verification step
+  has carried since 2026-09-13. It is not cosmetic: without it `D33` has
+  nothing to subtract and the lot is paid on an uncorrected binder content.
+  The mapper `need()`s it by name.
+  **(2) PRECEDENCE IS BACKWARDS FROM WHAT IT LOOKS LIKE, deliberately.** An
+  explicitly supplied `binderPct` WINS over the back-calculation, because
+  `check_volumetrics.mjs` - the strongest check in that directory - reads raw
+  weights out of a real completed lot, feeds the workbook's own
+  `Superpave!B14` in, and compares every derived cell against Excel's cached
+  values. That check must keep testing the workbook's arithmetic rather than
+  ours. **So the PAGE must pass nothing**: `binder_pct` is readonly and the
+  page PAINTS this function's answer into it, and feeding that painted value
+  back would pin the %AC to whatever was computed first - entering the
+  moisture afterwards would never move it. Verified in a browser: 5.89% with
+  no moisture, 5.17% once 0.71% moisture is entered.
+  **(3) It caught a live bug the gradation change had just introduced.**
+  `sublotVolumetrics` was handed `pctPassing200` from
+  `fieldValue("sub${n}_s0_075")` - which is GRAMS since that morning - so the
+  dust ratio would have divided a weight by Pbe and printed the result. It
+  reads `state.gradPassing` now. A key whose MEANING changes is not caught by
+  anything that only checks the key still exists; grep for every reader when
+  one does.
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by

@@ -267,9 +267,44 @@ export function coreDerived({ air, water, ssd, msg, paysOnMix = true } = {}) {
 export function sublotVolumetrics(o = {}) {
   const { bsg: gmb, unitWeight, each: bsgEach } = bsgAverage(o.specimens);
   const { msg: gmm, each: msgEach } = msgAverage(o.determinations);
-  const binderPct = num(o.binderPct), gsb = num(o.gsb), gse = num(o.gse);
+  const gsb = num(o.gsb), gse = num(o.gse), moisture = num(o.moisture);
   const pctPassing200 = num(o.pctPassing200);
   const needs = [];
+
+  // THE %AC IS BACK-CALCULATED, NOT TYPED - the same chain `Super Verify`
+  // uses one sheet over, and for the same reason: the workbook has no typed
+  // QC %AC cell at all.
+  //
+  //   Gradation!D34 = 1.03(Gse - Gmm) / (Gmm(Gse - 1.03)) x 100   (back-calc)
+  //   Gradation!D33 = D34 - Superpave!G48                         (less moisture)
+  //   Superpave!B14 = D33 if present, else D34                    (what pay reads)
+  //
+  // PlantBook asked a technician to TYPE this and wrote it to `Gradation!D32`,
+  // which is EMPTY in the shipped template - no value, no formula, no label -
+  // and referenced by no formula on any sheet. So the figure went nowhere and
+  // the workbook quietly used its own back-calculation instead.
+  //
+  // The AC determination method does NOT switch the source, checked rather
+  // than assumed: `Calculations!AU33:AU38` is read by the MEDL staging rows
+  // and one label lookup, and by nothing else. It records how the lab
+  // measured it; the acceptance figure is always this.
+  //
+  // PRECEDENCE: an explicitly supplied `binderPct` WINS, and the back-calc is
+  // the fallback. That is the opposite of what it first looks like it should
+  // be, and the reason is `check_volumetrics.mjs`: it reads raw weights out of
+  // a real completed lot and feeds the workbook's OWN `Superpave!B14` in here,
+  // then compares every derived cell against Excel's cached values. That is
+  // the strongest check in this directory and it must keep testing the
+  // workbook's arithmetic rather than ours.
+  //
+  // THE PAGE MUST THEREFORE PASS NOTHING. `binder_pct` is a readonly field
+  // that the page PAINTS from this function's answer, so feeding that painted
+  // value back in would pin the result to whatever was computed first and a
+  // later moisture entry would never move it. Pass the typed cell only for a
+  // lot saved before this change, which is what the bridge's `ac_pct` is.
+  const backCalc = backCalcBinderPct({ gse, gmm });
+  const corrected = backCalc == null ? null : (moisture == null ? backCalc : backCalc - moisture);
+  const binderPct = num(o.binderPct) != null ? num(o.binderPct) : corrected;
 
   // J = ((Gmm - Gmb) / Gmm) * 100
   let va = null;
@@ -290,7 +325,10 @@ export function sublotVolumetrics(o = {}) {
   // N = 100 * (VMA - Va) / VMA
   const vfa = (vma != null && va != null && vma !== 0) ? 100 * (vma - va) / vma : null;
 
-  if (binderPct == null) needs.push("%AC");
+  // NOT "%AC" any more - nobody types it, so naming it asks for something the
+  // form no longer offers. What a person can actually supply is the Rice
+  // bowls and the hand-mixed sample the back-calculation runs on, and those
+  // are already named above.
   if (gsb == null) needs.push("combined Gsb for this sublot");
   if (gse == null) needs.push("the hand-mixed check sample (for Gse)");
 
@@ -308,6 +346,10 @@ export function sublotVolumetrics(o = {}) {
   return {
     bsgEach, msgEach,
     gmb, unitWeight, gmm, va,
+    // Returned the same way `verifyVolumetrics` returns them, so a caller can
+    // show the step as well as the answer: the raw back-calculation, the
+    // moisture taken off it, and what the workbook will read.
+    backCalcBinderPct: backCalc, moisture, binderPct,
     absorbedAC, pbe, vma, vfa,
     dustRatio, dustRatioNote,
     needs: [...new Set(needs)],

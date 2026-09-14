@@ -310,8 +310,21 @@ is('a mat core weight in air',
 is('a joint core weight in air',
   cells[A(CO.sheet, `${CO.cols.wtAir}${CORES.banks[1].first}`)] != null);
 
-is('QC01 as-tested %AC',
-  cells[A(GR.sheet, `${GR.acCols[0]}${GR.acRow}`)] != null);
+// `Gradation` row 32 is EMPTY in the shipped template and referenced by no
+// formula on any sheet, so writing the %AC there sent it nowhere while the
+// workbook back-calculated its own. Assert the REFUSAL - a later tidy-up
+// "restoring" that write would silently reintroduce a figure nothing reads.
+is('nothing is written to the dead Gradation row 32',
+  cells[A(GR.sheet, `${GR.acCols[0]}${GR.acRow}`)] == null,
+  cells[A(GR.sheet, `${GR.acCols[0]}${GR.acRow}`)]);
+// What the back-calculation actually needs instead: the moisture that
+// `Gradation!D33` subtracts before `Superpave!B14` reads it.
+const MO = INPUTS.moisture;
+is('QC01 moisture, pan + mix before drying',
+  cells[A(MO.sheet, `${MO.cols[0]}${MO.rows.panAndMixBefore}`)] != null,
+  A(MO.sheet, `${MO.cols[0]}${MO.rows.panAndMixBefore}`));
+is('QC04 moisture reaches its own column',
+  cells[A(MO.sheet, `${MO.cols[3]}${MO.rows.pan}`)] != null);
 is('QC01 truck ticket tonnage',
   cells[A(SUBLOT.sheet, `${SUBLOT.ticket.cols.tons}${SUBLOT.ticket.first}`)] != null);
 

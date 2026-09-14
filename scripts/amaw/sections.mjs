@@ -869,6 +869,29 @@ export const PLANTBOOK_SECTIONS = [
         ],
       },
       {
+        // The moisture in the mix, three weighings per sublot. It exists for
+        // ONE reason and it is not cosmetic: `Gradation!D33 = D34 - Superpave!G48`
+        // takes the back-calculated %AC and subtracts this, and `Superpave!B14`
+        // - the "% Binder in Mix" every AC pay value is a deviation from -
+        // reads D33 in preference to D34. Without it the lot is paid on an
+        // uncorrected binder content.
+        //
+        // The Verification step has carried the same block since 2026-09-13
+        // (`verify_moisture`); the QC side never did, because its %AC was
+        // typed. Now that it is back-calculated, the sublots need it too.
+        key: "sublot_moisture", heading: "Moisture in the mixture — the %AC correction",
+        fixed: true, seed: SUBLOT_SEED,
+        grid: ".7fr 1fr 1fr 1fr .9fr",
+        columns: [
+          { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
+          // Superpave G/H/I/J rows 45/46/47, one column per sublot.
+          { key: "wt_before", label: "Pan + mix, before drying (g)", type: "number", req: false, mono: true },
+          { key: "wt_after", label: "Pan + mix, after drying (g)", type: "number", req: false, mono: true },
+          { key: "wt_pan", label: "Pan (g)", type: "number", req: false, mono: true },
+          { key: "moisture", label: "% moisture", type: "number", req: false, mono: true, readonly: true },
+        ],
+      },
+      {
         key: "sublot_volumetrics", heading: "Sublot volumetrics — computed", fixed: true,
         // Ten columns of short figures. EVEN tracks, deliberately: an earlier
         // weighting gave unit_weight 73px and va 50px at a 701px window, and
@@ -879,13 +902,22 @@ export const PLANTBOOK_SECTIONS = [
         seed: SUBLOT_SEED,
         columns: [
           { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
-          // Superpave!B — the workbook's "% Binder in Mix". STILL TYPED, and
-          // the one figure on this table that is: the workbook takes it from
-          // the Gradation tab's as-tested AC less a correction at row 48
-          // (`B14 = Gradation!D33`), which is its own re-plumbing rather than
-          // part of this change. Leaving it typed is honest; computing six of
-          // the eight and silently guessing the seventh would not be.
-          { key: "binder_pct", label: "%AC", type: "number", req: true, mono: true },
+          // Superpave!B — the workbook's "% Binder in Mix". COMPUTED as of
+          // 2026-09-14, and the note that stood here called the re-plumbing
+          // "its own change rather than part of this one". This is that
+          // change.
+          //
+          // It was typed and written to `Gradation!D32`, which is EMPTY in the
+          // shipped template and referenced by no formula on any sheet — so
+          // the figure a technician supplied went nowhere and the workbook
+          // used its own back-calculation regardless. The real chain is
+          // `D34` (back-calc from Gse and the sublot's Gmm), less the moisture
+          // at `Superpave!G48`, into `B14`. volumetrics.mjs reproduces it.
+          //
+          // So this table is fully computed now and the last typed figure on
+          // it is gone — which is the same place the Verification step and the
+          // Gradation step have already arrived at.
+          { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
           // Everything from here is computed by volumetrics.mjs and painted
           // by the page. None carries `req`: the rail asks for the raw
           // weights above, because those are what a person can supply.
