@@ -336,6 +336,280 @@ const MAT_CORE_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
 const JOINT_CORE_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
   ["J1", "J2"].map((suffix) => ({ sublot, core_id: suffix })));
 
+// ---------------------------------------------------------------------
+//  Sublot 1-4 tabs — one shared table, sliced four ways
+// ---------------------------------------------------------------------
+//
+//  Andrew, 2026-09-14: "the sublots tab needs to become 4 separate tabs...
+//  isolate those pieces of info into their corresponding sublot tab". The
+//  five "Sublots" tables (tickets/BSG/MSG/moisture/computed) and the two
+//  "Cores" tables all held ALL FOUR sublots' rows in ONE table - a
+//  technician filling in sublot 2 had to find sublot 2's row among four
+//  before typing anything.
+//
+//  Gradation and Department Verification are DELIBERATELY NOT split here,
+//  and that is a finding, not a shortcut taken quietly. Gradation's
+//  `gradSection()`/`computeGradation()`/`drawChart()` (designbook.html) all
+//  assume exactly ONE `type: "sieves"` section on the active book - splitting
+//  it across five (four sublot columns + the JMF/QA/IQ comparison) would
+//  silently stop computing % passing and drawing the chart for every section
+//  but the first one found, which is real renderer surgery this change does
+//  not attempt. Verification's two records pick their sublot with a live
+//  "Verifies" dropdown rather than a fixed 1:1 mapping, so filing one under
+//  "its" tab needs dynamic re-filing (closer to renderPolishGrid()'s dynamic
+//  show/hide than a static slice) - also not attempted here. Both are
+//  logged as open follow-ups in NEXT_STEPS.md.
+//
+//  THE DATA MODEL DOES NOT CHANGE. Every one of these seven tables keeps its
+//  ONE schema key (`sublot_tickets`, `mat_cores`, ...) and its FULL, unsliced
+//  `seed` - mapper.mjs, pay.mjs, volumetrics.mjs and addresses.mjs all key a
+//  row by its own `sublot` cell's VALUE, never by DOM position, so none of
+//  them need to know a table now renders across four physical DOM blocks
+//  instead of one. Only the page's renderer needs to learn that a
+//  `[data-rowlist="X"]` key can appear more than once in the document - see
+//  rowsOfList()/lotRows()/collectForm() in designbook.html, which now
+//  aggregate every matching node instead of assuming there is exactly one.
+//
+//  `sliceSpec(spec, indices)` returns a shallow copy of a base row spec that
+//  renders ONLY `indices` of its seed (`rowsHTML()`'s new `sliceIndices`
+//  branch) while KEEPING THE FULL seed array on every copy -
+//  `paintLotIds()`/`rowSpecOf()` read a spec's `.seed` expecting the whole
+//  table, and would silently paint nothing for sublots 2-4 if handed a
+//  one-row seed instead. Only which rows get RENDERED narrows; what the spec
+//  itself says the table IS does not. check_sections.mjs's row-key check (E)
+//  has a matching exception: a key may repeat across sections only when
+//  every repeat declares `sliceIndices`, and it separately proves the
+//  slices union to the whole seed exactly once each.
+function sliceSpec(spec, indices) {
+  return { ...spec, sliceIndices: indices };
+}
+// n is 1..4. One row per sublot for the five Sublots tables, four mat cores
+// and two joint cores per sublot for Cores - arithmetic over the same order
+// TICKET_SEED/SPECIMEN_SEED/SUBLOT_SEED/MAT_CORE_SEED/JOINT_CORE_SEED are
+// already built in (every one of them is `["1","2","3","4"].flatMap(...)` or
+// the sublot-keyed equivalent).
+const oneOf4 = (n) => [n - 1];
+const twoOf4 = (n) => [2 * (n - 1), 2 * (n - 1) + 1];
+const fourOf4 = (n) => [4 * (n - 1), 4 * (n - 1) + 1, 4 * (n - 1) + 2, 4 * (n - 1) + 3];
+
+// The base specs, named so sliceSpec() can copy each one four times. Bodies
+// are unchanged from the single "Sublots"/"Cores" steps they came from - only
+// the section(s) wrapping them changed.
+const SUBLOT_TICKETS_SPEC = {
+  key: "sublot_tickets", heading: "Sublot ticket", fixed: true,
+  grid: ".7fr 1fr .8fr .9fr .9fr .8fr 1fr 1fr 1.1fr 1.5fr",
+  seed: TICKET_SEED,
+  columns: [
+    { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
+    // A row column is rendered as a plain text input whatever its
+    // `type` — rowHTML() only branches on `select` and `source` — so
+    // `type: "date"` would NOT give a date picker here the way it does
+    // on a grid field. Left as text on purpose rather than declaring a
+    // type the renderer ignores.
+    { key: "date", label: "Date", type: "text", req: true, mono: true },
+    // Superpave!J. STORED AS AN EXCEL TIME FRACTION (0.9125 = 21:54),
+    // whatever the stale AMAMAW sheet says about HHMM. Typed here as
+    // HH:MM, converted by the mapper — not the other way round, and
+    // never typed as 0.9125.
+    { key: "time", label: "Time", type: "text", req: true, mono: true },
+    { key: "truck", label: "Truck", type: "text", req: true, mono: true },
+    // CUMULATIVE ticket tonnage, not this sublot's own: lot 2 runs
+    // 4955 -> 5390 -> 6693 -> 7530. The label says so, because a
+    // technician reading "Tons" will type the sublot's own.
+    { key: "tons_cum", label: "Tons (cum.)", type: "number", req: true, mono: true },
+    // On the sheet and on the printed page, but NOT in the staging
+    // field map — MEDL never receives it. Kept because the Department
+    // reads it, and optional because nothing downstream needs it.
+    { key: "temperature", label: "Temp (°F)", type: "number", req: false, mono: true },
+    // Pay Values rows 43/44, striding by COLUMN across B/C/D/E.
+    { key: "binder_lot", label: "Binder lot", type: "text", req: false, mono: true },
+    { key: "tack_lot", label: "Tack lot", type: "text", req: false, mono: true },
+    // SUBLOT.technician — a 2x2 block at B6/E6/B8/E8, NOT a stride.
+    // The workbook's `Cert. Techs` sheet is an in-workbook list of SM
+    // User I.D. + name; PlantBook should resolve a technician against
+    // the `technicians` roster it already signs people in from rather
+    // than shipping that list, same rule as binder terminals.
+    { key: "technician", label: "Tech (SM ID)", type: "text", req: true, mono: true },
+    // Calculations!AP35:AP38 (the code) and AU35:AU38 (the label this
+    // holds). HOW THE SUBLOT'S %AC WAS MEASURED - the figure typed on
+    // the volumetrics table below is the only one on this step a
+    // technician still supplies, and this says where it came from.
+    //
+    // Seeded to Ignition Furnace and editable per sublot - see
+    // AC_METHODS above for the whole list and why it is one definition.
+    // `req: false` deliberately: a blank leaves AP/AU unwritten, which
+    // is what both the template and a mid-production lot already look
+    // like, and nothing in pay.mjs reads it.
+    { key: "ac_method", label: "AC method", type: "select", req: false,
+      options: AC_METHODS },
+  ],
+};
+// ---- THE RAW WEIGHTS THE VOLUMETRICS ARE COMPUTED FROM ----------
+//
+// THE SHAPE, CONFIRMED WITH JAKE 2026-09-13 AND NOT TO BE RE-OPENED: ONE
+// PLANTBOOK IS ONE LOT. Four sublots per lot, two BSG samples and two MSG
+// bowls per sublot - "Each plant book represents 1 lot, then once that is
+// finished they would begin the 2nd lot". It matches the workbook exactly:
+// `Superpave` has four blocks captioned "Sublot # 1" .. "# 4" at rows
+// 10/16/22/28, each with exactly two "Sample #" rows before its Average row,
+// and the MSG block has two column pairs per sublot (C,D / E,F / G,H / I,J).
+//
+// `volumetrics.mjs` does the arithmetic and `check_volumetrics.mjs` proves it
+// reproduces both real lots cell for cell.
+const SUBLOT_BSG_SPEC = {
+  key: "sublot_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for this sublot",
+  fixed: true,
+  grid: ".7fr .5fr 1fr 1fr 1fr .9fr .9fr",
+  seed: SPECIMEN_SEED,
+  columns: [
+    // "<lot>-<sublot>", KYTC's own convention - the workbook writes core
+    // ids as "1-2-A" for lot 1 sublot 2, and Jake: "1-1 would mean lot 1
+    // and sublot 1". Painted by paintLotIds() from the Lot step's lot
+    // number, so it follows a lot 2 without anyone retyping it, and read
+    // back by sublotIndexOf(), which is the ONLY reader of this cell.
+    { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
+    { key: "specimen", label: "Sample #", type: "text", mono: true, readonly: true },
+    // Superpave C/D/E. KYTC's own column captions are "Weight (g)" over
+    // "(Air) / (Water) / (SSD)"; spelled out here because "(Air)" alone
+    // on a phone is not a weight.
+    { key: "wt_air", label: "Wt in air (g)", type: "number", req: true, mono: true },
+    { key: "wt_water", label: "Wt in water (g)", type: "number", req: true, mono: true },
+    { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: true, mono: true },
+    // F = ROUND(E-D,1), G = ROUND(C/F,3), H = G*62.4. Computed, never
+    // typed - readonly and not `req`, so the rail asks for the three
+    // weights a person actually has rather than for their quotient.
+    { key: "bulk_volume", label: "Bulk vol.", type: "number", req: false, mono: true, readonly: true },
+    { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
+    // NO unit weight column - see the original note in git history if this
+    // is ever reopened; unchanged by the tab split.
+  ],
+};
+const SUBLOT_MSG_SPEC = {
+  key: "sublot_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for this sublot",
+  fixed: true,
+  grid: ".7fr .5fr 1fr 1fr 1fr 1fr .8fr",
+  seed: SPECIMEN_SEED,
+  columns: [
+    { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
+    // The mapper calls these the Gmm bowls; "Bowl #" keeps them visibly
+    // distinct from the BSG table's pucks on a step that shows both.
+    { key: "specimen", label: "Bowl #", type: "text", mono: true, readonly: true },
+    // Superpave rows 36/37/39/40, in COLUMN pairs per sublot rather
+    // than rows - see SUBLOT.msg in addresses.mjs.
+    { key: "wt_mix", label: "Wt of mix (g)", type: "number", req: true, mono: true },
+    { key: "calibration", label: "Calibration (g)", type: "number", req: true, mono: true },
+    { key: "final_wt", label: "Final wt (g)", type: "number", req: true, mono: true },
+    // Blank in both real lots, and a blank reads as 0 inside the sum -
+    // so optional, and a blank one does not block the MSG.
+    { key: "absorbed_water", label: "Absorbed water (g)", type: "number", req: false, mono: true },
+    { key: "msg", label: "MSG", type: "number", req: false, mono: true, readonly: true },
+  ],
+};
+const SUBLOT_MOISTURE_SPEC = {
+  // The moisture in the mix, three weighings per sublot. It exists for
+  // ONE reason and it is not cosmetic: `Gradation!D33 = D34 - Superpave!G48`
+  // takes the back-calculated %AC and subtracts this, and `Superpave!B14`
+  // - the "% Binder in Mix" every AC pay value is a deviation from -
+  // reads D33 in preference to D34. Without it the lot is paid on an
+  // uncorrected binder content.
+  key: "sublot_moisture", heading: "Moisture in the mixture — the %AC correction",
+  fixed: true, seed: SUBLOT_SEED,
+  grid: ".7fr 1fr 1fr 1fr .9fr",
+  columns: [
+    { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
+    // Superpave G/H/I/J rows 45/46/47, one column per sublot.
+    { key: "wt_before", label: "Pan + mix, before drying (g)", type: "number", req: false, mono: true },
+    { key: "wt_after", label: "Pan + mix, after drying (g)", type: "number", req: false, mono: true },
+    { key: "wt_pan", label: "Pan (g)", type: "number", req: false, mono: true },
+    { key: "moisture", label: "% moisture", type: "number", req: false, mono: true, readonly: true },
+  ],
+};
+const SUBLOT_VOLUMETRICS_SPEC = {
+  key: "sublot_volumetrics", heading: "Sublot volumetrics — computed", fixed: true,
+  grid: ".7fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
+  seed: SUBLOT_SEED,
+  columns: [
+    { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
+    // Superpave!B — the workbook's "% Binder in Mix". COMPUTED, back-calculated
+    // from Gse and the sublot's Gmm, less the moisture correction - see
+    // volumetrics.mjs.
+    { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
+    { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
+    { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
+    { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
+    { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
+    { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true, readonly: true },
+    { key: "vfa", label: "VFA (%)", type: "number", req: false, mono: true, readonly: true },
+    // KYTC writes it "D/A"; pay.mjs and the loader call it dustRatio.
+    { key: "dust_ratio", label: "D/A ratio", type: "text", req: false, mono: true, readonly: true },
+  ],
+};
+// The two Cores banks, unchanged from the standalone "Cores & Density" step -
+// see that step's own comment in git history for why they are two tables and
+// not one with a Mat/Joint column (lane density and joint density are two
+// different pay properties, run through two different pay curves).
+const CORE_COLUMNS = [
+  { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+  { key: "core_id", label: "Core #", type: "text", mono: true, readonly: true },
+  { key: "station", label: "Station / offset", type: "text", req: false },
+  { key: "wt_air", label: "Wt in air (g)", type: "number", req: false, mono: true },
+  { key: "wt_water", label: "Wt in water (g)", type: "number", req: false, mono: true },
+  { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: false, mono: true },
+  { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
+  { key: "density", label: "Density (pcf)", type: "number", req: false, mono: true, readonly: true },
+  { key: "pct_solid", label: "% density", type: "number", mono: true, readonly: true },
+  { key: "pay_value", label: "Pay (%)", type: "text", mono: true, readonly: true },
+];
+const MAT_CORES_SPEC = {
+  key: "mat_cores", heading: "Mat cores (lane density) — 4 for this sublot",
+  fixed: true, seed: MAT_CORE_SEED, span: [12, 12],
+  grid: ".7fr .9fr 1.3fr 1fr 1fr 1fr .8fr .9fr .9fr .8fr",
+  columns: CORE_COLUMNS,
+};
+const JOINT_CORES_SPEC = {
+  key: "joint_cores", heading: "Joint cores (longitudinal joint density) — 2 for this sublot",
+  fixed: true, seed: JOINT_CORE_SEED, span: [12, 12],
+  grid: ".7fr .9fr 1.3fr 1fr 1fr 1fr .8fr .9fr .9fr .8fr",
+  columns: CORE_COLUMNS,
+};
+
+// Four near-identical sections, generated rather than hand-typed four times -
+// a hand-typed fourth copy is exactly how a slice range gets fat-fingered
+// silently. `handmix` (Superpave N42/N43, one per LOT not per sublot) lands
+// on Sublot 1's tab specifically - Andrew's call, 2026-09-14, over giving it
+// a step of its own or repeating it on all four.
+function buildSublotTabSections() {
+  const out = [];
+  for (let n = 1; n <= 4; n++) {
+    out.push({
+      id: `sublot-${n}`, label: `Sublot ${n}`, step: `Sublot ${n}`,
+      tag: `AMAW · QC0${n} — this sublot's ticket, BSG/MSG, gradation weights and cores`,
+      type: "rows",
+      cites: ["accept402", "volumetric", "density402"],
+      // Andrew, 2026-09-14: the per-sublot Combined Gsb readout Aggregate
+      // Blend's `blend_gsb` row computes follows its data here rather than
+      // staying only on the Blend step. `blend_gsb` ITSELF is untouched and
+      // stays on Aggregate Blend - this is a read-only mirror of one of its
+      // four cells, painted by paintLotReadouts(), same footing as Contract
+      // & Mix's two design mirrors. Nothing new is collected or saved.
+      fields: [
+        { type: "readout", label: "Combined Gsb", out: `blend_gsb_${n}`,
+          sub: "from Aggregate Blend" },
+      ],
+      rows: [
+        sliceSpec(SUBLOT_TICKETS_SPEC, oneOf4(n)),
+        sliceSpec(SUBLOT_BSG_SPEC, twoOf4(n)),
+        sliceSpec(SUBLOT_MSG_SPEC, twoOf4(n)),
+        sliceSpec(SUBLOT_MOISTURE_SPEC, oneOf4(n)),
+        sliceSpec(SUBLOT_VOLUMETRICS_SPEC, oneOf4(n)),
+        sliceSpec(MAT_CORES_SPEC, fourOf4(n)),
+        sliceSpec(JOINT_CORES_SPEC, twoOf4(n)),
+      ],
+    });
+  }
+  return out;
+}
+
 // =====================================================================
 //  PLANTBOOK_SECTIONS
 // =====================================================================
@@ -580,7 +854,9 @@ export const PLANTBOOK_SECTIONS = [
     //  of its own, the way Consensus Properties sits inside Aggregate
     //  Structure. It stays a full schema entry, so it keeps its own cite and
     //  its own heading; only where it draws changes. A section with `into`
-    //  is not a step, so PlantBook is eight steps, not ten.
+    //  is not a step. PlantBook was eight steps (not ten) before the Sublot
+    //  1-4 split (2026-09-14); it is ten steps now (not thirteen) -
+    //  buildSublotTabSections() turned one step into four.
     //
     //  Pay Values!B46/C46 plus the grade the workbook VLOOKUPs at
     //  Calculations!D147 into A147:B161. addresses.mjs says it outright:
@@ -726,256 +1002,25 @@ export const PLANTBOOK_SECTIONS = [
     ],
   },
 
-  {
-    // ---------------------------------------------------------------
-    //  3. SUBLOTS — `Superpave`, two strides
-    // ---------------------------------------------------------------
-    //
-    //  Two tables, not one, and the workbook is the reason: the truck ticket
-    //  steps ONE row (3,4,5,6) and the volumetric block steps SIX
-    //  (14,20,26,32). addresses.mjs: "They are not the same table and must
-    //  not share a constant." One fourteen-column table on screen would
-    //  invite exactly that mistake in the mapper, and would put fourteen
-    //  tracks in 1116px, which is 80px a column before the labels.
-    //
-    //  Both are `fixed` with four seeded rows rather than `start: 4`. A lot
-    //  IS four QC sublots — QC01..QC04 in t_tst_rslt_dtl, four blocks on
-    //  `Superpave`, four columns on `Gradation`, four rows of pay — so there
-    //  is no add button to press and no fifth row to add. The sublot number
-    //  is seeded and readonly for the same reason. Note the consequence:
-    //  because the seeded column is never empty, collectForm() never drops
-    //  one of these rows, so all four always reach the payload even when
-    //  only two have been run. That is right for a lot: an untested sublot
-    //  is a sublot that has not happened yet, not one that does not exist.
-    id: "sublots", label: "Sublots", step: "Sublots",
-    tag: "AMAW · QC01-QC04 — tickets stride 1 row, volumetrics stride 6",
-    type: "rows",
-    cites: ["accept402", "volumetric"],
-    rows: [
-      {
-        key: "sublot_tickets", heading: "Sublot tickets", fixed: true,
-        grid: ".7fr 1fr .8fr .9fr .9fr .8fr 1fr 1fr 1.1fr 1.5fr",
-        seed: TICKET_SEED,
-        columns: [
-          { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
-          // A row column is rendered as a plain text input whatever its
-          // `type` — rowHTML() only branches on `select` and `source` — so
-          // `type: "date"` would NOT give a date picker here the way it does
-          // on a grid field. Left as text on purpose rather than declaring a
-          // type the renderer ignores.
-          { key: "date", label: "Date", type: "text", req: true, mono: true },
-          // Superpave!J. STORED AS AN EXCEL TIME FRACTION (0.9125 = 21:54),
-          // whatever the stale AMAMAW sheet says about HHMM. Typed here as
-          // HH:MM, converted by the mapper — not the other way round, and
-          // never typed as 0.9125.
-          { key: "time", label: "Time", type: "text", req: true, mono: true },
-          { key: "truck", label: "Truck", type: "text", req: true, mono: true },
-          // CUMULATIVE ticket tonnage, not this sublot's own: lot 2 runs
-          // 4955 -> 5390 -> 6693 -> 7530. The label says so, because a
-          // technician reading "Tons" will type the sublot's own.
-          { key: "tons_cum", label: "Tons (cum.)", type: "number", req: true, mono: true },
-          // On the sheet and on the printed page, but NOT in the staging
-          // field map — MEDL never receives it. Kept because the Department
-          // reads it, and optional because nothing downstream needs it.
-          { key: "temperature", label: "Temp (°F)", type: "number", req: false, mono: true },
-          // Pay Values rows 43/44, striding by COLUMN across B/C/D/E.
-          { key: "binder_lot", label: "Binder lot", type: "text", req: false, mono: true },
-          { key: "tack_lot", label: "Tack lot", type: "text", req: false, mono: true },
-          // SUBLOT.technician — a 2x2 block at B6/E6/B8/E8, NOT a stride.
-          // The workbook's `Cert. Techs` sheet is an in-workbook list of SM
-          // User I.D. + name; PlantBook should resolve a technician against
-          // the `technicians` roster it already signs people in from rather
-          // than shipping that list, same rule as binder terminals.
-          { key: "technician", label: "Tech (SM ID)", type: "text", req: true, mono: true },
-          // Calculations!AP35:AP38 (the code) and AU35:AU38 (the label this
-          // holds). HOW THE SUBLOT'S %AC WAS MEASURED - the figure typed on
-          // the volumetrics table below is the only one on this step a
-          // technician still supplies, and this says where it came from.
-          //
-          // It is on the TICKETS table rather than beside that figure because
-          // the volumetrics table is nine short numbers and a 24-character
-          // dropdown has no business in it; this is the step's one row per
-          // sublot of record-keeping, which is what the method is.
-          //
-          // Seeded to Ignition Furnace and editable per sublot - see
-          // AC_METHODS above for the whole list and why it is one definition.
-          // `req: false` deliberately: a blank leaves AP/AU unwritten, which
-          // is what both the template and a mid-production lot already look
-          // like, and nothing in pay.mjs reads it.
-          { key: "ac_method", label: "AC method", type: "select", req: false,
-            options: AC_METHODS },
-        ],
-      },
-      // ---- THE RAW WEIGHTS THE VOLUMETRICS ARE COMPUTED FROM ----------
-      //
-      // THE SHAPE, CONFIRMED WITH JAKE 2026-09-13 AND NOT TO BE RE-OPENED:
-      // ONE PLANTBOOK IS ONE LOT. Four sublots per lot, two BSG samples and
-      // two MSG bowls per sublot - "Each plant book represents 1 lot, then
-      // once that is finished they would begin the 2nd lot". It matches the
-      // workbook exactly: `Superpave` has four blocks captioned "Sublot # 1"
-      // .. "# 4" at rows 10/16/22/28, each with exactly two "Sample #" rows
-      // before its Average row, and the MSG block has two column pairs per
-      // sublot (C,D / E,F / G,H / I,J). There is no room for a third of
-      // either, and both real accepted lots filled exactly two.
-      //
-      // Holding several lots in one PlantBook was raised and withdrawn the
-      // same day. An AMAW is one lot by construction - one set of Superpave
-      // blocks, one lot number at 'Pay Values'!F3, and Calculations gates the
-      // sublot-1 pay allowance on that lot number being 1 - so a multi-lot
-      // PlantBook would have to generate one workbook per lot anyway.
-      //
-      // Jake, 2026-09-13: "we need it to where contractors can input raw
-      // results for the msg and bsg that computes the numbers and then
-      // computes air voids for each sub lot". Before this, every figure on
-      // the volumetrics table below was TYPED - eight numbers per sublot,
-      // all eight of which the AMAW computes for itself from weights already
-      // on the technician's bench sheet. Typing a derived figure is how a lot
-      // ends up disagreeing with the workbook it will be loaded from, and it
-      // is thirty-two chances to fat-finger a decimal.
-      //
-      // `volumetrics.mjs` does the arithmetic and `check_volumetrics.mjs`
-      // proves it reproduces both real lots cell for cell.
-      {
-        key: "sublot_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for each of the 4 sublots",
-        fixed: true,
-        grid: ".7fr .5fr 1fr 1fr 1fr .9fr .9fr",
-        seed: SPECIMEN_SEED,
-        columns: [
-          // "<lot>-<sublot>", KYTC's own convention - the workbook writes core
-          // ids as "1-2-A" for lot 1 sublot 2, and Jake: "1-1 would mean lot 1
-          // and sublot 1". Painted by paintSublotIds() from the Lot step's lot
-          // number, so it follows a lot 2 without anyone retyping it, and read
-          // back by sublotIndexOf(), which is the ONLY reader of this cell.
-          // "Sample #" is the workbook's own caption (Superpave
-          // A10 "Sublot # 1", A11 "Sample #"). They were "Sublot" and "Spec."
-          // until 2026-09-13 and Jake read the pair as lot-and-sublot - two
-          // columns of bare 1..4 and 1..2 side by side do not say which is
-          // which on their own. A PlantBook is ONE lot; see the schema note.
-          { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
-          { key: "specimen", label: "Sample #", type: "text", mono: true, readonly: true },
-          // Superpave C/D/E. KYTC's own column captions are "Weight (g)" over
-          // "(Air) / (Water) / (SSD)"; spelled out here because "(Air)" alone
-          // on a phone is not a weight.
-          { key: "wt_air", label: "Wt in air (g)", type: "number", req: true, mono: true },
-          { key: "wt_water", label: "Wt in water (g)", type: "number", req: true, mono: true },
-          { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: true, mono: true },
-          // F = ROUND(E-D,1), G = ROUND(C/F,3), H = G*62.4. Computed, never
-          // typed - readonly and not `req`, so the rail asks for the three
-          // weights a person actually has rather than for their quotient.
-          { key: "bulk_volume", label: "Bulk vol.", type: "number", req: false, mono: true, readonly: true },
-          { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
-          // NO unit weight column. It is BSG x 62.4 restated beside itself, it
-          // is read by nothing in pay.mjs, the mapper or payview, and Jake asked
-          // for it off this tab (2026-09-13). PB_VOL still computes it - the
-          // workbook keeps the column and the mapper will want it - it just is
-          // not shown.
-        ],
-      },
-      {
-        key: "sublot_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for each of the 4 sublots",
-        fixed: true,
-        grid: ".7fr .5fr 1fr 1fr 1fr 1fr .8fr",
-        seed: SPECIMEN_SEED,
-        columns: [
-          { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
-          // The mapper calls these the Gmm bowls; "Bowl #" keeps them visibly
-          // distinct from the BSG table's pucks on a step that shows both.
-          { key: "specimen", label: "Bowl #", type: "text", mono: true, readonly: true },
-          // Superpave rows 36/37/39/40, in COLUMN pairs per sublot rather
-          // than rows - see SUBLOT.msg in addresses.mjs.
-          { key: "wt_mix", label: "Wt of mix (g)", type: "number", req: true, mono: true },
-          { key: "calibration", label: "Calibration (g)", type: "number", req: true, mono: true },
-          { key: "final_wt", label: "Final wt (g)", type: "number", req: true, mono: true },
-          // Blank in both real lots, and a blank reads as 0 inside the sum -
-          // so optional, and a blank one does not block the MSG.
-          { key: "absorbed_water", label: "Absorbed water (g)", type: "number", req: false, mono: true },
-          { key: "msg", label: "MSG", type: "number", req: false, mono: true, readonly: true },
-        ],
-      },
-      {
-        // The moisture in the mix, three weighings per sublot. It exists for
-        // ONE reason and it is not cosmetic: `Gradation!D33 = D34 - Superpave!G48`
-        // takes the back-calculated %AC and subtracts this, and `Superpave!B14`
-        // - the "% Binder in Mix" every AC pay value is a deviation from -
-        // reads D33 in preference to D34. Without it the lot is paid on an
-        // uncorrected binder content.
-        //
-        // The Verification step has carried the same block since 2026-09-13
-        // (`verify_moisture`); the QC side never did, because its %AC was
-        // typed. Now that it is back-calculated, the sublots need it too.
-        key: "sublot_moisture", heading: "Moisture in the mixture — the %AC correction",
-        fixed: true, seed: SUBLOT_SEED,
-        grid: ".7fr 1fr 1fr 1fr .9fr",
-        columns: [
-          { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
-          // Superpave G/H/I/J rows 45/46/47, one column per sublot.
-          { key: "wt_before", label: "Pan + mix, before drying (g)", type: "number", req: false, mono: true },
-          { key: "wt_after", label: "Pan + mix, after drying (g)", type: "number", req: false, mono: true },
-          { key: "wt_pan", label: "Pan (g)", type: "number", req: false, mono: true },
-          { key: "moisture", label: "% moisture", type: "number", req: false, mono: true, readonly: true },
-        ],
-      },
-      {
-        key: "sublot_volumetrics", heading: "Sublot volumetrics — computed", fixed: true,
-        // Ten columns of short figures. EVEN tracks, deliberately: an earlier
-        // weighting gave unit_weight 73px and va 50px at a 701px window, and
-        // "4.57" in 50px clips while the wider neighbour sat half empty. Every
-        // value here is 2-6 characters, so none has a claim on more room than
-        // the others.
-        grid: ".7fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
-        seed: SUBLOT_SEED,
-        columns: [
-          { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
-          // Superpave!B — the workbook's "% Binder in Mix". COMPUTED as of
-          // 2026-09-14, and the note that stood here called the re-plumbing
-          // "its own change rather than part of this one". This is that
-          // change.
-          //
-          // It was typed and written to `Gradation!D32`, which is EMPTY in the
-          // shipped template and referenced by no formula on any sheet — so
-          // the figure a technician supplied went nowhere and the workbook
-          // used its own back-calculation regardless. The real chain is
-          // `D34` (back-calc from Gse and the sublot's Gmm), less the moisture
-          // at `Superpave!G48`, into `B14`. volumetrics.mjs reproduces it.
-          //
-          // So this table is fully computed now and the last typed figure on
-          // it is gone — which is the same place the Verification step and the
-          // Gradation step have already arrived at.
-          { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
-          // Everything from here is computed by volumetrics.mjs and painted
-          // by the page. None carries `req`: the rail asks for the raw
-          // weights above, because those are what a person can supply.
-          { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
-          // NO unit weight on this row. It is BSG x 62.4 - a restatement of the
-          // column beside it - it is already shown per specimen on the BSG table
-          // above, and nothing in pay.mjs, the mapper or payview reads it. Ten
-          // columns of figures clipped at 700-800px and this was the one with no
-          // claim to the room.
-          { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
-          { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
-          { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
-          { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true, readonly: true },
-          { key: "vfa", label: "VFA (%)", type: "number", req: false, mono: true, readonly: true },
-          // KYTC writes it "D/A"; pay.mjs and the loader call it dustRatio.
-          // = (% passing the #200, off the Gradation step) / Pbe, and it can
-          // legitimately read ">1.6" or "<0.6" rather than a number - the
-          // workbook prints a spec note beside it when it does.
-          { key: "dust_ratio", label: "D/A ratio", type: "text", req: false, mono: true, readonly: true },
-        ],
-      },
-    ],
-  },
+  // 3. SUBLOTS 1-4 — one tab per sublot; see buildSublotTabSections() and
+  // its base specs above (SUBLOT_TICKETS_SPEC etc.), which carry every
+  // comment the old single "Sublots" step held. Cores & Density
+  // (mat_cores/joint_cores, formerly its own step) is folded in the same
+  // way - see MAT_CORES_SPEC/JOINT_CORES_SPEC above.
+  ...buildSublotTabSections(),
 
   {
     // ---------------------------------------------------------------
-    //  3a. HAND-MIXED CHECK SAMPLE — a sub-block inside Sublots
+    //  3a. HAND-MIXED CHECK SAMPLE — a sub-block inside Sublot 1
     // ---------------------------------------------------------------
     //
     //  SUBLOT.handMixed — Superpave!N43/N42. Lot-level: one per lot, the
-    //  same cell in all seven blocks, which is why it is not a column on the
-    //  four-row table above. `into` puts it under the sublots it checks
-    //  rather than giving two fields a step of their own.
-    id: "handmix", label: "Hand-mixed check sample", into: "sublots",
+    //  same cell in all seven blocks, which is why it is not a column on any
+    //  of the four sublot tabs. `into: "sublot-1"` (formerly `into:
+    //  "sublots"`, before that step became four) puts it on the first
+    //  sublot's tab rather than giving it a step of its own or repeating it
+    //  on all four - Andrew's call, 2026-09-14.
+    id: "handmix", label: "Hand-mixed check sample", into: "sublot-1",
     tag: "AMAW · Superpave N42/N43 — one per lot",
     type: "grid",
     cites: ["accept402"],
@@ -1085,108 +1130,11 @@ export const PLANTBOOK_SECTIONS = [
     weights: true,
   },
 
-  {
-    // ---------------------------------------------------------------
-    //  5. CORES — two banks, two pay properties
-    // ---------------------------------------------------------------
-    //
-    //  ---- WHY TWO TABLES AND NOT ONE WITH A "BANK" COLUMN -------------
-    //
-    //  `Cores` holds mat cores at rows 10..13 stride 5 and joint cores at
-    //  rows 33..34 stride 3 — two banks with different strides, which no
-    //  amount of staring at one sublot reveals (the earlier "six cores in
-    //  lot 1" in docs/amaw-map.md was one bank read alone).
-    //
-    //  But the stride is not the argument. The argument is that they are TWO
-    //  DIFFERENT PAY PROPERTIES: lane density carries 30% of the lot pay and
-    //  joint density 15%, they run through two different pay curves
-    //  (laneCorePay vs jointCorePay in pay.mjs), and joint density drops out
-    //  entirely when Calculations!H11 = 2. One table with a Mat/Joint column
-    //  is one careless `.reduce()` away from averaging them together, and
-    //  that error is worth four figures on a lot and is invisible on screen.
-    //  Two tables, two headings, two arrays — matching `laneCores` and
-    //  `jointCores`, the two arguments lotPay() actually takes.
-    //
-    //  Core count is NOT fixed, per lot or per sublot: lot 1 has 24 ids and
-    //  18 densities (sublot 1's six were labelled and never measured), lot 2
-    //  has ten. So these are ordinary growable tables — read every slot and
-    //  drop the blanks — with `max` at the workbook's own ceiling (4 and 2
-    //  slots per sublot, four sublots) and `start` at one sublot's worth.
-    id: "cores", label: "Cores & Density", step: "Cores",
-    tag: "AMAW · Cores sheet — mat rows 10-13, joint rows 33-34",
-    type: "rows",
-    cites: ["density402"],
-    rows: [
-      {
-        key: "mat_cores", heading: "Mat cores (lane density) — 4 per sublot",
-        fixed: true, seed: MAT_CORE_SEED, span: [12, 12],
-        grid: ".7fr .9fr 1.3fr 1fr 1fr 1fr .8fr .9fr .9fr .8fr",
-        columns: [
-          // Both derived and both readonly: a core's sublot and its id are
-          // "<lot>-<sublot>-<letter>", which the lot already knows. Nobody
-          // types what the form can spell.
-          { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
-          { key: "core_id", label: "Core #", type: "text", mono: true, readonly: true },
-          { key: "station", label: "Station / offset", type: "text", req: false },
-          // Cores D/E/F - the three weighings, and the only things typed on
-          // this table. NOT `req`: a lot is cored over a week and the
-          // Department picks the locations, so an uncored slot is a normal
-          // in-progress state rather than a missing field, and pay.mjs reads
-          // a blank as not-tested rather than as a zero.
-          { key: "wt_air", label: "Wt in air (g)", type: "number", req: false, mono: true },
-          { key: "wt_water", label: "Wt in water (g)", type: "number", req: false, mono: true },
-          { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: false, mono: true },
-          // Cores G = air/(SSD-water), UNROUNDED - unlike a gyratory puck's
-          // BSG on `Superpave`, which rounds to three. See coreDerived().
-          { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
-          // Cores H = BSG x 62.4. The sheet labels it kg/m3 and it is pcf.
-          { key: "density", label: "Density (pcf)", type: "number", req: false, mono: true, readonly: true },
-          // Cores I = (density / (sublot MSG x 62.4)) x 100. The MSG is the
-          // SUBLOT's, off the Sublots step - a core is measured against the
-          // mix it came from.
-          { key: "pct_solid", label: "% density", type: "number", mono: true, readonly: true },
-          // Cores J - the spec's density pay value for that % density.
-          // laneCorePay - Calculations!A22:L34, keyed on the AADTT/ESAL class.
-          // Can read "MCL": that is a real state, not a zero.
-          { key: "pay_value", label: "Pay (%)", type: "text", mono: true, readonly: true },
-        ],
-      },
-      {
-        key: "joint_cores", heading: "Joint cores (longitudinal joint density) — 2 per sublot",
-        fixed: true, seed: JOINT_CORE_SEED, span: [12, 12],
-        grid: ".7fr .9fr 1.3fr 1fr 1fr 1fr .8fr .9fr .9fr .8fr",
-        columns: [
-          // Both derived and both readonly: a core's sublot and its id are
-          // "<lot>-<sublot>-<letter>", which the lot already knows. Nobody
-          // types what the form can spell.
-          { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
-          { key: "core_id", label: "Core #", type: "text", mono: true, readonly: true },
-          { key: "station", label: "Station / offset", type: "text", req: false },
-          // Cores D/E/F - the three weighings, and the only things typed on
-          // this table. NOT `req`: a lot is cored over a week and the
-          // Department picks the locations, so an uncored slot is a normal
-          // in-progress state rather than a missing field, and pay.mjs reads
-          // a blank as not-tested rather than as a zero.
-          { key: "wt_air", label: "Wt in air (g)", type: "number", req: false, mono: true },
-          { key: "wt_water", label: "Wt in water (g)", type: "number", req: false, mono: true },
-          { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: false, mono: true },
-          // Cores G = air/(SSD-water), UNROUNDED - unlike a gyratory puck's
-          // BSG on `Superpave`, which rounds to three. See coreDerived().
-          { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
-          // Cores H = BSG x 62.4. The sheet labels it kg/m3 and it is pcf.
-          { key: "density", label: "Density (pcf)", type: "number", req: false, mono: true, readonly: true },
-          // Cores I = (density / (sublot MSG x 62.4)) x 100. The MSG is the
-          // SUBLOT's, off the Sublots step - a core is measured against the
-          // mix it came from.
-          { key: "pct_solid", label: "% density", type: "number", mono: true, readonly: true },
-          // Cores J - the spec's density pay value for that % density.
-          // jointCorePay - Calculations!A57:L67. NO ESAL dependence and no MCL
-          // branch: a joint core cannot take the lot out of the pay schedule.
-          { key: "pay_value", label: "Pay (%)", type: "text", mono: true, readonly: true },
-        ],
-      },
-    ],
-  },
+  // 5. CORES — folded into the four Sublot tabs above (MAT_CORES_SPEC /
+  // JOINT_CORES_SPEC, sliced by sliceSpec()). See buildSublotTabSections()
+  // for why two tables and not one with a Mat/Joint column (still true,
+  // unchanged): lane density and joint density are two different pay
+  // properties, run through two different pay curves in pay.mjs.
 
   {
     // ---------------------------------------------------------------
