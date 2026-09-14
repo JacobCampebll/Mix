@@ -212,6 +212,16 @@ const claim = (map, key, where, check, what) => {
   if (map.has(key)) fail(check, `${what} "${key}" is used twice (${map.get(key)}, ${where})`);
   else map.set(key, where);
 };
+// PlantBook's Sublot 1-4 tabs (2026-09-14): the JMF gradation column is
+// deliberately `readonly` and appears on all four sublot-N-gradation
+// sections at once (see buildSublotGradationSections() in sections.mjs -
+// a value that can never be edited can never diverge between its four
+// copies, unlike an editable one). Its composite key (`jmf_<sieve>`) is
+// therefore expected to repeat, and only for THAT reason: the first
+// sighting still claims it normally via `claim()`, so a mismatch (one
+// occurrence readonly, another not) still fails the ordinary "used twice"
+// check on the non-readonly one.
+const readonlySieveKeys = new Set();
 // PlantBook's Sublot 1-4 tabs (2026-09-14): a row spec's `key` may repeat
 // across several sections ONLY when every repeat declares `sliceIndices`
 // (sliceSpec() in sections.mjs) - one shared table rendered as four DOM
@@ -306,9 +316,17 @@ for (const s of S) {
         colKeys.add(col.key);
         for (const sv of s.sieves) {
           const k = `${col.key}_${sv.key}`;
-          claim(scalarKeys, k, `${at} ${col.label} / ${sv.label}`, "E", "scalar key");
-          if (DB_SCALAR_KEYS.has(k) || DB_SIEVE_KEYS.has(k))
-            fail("E", `${at} composite sieve key "${k}" collides with a DesignBook key`);
+          if (col.readonly && readonlySieveKeys.has(k)) {
+            // Already claimed by an earlier readonly sighting of this same
+            // key - the whole point of the exception. Not re-claimed, not
+            // re-checked against DesignBook (the first sighting already did
+            // both).
+          } else {
+            claim(scalarKeys, k, `${at} ${col.label} / ${sv.label}`, "E", "scalar key");
+            if (DB_SCALAR_KEYS.has(k) || DB_SIEVE_KEYS.has(k))
+              fail("E", `${at} composite sieve key "${k}" collides with a DesignBook key`);
+            if (col.readonly) readonlySieveKeys.add(k);
+          }
         }
       }
     }
@@ -466,6 +484,11 @@ const NO_WORKBOOK_CELL = new Set([
   // sample and paints them, and the workbook computes its own from the same
   // weights (Superpave row 41 / J8).
   "lot_handmix_gmm", "lot_gse",
+  // Andrew, 2026-09-14: typed and saved on the lot, but no AMAW cell has
+  // been confirmed for it yet - see NEXT_STEPS.md. Move it into
+  // LOT_FIELD_ALIASES (mapper.mjs) once someone checks a real workbook for
+  // the actual "Additive dosage rate" cell, and remove it from this set.
+  "lot_additive_dosage",
 ]);
 // Only the `lot_`-prefixed scalars: sections.mjs reserves that prefix for the
 // lot header, which is exactly what the mapper's 'Pay Values' block writes.

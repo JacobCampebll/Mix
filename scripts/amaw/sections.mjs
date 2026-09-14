@@ -221,6 +221,15 @@ const AMAW_SIEVES = [
 // rather than `Gradation`. They are here and not on the Verification step
 // because they are the same quantity on the same sieves: a reviewer
 // comparing QA against sublot 3 must not have to change screens to do it.
+// Andrew, 2026-09-14: Gradation moved onto the Sublot 1-4 tabs (one column
+// per tab, plus the read-only JMF target - see buildSublotGradationSections()
+// below), which is why `qa`/`iq` below are unused now: they had no natural
+// per-sublot home (Department data isn't any one sublot's), and adding one
+// wasn't asked for. QA01/IQ01's own gradation percentages have NO UI
+// anywhere in PlantBook until someone gives them one - a real, deliberate
+// gap, not a silent drop; see NEXT_STEPS.md. Kept here as a record of the
+// workbook's own shape (`Super Verify` rows 33..46, columns D and G) rather
+// than deleted.
 const GRADATION_COLUMNS = [
   { key: "jmf",  label: "JMF target", target: true },
   { key: "sub1", label: "Sublot 1" },
@@ -396,7 +405,7 @@ const fourOf4 = (n) => [4 * (n - 1), 4 * (n - 1) + 1, 4 * (n - 1) + 2, 4 * (n - 
 // are unchanged from the single "Sublots"/"Cores" steps they came from - only
 // the section(s) wrapping them changed.
 const SUBLOT_TICKETS_SPEC = {
-  key: "sublot_tickets", heading: "Sublot ticket", fixed: true,
+  key: "sublot_tickets", heading: "Sublot ticket", banded: true, fixed: true,
   grid: ".7fr 1fr .8fr .9fr .9fr .8fr 1fr 1fr 1.1fr 1.5fr",
   seed: TICKET_SEED,
   columns: [
@@ -458,7 +467,7 @@ const SUBLOT_TICKETS_SPEC = {
 // reproduces both real lots cell for cell.
 const SUBLOT_BSG_SPEC = {
   key: "sublot_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for this sublot",
-  fixed: true,
+  banded: true, fixed: true,
   grid: ".7fr .5fr 1fr 1fr 1fr .9fr .9fr",
   seed: SPECIMEN_SEED,
   columns: [
@@ -486,7 +495,7 @@ const SUBLOT_BSG_SPEC = {
 };
 const SUBLOT_MSG_SPEC = {
   key: "sublot_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for this sublot",
-  fixed: true,
+  banded: true, fixed: true,
   grid: ".7fr .5fr 1fr 1fr 1fr 1fr .8fr",
   seed: SPECIMEN_SEED,
   columns: [
@@ -513,7 +522,7 @@ const SUBLOT_MOISTURE_SPEC = {
   // reads D33 in preference to D34. Without it the lot is paid on an
   // uncorrected binder content.
   key: "sublot_moisture", heading: "Moisture in the mixture — the %AC correction",
-  fixed: true, seed: SUBLOT_SEED,
+  banded: true, fixed: true, seed: SUBLOT_SEED,
   grid: ".7fr 1fr 1fr 1fr .9fr",
   columns: [
     { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
@@ -525,7 +534,7 @@ const SUBLOT_MOISTURE_SPEC = {
   ],
 };
 const SUBLOT_VOLUMETRICS_SPEC = {
-  key: "sublot_volumetrics", heading: "Sublot volumetrics — computed", fixed: true,
+  key: "sublot_volumetrics", heading: "Sublot volumetrics — computed", banded: true, fixed: true,
   grid: ".7fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
   seed: SUBLOT_SEED,
   columns: [
@@ -562,13 +571,13 @@ const CORE_COLUMNS = [
 ];
 const MAT_CORES_SPEC = {
   key: "mat_cores", heading: "Mat cores (lane density) — 4 for this sublot",
-  fixed: true, seed: MAT_CORE_SEED, span: [12, 12],
+  banded: true, fixed: true, seed: MAT_CORE_SEED, span: [12, 12],
   grid: ".7fr .9fr 1.3fr 1fr 1fr 1fr .8fr .9fr .9fr .8fr",
   columns: CORE_COLUMNS,
 };
 const JOINT_CORES_SPEC = {
   key: "joint_cores", heading: "Joint cores (longitudinal joint density) — 2 for this sublot",
-  fixed: true, seed: JOINT_CORE_SEED, span: [12, 12],
+  banded: true, fixed: true, seed: JOINT_CORE_SEED, span: [12, 12],
   grid: ".7fr .9fr 1.3fr 1fr 1fr 1fr .8fr .9fr .9fr .8fr",
   columns: CORE_COLUMNS,
 };
@@ -605,6 +614,53 @@ function buildSublotTabSections() {
         sliceSpec(MAT_CORES_SPEC, fourOf4(n)),
         sliceSpec(JOINT_CORES_SPEC, twoOf4(n)),
       ],
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------
+//  Gradation, also per sublot (Andrew, 2026-09-14)
+// ---------------------------------------------------------------------
+//
+//  "The Gradation tab should be divided among the four sublot tabs to
+//  provide an opportunity to add a gradation test per sublot." Each tab
+//  gets its OWN two-column sieve table: the JMF target (read-only, for
+//  comparison while typing) and that sublot's own weights-in column.
+//
+//  THE JMF COLUMN IS READ-ONLY EVERYWHERE, ON PURPOSE. It still renders as
+//  a real `data-field="jmf_<sieve>"` input on all four tabs - collectForm()
+//  still collects it, so a save/reload round-trip does not lose it - it is
+//  just never focusable. That is what makes rendering it FOUR TIMES safe:
+//  a value that can never be edited can never diverge between its four
+//  copies, unlike Producer/Type/AGP/BOD on the Blend question still open
+//  for Andrew (see NEXT_STEPS.md) - those would need the same "one canonical
+//  edit point, N read-only mirrors" answer, or a genuinely new one.
+//
+//  NO CHART on these. `drawChart()`/`gradSection()` (designbook.html) are
+//  written for exactly ONE `type: "sieves"` section on the active book -
+//  which column's curve draws into which single `#chart` div - and
+//  generalizing that (four mini-charts, or the M323 control-point band
+//  drawn four times) is real work this change does not attempt. Logged as
+//  an open follow-up in NEXT_STEPS.md, not silently dropped.
+//
+//  QA01/IQ01's own gradation percentages (`qa`/`iq` in GRADATION_COLUMNS
+//  above) have no home here either - Department data isn't any one
+//  sublot's, and giving it one wasn't asked for. Also open.
+function buildSublotGradationSections() {
+  const jmf = { ...GRADATION_COLUMNS.find((c) => c.key === "jmf"), readonly: true };
+  const out = [];
+  for (let n = 1; n <= 4; n++) {
+    const sub = GRADATION_COLUMNS.find((c) => c.key === `sub${n}`);
+    out.push({
+      id: `sublot-${n}-gradation`, label: "Gradation", into: `sublot-${n}`, banded: true,
+      tag: "cumulative grams retained · % passing computed",
+      type: "sieves",
+      cites: ["ctrlpts"],
+      sieves: AMAW_SIEVES,
+      columns: [jmf, sub],
+      weights: true,
+      noChart: true,
     });
   }
   return out;
@@ -847,7 +903,7 @@ export const PLANTBOOK_SECTIONS = [
 
   {
     // ---------------------------------------------------------------
-    //  1a. BINDER & ADDITIVE — a sub-block inside Lot
+    //  1a. BINDER — a sub-block inside Lot
     // ---------------------------------------------------------------
     //
     //  `into` draws this inside the Lot section's body rather than as a step
@@ -855,15 +911,30 @@ export const PLANTBOOK_SECTIONS = [
     //  Structure. It stays a full schema entry, so it keeps its own cite and
     //  its own heading; only where it draws changes. A section with `into`
     //  is not a step. PlantBook was eight steps (not ten) before the Sublot
-    //  1-4 split (2026-09-14); it is ten steps now (not thirteen) -
-    //  buildSublotTabSections() turned one step into four.
+    //  1-4 split (2026-09-14), ten steps (not thirteen) right after it -
+    //  buildSublotTabSections() turned one step into four - and is NINE
+    //  steps now (not sixteen): the later-the-same-day Gradation split
+    //  removed "sublot-gradation" as a step of its own (it draws `into` a
+    //  Sublot tab now, same as Binder does into Lot), which the Sublots
+    //  split had not touched.
     //
     //  Pay Values!B46/C46 plus the grade the workbook VLOOKUPs at
     //  Calculations!D147 into A147:B161. addresses.mjs says it outright:
     //  PlantBook should read `binder_grades` instead of that in-sheet table,
     //  same rule as everywhere else. `PG Producer` / `Producer supplier` in
     //  the workbook are the same terminals as `binder_terminals`.
-    id: "binder", label: "Binder & additive", into: "lot",
+    //
+    //  Andrew, 2026-09-14: label shortened from "Binder & additive" to
+    //  "Binder" (the field below is "Additive" now, not "Anti-strip
+    //  additive" - the section name doesn't need to repeat it), `banded:
+    //  true` added for the same navy `.section-head`-style band the
+    //  Aggregate Structure/Design Values mirrors got, and a new Additive
+    //  Dosage rate field. `lot_additive_dosage` has NO KNOWN AMAW CELL YET -
+    //  see NO_WORKBOOK_CELL in check_sections.mjs and the note in
+    //  NEXT_STEPS.md. It is typed and will round-trip through the lot's own
+    //  save/load, it just is not written into a generated AMAW until
+    //  someone confirms the real cell against a workbook.
+    id: "binder", label: "Binder", into: "lot", banded: true,
     tag: "AMAW · Pay Values B46/C46 — dropdowns from Supabase reference",
     type: "grid",
     cites: ["accept402"],
@@ -872,7 +943,12 @@ export const PLANTBOOK_SECTIONS = [
         source: "binder_terminals" },
       { key: "lot_binder_grade", label: "Binder grade", type: "text", req: true, mono: true,
         source: "binder_grades" },
-      { key: "lot_additive", label: "Anti-strip additive", type: "text", req: false },
+      { key: "lot_additive", label: "Additive", type: "text", req: false },
+      // % by weight of binder - Andrew's call, 2026-09-14. Not `req`: an
+      // additive is itself optional (`lot_additive` above), so a dosage rate
+      // with nothing to dose is meaningless rather than missing.
+      { key: "lot_additive_dosage", label: "Additive dosage rate (%)", type: "number",
+        req: false, mono: true },
     ],
   },
 
@@ -1080,7 +1156,7 @@ export const PLANTBOOK_SECTIONS = [
     //  "sublots"`, before that step became four) puts it on the first
     //  sublot's tab rather than giving it a step of its own or repeating it
     //  on all four - Andrew's call, 2026-09-14.
-    id: "handmix", label: "Hand-mixed check sample", into: "sublot-1",
+    id: "handmix", label: "Hand-mixed check sample", into: "sublot-1", banded: true,
     tag: "AMAW · Superpave N42/N43 — one per lot",
     type: "grid",
     cites: ["accept402"],
@@ -1102,7 +1178,7 @@ export const PLANTBOOK_SECTIONS = [
     // is a real difference in the workbook and not a transcription slip. See
     // handMixedGse() in volumetrics.mjs.
     rows: {
-      key: "handmix_msg", heading: "Hand-mixed MSG determinations", fixed: true,
+      key: "handmix_msg", heading: "Hand-mixed MSG determinations", banded: true, fixed: true,
       grid: ".5fr 1fr 1fr 1fr 1fr .8fr",
       seed: HANDMIX_SEED,
       columns: [
@@ -1116,79 +1192,16 @@ export const PLANTBOOK_SECTIONS = [
     },
   },
 
-  {
-    // ---------------------------------------------------------------
-    //  4. GRADATION — fourteen sieves by seven columns
-    // ---------------------------------------------------------------
-    //
-    //  RENDERER GAP (3) — the big one, and it fails LOUDLY (blank inputs
-    //  rather than wrong ones), which is the good kind.
-    //
-    //  `sievesHTML()` today draws a two-column table: the sieve label and
-    //  ONE "% passing" input per sieve, `data-field="${s.key}"`. A lot has
-    //  seven columns of the same fourteen sieves — the JMF target, four
-    //  measured sublots, and the two Department samples. That is the one
-    //  place PlantBook genuinely needs the renderer to grow, and the growth
-    //  is small and additive:
-    //
-    //    sievesHTML(section) reads `section.columns` (absent on DesignBook's
-    //    section, so it defaults to a single implicit column and nothing
-    //    about DesignBook changes), emits one <th> and one input per column,
-    //    and keys each input `data-field="${col.key}_${sieve.key}"`.
-    //
-    //  Those composite keys are what the checker validates for uniqueness,
-    //  so the schema is already carrying the real field list — 98 keys, none
-    //  of which collide with DesignBook's bare `s50`/`s0_075`.
-    //
-    //  The 0.45 chart underneath wants to grow with it: four measured curves
-    //  against the JMF target and the M323 control-point band, rather than
-    //  DesignBook's one. `.45 Data` in the AMAW carries the SAME control
-    //  points DesignBook holds in CONFIG.GRADATION_CONTROL_POINTS, so that
-    //  constant belongs to both books — one fact, one copy, the same rule
-    //  that makes effectiveMix() and trimFlatCoarseEnd() shared.
-    //
-    //  QA/IQ read `Super Verify` rows 33..46 columns D and G, not the
-    //  `Gradation` sheet. Same quantity, different sheet; the mapper cares,
-    //  the technician does not.
-    // ---------------------------------------------------------------
-    //  WEIGHTS IN, PERCENT PASSING OUT (Jake, 2026-09-14: "the gradation
-    //  page needs to be where you can put in the weights and it generates
-    //  the percent passing for you").
-    //
-    //  This is the same argument the Sublots step settled a day earlier and
-    //  it lands the same way: the AMAW computes % passing for itself from
-    //  weights already on the bench sheet, so typing the percentage is how a
-    //  lot ends up disagreeing with the workbook it will be loaded into.
-    //  `Gradation!C = (B/B25)*100` and `D = 100 - C`, over column B's
-    //  CUMULATIVE grams retained - verified against the shipped template's
-    //  own header cells, which read "Grams Retained" / "Percent Retained" /
-    //  "Percent Passing", and confirmed with Jake.
-    //
-    //  It also retires a decision taken the SAME MORNING: the bridge used to
-    //  write % passing and % retained OVER their formulas because the form
-    //  had no grams to give. With grams the workbook computes both natively,
-    //  which is strictly better - nothing is written over, and the printed
-    //  sheet carries the weights a reviewer can check.
-    //
-    //  THE JMF COLUMN STAYS A PERCENTAGE. `Gradation!N10:N23` are typed
-    //  cells and a job mix formula is published as % passing - it is a
-    //  target, not something anybody weighed. Its keys are unchanged.
-    //
-    //  The measured columns' keys carry `_wt_` and are therefore NEW rather
-    //  than a reinterpretation of the old `${col}_${sieve}` ones. That is
-    //  deliberate: those held % passing, and silently reading 94.2 as 94.2
-    //  grams is precisely the kind of quiet wrongness this file exists to
-    //  prevent. An older lot's percentages are still read on the way to the
-    //  workbook (mapper.mjs falls back to them) and simply stop being asked
-    //  for on the form.
-    id: "sublot-gradation", label: "Gradation", step: "Gradation",
-    tag: "cumulative grams retained · % passing computed · 0.45 power chart",
-    type: "sieves",
-    cites: ["ctrlpts"],
-    sieves: AMAW_SIEVES,
-    columns: GRADATION_COLUMNS,
-    weights: true,
-  },
+  // 4. GRADATION — folded into the four Sublot tabs above
+  // (buildSublotGradationSections()), Andrew's 2026-09-14 ask. See that
+  // function's own comment for what came with it (JMF read-only
+  // everywhere, no chart, QA/IQ gradation dropped) and why - the RENDERER
+  // GAP (3) history that used to live in this comment (the composite-key
+  // growth sievesHTML() needed to draw seven columns at all, WEIGHTS IN /
+  // PERCENT PASSING OUT, Jake 2026-09-14) is unchanged and still applies -
+  // it just belongs to sievesHTML()/computeGradation() generally now, not
+  // to one section.
+  ...buildSublotGradationSections(),
 
   // 5. CORES — folded into the four Sublot tabs above (MAT_CORES_SPEC /
   // JOINT_CORES_SPEC, sliced by sliceSpec()). See buildSublotTabSections()
