@@ -1266,14 +1266,11 @@ TBD — cite the governing spec section when encoding a limit in code.
   front door. `supabase/amaw_lots.sql` is DDL for Andrew to apply and **has
   not been applied**; nothing in the page reads or writes those tables, so
   applying it changes nothing until the store is wired.
-  **SETTLED 2026-09-13 (Jake): anyone holding the lot may download the AMAW** -
-  "the contractor can download their plantbook or KYTC such as Andrew or
-  Tate". `sections.mjs` had carried DesignBook's reviewer-only rule over to
-  this step by analogy, and the analogy is wrong: the MixPack button is gated
-  because a contractor never loads SiteManager, whereas the AMAW is the
-  contractor's OWN document - what they fill out over a lot, and the lot pay
-  it computes is most of why they care about it. **Do not add a `can_review`
-  gate to the AMAW download.**
+  **REVERSED 2026-09-14 (Jake): the AMAW download IS reviewer-only** - see
+  the entry below. The sentence that stood here for one day said the opposite
+  in bold ("anyone holding the lot may download the AMAW... do not add a
+  `can_review` gate"), so it is worth knowing it was reversed rather than
+  never written.
   **The `ref` the AMAW mapper takes is three FUNCTIONS, not three lists**
   (`agpFor`, `ampFor`, `matCodeFor`), and it swallows a throw from any of
   them - so handing it `state.ref` directly produces a workbook missing every
@@ -2103,6 +2100,43 @@ TBD — cite the governing spec section when encoding a limit in code.
   cards with their own inline labels, and comparing zero-size cells there
   reported every table as hundreds of pixels out - the check being wrong, not
   the page. Watched failing both ways round.
+
+
+- **The AMAW download is REVIEWER-ONLY, reversing a note that stood for one
+  day and said the opposite in capitals** (Jake, 2026-09-14: "the contractors
+  don't need to see the upload for medl, they should only see the PDF that is
+  to be submitted to kytc. Just like on the design book Andrew and Tate with
+  reviewer access can take that submitted PlantBook PDF and turn it into the
+  medl file").
+  **What the reversed note argued, and why it lost.** It said the MixPack is
+  gated because a contractor never loads SiteManager, whereas the AMAW is the
+  contractor's OWN document - what they fill out over a lot, and the lot pay
+  is most of why they care. The first half of that is still true and is now
+  the reason for the gate rather than against it: **MEDL is KYTC's loader, so
+  a workbook only the Department can load is a button that can only confuse
+  the person it is shown to.** The second half turned out not to be at stake,
+  which is the part worth carrying: **the lot pay is ON the two PDFs**, fully
+  computed, so nothing a contractor actually needs moved behind the gate. An
+  argument that a gate costs somebody something is only as good as a check of
+  what they lose.
+  A contractor's Submit step is the **lot PDF** (the save, at any point), the
+  **.json**, and Submit itself, which downloads the submittal to email. A
+  reviewer sees the **AMAW for MEDL** as well, on `state.canReview`, the same
+  gate and the same second guard inside the function that `downloadMixPack()`
+  carries - hiding a button is UX and every page here is directly linkable, so
+  the function refuses too, and says what the file is rather than that they
+  may not have one. The note under the buttons changes with the gate, because
+  a missing button explains nothing by itself.
+  **The hand-off works because the submittal PDF carries the whole lot
+  envelope inside it.** A reviewer opens that same file through the ordinary
+  front door, `openLotEnvelope()` restores the lot exactly, and the AMAW is
+  generated from there - the same shape as DesignBook, where the MixPack is
+  built from the approval a reviewer is holding. Verified end to end in a
+  browser rather than reasoned about: submit as a contractor, wipe the page,
+  reopen the downloaded submittal as a reviewer, and `amawCells()` produces
+  the workbook from it with a marker value intact, the stage reading
+  Submitted, and `Calculations!J1`, `!D15`, `!H20` and `!H12` all present -
+  the four cells the whole pay schedule gates on.
 
 
 ### Technician login & plant access

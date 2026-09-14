@@ -1442,15 +1442,32 @@ export const PLANTBOOK_SECTIONS = [
     //  in the 44px action bar, because the generator's list of what the lot
     //  lacks is exactly the message you cannot afford to clip.
     //
-    //  SETTLED 2026-09-13 (Jake): ANYONE HOLDING THE LOT MAY DOWNLOAD THE
-    //  AMAW — "the contractor can download their plantbook or KYTC such as
-    //  Andrew or Tate". An earlier draft of this comment said it should be
-    //  reviewer-only by analogy with DesignBook's MixPack button, and that
-    //  analogy is wrong: the MixPack is gated because a contractor never
-    //  loads SiteManager, whereas the AMAW is the contractor's own
-    //  document — it is what they fill out over a lot, and the lot pay it
-    //  computes is most of why they care about it. Do not add a can_review
-    //  gate here.
+    //  THE AMAW DOWNLOAD IS REVIEWER-ONLY — REVERSED 2026-09-14 (Jake):
+    //  "the contractors don't need to see the upload for medl, they should
+    //  only see the PDF that is to be submitted to kytc. Just like on the
+    //  design book Andrew and Tate with reviewer access can take that
+    //  submitted PlantBook PDF and turn it into the medl file."
+    //
+    //  This reverses a note that stood here for one day and said the
+    //  opposite in capitals ("anyone holding the lot may download the
+    //  AMAW... do not add a can_review gate here"), on the reasoning that
+    //  the AMAW is the contractor's own document in a way the MixPack is
+    //  not. Jake has settled it the other way, and the reasoning that wins
+    //  is the one DesignBook already runs on: MEDL is KYTC's loader, a
+    //  contractor never touches it, and a workbook nobody outside the
+    //  Department can load is a button that can only confuse the person
+    //  it is shown to.
+    //
+    //  What a contractor gets instead is not less: the lot PDF is the save
+    //  at any point, and the submittal PDF is the thing that goes to KYTC.
+    //  The lot pay — which is most of why a contractor cares — is ON those
+    //  PDFs, computed, so nothing they actually need moved behind the gate.
+    //
+    //  And the hand-off works because the submittal PDF carries the whole
+    //  lot envelope inside it: a reviewer opens that same file through the
+    //  front door, `openLotEnvelope()` restores the lot exactly, and the
+    //  AMAW is generated from there. Same shape as DesignBook, where the
+    //  MixPack is built from the approval a reviewer is holding.
     //
     //  One thing IS carried over from DesignBook's Status step unchanged:
     //  the project-items lookup sits here as well as on the Lot step — the

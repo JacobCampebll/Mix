@@ -4075,15 +4075,32 @@ const PB_SECTIONS = (() => {
       //  in the 44px action bar, because the generator's list of what the lot
       //  lacks is exactly the message you cannot afford to clip.
       //
-      //  SETTLED 2026-09-13 (Jake): ANYONE HOLDING THE LOT MAY DOWNLOAD THE
-      //  AMAW — "the contractor can download their plantbook or KYTC such as
-      //  Andrew or Tate". An earlier draft of this comment said it should be
-      //  reviewer-only by analogy with DesignBook's MixPack button, and that
-      //  analogy is wrong: the MixPack is gated because a contractor never
-      //  loads SiteManager, whereas the AMAW is the contractor's own
-      //  document — it is what they fill out over a lot, and the lot pay it
-      //  computes is most of why they care about it. Do not add a can_review
-      //  gate here.
+      //  THE AMAW DOWNLOAD IS REVIEWER-ONLY — REVERSED 2026-09-14 (Jake):
+      //  "the contractors don't need to see the upload for medl, they should
+      //  only see the PDF that is to be submitted to kytc. Just like on the
+      //  design book Andrew and Tate with reviewer access can take that
+      //  submitted PlantBook PDF and turn it into the medl file."
+      //
+      //  This reverses a note that stood here for one day and said the
+      //  opposite in capitals ("anyone holding the lot may download the
+      //  AMAW... do not add a can_review gate here"), on the reasoning that
+      //  the AMAW is the contractor's own document in a way the MixPack is
+      //  not. Jake has settled it the other way, and the reasoning that wins
+      //  is the one DesignBook already runs on: MEDL is KYTC's loader, a
+      //  contractor never touches it, and a workbook nobody outside the
+      //  Department can load is a button that can only confuse the person
+      //  it is shown to.
+      //
+      //  What a contractor gets instead is not less: the lot PDF is the save
+      //  at any point, and the submittal PDF is the thing that goes to KYTC.
+      //  The lot pay — which is most of why a contractor cares — is ON those
+      //  PDFs, computed, so nothing they actually need moved behind the gate.
+      //
+      //  And the hand-off works because the submittal PDF carries the whole
+      //  lot envelope inside it: a reviewer opens that same file through the
+      //  front door, `openLotEnvelope()` restores the lot exactly, and the
+      //  AMAW is generated from there. Same shape as DesignBook, where the
+      //  MixPack is built from the approval a reviewer is holding.
       //
       //  One thing IS carried over from DesignBook's Status step unchanged:
       //  the project-items lookup sits here as well as on the Lot step — the
@@ -16679,7 +16696,7 @@ function lotStatusHTML() {
     <div class="lookupnote" id="itemsLookupNoteStatus"></div>
     <div class="stagewarn hidden" id="stageWarn"></div>
     <div class="handoff">
-      <button class="stagebtn" id="amawBtn">Download AMAW for MEDL</button>
+      <button class="stagebtn hidden" id="amawBtn">Download AMAW for MEDL</button>
       <button class="stagebtn hidden" id="lotSubmittalBtn">Download submittal PDF</button>
       <button class="stagebtn" id="lotPdfBtn">Download lot PDF</button>
       <button class="stagebtn ghost" id="lotFileBtn">Download working copy (.json)</button>
@@ -16688,7 +16705,8 @@ function lotStatusHTML() {
         value inside it. Download the <strong>lot PDF</strong> at any point to
         keep your work; upload it on the way back in to return to exactly this
         point. The <strong>.json</strong> holds the same lot and is the same
-        door &mdash; take it if you would rather have the raw record.</div>
+        door &mdash; take it if you would rather have the raw record.
+        <span id="medlNote"></span></div>
     </div>
     <div class="refstatus" id="refStatus"></div>
     <div class="auditlog" id="auditlog"></div>`;
@@ -16717,6 +16735,18 @@ function renderLotStage() {
   // from the one KYTC was given.
   const sb_ = $("lotSubmittalBtn");
   if (sb_) sb_.classList.toggle("hidden", !submittedFor("plantbook"));
+  // The MEDL workbook is KYTC's to load, so it is a reviewer's button -
+  // reversed 2026-09-14, see the note in CONFIG.PLANTBOOK_SECTIONS' status
+  // step. A contractor sees the two PDFs instead, and the line below says
+  // where the workbook went rather than leaving its absence to be noticed.
+  const amaw = $("amawBtn");
+  if (amaw) amaw.classList.toggle("hidden", !state.canReview);
+  const medl = $("medlNote");
+  if (medl) medl.innerHTML = state.canReview
+    ? " You can also build the <strong>AMAW for MEDL</strong> from this lot."
+    : " Submitting downloads the <strong>submittal PDF</strong> to email to KYTC. "
+      + "They build the MEDL workbook from that same file &mdash; it carries the "
+      + "whole lot, the pay included, inside it.";
 }
 
 /* ---------- the front door ----------
@@ -16820,6 +16850,16 @@ async function downloadAmaw() {
   const btn = $("amawBtn");
   if (!btn || btn.disabled) return;
   if (!state.lot) { msg($("saveMsg"), "Open a DesignBook approval first - a lot is a child of one.", "error"); return; }
+  // The same second gate downloadMixPack() carries, and for the same reason:
+  // hiding a button is UX, not a boundary, and every page here is directly
+  // linkable. A contractor who reaches this function anyway is told what the
+  // file is rather than that they are not allowed to have one.
+  if (!state.canReview) {
+    msg($("saveMsg"),
+        "The MEDL workbook is KYTC's to load. Submit the lot and email the submittal PDF - "
+        + "the Department builds the AMAW from it.", "error");
+    return;
+  }
   btn.disabled = true;
   const was = btn.textContent;
   btn.textContent = "Building...";
