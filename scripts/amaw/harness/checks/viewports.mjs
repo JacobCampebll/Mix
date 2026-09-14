@@ -52,7 +52,7 @@ export async function run({ browser, results, books, bless }) {
         const r = await page.evaluate(async () => {
           const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
           const n = topSections().length;
-          let scroll = 0, clipped = [], measured = 0, deadSteps = [];
+          let scroll = 0, clipped = [], measured = 0, deadSteps = [], misaligned = [];
           for (let i = 0; i < n; i++) {
             go(i, null, false);
             await sleep(30);
@@ -69,9 +69,52 @@ export async function run({ browser, results, books, bless }) {
                              `(${el.scrollWidth}>${el.clientWidth})`);
               }
             });
+            /* EVERY COLUMN HEADING OVER ITS OWN VALUES.
+             *
+             * A repeating table is a header strip and a row strip, two grids,
+             * sharing one `.rowscroll`. Sharing a scroller makes them scroll
+             * together; it never made them agree about where a column IS.
+             * With `min-width:max-content` on each separately they sized their
+             * own tracks from their own content - the header from its labels,
+             * the rows from their values - so the moment the scroller was
+             * narrower than either, they drifted. Found 2026-09-13 while
+             * screenshotting a filled lot for KYTC: EVERY repeating table in
+             * BOTH books was out, 7px to 969px, at every width from 800 to
+             * 1500, and a technician was reading values under the wrong
+             * headings.
+             *
+             * Nothing else here could see it. Clipping compares an input to
+             * its own box; page scroll is a page-level figure; the round trip
+             * only reads values. A heading in the wrong place is correct data
+             * displayed wrongly, which is exactly the shape this harness
+             * exists to catch and did not. So: compare each header cell's
+             * left edge to the cell below it, and allow 2px for rounding. */
+            active.querySelectorAll(".rowscroll").forEach((sc) => {
+              const head = sc.querySelector(".rowhead"), list = sc.querySelector(".rowlist");
+              const row = list && list.firstElementChild;
+              if (!head || !row) return;
+              // Below 700px `.rowhead` is display:none - the rows are cards
+              // with their own inline labels and there is no header strip to
+              // line anything up with. Comparing zero-size cells there
+              // reported every table as misaligned by hundreds of pixels,
+              // which was this check being wrong rather than the page. Ask
+              // whether the header is actually laid out, not what the
+              // viewport is: the breakpoint is the stylesheet's business.
+              if (!head.getClientRects().length) return;
+              const L = (el) => Math.round(el.getBoundingClientRect().left);
+              const hs = Array.from(head.children).map(L), rs = Array.from(row.children).map(L);
+              let worst = 0;
+              for (let k = 0; k < Math.min(hs.length, rs.length); k++)
+                worst = Math.max(worst, Math.abs(hs[k] - rs[k]));
+              if (hs.length !== rs.length)
+                misaligned.push(`${list.dataset.rowlist}(${hs.length} headings over ${rs.length} cells)`);
+              else if (worst > 2) misaligned.push(`${list.dataset.rowlist}(${worst}px)`);
+            });
+
             scroll = Math.max(scroll, document.documentElement.scrollWidth);
           }
-          return { scroll, clipped: Array.from(new Set(clipped)), measured, deadSteps,
+          return { scroll, clipped: Array.from(new Set(clipped)),
+                   misaligned: Array.from(new Set(misaligned)), measured, deadSteps,
                    steps: n, headH: Math.round(document.querySelector(".appbar").getBoundingClientRect().height) };
         });
         return { r, errs: realErrors(errs) };
@@ -87,6 +130,11 @@ export async function run({ browser, results, books, bless }) {
       const tag = `${width}px`;
       results.ok(id, book.label, `${tag} no sideways scroll`, r.scroll <= width,
                  `scrollWidth ${r.scroll} vs viewport ${width}`);
+      // Absolute, with no baseline: a heading that is not over its own column
+      // is never acceptable at any width, however long it has been that way.
+      results.ok(id, book.label, `${tag} every column heading sits over its values`,
+                 r.misaligned.length === 0,
+                 r.misaligned.length ? r.misaligned.join(" ") : "all row tables aligned");
 
       const keys = Array.from(new Set(r.clipped.map(keyOf))).sort();
       (fresh.books[book.label] = fresh.books[book.label] || {})[width] = keys;

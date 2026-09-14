@@ -2063,6 +2063,48 @@ TBD — cite the governing spec section when encoding a limit in code.
   rule, so it is gold only while that book is current.
 
 
+- **Every repeating table's column headings were sitting over the wrong
+  values, in BOTH books, at every width, and nothing could see it**
+  (2026-09-13, found while filling a lot in to screenshot it for Andrew and
+  Tate). A row table is a header strip and a row strip - two grids sharing one
+  `.rowscroll`. Sharing a scroller makes them SCROLL together; it never made
+  them AGREE about where a column is. `min-width:max-content` was on each of
+  them separately, so each sized its own tracks from its own content - the
+  header from its labels, the rows from their values - and the moment the
+  scroller was narrower than either, the two resolved to different widths.
+  Measured across both books: **7px to 969px out, at every width from 800 to
+  1500**. DesignBook's TSR specimens was 606px out at 1500px. A technician
+  reading a value under the heading two columns to its left is the worst kind
+  of wrong: the data is right and the page is lying about what it is.
+  **The fix is one grid COLUMN rather than two min-widths.**
+  `.rowscroll{display:grid; grid-template-columns:minmax(max-content,1fr)}`
+  puts both children in the SAME track, which is at least the larger of their
+  two max-contents and at most the container, and both stretch to it - so
+  there is one set of track widths and they cannot drift. The scroll still
+  happens, because the track may exceed the container, which is the behaviour
+  this file already asked for ("a table that cannot fit its columns SCROLLS
+  rather than squeezing them").
+  **Half of it was a 26px hole, and that half is worth knowing on its own.**
+  A removable table's last track is `auto` and the row puts its remove button
+  there; the header's trailing spacer was an EMPTY `<div>`, so the header
+  handed 26px back to its `fr` tracks that the row kept for the button, and
+  every column drifted. `.rowhead > .rowspacer` is `.rmbtn`'s width now - keep
+  the two equal.
+  **Why no check caught it, which is the part to carry forward.** Per-input
+  clipping compares an input to its own box; the page-scroll assertion is
+  page-level; the `collectForm()` round trip only reads values. **Every
+  existing check measured one element against itself.** A heading in the
+  wrong place is two elements disagreeing, and nothing was comparing two
+  elements. The harness has `every column heading sits over its values` now -
+  absolute, no baseline, because a heading off its column is never acceptable
+  at any width however long it has been that way (318 checks, up from 286).
+  Note the check has to ask whether `.rowhead` is actually LAID OUT rather
+  than what the viewport is: below 700px it is `display:none` and the rows are
+  cards with their own inline labels, and comparing zero-size cells there
+  reported every table as hundreds of pixels out - the check being wrong, not
+  the page. Watched failing both ways round.
+
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by

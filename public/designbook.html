@@ -517,6 +517,9 @@
            border-bottom:1px solid var(--line);}
   .rowhead > div{font-size:10px; color:var(--muted); text-transform:uppercase;
                  letter-spacing:.03em; line-height:1.25;}
+  /* Stands over the row's remove button, and is exactly as wide - see
+     rowHeadHTML(). Keep this equal to .rmbtn's width. */
+  .rowhead > .rowspacer{width:26px;}
   .rowitem{display:grid; gap:10px; align-items:center; padding:5px 10px;
            border-bottom:1px solid var(--line); background:transparent;}
   .rowitem:hover{background:var(--well);}
@@ -536,8 +539,26 @@
      Above 700px only: below that the rows are already cards, one field per
      line, and nothing is wide. */
   .rowscroll{overflow-x:auto;}
+  /* ONE WIDTH FOR BOTH, and this is the whole point of the rule.
+     `min-width:max-content` on the header and on the rows SEPARATELY was two
+     independent grids each sizing its own tracks from its own content - the
+     header from its labels, the rows from their values - so the moment the
+     scroller was narrower than either, the two resolved to different column
+     widths and the headings stopped sitting over their own values. Measured
+     2026-09-13 across both books: every repeating table was out, from 7px to
+     969px, at every width from 800 to 1500. Sharing a scroller makes them
+     scroll together; it never made them agree about where a column is.
+     A single grid COLUMN does. `minmax(max-content,1fr)` is at least the
+     larger of the two children's max-contents and at most the container, and
+     both children stretch to it, so there is one set of track widths and they
+     cannot drift. The scroll still happens, because the track may exceed the
+     container - which is the behaviour CLAUDE.md asked for: a table that
+     cannot fit its columns scrolls rather than squeezing them.
+     Above 700px only: below that the rows are already cards, one field per
+     line, and there is no header strip to line up with. */
   @media (min-width:701px){
-    .rowscroll > .rowhead, .rowscroll > .rowlist{min-width:max-content;}
+    .rowscroll{display:grid; grid-template-columns:minmax(max-content,1fr);}
+    .rowscroll > .rowhead, .rowscroll > .rowlist{min-width:0;}
   }
   /* Each row still carries its labels for the phone layout below. */
   .rowitem label{display:none;}
@@ -4451,8 +4472,13 @@ function rowHTML(spec, values, idx) {
 // is the only layout that works at that width.
 function rowHeadHTML(spec) {
   const cells = spec.columns.map((c0) => `<div>${effectiveColDef(c0, {}).label}</div>`).join("");
+  // The trailing cell stands over the row's remove button. It has to be the
+  // BUTTON'S WIDTH and not empty: the spec's last track is `auto`, so a
+  // zero-width spacer hands 26px back to the fr tracks in the header that the
+  // row keeps for its button, and every column drifts a little further left
+  // than its own values. 26px is .rmbtn's width, named once in the CSS.
   return `<div class="rowhead" style="grid-template-columns:${spec.grid}">
-    ${cells}${spec.fixed ? "" : "<div></div>"}</div>`;
+    ${cells}${spec.fixed ? "" : '<div class="rowspacer"></div>'}</div>`;
 }
 
 // A row table's group head, with the optional button a spec declares in
