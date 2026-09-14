@@ -330,6 +330,22 @@
   .subhead{display:flex; align-items:baseline; justify-content:space-between;
            gap:12px; flex-wrap:wrap; margin-bottom:14px;}
   .subhead h3{font-size:16px; color:var(--navy);}
+  /* PlantBook's two read-only design mirrors (Aggregate Structure, Design
+     Values, 2026-09-14): Andrew asked for "the bold navy blue header the
+     rest of the boxes have" rather than the plain .subhead every other
+     `into` sub-block gets. Same -24px negative margin as .section-head,
+     because .subsection sits at the same horizontal inset inside .section's
+     padding - it just isn't at the top of the card, so no border-radius and
+     no vertical repositioning, only the horizontal bleed. .subsection.banded
+     drops the thin border-top separator the band already provides. */
+  .subsection.banded{border-top:0;}
+  .subhead.banded{margin:0 -24px 14px; padding:9px 24px 8px;
+                  background:var(--navy); border-bottom:3px solid var(--gold);}
+  .subhead.banded h3{color:var(--panel);}
+  .subhead.banded .section-tag{color:var(--navy-dim); border-color:var(--navy-hairline);}
+  .subhead.banded a.cite{color:var(--sky); border-color:var(--sky);}
+  .subhead.banded a.cite:hover{background:var(--sky); color:var(--navy);}
+  .subhead.banded span.cite{color:var(--navy-dim); border-color:var(--navy-hairline);}
   @media (max-width:700px){ .subsection{margin-top:20px; padding-top:14px;} }
   .lookupnote{font-size:11.5px; color:var(--muted); line-height:1.45; margin:-4px 0 12px;}
   .lookupnote.error{color:var(--bad);} .lookupnote.ok{color:var(--ok);} .lookupnote:empty{display:none;}
@@ -798,6 +814,22 @@
     .dvtable.weighted .dvrow{grid-template-columns:minmax(0,1fr) 46px 76px;}
     .dvrow .l{font-size:10px;}
   }
+  /* PlantBook's design mirrors (2026-09-14): designValuesMirrorHTML() reuses
+     .dvtable/.dvrow above unchanged - it is the same "label left, mono value
+     right" shape, just fed from the approved design instead of Four Points.
+     designAggregateMirrorHTML() needs a real table (five columns, up to six
+     rows) rather than one value per row, so it gets its own - plain, no
+     inputs, nothing collected. .rowscroll is the same overflow-x container
+     every row table already uses; a phone gets six columns of a 48-character
+     producer name, which is wider than 390px on any table. */
+  .readtable{width:100%; border-collapse:collapse; font-size:12.5px;}
+  .readtable th{text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.03em;
+                color:var(--muted); font-weight:600; padding:5px 8px; border-bottom:1px solid var(--line);
+                white-space:nowrap;}
+  .readtable td{padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap;}
+  .readtable td.mono{font-family:'Roboto Mono',monospace;}
+  .readtable tr:last-child td{border-bottom:0;}
+  .dmirror-empty{font-size:12px; color:var(--muted); padding:6px 0;}
   /* A readout: a computed figure given a grid cell, so it reads as a result
      rather than as something to fill in. Bigger than a field's value on
      purpose - it is the number the whole tab exists to produce. */
@@ -3245,6 +3277,66 @@ const PB_SECTIONS = (() => {
 
     {
       // ---------------------------------------------------------------
+      //  1a. AGGREGATE STRUCTURE (approved design) — read-only mirror
+      // ---------------------------------------------------------------
+      //
+      //  Andrew, 2026-09-14: Contract & Mix should show what the aggregate
+      //  structure and design values WERE on the approved design, not just the
+      //  three pay-schedule numbers `jmf-figures` already prints under Lot Pay.
+      //  A reviewer opening a lot should be able to see what was approved
+      //  without leaving step 1 or reaching for the PDF.
+      //
+      //  This is `lot.values.design.aggregate` (intake.mjs), which is
+      //  DesignBook's own five columns UNRESHAPED — producer, type & size, mat
+      //  code, % blend, Gsb — the same rows CONFIG.SECTIONS renders on that
+      //  book's Aggregate Structure step. It is NOT `lot.rows.blend`: that is
+      //  the AMAW-shaped, per-sublot, EDITABLE working copy of these same
+      //  components (Aggregate Blend, below), and the two must not be
+      //  confused — one is what the plant is producing, this is what KYTC
+      //  approved.
+      //
+      //  `type: "design-mirror"` is new and deliberately narrow: a section with
+      //  neither `fields` nor `rows`, painted straight from `lotDesign()` by
+      //  `paintDesignMirror()` on the page side. Nothing in it carries
+      //  data-col/data-field/data-dv, so collectForm() cannot see it and there
+      //  is nothing on it for a technician to edit or for check_sections.mjs's
+      //  scalar/row-key checks to have an opinion about — it is pure display,
+      //  same footing as a static caption. Andrew's call: the CONSENSUS
+      //  PROPERTIES half of DesignBook's Aggregate Structure section is left
+      //  out here — just the component table.
+      //
+      //  `banded: true` is also new: Andrew asked for "the bold navy blue
+      //  header the rest of the boxes have" rather than the plain `.subhead`
+      //  every other `into` sub-block gets (Binder & additive, Hand-mixed
+      //  check sample). See the page-side CSS comment on `.subhead.banded`.
+      id: "design-aggregate", label: "Aggregate Structure", into: "lot",
+      tag: "from the approved design — read-only", banded: true,
+      type: "design-mirror", show: "aggregate",
+      cites: ["agg805"],
+    },
+
+    {
+      // ---------------------------------------------------------------
+      //  1b. DESIGN VALUES (approved design) — read-only mirror
+      // ---------------------------------------------------------------
+      //
+      //  Same decision, same mechanism, the other read-only mirror Andrew
+      //  asked for: all ten of DesignBook's own Design Values figures — AC/
+      //  design Pb, air voids, VMA, VFA, Gmm, Gmb, Gse, Pbe, dust ratio, unit
+      //  weight — as the design achieved them, not as a sublot measures them.
+      //  `design_pb` comes off `lotDesign().jmf_ac` (the same figure
+      //  `jmf-figures` already prints under Lot Pay); the other nine are
+      //  `lotDesign().volumetrics`, intake.mjs's `achieved` object. Nothing
+      //  new to inherit — both were already on the lot envelope before this,
+      //  just not shown here.
+      id: "design-values-ref", label: "Design Values", into: "lot",
+      tag: "from the approved design — read-only", banded: true,
+      type: "design-mirror", show: "design-values",
+      cites: ["volumetric"],
+    },
+
+    {
+      // ---------------------------------------------------------------
       //  2. BLEND — `Superpave` rows 3..8, the aggregate structure
       // ---------------------------------------------------------------
       //
@@ -5009,6 +5101,7 @@ function sectionBodyHTML(s) {
   if (s.type === "fourpoint") return fourpointHTML(s);
   if (s.type === "polish") return polishHTML(s);
   if (s.type === "computed") return computedHTML(s);
+  if (s.type === "design-mirror") return designMirrorHTML(s);
   let body = "";
   if (s.fields) body += gridHTML(s.fields);
   if (s.rows) body += (s.fields ? '<div style="height:14px"></div>' : "") + rowsBlockHTML(s.rows);
@@ -5022,9 +5115,14 @@ function renderForm() {
     // sub-block rather than as a section of its own. It is not a .section, so
     // recompute()'s sweep counts its required fields under the host - which
     // is right, because that is the step a person fills them on.
+    // `banded` (PlantBook's two read-only design mirrors, 2026-09-14): the
+    // full navy .section-head treatment on a sub-block instead of the plain
+    // .subhead every other `into` block gets, per Andrew's ask - "the bold
+    // navy blue header the rest of the boxes have". See the CSS comment on
+    // .subhead.banded for why the same -24px reaches the card edge here too.
     const child = activeSections().filter((c) => c.into === s.id).map((c) =>
-      `<div class="subsection" data-subsection="${c.id}" data-label="${esc(c.label)}">
-         <div class="subhead"><h3>${esc(c.label)}</h3><span class="headmeta">${sectionCitesHTML(c)}<span class="section-tag mono">${c.tag}</span></span></div>
+      `<div class="subsection${c.banded ? " banded" : ""}" data-subsection="${c.id}" data-label="${esc(c.label)}">
+         <div class="subhead${c.banded ? " banded" : ""}"><h3>${esc(c.label)}</h3><span class="headmeta">${sectionCitesHTML(c)}<span class="section-tag mono">${c.tag}</span></span></div>
          ${sectionBodyHTML(c)}
        </div>`).join("");
     // data-step is the section's index among the top-level sections - the
@@ -7005,6 +7103,7 @@ function recompute() {
     });
   });
   paintLotReadouts();
+  paintDesignMirror();
 
   // ---- the completeness meter, in the action bar ----
   const pct = totalReq ? Math.round(totalFilled / totalReq * 100) : 0;
@@ -16455,6 +16554,20 @@ const PB_LOT = (() => {
        Seeded into all four sublots as the design's target, and a plant that
        shifts its blend mid-lot overwrites the sublot it shifted. */
     const agg = Array.isArray(rows.aggregate) ? rows.aggregate : [];
+    // DesignBook's own Aggregate Structure table, verbatim - producer / type &
+    // size / mat code / % blend / Gsb, the same five columns `CONFIG.SECTIONS`
+    // renders on that book. Carried alongside `blend` below rather than instead
+    // of it: `blend` is reshaped for the AMAW's own columns (no mat_code, `gsb`
+    // renamed `bod`, one percentage per sublot) and is the plant's working
+    // data; this is what was APPROVED, read-only, for the Lot step's mirror of
+    // the design. Two different jobs, so two different shapes of the same rows.
+    const aggregateStructure = agg.map((r) => ({
+      producer: str(r.producer) || null,
+      type_size: str(r.type_size) || null,
+      mat_code: str(r.mat_code) || null,
+      pct_blend: num(r.pct_blend),
+      gsb: num(r.gsb),
+    }));
     // sections.mjs's `blend` columns exactly: producer / agp / type_size / bod
     // and one percentage per sublot. Four explicit percentage columns rather
     // than one is that file's own decision and the right one - a plant that
@@ -16747,6 +16860,10 @@ const PB_LOT = (() => {
       volumetrics: achieved,
       combined_gsb: combinedGsb,
       blend,
+      // The design's own Aggregate Structure table, unreshaped - see
+      // `aggregateStructure` above. Read-only reference; `lot.rows.blend`
+      // above is the plant's working copy of the same components.
+      aggregate: aggregateStructure,
       jmf_gradation: jmf,
     };
 
@@ -16911,6 +17028,81 @@ function paintLotReadouts() {
   show("jmf_ac", d ? d.jmf_ac : null, from);
   show("target_va", d ? d.target_va : null, from);
   show("min_vma", d ? d.min_vma : null, from);
+}
+
+/* ---------- design mirrors — Aggregate Structure / Design Values, read-only
+ *
+ * Andrew, 2026-09-14: Contract & Mix should show what the approved design's
+ * aggregate structure and design values WERE, not just the three pay-schedule
+ * numbers paintLotReadouts() prints under Lot Pay. `type: "design-mirror"`
+ * sections (sections.mjs) render an empty container at renderForm() time;
+ * this fills it in, the same "paint after render" split paintLotReadouts()
+ * already uses and for the same reason - the approval may load after the
+ * step's markup already exists.
+ *
+ * DELIBERATELY NOT COLLECTED: no data-col, data-field or data-dv anywhere in
+ * either builder below, so collectForm() never sees this and there is
+ * nothing here for a technician to edit. It is a read-only quotation of the
+ * design, same footing as a static caption - editing the design happens in
+ * DesignBook, not by retyping its numbers into a lot.
+ */
+function designMirrorHTML(s) {
+  return `<div class="design-mirror" data-designmirror="${esc(s.show)}"><div class="dmirror-empty">No approval opened yet.</div></div>`;
+}
+
+// Producer / type & size / mat code / % blend / Gsb - DesignBook's own five
+// Aggregate Structure columns, unreshaped. NOT `lot.rows.blend`: that is the
+// AMAW-shaped, per-sublot, EDITABLE working copy of these same components
+// (Aggregate Blend, its own step) - this is what was approved.
+function designAggregateMirrorHTML(d) {
+  const rows = d && Array.isArray(d.aggregate) ? d.aggregate : [];
+  if (!rows.length) return `<div class="dmirror-empty">No approval opened yet.</div>`;
+  const cell = (v, mono) => `<td${mono ? ' class="mono"' : ""}>${v == null || v === "" ? "—" : esc(String(v))}</td>`;
+  return `<div class="rowscroll"><table class="readtable">
+    <thead><tr><th>Producer</th><th>Type &amp; size</th><th>Mat. code</th><th>% blend</th><th>Gsb</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr>
+      ${cell(r.producer)}${cell(r.type_size)}${cell(r.mat_code, true)}
+      ${cell(r.pct_blend == null ? null : String(r.pct_blend), true)}
+      ${cell(r.gsb == null ? null : fmt(r.gsb, CONFIG.DP.gsb), true)}
+    </tr>`).join("")}</tbody>
+  </table></div>`;
+}
+
+// All ten of DesignBook's own Design Values, as the design ACHIEVED them -
+// design_pb off `d.jmf_ac` (same figure jmf-figures already prints), the
+// other nine off `d.volumetrics` (intake.mjs's `achieved`). Precision keys
+// match DesignBook's own outputs (design_pb/gmm_design/etc. in CONFIG.DP),
+// not PlantBook's sublot-measurement tolerances, because this is the
+// design's figure, not a sublot's.
+function designValuesMirrorHTML(d) {
+  if (!d) return `<div class="dmirror-empty">No approval opened yet.</div>`;
+  const v = d.volumetrics || {};
+  const DP = CONFIG.DP;
+  const rows = [
+    ["AC / Design Pb (%)", d.jmf_ac, DP.design_pb],
+    ["Air voids / Va (%)", v.va, DP.va_design],
+    ["VMA (%)", v.vma, DP.vma_design],
+    ["VFA (%)", v.vfa, DP.vfa_design],
+    ["Gmm", v.gmm, DP.gmm_design],
+    ["Gmb", v.gmb, DP.gmb_design],
+    ["Gse", v.gse, DP.gse],
+    ["Effective AC / Pbe (%)", v.pbe, DP.pbe],
+    ["Dust ratio", v.dust_pbe, DP.dust_pbe],
+    ["Unit weight / density (pcf)", v.density, DP.density],
+  ];
+  return `<div class="dvtable">` + rows.map(([label, val, dp]) =>
+    `<div class="dvrow"><span class="l">${esc(label)}</span>
+       <span class="v${val == null ? " none" : ""}">${val == null ? "—" : fmt(val, dp)}</span>
+     </div>`).join("") + `</div>`;
+}
+
+function paintDesignMirror() {
+  if (!isPlantBook()) return;
+  const d = lotDesign();
+  const agg = document.querySelector('[data-designmirror="aggregate"]');
+  if (agg) agg.innerHTML = designAggregateMirrorHTML(d);
+  const dv = document.querySelector('[data-designmirror="design-values"]');
+  if (dv) dv.innerHTML = designValuesMirrorHTML(d);
 }
 
 /* ---------- % solid, the one computed core column ----------
