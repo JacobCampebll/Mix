@@ -3021,7 +3021,7 @@ const PB_SECTIONS = (() => {
   // slice indices, and the section's own comment for what did and did not
   // need a mapper.mjs change to get here.
   const VERIFY_SEED = VERIFY_RECORDS.flatMap((r) =>
-    ["1", "2", "3", "4"].map((sublot) => ({ record: r.label, sublot })));
+    ["1", "2", "3", "4"].map((sublot) => ({ record: r.label, sublot_verified: sublot })));
   const VERIFY_ROW_SEED = VERIFY_RECORDS.flatMap((r) =>
     ["1", "2", "3", "4"].map((sublot) => ({ record: r.key, sublot })));
   const VERIFY_SPECIMEN_SEED = VERIFY_RECORDS.flatMap((r) =>
