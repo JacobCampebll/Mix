@@ -173,12 +173,23 @@ if (!approval) {
     ok('...and the report says a technician still owes it',
        r.report.typed.some((t) => t.key === 'blend[].agp'));
     // The blend has to land under sections.mjs's own column keys or the form
-    // renders six empty rows and nobody notices.
+    // renders six empty rows and nobody notices. 2026-09-15: pct_1..pct_4
+    // moved OFF this table onto blend_pct (BLEND_PCT_SPEC) - identity only
+    // here now.
     ok('blend rows use the schema\'s column keys',
-       d.blend.every((b) => 'producer' in b && 'agp' in b && 'type_size' in b && 'bod' in b && 'pct_1' in b && 'pct_4' in b),
+       d.blend.every((b) => 'producer' in b && 'agp' in b && 'type_size' in b && 'bod' in b),
        Object.keys(d.blend[0] || {}));
-    ok('the design\'s percentage is seeded into all four sublot columns',
-       d.blend.every((b) => b.pct_1 === b.pct_4), d.blend.map((b) => [b.pct_1, b.pct_4]));
+    ok('blend_pct is 6 x 4 = 24 rows (six components, four sublots)',
+       d.blend_pct.length === d.blend.length * 4, d.blend_pct.length);
+    ok('blend_pct rows use the schema\'s column keys',
+       d.blend_pct.every((b) => 'sublot' in b && 'producer' in b && 'type_size' in b && 'pct' in b),
+       Object.keys(d.blend_pct[0] || {}));
+    ok('the design\'s percentage is seeded into all four sublots\' own rows',
+       [1, 2, 3, 4].every((s) => {
+         const mine = d.blend_pct.filter((b) => Number(b.sublot) === s);
+         return mine.length === d.blend.length && mine.every((b, i) => b.pct === d.blend_pct[i].pct);
+       }),
+       d.blend_pct.map((b) => [b.sublot, b.pct]));
     ok('combined Gsb is seeded across the blend_gsb row',
        lot.rows.blend_gsb[0].gsb_1 === d.combined_gsb && lot.rows.blend_gsb[0].gsb_4 === d.combined_gsb,
        lot.rows.blend_gsb);
