@@ -4877,6 +4877,56 @@ function gridHTML(fields) {
   }).join("") + `</div>`;
 }
 
+/* ONE TEMPLATE, ONE ANSWER - the inline grid template both halves of a row
+ * table are given.
+ *
+ * `Nfr` is shorthand for `minmax(auto, Nfr)`, and that automatic minimum is
+ * MIN-CONTENT. So two grids handed the identical template and the identical
+ * width still resolve to different track widths as soon as the space is
+ * tight, because they clamp against different content: the header strip holds
+ * its narrow tracks open on a label like "Wt in air (g)" while the row lets
+ * the same tracks collapse around "2.451" and spends the surplus on its wide
+ * ones. Measured on DesignBook's TSR specimens at 701px - one 408px scroller,
+ * both children 408px wide, nothing overflowing, and the tracks resolving
+ *   head  45.1 41.8 42.4 43.7 43.7 43.7 39.3 39.3
+ *   row   36.5 26.1 26.1 52.2 52.2 52.1 46.9 47.0
+ * which walks the last heading 23px off its own values.
+ *
+ * `minmax(0,Nfr)` removes that minimum, so the tracks resolve on the declared
+ * proportions alone and the two grids cannot disagree. It is the fix that
+ * belongs HERE rather than on `.rowscroll`: sharing one scroller track was
+ * never the problem - measured, both children already had exactly the same
+ * width - so neither the floor `max-content` nor `min-content` nor `0` on
+ * that track changes any of this. All three were tried against the real
+ * check and all three left every drift exactly where it was.
+ *
+ * Written once and used by both callers, because a template applied to one
+ * half and not the other is the same bug with extra steps.
+ *
+ * THE FLOOR HAS TO BE A PIXEL FIGURE, and that is not laziness. Every
+ * content-based floor is computed PER GRID - `min-content` of a header cell
+ * is "Wt in air" and of the row cell below it is "20.5" - so any of them
+ * reintroduces exactly the divergence this function exists to remove.
+ * Measured: `max-content`, `min-content` and `0` on `.rowscroll`'s shared
+ * track all leave every drift in place, because the two children already had
+ * the same width and the disagreement was never about the scroller.
+ *
+ * WHAT THE FLOOR IS FOR is the other half of the same rule - CLAUDE.md's "a
+ * repeating table that cannot fit its columns SCROLLS rather than squeezing
+ * them". With no floor nothing can ever exceed `.rowscroll`, so the box never
+ * scrolls and the columns squeeze instead: DesignBook's TSR specimens at
+ * 701px had all fourteen of its columns clipped, 31px boxes holding values
+ * that need 44-52px. 64px is measured rather than picked - it is what leaves
+ * a 62px input, which clears the widest real value these narrow columns hold
+ * (a joint core id like "1-1-J1" at 59px, a five-figure Gmb at 52px). Verified
+ * at 1500px with a real lot number: zero clipped inputs in either book. */
+const ROW_TRACK_MIN = "64px";
+function rowGridTemplate(grid) {
+  return String(grid == null ? "" : grid).trim().split(/\s+/).filter(Boolean)
+    .map((t) => (/^\d*\.?\d+fr$/.test(t) ? `minmax(${ROW_TRACK_MIN},${t})` : t))
+    .join(" ");
+}
+
 function rowHTML(spec, values, idx) {
   const cells = spec.columns.map((c0) => {
     const c = effectiveColDef(c0, values || {});
@@ -4919,7 +4969,7 @@ function rowHTML(spec, values, idx) {
   // Fixed tables (e.g. the Hamburg pass-count grid) have no remove button.
   // Chip mode lays out with CSS flex (.rowitem.chips), not this inline grid
   // template, so the template is skipped rather than left inert.
-  const gridStyle = spec.chips ? "" : ` style="grid-template-columns:${spec.grid}"`;
+  const gridStyle = spec.chips ? "" : ` style="grid-template-columns:${rowGridTemplate(spec.grid)}"`;
   return `<div class="rowitem${spec.chips ? " chips" : ""}"${gridStyle}>
     ${cells}${spec.fixed ? "" : '<button class="rmbtn" title="Remove">×</button>'}</div>`;
 }
@@ -4938,7 +4988,7 @@ function rowHeadHTML(spec) {
   // zero-width spacer hands 26px back to the fr tracks in the header that the
   // row keeps for its button, and every column drifts a little further left
   // than its own values. 26px is .rmbtn's width, named once in the CSS.
-  return `<div class="rowhead" style="grid-template-columns:${spec.grid}">
+  return `<div class="rowhead" style="grid-template-columns:${rowGridTemplate(spec.grid)}">
     ${cells}${spec.fixed ? "" : '<div class="rowspacer"></div>'}</div>`;
 }
 

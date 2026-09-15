@@ -148,6 +148,28 @@ export function fillForm(overrides) {
     filled++;
   });
 
+  /* ---- Values other values are BUILT from cannot take junk ---------------
+   *
+   * The generic numeric fill is `(hash % 900)/10 + 1`, which is fine for a
+   * weight or a percentage and impossible for a lot number - it produced
+   * 80.8. That matters more than realism, because `lot_number` is not just
+   * displayed: every core id is built from it ("<lot>-<sublot>-A", mapper.mjs
+   * and paintLotIds()), so one junk value silently widened SIX columns and
+   * had the viewport sweep reporting mat_cores/joint_cores `sublot` and
+   * `core_id` as clipping at 1500px. They do not: with a real lot number
+   * every one of them fits, measured 2026-09-15. Blessing those into
+   * baseline/clipping.json would have recorded a width limit that no lot can
+   * ever reach and turned the check off for six real columns - the "a stale
+   * baseline is not neutral, it is a hole" trap this file already carries,
+   * arrived at from the other direction.
+   *
+   * A lot number is a positive integer, and 1 is what intake.mjs seeds. */
+  const DERIVED_FROM = { lot_number: "1" };
+  Object.entries(DERIVED_FROM).forEach(([k, v]) => {
+    const el = document.querySelector(`[data-field="${k}"]`);
+    if (el) setVal(el, v);
+  });
+
   // ---- Overrides last, so a check can pin the values it cares about -------
   Object.entries(overrides || {}).forEach(([k, v]) => {
     const el = document.querySelector(`[data-field="${k}"]`);
