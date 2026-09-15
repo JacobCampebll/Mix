@@ -454,7 +454,7 @@ namespace('PB_SECTIONS', '2. PB_SECTIONS vs scripts/amaw/sections.mjs');
         // ?sublots=open build bypass), which is about the viewer rather than
         // about the lot.
         'SETUP_LOT', 'SETUP_SUBLOT', 'sublotOfSectionId', 'sublotNeedsSample',
-        'LOT_LEVEL_SUBBLOCKS'].sort());
+        'LOT_LEVEL_SUBBLOCKS', 'LOT_LEVEL_ROW_TABLES'].sort());
   // The lock rule itself. The cases that matter are the setup exemption and
   // its exact boundary: lot 1 sublot 1 open, lot 1 sublot 2 gated, lot 2
   // sublot 1 gated, and a blank lot number reading as lot 1 rather than
@@ -467,14 +467,34 @@ namespace('PB_SECTIONS', '2. PB_SECTIONS vs scripts/amaw/sections.mjs');
          ['lot'], ['pay'], ['blend'], ['handmix'], ['sublot-5'], ['sublot-'], [''],
          [null], [undefined], ['SUBLOT-1']]);
   same('LOT_LEVEL_SUBBLOCKS is identical', P.LOT_LEVEL_SUBBLOCKS, MOD_SECTIONS.LOT_LEVEL_SUBBLOCKS);
-  // Every id the lock rule exempts has to BE a section, or the exemption is a
-  // typo that silently locks a lot-level block on lot 2 and leaves the lot
-  // with no way to state its own blend.
+  same('LOT_LEVEL_ROW_TABLES is identical', P.LOT_LEVEL_ROW_TABLES, MOD_SECTIONS.LOT_LEVEL_ROW_TABLES);
+  // Everything the lock rule exempts has to really BE there, or the exemption
+  // is a name that matches nothing: it would silently lock a lot-level block
+  // on lot 2 and leave that lot no way to state its own blend. This caught
+  // exactly that on 2026-09-15, when Andrew's PR #24 turned Aggregate Blend
+  // from an `into: "sublot-1"` sub-section into row TABLES on the tab and the
+  // merge was textually clean. Two shapes, so two assertions.
   ok('every LOT_LEVEL_SUBBLOCK is a real section drawn inside a sublot tab',
      MOD_SECTIONS.LOT_LEVEL_SUBBLOCKS.every((id) => {
        const sec = MOD_SECTIONS.PLANTBOOK_SECTIONS.find((x) => x.id === id);
        return sec && MOD_SECTIONS.sublotOfSectionId(sec.into) != null;
-     }), MOD_SECTIONS.LOT_LEVEL_SUBBLOCKS.join(', '));
+     }), MOD_SECTIONS.LOT_LEVEL_SUBBLOCKS.join(', ') || '(none)');
+  ok('every LOT_LEVEL_ROW_TABLE is a real row table on a sublot tab',
+     MOD_SECTIONS.LOT_LEVEL_ROW_TABLES.every((key) =>
+       MOD_SECTIONS.PLANTBOOK_SECTIONS.some((sec) =>
+         MOD_SECTIONS.sublotOfSectionId(sec.id) != null &&
+         (Array.isArray(sec.rows) ? sec.rows : []).some((r) => r.key === key))),
+     MOD_SECTIONS.LOT_LEVEL_ROW_TABLES.join(', ') || '(none)');
+  // And an exempt table must NOT be sliced per sublot: a sliced one is this
+  // sublot's own data by construction (blend_pct is six rows per tab so each
+  // sublot edits its own percentage), so exempting it would leave a future
+  // sublot editable through the back door the lock exists to close.
+  ok('no exempt row table is sliced per sublot',
+     MOD_SECTIONS.LOT_LEVEL_ROW_TABLES.every((key) =>
+       !MOD_SECTIONS.PLANTBOOK_SECTIONS.some((sec) =>
+         (Array.isArray(sec.rows) ? sec.rows : [])
+           .some((r) => r.key === key && Array.isArray(r.sliceIndices)))),
+     MOD_SECTIONS.LOT_LEVEL_ROW_TABLES.join(', ') || '(none)');
 
   ok('isRapRow is NOT on the surface — the splice deleted it as the module asks, '
    + 'and the schema calls the page\'s hoisted copy instead', !('isRapRow' in P));

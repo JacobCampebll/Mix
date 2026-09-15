@@ -71,7 +71,20 @@ const READ = (approval) => {
       if (!/^sublot-[1-4]$/.test(sid)) return;
       const card = sec.querySelector(".steplock");
       const ctl = Array.from(sec.querySelectorAll("input,select,textarea"));
-      const lotLevel = (el) => !!el.closest('[data-subsection="blend"],[data-subsection="handmix"]');
+      // Derived from the page's own two exemption lists rather than named
+      // here. Hardcoding them went stale within a day: Andrew's PR #24 turned
+      // Aggregate Blend from a sub-section into row tables, and this probe
+      // went on passing while quietly measuring only the hand-mix. What is
+      // under test is that the page leaves these ENABLED inside a locked tab;
+      // that the lists name real things is check_page_plantbook.mjs's job.
+      const subs = new Set(PB_SECTIONS.LOT_LEVEL_SUBBLOCKS);
+      const tbls = new Set(PB_SECTIONS.LOT_LEVEL_ROW_TABLES);
+      const lotLevel = (el) => {
+        const sub = el.closest("[data-subsection]");
+        if (sub && subs.has(sub.dataset.subsection)) return true;
+        const list = el.closest("[data-rowlist]");
+        return !!(list && tbls.has(list.dataset.rowlist));
+      };
       o[sid] = {
         locked: sec.classList.contains("locked"),
         rail: !!document.querySelector(`.railstep[data-target="${sid}"].locked`),
@@ -82,6 +95,13 @@ const READ = (approval) => {
         lotLevelCount: ctl.filter(lotLevel).length,
         lotLevelOpen: ctl.filter(lotLevel).every((e) => !e.disabled),
         domRows: sec.querySelectorAll("[data-rowlist] > *").length,
+        // blend_pct is sliced six rows per tab so each sublot edits its own
+        // percentage (Andrew, PR #24). That makes it this sublot's data, so
+        // it MUST lock with the tab - exempting it would leave a future
+        // sublot editable through the one door the lock exists to close.
+        pctDisabled: Array.from(sec.querySelectorAll('[data-rowlist="blend_pct"] [data-col="pct"]'))
+          .every((e) => e.disabled),
+        pctCount: sec.querySelectorAll('[data-rowlist="blend_pct"] [data-col="pct"]').length,
       };
     });
     return o;
@@ -224,6 +244,9 @@ export async function run({ browser, results }) {
   ok("on lot 2 every sublot is locked, sublot 1 included",
      [1, 2, 3, 4].every((n) => r.lot2[`sublot-${n}`].locked),
      [1, 2, 3, 4].map((n) => `${n}=${r.lot2[`sublot-${n}`].locked}`).join(" "));
+  ok("the per-sublot blend percentage locks WITH its tab",
+     [2, 3, 4].every((n) => r.lot1[`sublot-${n}`].pctCount > 0 && r.lot1[`sublot-${n}`].pctDisabled),
+     [2, 3, 4].map((n) => `${n}: ${r.lot1[`sublot-${n}`].pctCount} cell(s), disabled=${r.lot1[`sublot-${n}`].pctDisabled}`).join(" | "));
   ok("…but the lot-level blocks on that tab stay open, or lot 2 has no blend",
      r.lot2["sublot-1"].lotLevelCount > 0 && r.lot2["sublot-1"].lotLevelOpen,
      `${r.lot2["sublot-1"].lotLevelCount} control(s), all enabled: ${r.lot2["sublot-1"].lotLevelOpen}`);

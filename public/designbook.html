@@ -3142,14 +3142,25 @@ const PB_SECTIONS = (() => {
     return !(setupLot && s === SETUP_SUBLOT);
   }
 
-  /** The sub-blocks that describe the LOT rather than one sublot's sample, and
-   *  so are never gated even when the tab they happen to sit on is. Both live
-   *  on Sublot 1's tab (Andrew, 2026-09-14) - the blend is typed once and its
-   *  percentages fan out to all four records, and the hand-mixed check sample
-   *  is `Superpave` N42/N43, one per lot. On lot 2 or later, where sublot 1 is
-   *  gated like any other, locking these with it would leave the lot with no
-   *  way to state its own blend. */
-  const LOT_LEVEL_SUBBLOCKS = ["blend", "handmix"];
+  /** What describes the LOT rather than one sublot's sample, and so is never
+   *  gated even when the tab it happens to sit on is. Both kinds live on Sublot
+   *  1's tab, and on lot 2 or later - where sublot 1 is gated like any other -
+   *  locking them with it would leave that lot no way to state its own blend.
+   *
+   *  TWO LISTS BECAUSE THERE ARE TWO SHAPES, and that is worth knowing rather
+   *  than discovering: Andrew's 2026-09-14 split (PR #24) turned Aggregate
+   *  Blend from an `into: "sublot-1"` SUB-SECTION into row TABLES on the tab
+   *  itself, so an exemption that only knew about sub-sections silently stopped
+   *  covering it. check_page_plantbook.mjs caught exactly that on the merge and
+   *  fails if either list names something that is not really there.
+   *
+   *  NOTE WHAT IS DELIBERATELY *NOT* HERE: `blend_pct`. That table is sliced
+   *  six rows per tab precisely so each sublot edits its own percentage
+   *  ("that's how techs have been filling out the previous AMAW to date"), so
+   *  it is this sublot's data and locks with it. Only the component identity -
+   *  producer, AGP, type & size, BOD - is typed once for the lot. */
+  const LOT_LEVEL_SUBBLOCKS = ["handmix"];
+  const LOT_LEVEL_ROW_TABLES = ["blend", "blend_gsb"];
 
   /* Seeded rather than asked for, which Jake asked for on 2026-09-13 ("do it
    * and the acc per sublot too"). Both of his real accepted lots read code 3 on
@@ -4527,7 +4538,8 @@ const verifySpecimenOf4 = (n) =>
   ];
 
   return { AC_METHODS, acMethodCode, CITES, DESIGNBOOK_CITE_KEYS, REFERENCE_TABLES, REFERENCE_KEYS, SECTIONS,
-           SETUP_LOT, SETUP_SUBLOT, sublotOfSectionId, sublotNeedsSample, LOT_LEVEL_SUBBLOCKS };
+           SETUP_LOT, SETUP_SUBLOT, sublotOfSectionId, sublotNeedsSample,
+           LOT_LEVEL_SUBBLOCKS, LOT_LEVEL_ROW_TABLES };
 })();
 /* ===== END PLANTBOOK SCHEMA ===== */
 
@@ -6952,11 +6964,15 @@ function lockedSublotNumber(sectionId) {
  * and on lot 2, where sublot 1 is gated like any other, locking them with it
  * would leave the lot no way to state its own blend. */
 function sublotLockControls(sec) {
-  const exempt = new Set(PB_SECTIONS.LOT_LEVEL_SUBBLOCKS);
+  const subs = new Set(PB_SECTIONS.LOT_LEVEL_SUBBLOCKS);
+  const tables = new Set(PB_SECTIONS.LOT_LEVEL_ROW_TABLES);
   return Array.from(sec.querySelectorAll("input, select, textarea, button.addrow, button.rmbtn"))
     .filter((el) => {
-      const host = el.closest("[data-subsection]");
-      return !(host && exempt.has(host.dataset.subsection));
+      const sub = el.closest("[data-subsection]");
+      if (sub && subs.has(sub.dataset.subsection)) return false;
+      const list = el.closest("[data-rowlist]");
+      if (list && tables.has(list.dataset.rowlist)) return false;
+      return true;
     });
 }
 
