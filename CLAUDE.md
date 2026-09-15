@@ -3246,6 +3246,52 @@ read-only, so a write test goes through `apply_migration` and ends in
   empty as it was, with `generate.mjs` still naming it. Closing that one gap
   closes it for both books at once, which is the argument for closing it.
 
+- **Contract & Mix is a LEDGER, chosen 2026-09-15 from five mocked
+  directions** (Jake: "I don't love the look of this, give me 5 options to
+  change not just color but spacing and how the boxes look or something
+  different all together?" then "lets go with ledger"; the canvas is at
+  https://claude.ai/artifact/1Dcro8PWWFgG2ksgWGY2ey). The step is mostly READ
+  - a lot inherits its contract, plant, mix and class from the approval and a
+  technician types three or four things - so a grid of sixteen plates read as
+  sixteen questions. Now it is label | value rows under hairlines, two columns
+  once the form has its full width, with a one-line legend under the band.
+  **It is a stylesheet fact, declared in the schema.** `layout: "ledger"` on
+  the section (in `sections.mjs` AND the page's `PB_SECTIONS`, like every
+  schema edit) becomes the `<section>`'s `data-layout` attribute, and a block
+  scoped on that attribute restyles `.grid`, `.field` and `.box`. Same
+  `gridHTML()`, same `inputFor()`, same classes and `data-field`s, so
+  `collectForm()`, the rail, the sublot locks and the harness saw nothing
+  change (339 passing before and after). If a second section ever wants it,
+  it is one word in its schema entry. `legend` is the sentence under the band,
+  emitted by `renderForm()` only where declared.
+  **The tint stays.** The mock said "plain values are read from the
+  approval"; the page says "shaded", because the provisional-value rule in
+  this file is that the TINT is what marks a value as read from a file rather
+  than typed. In the ledger it is a soft wash behind the value rather than a
+  plate with a 2px edge; a blank typed field is a blue rule. Same rule, quieter.
+  Three cascade facts from building it, all in the family this file already
+  records for `.rowitem .box`:
+  **A scoped rule beats the base media queries at every width**, so the 16px /
+  44px phone box had to be restated inside the ledger block or the step would
+  have lost iOS's no-zoom size silently. **`background-color`, never the
+  shorthand, on a select** - `select.box` carries its drawn caret as four
+  background longhands, and the base `.box.prefilled{background:...}` already
+  wipes them off every prefilled select on the page (which is why a prefilled
+  select has no caret anywhere else; not fixed here, noted). **Restore all
+  FOUR** - restating image and position without size and repeat tiled the
+  caret across the whole box, seen in the first screenshot. And the base
+  inset-edge rule is a five-link `:not()` chain; a scoped override one link
+  shorter loses to it, so the ledger's `box-shadow:none` carries the same
+  chain, with a comment saying why.
+  **Two columns only from 1244px, one below.** At a 1000px window the form is
+  936px, and a 180px label left the approved-mix line 250px, which clips.
+  Below 700 the label track is 150px; below 560 the label sits above its value
+  and the rule runs full width. Zero clipped inputs at 1440/1244/1000/701/390
+  with the real 467PA approval loaded. And a note for whoever screenshots a
+  step next: `.section.active` fades in, so a capture taken straight after
+  `go()` is at opacity 0 and reads as a page-wide dim - wait ~900ms, or the
+  colours you are checking are not the colours on screen.
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
