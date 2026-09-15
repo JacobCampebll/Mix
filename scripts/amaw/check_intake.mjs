@@ -276,18 +276,28 @@ if (!approval) {
     ok('every Superpave size IS Volumetrics',
        ['1.50', '1.00', '0.75', '0.50', '0.38', 'NO.4']
          .every((sz) => acceptanceMethodFor({ nominal_size: sz + 'A' }) === 'Volumetrics'));
-    // lot_unit_price came off that list on 2026-09-13, once the $50 turned out
-    // to be the spec's defined adjustment price (402.05.02) rather than a bid
-    // price that varies by contract. Same both-ways-round assertion as
-    // lot_tons, and one extra: it must NOT be the contract's bid price, which
-    // is the bug this replaced.
-    ok('lot_unit_price is seeded from the spec constant, not asked for',
-       Number(lot.values.lot_unit_price) === 50, lot.values.lot_unit_price);
-    ok('...and is not also listed as still to type',
+    /* lot_unit_price came off the "still to type" list on 2026-09-13 once the
+     * $50 turned out to be the spec's defined adjustment price (402.05.02)
+     * rather than a bid price that varies by contract, and came off the FORM
+     * entirely on 2026-09-15 (Jake: "unit price is a constant at 50 and really
+     * doesn't even need to be shown in here... we don't need anyone editing
+     * it"). These three assertions used to say it was seeded onto the lot and
+     * named in report.derived; they are INVERTED rather than deleted, so this
+     * file records that it once claimed the opposite.
+     *
+     * Both ways round, because a constant that reaches nothing is the worse
+     * bug of the two: the lot must NOT carry it, AND the workbook must still
+     * get it. Every dollar figure on the pay schedule is tons x this number,
+     * so a missing one pays every lot nothing while looking fine on screen. */
+    ok('the lot does not store a unit price - it is not a field any more',
+       lot.values.lot_unit_price === undefined, Object.keys(lot.values).filter((k) => /price/.test(k)));
+    ok('...and it is not listed as still to type either',
        !typedKeys.includes('lot_unit_price'), typedKeys);
-    ok('report.derived names lot_unit_price',
-       r.report.derived.some((d2) => d2.key === 'lot_unit_price'),
+    ok('...nor claimed as derived onto the form',
+       !r.report.derived.some((d2) => d2.key === 'lot_unit_price'),
        r.report.derived.map((d2) => d2.key));
+    ok('...but lotScalars() still hands the workbook the spec constant',
+       Number(lotScalars(lot.values).unit_price) === 50, lotScalars(lot.values).unit_price);
     // lot_joint_density came off that list on 2026-09-13. Joint cores are
     // taken on surface mixtures at 1 inch or greater and on nothing else, so
     // the mix settles it and the approval carries the mix. Asserted both ways

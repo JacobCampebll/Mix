@@ -4078,7 +4078,6 @@ const verifySpecimenOf4 = (n) =>
         { key: "lot_tons",  label: "Lot tonnage",  type: "number", req: true, mono: true },
         { key: "lot_unit",  label: "Unit",         type: "select", req: true,
           options: ["TON"] },
-        { key: "lot_unit_price", label: "Unit price ($/ton)", type: "number", req: true, mono: true },
         // Pay Values!J20. Wedge is paid at its own rate when placed
         // monolithically with the mainline, so it comes off the top of the lot
         // tonnage before the pay adjustment (J23/J24). Blank in BOTH real
@@ -14091,7 +14090,6 @@ const LOT_FIELD_ALIASES = {
   lot_mix_id: 'mix_id_line',
   lot_tons: 'lot_tons',
   lot_unit: 'unit',
-  lot_unit_price: 'unit_price',
   lot_wedge_tons: 'wedge_tons',
   lot_esal_class: 'esal_class',
   lot_acceptance_method: 'acceptance_method',
@@ -14150,6 +14148,22 @@ function lotScalars(values) {
     const val = v[from];
     if (val !== undefined && val !== null && val !== '') out[LOT_FIELD_ALIASES[from]] = val;
   }
+  // THE ADJUSTMENT UNIT PRICE IS A SPEC CONSTANT AND NO LONGER A FIELD
+  // (Jake, 2026-09-15: "unit price is a constant at 50 and really doesn't even
+  // need to be shown in here... we don't need anyone editing it"). 2026 Std
+  // Spec 402.05.02 defines it - all three Lot Pay Adjustment Schedules open
+  // `($50.00)(Quantity)` whatever the mix - and KYTC's own blank AMAW ships
+  // `'Pay Values'!F5` as a hard-coded 50. A box asking a technician to confirm
+  // it could only ever be got wrong: it is not this contract's bid price, and
+  // typing that in (which the lookup briefly did) puts a number 2.4x too large
+  // into every dollar adjustment. Supplied here so the workbook still gets it.
+  // Read off PB_LOT lazily (inside the function, never at construction) -
+  // the five namespaces are `const`s and an eager cross-reference is a TDZ
+  // ReferenceError before one line of the page runs.
+  // A value already under the mapper's own name WINS, the same rule as every
+  // other entry above: check_mapper.mjs reads F5 out of a real completed lot
+  // and must keep testing the workbook rather than this constant.
+  if (out.unit_price === undefined) out.unit_price = PB_LOT.ADJUSTMENT_UNIT_PRICE;
   const d = DENSITY_OPTION_CODES[String(out.density_option == null ? '' : out.density_option).trim().toUpperCase()];
   if (d) out.density_option = d;
   // Calculations!M11 is a BOOLEAN and H11 is IF(M11,1,2) on top of it, while
@@ -17489,9 +17503,6 @@ const PB_LOT = (() => {
     derive('lot_tons', LOT_TONS,
            `a lot is ${LOT_TONS} tons - correct it for a short final lot`,
            cell(LOT.sheet, LOT.lotTons));
-    derive('lot_unit_price', ADJUSTMENT_UNIT_PRICE,
-           `the Lot Pay Adjustment is computed against a defined $${ADJUSTMENT_UNIT_PRICE}.00/ton (Std Spec 402.05.02), not this contract's bid price`,
-           cell(LOT.sheet, LOT.unitPrice));
     needsTyping('lot_wedge_tons', cell(PAY.sheet, PAY.lot.wedgeTons),
       'Pavement wedge tons come off the top of the lot tonnage. Blank in both of Jake\'s real lots.', ['pay']);
     needsTyping('lot_sample_id_prefix', cell(LOT.sheet, LOT.sampleIdPrefix),
@@ -17707,7 +17718,7 @@ const PB_LOT = (() => {
     APPROVAL_FORMAT, APPROVAL_MAX_VERSION, DOC_KIND, SUBMITTED_ACTION, APPROVED_ACTION,
     VERIFICATION, isVerified, VERIFY_FN, FAILURE, MIX_TYPE_CODES,
     splitDesignation, mixTypeFor, jointDensityFor, JOINT_DENSITY_SIZES, esalClassFor,
-    ACCEPTANCE_METHODS, acceptanceMethodFor,
+    ACCEPTANCE_METHODS, acceptanceMethodFor, LOT_TONS, ADJUSTMENT_UNIT_PRICE,
     effectiveMixOf, approvalChecks, submitterOf,
     verifyRequest, readVerifyResponse, notChecked, lotFromApproval,
   };
@@ -18489,7 +18500,9 @@ function lotPayInputs() {
     esalClass: f("lot_esal_class"),
     mixTypeCode: mixTypeCode == null ? 5 : mixTypeCode,
     tonnage: f("lot_tons"),
-    unitPrice: f("lot_unit_price"),
+    // A spec constant since 2026-09-15, not a field - see lotScalars(). Read
+    // from the one definition rather than from a box nobody can edit.
+    unitPrice: PB_LOT.ADJUSTMENT_UNIT_PRICE,
     wedgeTons: f("lot_wedge_tons") || 0,
   };
 }
@@ -18695,6 +18708,31 @@ async function openApprovalForLot(payload, label) {
       (r.warnings.length ? `, ${r.warnings.length} warning(s)` : "") + ".",
       kind);
   audit(`Lot opened from an approval (${v.state}) - ${state.tech ? state.tech.sm_id : ""}`);
+
+  /* AND THE PROJECT ITEMS LOOK THEMSELVES UP (Jake, 2026-09-15: "the projects
+   * items should be auto populated not waiting for someone to press the
+   * button").
+   *
+   * The lot inherits them from the approval, provisionally, and the whole
+   * reason a refresh exists is that a change order adds, deletes or re-numbers
+   * an item between the design being approved and the lot being produced -
+   * which is exactly what MEDL refuses the load over. Leaving that behind a
+   * button meant the ordinary case was the stale one, and a technician had no
+   * way to know the button was the thing standing between them and a rejected
+   * workbook.
+   *
+   * ON OPENING FROM AN APPROVAL ONLY, never on reopening a saved lot: this
+   * REPLACES the table (applyProjectItems -> setRowTable), so re-running it
+   * under a lot somebody has been editing for a week would overwrite their own
+   * corrections. The button stays for that, and for a change order landing
+   * mid-lot.
+   *
+   * NOT AWAITED. It is a fetch of a KYTC report that "can take a few seconds"
+   * and is regularly slower; the lot is already on screen and usable, and its
+   * own note says what happened either way. A failure here must never be the
+   * difference between opening a lot and not - lookupProjectItems() catches
+   * its own errors and writes them to that note. */
+  lookupProjectItems();
 }
 
 /* ---------- the AMAW ---------- */

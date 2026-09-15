@@ -88,7 +88,7 @@ import { laneCorePay, jointCorePay, MCL } from './pay.mjs';
 // The Superpave mixture-type table. It lives in intake.mjs because that is
 // where the approval is read, and there is one copy of it for the same
 // reason there is one CONFIG.SECTIONS.
-import { mixTypeFor } from './intake.mjs';
+import { mixTypeFor, ADJUSTMENT_UNIT_PRICE } from './intake.mjs';
 // The five AC determination methods and the code `Calculations!AP..` holds
 // for each. In sections.mjs because the FORM is where they are picked, and
 // one definition for the same reason there is one CONFIG.SECTIONS: the
@@ -408,7 +408,6 @@ export const LOT_FIELD_ALIASES = {
   lot_mix_id: 'mix_id_line',
   lot_tons: 'lot_tons',
   lot_unit: 'unit',
-  lot_unit_price: 'unit_price',
   lot_wedge_tons: 'wedge_tons',
   lot_esal_class: 'esal_class',
   lot_acceptance_method: 'acceptance_method',
@@ -467,6 +466,19 @@ export function lotScalars(values) {
     const val = v[from];
     if (val !== undefined && val !== null && val !== '') out[LOT_FIELD_ALIASES[from]] = val;
   }
+  // THE ADJUSTMENT UNIT PRICE IS A SPEC CONSTANT AND NO LONGER A FIELD
+  // (Jake, 2026-09-15: "unit price is a constant at 50 and really doesn't even
+  // need to be shown in here... we don't need anyone editing it"). 2026 Std
+  // Spec 402.05.02 defines it - all three Lot Pay Adjustment Schedules open
+  // `($50.00)(Quantity)` whatever the mix - and KYTC's own blank AMAW ships
+  // `'Pay Values'!F5` as a hard-coded 50. A box asking a technician to confirm
+  // it could only ever be got wrong: it is not this contract's bid price, and
+  // typing that in (which the lookup briefly did) puts a number 2.4x too large
+  // into every dollar adjustment. Supplied here so the workbook still gets it.
+  // A value already under the mapper's own name WINS, the same rule as every
+  // other entry above: check_mapper.mjs reads F5 out of a real completed lot
+  // and must keep testing the workbook rather than this constant.
+  if (out.unit_price === undefined) out.unit_price = ADJUSTMENT_UNIT_PRICE;
   const d = DENSITY_OPTION_CODES[String(out.density_option == null ? '' : out.density_option).trim().toUpperCase()];
   if (d) out.density_option = d;
   // Calculations!M11 is a BOOLEAN and H11 is IF(M11,1,2) on top of it, while

@@ -1074,9 +1074,6 @@ export function lotFromApproval(payload, opts = {}) {
   derive('lot_tons', LOT_TONS,
          `a lot is ${LOT_TONS} tons - correct it for a short final lot`,
          cell(LOT.sheet, LOT.lotTons));
-  derive('lot_unit_price', ADJUSTMENT_UNIT_PRICE,
-         `the Lot Pay Adjustment is computed against a defined $${ADJUSTMENT_UNIT_PRICE}.00/ton (Std Spec 402.05.02), not this contract's bid price`,
-         cell(LOT.sheet, LOT.unitPrice));
   needsTyping('lot_wedge_tons', cell(PAY.sheet, PAY.lot.wedgeTons),
     'Pavement wedge tons come off the top of the lot tonnage. Blank in both of Jake\'s real lots.', ['pay']);
   needsTyping('lot_sample_id_prefix', cell(LOT.sheet, LOT.sampleIdPrefix),

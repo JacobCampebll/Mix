@@ -1278,7 +1278,6 @@ export const PLANTBOOK_SECTIONS = [
       { key: "lot_tons",  label: "Lot tonnage",  type: "number", req: true, mono: true },
       { key: "lot_unit",  label: "Unit",         type: "select", req: true,
         options: ["TON"] },
-      { key: "lot_unit_price", label: "Unit price ($/ton)", type: "number", req: true, mono: true },
       // Pay Values!J20. Wedge is paid at its own rate when placed
       // monolithically with the mainline, so it comes off the top of the lot
       // tonnage before the pay adjustment (J23/J24). Blank in BOTH real
