@@ -639,18 +639,45 @@
           color:var(--accent); font-size:13px; font-family:inherit; cursor:pointer;}
   .addrow:disabled{opacity:.4; cursor:not-allowed; border-style:solid;}
 
+  /* Chip mode (spec.chips, 2026-09-15: SUBLOT_VOLUMETRICS_SPEC). A single-row,
+     fully computed table - Combined Gsb's own `readout` field is the same
+     idea for one number - reads as one line of labeled chips at every width
+     instead of a grid table with its own header row and navy banner over a
+     single line of figures. Reuses the label-above-value look the <700px
+     card rule below already gives a row, just applied here unguarded by a
+     media query, so a chip row looks the same on a phone and a monitor. The
+     higher specificity of `.rowitem.chips` over the bare `.rowitem` rules
+     above (and their own <700px versions) is what lets one declaration win
+     at every width without restating it per breakpoint. */
+  .rowitem.chips{display:flex; flex-wrap:wrap; gap:0; padding:0;
+                 border:1px solid var(--line); border-radius:var(--radius-field);
+                 background:var(--well); overflow:hidden;}
+  .rowitem.chips:hover{background:var(--well);}
+  .rowitem.chips .cell{flex:1 1 96px; padding:8px 12px; border-right:1px solid var(--line);}
+  .rowitem.chips .cell:last-of-type{border-right:none;}
+  .rowitem.chips .cell.chiphide{display:none;}
+  .rowitem.chips label{display:block; font-size:9.5px; text-transform:uppercase;
+                       letter-spacing:.03em; color:var(--muted); margin-bottom:2px;}
+  .rowitem.chips .box{border:none; background:transparent; padding:0; width:100%;
+                      font-size:14px; min-height:auto;}
+
   /* gradation — vertical sieve / % passing table beside a large 0.45 chart */
   .gradwrap{display:grid; grid-template-columns:280px minmax(0,1fr); gap:22px; align-items:start;}
   @media (max-width:900px){ .gradwrap{grid-template-columns:1fr;} }
-  /* A multi-column sieve table (PlantBook: JMF + four sublots + QA + IQ) is
-     the one thing on this page allowed to be wider than the form, and only
-     inside its own scroller - the page body itself must never scroll
-     sideways. It also takes the full width rather than sharing the row with
-     the chart, which goes underneath. The override sits directly below the
+  /* A multi-column sieve table (PlantBook: JMF + one sublot) sits beside its
+     own chart above 900px, same idea as DesignBook's single-column table -
+     Andrew, 2026-09-15 (Part B Option 1 of the sublot-tab mockup). "wide"
+     used to mean the table took the full row and the chart went underneath,
+     but nothing wide ever HAD a chart before this (PlantBook's per-sublot
+     sections all set `noChart: true`), so that was never really a choice -
+     it was what "no chart" left behind. It is still allowed to be wider than
+     the form inside its own scroller (.sievescroll below) - the page body
+     itself must never scroll sideways. The override sits directly below the
      rule it overrides, which is this file's convention and not decoration:
      a @media block is not a tiebreaker, it only gates when the block
      applies (see CLAUDE.md). */
-  .gradwrap.wide{grid-template-columns:minmax(0,1fr);}
+  .gradwrap.wide{grid-template-columns:minmax(0,1.4fr) minmax(240px,1fr);}
+  @media (max-width:900px){ .gradwrap.wide{grid-template-columns:1fr;} }
   .sievescroll{overflow-x:auto; max-width:100%;}
   /* Inside a scroller, width:100% is not a width - it is a squeeze. The base
      rule below sets it, which is right for DesignBook's two columns and wrong
@@ -687,7 +714,12 @@
   table.sievetable input:focus{outline:2px solid var(--accent); outline-offset:-1px;}
   .chartwrap{border:1px solid var(--line); border-radius:var(--radius); background:#FCFCFA; padding:12px;}
   .chartwrap .cap{font-size:11px; color:var(--muted); margin-bottom:6px;}
-  .chartwrap #chart svg, .chartwrap #fpchart svg{width:100%; height:auto; display:block;}
+  /* Every gradation chart now has its own id (chart_<section.id> - see
+     drawChart()), one per sublot instead of the single shared #chart this
+     selector used to name; #fpchart (Four Points) is unrelated and shares
+     the same .chartwrap look. Class-based so a sixth chart id needs no
+     matching CSS edit. */
+  .chartwrap svg{width:100%; height:auto; display:block;}
 
   /* four points — mix constants + 4-row design table + curve + results */
   .fp-consts{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px;}
@@ -3179,9 +3211,16 @@ const PB_SECTIONS = (() => {
   //
   // `volumetrics.mjs` does the arithmetic and `check_volumetrics.mjs` proves it
   // reproduces both real lots cell for cell.
+  // Andrew, 2026-09-15: BSG/MSG and the two Cores tables each declare
+  // `span: [6, 12]` now — half the row above ~1244px (paired with the table
+  // right after it, same `rowblock`/`--w`/`--w2` mechanism Performance
+  // Testing's three-up already uses, see rowsBlockHTML()), full width below
+  // it. Nothing about the tables themselves changed — same columns, same
+  // `data-row`/`data-col` keys, same grid track sharing that keeps a header
+  // over its own values — only how much of the row each one is given.
   const SUBLOT_BSG_SPEC = {
     key: "sublot_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for this sublot",
-    banded: true, fixed: true,
+    banded: true, fixed: true, span: [6, 12],
     grid: ".7fr .5fr 1fr 1fr 1fr .9fr .9fr",
     seed: SPECIMEN_SEED,
     columns: [
@@ -3209,7 +3248,7 @@ const PB_SECTIONS = (() => {
   };
   const SUBLOT_MSG_SPEC = {
     key: "sublot_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for this sublot",
-    banded: true, fixed: true,
+    banded: true, fixed: true, span: [6, 12],
     grid: ".7fr .5fr 1fr 1fr 1fr 1fr .8fr",
     seed: SPECIMEN_SEED,
     columns: [
@@ -3247,12 +3286,30 @@ const PB_SECTIONS = (() => {
       { key: "moisture", label: "% moisture", type: "number", req: false, mono: true, readonly: true },
     ],
   };
+  // Andrew, 2026-09-15: `chips: true` renders this table as a single strip of
+  // labeled read-only chips instead of a full grid table with its own header
+  // row — nine header cells and a data row, for a table that is ALWAYS
+  // exactly one row, is most of the wasted vertical space on a sublot tab.
+  // Reuses the label-above-input markup rowHTML() already renders for a
+  // phone card row (see .rowitem label / the <700px "card" mode) rather than
+  // inventing a second one — see rowHTML()'s `spec.chips` branch. NOTHING
+  // about the data model changes: every cell is still a real
+  // `data-row="sublot_volumetrics" data-col="..."` input, so collectForm(),
+  // putCell()/cellValue() (computeSublotVolumetrics() paints these exactly as
+  // before) and mapper.mjs's `sublot_volumetrics` LOT_TABLE_ROUTES entry all
+  // keep reading and writing the same cells — this table is genuinely
+  // collected and mapped (unlike Combined Gsb's `readout` field), so it could
+  // not become a `type: "readout"` field without breaking the AMAW bridge.
+  // `chipHide: true` on the identity column keeps `sublot` in the DOM (still
+  // painted, still collected) but off the visible strip — the tab you're on
+  // already says which sublot this is.
   const SUBLOT_VOLUMETRICS_SPEC = {
     key: "sublot_volumetrics", heading: "Sublot volumetrics — computed", banded: true, fixed: true,
+    chips: true,
     grid: ".7fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
     seed: SUBLOT_SEED,
     columns: [
-      { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
+      { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true, chipHide: true },
       // Superpave!B — the workbook's "% Binder in Mix". COMPUTED, back-calculated
       // from Gse and the sublot's Gmm, less the moisture correction - see
       // volumetrics.mjs.
@@ -3285,13 +3342,13 @@ const PB_SECTIONS = (() => {
   ];
   const MAT_CORES_SPEC = {
     key: "mat_cores", heading: "Mat cores (lane density) — 4 for this sublot",
-    banded: true, fixed: true, seed: MAT_CORE_SEED, span: [12, 12],
+    banded: true, fixed: true, seed: MAT_CORE_SEED, span: [6, 12],
     grid: ".7fr .9fr 1.3fr 1fr 1fr 1fr .8fr .9fr .9fr .8fr",
     columns: CORE_COLUMNS,
   };
   const JOINT_CORES_SPEC = {
     key: "joint_cores", heading: "Joint cores (longitudinal joint density) — 2 for this sublot",
-    banded: true, fixed: true, seed: JOINT_CORE_SEED, span: [12, 12],
+    banded: true, fixed: true, seed: JOINT_CORE_SEED, span: [6, 12],
     grid: ".7fr .9fr 1.3fr 1fr 1fr 1fr .8fr .9fr .9fr .8fr",
     columns: CORE_COLUMNS,
   };
@@ -3355,16 +3412,24 @@ const PB_SECTIONS = (() => {
   //  for Andrew (see NEXT_STEPS.md) - those would need the same "one canonical
   //  edit point, N read-only mirrors" answer, or a genuinely new one.
   //
-  //  NO CHART on these. `drawChart()`/`gradSection()` (designbook.html) are
-  //  written for exactly ONE `type: "sieves"` section on the active book -
-  //  which column's curve draws into which single `#chart` div - and
-  //  generalizing that (four mini-charts, or the M323 control-point band
-  //  drawn four times) is real work this change does not attempt. Logged as
-  //  an open follow-up in NEXT_STEPS.md, not silently dropped.
+  //  CHART, ADDED 2026-09-15 (Andrew, Part B Option 1 of the sublot-tab
+  //  mockup — "beside the table", not below it). `drawChart()`
+  //  (designbook.html) used to be written for exactly ONE `type: "sieves"`
+  //  section on the active book at a time, keyed to a single global `#chart`
+  //  div; it is now `allGradationSections()`-driven, drawing into
+  //  `chart_<section.id>` for every weighed gradation section the active book
+  //  has, so four sublots' charts (and DesignBook's own, unaffected) can never
+  //  collide. `.gradwrap.wide` — previously "wide" meant *only* "stack the
+  //  chart below" because nothing wide ever HAD a chart — now means "table and
+  //  chart side by side" above 900px, matching every other gradwrap. The band
+  //  (AASHTO M323 control points for this mix's NMAS) and trimFlatCoarseEnd
+  //  are the same shared, pure functions the DesignBook chart and the review
+  //  PDF already use, so all five charts on a lot agree with each other and
+  //  with DesignBook's about where the target corridor sits.
   //
   //  QA01/IQ01's own gradation percentages (`qa`/`iq` in GRADATION_COLUMNS
   //  above) have no home here either - Department data isn't any one
-  //  sublot's, and giving it one wasn't asked for. Also open.
+  //  sublot's, and giving it one wasn't asked for. Still open.
   function buildSublotGradationSections() {
     const jmf = { ...GRADATION_COLUMNS.find((c) => c.key === "jmf"), readonly: true };
     const out = [];
@@ -3378,7 +3443,6 @@ const PB_SECTIONS = (() => {
         sieves: AMAW_SIEVES,
         columns: [jmf, sub],
         weights: true,
-        noChart: true,
       });
     }
     return out;
@@ -4645,10 +4709,20 @@ function rowHTML(spec, values, idx) {
     // giving each its own. A number column holds a figure - four or five
     // characters - where a text column can hold a 48-character producer name,
     // and the one-column rule below 560px was written for the latter.
-    return `<div class="cell${c.type === "number" ? " num" : ""}"><label>${c.label}</label>${ctrl}</div>`;
+    // `spec.chips` (SUBLOT_VOLUMETRICS_SPEC, 2026-09-15): a single-row,
+    // fully computed table reads as one line of labeled chips instead of a
+    // grid table with its own header row. `chipHide` keeps a cell (the
+    // sublot identity column, redundant once the tab itself says which
+    // sublot) in the DOM - still a real input, still collected - just not
+    // shown.
+    const chipCls = spec.chips ? (c.chipHide ? " chip chiphide" : " chip") : "";
+    return `<div class="cell${c.type === "number" ? " num" : ""}${chipCls}"><label>${c.label}</label>${ctrl}</div>`;
   }).join("");
   // Fixed tables (e.g. the Hamburg pass-count grid) have no remove button.
-  return `<div class="rowitem" style="grid-template-columns:${spec.grid}">
+  // Chip mode lays out with CSS flex (.rowitem.chips), not this inline grid
+  // template, so the template is skipped rather than left inert.
+  const gridStyle = spec.chips ? "" : ` style="grid-template-columns:${spec.grid}"`;
+  return `<div class="rowitem${spec.chips ? " chips" : ""}"${gridStyle}>
     ${cells}${spec.fixed ? "" : '<button class="rmbtn" title="Remove">×</button>'}</div>`;
 }
 
@@ -4700,16 +4774,21 @@ function rowsHTML(spec) {
     // blocks. `spec.seed` itself is NEVER narrowed - paintLotIds()/
     // rowSpecOf() read it expecting the whole table - only which indices get
     // RENDERED here narrows.
+    // Chip mode has no separate header row - each cell carries its own
+    // label inline (rowHTML()'s `.chip` cells), the way a phone "card" row
+    // already does below 700px, just at every width. rowHeadHTML() would
+    // otherwise print nine column names above a row that already names them.
+    const head = spec.chips ? "" : rowHeadHTML(spec);
     if (Array.isArray(spec.sliceIndices)) {
       const rows = spec.sliceIndices.map((i) =>
         rowHTML(spec, held[i] ? Object.assign({}, spec.seed[i], held[i]) : spec.seed[i], i)).join("");
       return rowHeadingHTML(spec) +
-        `<div class="rowscroll">${rowHeadHTML(spec)}<div class="rowlist" data-rowlist="${spec.key}">${rows}</div></div>`;
+        `<div class="rowscroll">${head}<div class="rowlist" data-rowlist="${spec.key}">${rows}</div></div>`;
     }
     const rows = (spec.seed || []).map((v, i) =>
       rowHTML(spec, held[i] ? Object.assign({}, v, held[i]) : v, i)).join("");
     return rowHeadingHTML(spec) +
-      `<div class="rowscroll">${rowHeadHTML(spec)}<div class="rowlist" data-rowlist="${spec.key}">${rows}</div></div>`;
+      `<div class="rowscroll">${head}<div class="rowlist" data-rowlist="${spec.key}">${rows}</div></div>`;
   }
   const found = state.extracted ? (state.extracted.tables[spec.key] || []) : [];
   // `start` is how many blank rows a spec opens with when nothing was
@@ -4819,20 +4898,15 @@ function sievesHTML(section) {
     return `<th${cls ? ` class="${cls}"` : ""}>${esc(col.label)}</th>`;
   }).join("");
   const wide = cols.length > 1;
-  // PlantBook's Sublot 1-4 tabs (2026-09-14): `noChart` skips the 0.45 power
-  // chart entirely. Each sublot's own Gradation now lives in its own
-  // section (one column of grams, plus the read-only JMF target for
-  // comparison) rather than one shared section with all four sublots' - and
-  // drawChart()/gradSection() are written for exactly ONE `type: "sieves"`
-  // section on the active book, so the chart's own generalization (which
-  // section's data draws into which chart div, the M323 control-point band,
-  // trimFlatCoarseEnd) is real, separate work this change does not attempt.
-  // Flagged as a deliberate, known gap - not silently dropped - in
-  // NEXT_STEPS.md.
+  // 2026-09-15: every `type: "sieves"` section with `weights` gets its own
+  // chart now, each in its own div keyed by section id - drawChart() draws
+  // into every one of them (allGradationSections()), not just a single
+  // shared `#chart`. `noChart` still exists as an escape hatch (a future
+  // section that genuinely shouldn't chart), just nothing sets it today.
   const chart = section.noChart ? "" : `
       <div class="chartwrap">
-        <div class="cap">0.45 power chart — target gradation band to follow</div>
-        <div id="chart"></div>
+        <div class="cap">0.45 power chart</div>
+        <div id="chart_${esc(section.id)}"></div>
       </div>`;
   return `<div class="gradwrap${wide ? " wide" : ""}">
       <div class="sievescroll">
@@ -5483,9 +5557,15 @@ function computeGradation() {
       for (const s of r.sieves) if (s.pctPassing != null) byKey[s.key] = s.pctPassing;
       state.gradPassing[col.key] = byKey;
       // Paint each computed percentage beside the weight it came from.
+      // CONFIG.DP[sv.key], not a flat 1dp: KYTC carries every sieve's %
+      // passing to a whole percent except the #200, which it carries to a
+      // tenth (CONFIG.DP's own comment - "gsb"/"s50".."s0_075" - says so).
+      // This is the same table the JMF column's own import already goes
+      // through (coerceField() in the legacy importer); this readout had
+      // never been taught to read it and printed every sieve to a tenth.
       for (const sv of sec.sieves) {
         const el = document.querySelector(`[data-gpct="${col.key}_${sv.key}"]`);
-        if (el) el.textContent = byKey[sv.key] == null ? "—" : `${fmt(byKey[sv.key], 1)}%`;
+        if (el) el.textContent = byKey[sv.key] == null ? "—" : `${fmt(byKey[sv.key], CONFIG.DP[sv.key] ?? 1)}%`;
       }
       for (const w of r.warnings)
         warnings.push({ sectionId: sec.id, sectionLabel: sec.label, text: `${col.label}: ${w}` });
@@ -5494,11 +5574,24 @@ function computeGradation() {
   return warnings;
 }
 
+// 2026-09-15: draws every gradation chart the active book has, not just a
+// single global one. DesignBook still has exactly one (gradSection()); a
+// PlantBook lot has one per sublot (allGradationSections()) - each into its
+// OWN `chart_<section.id>` div (see sievesHTML()), so four sublots' charts
+// (and a fifth, DesignBook's, unaffected) can never draw over one another.
+// drawGradChart(sec) below does the actual work for one section; this is
+// just the "which sections does the active book have" dispatch.
 function drawChart() {
-  const chart = $("chart");
-  if (!chart) return;
+  if (isPlantBook()) {
+    for (const sec of allGradationSections()) drawGradChart(sec);
+    return;
+  }
   const sec = gradSection();
-  if (!sec) return;
+  if (sec) drawGradChart(sec);
+}
+function drawGradChart(sec) {
+  const chart = document.getElementById(`chart_${sec.id}`);
+  if (!chart) return;
   const cols = sec.columns || [{ key: null, label: "% passing" }];
   const computed = state.gradPassing || {};
   const readSeries = (col) => sec.sieves.map((sv) => {
@@ -5526,7 +5619,10 @@ function drawChart() {
   const em = effectiveMix();
   const nominalSize = em ? em.nominal_size : null;
   const cp = controlPointsForNominalSize(nominalSize);
-  const band = cp ? gradSection().sieves
+  // sec.sieves, not a fresh gradSection() call: for a PlantBook chart, sec
+  // IS a specific sublot's gradation section, not necessarily the first one
+  // gradSection() would find (activeSections()'s bare .find()).
+  const band = cp ? sec.sieves
     .map((s) => ({ mm: s.mm, min: cp[s.key] ? cp[s.key][0] : null, max: cp[s.key] ? cp[s.key][1] : null }))
     .filter((p) => p.min != null || p.max != null) : null;
 

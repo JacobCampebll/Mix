@@ -486,9 +486,16 @@ const SUBLOT_TICKETS_SPEC = {
 //
 // `volumetrics.mjs` does the arithmetic and `check_volumetrics.mjs` proves it
 // reproduces both real lots cell for cell.
+// Andrew, 2026-09-15: BSG/MSG and the two Cores tables each declare
+// `span: [6, 12]` now — half the row above ~1244px (paired with the table
+// right after it, same `rowblock`/`--w`/`--w2` mechanism Performance
+// Testing's three-up already uses, see rowsBlockHTML()), full width below
+// it. Nothing about the tables themselves changed — same columns, same
+// `data-row`/`data-col` keys, same grid track sharing that keeps a header
+// over its own values — only how much of the row each one is given.
 const SUBLOT_BSG_SPEC = {
   key: "sublot_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for this sublot",
-  banded: true, fixed: true,
+  banded: true, fixed: true, span: [6, 12],
   grid: ".7fr .5fr 1fr 1fr 1fr .9fr .9fr",
   seed: SPECIMEN_SEED,
   columns: [
@@ -516,7 +523,7 @@ const SUBLOT_BSG_SPEC = {
 };
 const SUBLOT_MSG_SPEC = {
   key: "sublot_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for this sublot",
-  banded: true, fixed: true,
+  banded: true, fixed: true, span: [6, 12],
   grid: ".7fr .5fr 1fr 1fr 1fr 1fr .8fr",
   seed: SPECIMEN_SEED,
   columns: [
@@ -554,12 +561,30 @@ const SUBLOT_MOISTURE_SPEC = {
     { key: "moisture", label: "% moisture", type: "number", req: false, mono: true, readonly: true },
   ],
 };
+// Andrew, 2026-09-15: `chips: true` renders this table as a single strip of
+// labeled read-only chips instead of a full grid table with its own header
+// row — nine header cells and a data row, for a table that is ALWAYS
+// exactly one row, is most of the wasted vertical space on a sublot tab.
+// Reuses the label-above-input markup rowHTML() already renders for a
+// phone card row (see .rowitem label / the <700px "card" mode) rather than
+// inventing a second one — see rowHTML()'s `spec.chips` branch. NOTHING
+// about the data model changes: every cell is still a real
+// `data-row="sublot_volumetrics" data-col="..."` input, so collectForm(),
+// putCell()/cellValue() (computeSublotVolumetrics() paints these exactly as
+// before) and mapper.mjs's `sublot_volumetrics` LOT_TABLE_ROUTES entry all
+// keep reading and writing the same cells — this table is genuinely
+// collected and mapped (unlike Combined Gsb's `readout` field), so it could
+// not become a `type: "readout"` field without breaking the AMAW bridge.
+// `chipHide: true` on the identity column keeps `sublot` in the DOM (still
+// painted, still collected) but off the visible strip — the tab you're on
+// already says which sublot this is.
 const SUBLOT_VOLUMETRICS_SPEC = {
   key: "sublot_volumetrics", heading: "Sublot volumetrics — computed", banded: true, fixed: true,
+  chips: true,
   grid: ".7fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
   seed: SUBLOT_SEED,
   columns: [
-    { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
+    { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true, chipHide: true },
     // Superpave!B — the workbook's "% Binder in Mix". COMPUTED, back-calculated
     // from Gse and the sublot's Gmm, less the moisture correction - see
     // volumetrics.mjs.
@@ -592,13 +617,13 @@ const CORE_COLUMNS = [
 ];
 const MAT_CORES_SPEC = {
   key: "mat_cores", heading: "Mat cores (lane density) — 4 for this sublot",
-  banded: true, fixed: true, seed: MAT_CORE_SEED, span: [12, 12],
+  banded: true, fixed: true, seed: MAT_CORE_SEED, span: [6, 12],
   grid: ".7fr .9fr 1.3fr 1fr 1fr 1fr .8fr .9fr .9fr .8fr",
   columns: CORE_COLUMNS,
 };
 const JOINT_CORES_SPEC = {
   key: "joint_cores", heading: "Joint cores (longitudinal joint density) — 2 for this sublot",
-  banded: true, fixed: true, seed: JOINT_CORE_SEED, span: [12, 12],
+  banded: true, fixed: true, seed: JOINT_CORE_SEED, span: [6, 12],
   grid: ".7fr .9fr 1.3fr 1fr 1fr 1fr .8fr .9fr .9fr .8fr",
   columns: CORE_COLUMNS,
 };
@@ -662,16 +687,24 @@ function buildSublotTabSections() {
 //  for Andrew (see NEXT_STEPS.md) - those would need the same "one canonical
 //  edit point, N read-only mirrors" answer, or a genuinely new one.
 //
-//  NO CHART on these. `drawChart()`/`gradSection()` (designbook.html) are
-//  written for exactly ONE `type: "sieves"` section on the active book -
-//  which column's curve draws into which single `#chart` div - and
-//  generalizing that (four mini-charts, or the M323 control-point band
-//  drawn four times) is real work this change does not attempt. Logged as
-//  an open follow-up in NEXT_STEPS.md, not silently dropped.
+//  CHART, ADDED 2026-09-15 (Andrew, Part B Option 1 of the sublot-tab
+//  mockup — "beside the table", not below it). `drawChart()`
+//  (designbook.html) used to be written for exactly ONE `type: "sieves"`
+//  section on the active book at a time, keyed to a single global `#chart`
+//  div; it is now `allGradationSections()`-driven, drawing into
+//  `chart_<section.id>` for every weighed gradation section the active book
+//  has, so four sublots' charts (and DesignBook's own, unaffected) can never
+//  collide. `.gradwrap.wide` — previously "wide" meant *only* "stack the
+//  chart below" because nothing wide ever HAD a chart — now means "table and
+//  chart side by side" above 900px, matching every other gradwrap. The band
+//  (AASHTO M323 control points for this mix's NMAS) and trimFlatCoarseEnd
+//  are the same shared, pure functions the DesignBook chart and the review
+//  PDF already use, so all five charts on a lot agree with each other and
+//  with DesignBook's about where the target corridor sits.
 //
 //  QA01/IQ01's own gradation percentages (`qa`/`iq` in GRADATION_COLUMNS
 //  above) have no home here either - Department data isn't any one
-//  sublot's, and giving it one wasn't asked for. Also open.
+//  sublot's, and giving it one wasn't asked for. Still open.
 function buildSublotGradationSections() {
   const jmf = { ...GRADATION_COLUMNS.find((c) => c.key === "jmf"), readonly: true };
   const out = [];
@@ -685,7 +718,6 @@ function buildSublotGradationSections() {
       sieves: AMAW_SIEVES,
       columns: [jmf, sub],
       weights: true,
-      noChart: true,
     });
   }
   return out;
