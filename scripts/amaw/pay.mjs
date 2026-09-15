@@ -167,17 +167,23 @@ const paysOn = code => SUPERPAVE_CODES.has(Number(code));
 // rounded to a tenth. Note the ladder is on ROUND(ABS(dev),1), so a deviation
 // of 0.55 is 0.6 and loses 5%, while 0.549 is 0.5 and loses nothing.
 export function acPay({ jmfAC, ac, isFirstSublot = false } = {}) {
-  if (!isNum(ac) || !isNum(jmfAC)) return { dev: null, pay: null };
+  if (!isNum(ac) || !isNum(jmfAC)) return { dev: null, rounded: null, pay: null, rule: null };
   const dev = ac - jmfAC;
   const d = xlRound(Math.abs(dev), 1);
+  // `rule` is the ladder step that fired, in the words the schedule uses -
+  // so the readout can say WHY a sublot paid what it did rather than only
+  // what. It names the band and its factor and nothing else; the readout
+  // never re-derives a band, so there is one copy of this arithmetic.
   // The sublot-1 allowance is the ONLY place the AC ladder differs, and unlike
   // air voids and VMA below it does not rescue an MCL-sized deviation - past
   // 0.7 the lot is still MCL on its first sublot. ('Pay Values'!D13)
-  if (isFirstSublot && d <= 0.7) return { dev, pay: 100 };
-  if (d <= 0.5) return { dev, pay: 100 };
-  if (d <= 0.6) return { dev, pay: 95 };
-  if (d <= 0.7) return { dev, pay: 90 };
-  return { dev, pay: MCL };
+  if (isFirstSublot && d <= 0.7 && d > 0.5) {
+    return { dev, rounded: d, pay: 100, rule: { band: '|dev| 0.6 - 0.7, sublot 1 of lot 1', pay: 100, allowance: true } };
+  }
+  if (d <= 0.5) return { dev, rounded: d, pay: 100, rule: { band: '|dev| <= 0.5', pay: 100 } };
+  if (d <= 0.6) return { dev, rounded: d, pay: 95, rule: { band: '|dev| = 0.6', pay: 95 } };
+  if (d <= 0.7) return { dev, rounded: d, pay: 90, rule: { band: '|dev| = 0.7', pay: 90 } };
+  return { dev, rounded: d, pay: MCL, rule: { band: '|dev| > 0.7', pay: MCL } };
 }
 
 // ---------------------------------------------------------------------------
@@ -207,22 +213,36 @@ export function acPay({ jmfAC, ac, isFirstSublot = false } = {}) {
 // return says so rather than guessing. And this block, unlike density and VMA,
 // has no mixture-type gate at all.
 export function airVoidPay({ av, esalClass, isFirstSublot = false } = {}) {
-  if (!isNum(av)) return { rounded: null, pay: null, note: null };
+  if (!isNum(av)) return { rounded: null, pay: null, note: null, bands: [] };
   const v = xlRound(av, 1);
   const cls = Number(esalClass);
   const lowClass = cls === 1 || cls === 2;   // AG3/AG6/AG7
   const highClass = cls === 3 || cls === 4;  // AG4/AG8
 
+  // `bands` records every AG:AN row that matched, with its factor, so the
+  // readout can show the schedule line a sublot landed on. The bands are
+  // disjoint, so it is one entry on any real lot; the shape is a list because
+  // the sheet SUMS them and this reproduces the sheet.
   let pay = 0, note = null;
-  if (lowClass && (v <= 1.4 || v >= 6.6)) pay = MCL;
-  else if (highClass && (v < 2 || v > 6)) pay = MCL;
+  const bands = [];
+  if (lowClass && (v <= 1.4 || v >= 6.6)) { pay = MCL; bands.push({ band: '<= 1.4 or >= 6.6 (Class 1-2)', pay: MCL }); }
+  else if (highClass && (v < 2 || v > 6)) { pay = MCL; bands.push({ band: '< 2.0 or > 6.0 (Class 3-4)', pay: MCL }); }
   else {
     let sum = 0;
-    if (v >= 3 && v <= 4) sum += 105;
-    if (lowClass && v <= 2.9 && v >= 1.5) sum += tidy(100 * (1 + 0.1 * (v - 3)));
-    if (highClass && v <= 2.9 && v >= 2) sum += tidy(100 * (1 + 0.1 * (v - 3)));
-    if ((lowClass || highClass) && v <= 6 && v >= 4.1) sum += tidy(100 * (1 + 0.1 * (4.5 - v)));
-    if (lowClass && v >= 6.1 && v <= 6.5) sum += 75;
+    if (v >= 3 && v <= 4) { sum += 105; bands.push({ band: '3.0 - 4.0', pay: 105 }); }
+    if (lowClass && v <= 2.9 && v >= 1.5) {
+      const p = tidy(100 * (1 + 0.1 * (v - 3))); sum += p;
+      bands.push({ band: '1.5 - 2.9 (Class 1-2)', formula: '100 x (1 + 0.1 x (av - 3.0))', pay: p });
+    }
+    if (highClass && v <= 2.9 && v >= 2) {
+      const p = tidy(100 * (1 + 0.1 * (v - 3))); sum += p;
+      bands.push({ band: '2.0 - 2.9 (Class 3-4)', formula: '100 x (1 + 0.1 x (av - 3.0))', pay: p });
+    }
+    if ((lowClass || highClass) && v <= 6 && v >= 4.1) {
+      const p = tidy(100 * (1 + 0.1 * (4.5 - v))); sum += p;
+      bands.push({ band: '4.1 - 6.0', formula: '100 x (1 + 0.1 x (4.5 - av))', pay: p });
+    }
+    if (lowClass && v >= 6.1 && v <= 6.5) { sum += 75; bands.push({ band: '6.1 - 6.5 (Class 1-2)', pay: 75 }); }
     pay = tidy(sum);
     if (!lowClass && !highClass) {
       note = `AADTT Class ${esalClass ?? '(blank)'} is outside the workbook's 1-4 list; only the 3.0-4.0 band pays`;
@@ -243,9 +263,11 @@ export function airVoidPay({ av, esalClass, isFirstSublot = false } = {}) {
       note: pay === MCL
         ? 'sublot-1 allowance applied to an MCL air void - Excel ranks text above every number, so AH9>=90 is true for "MCL"'
         : note,
+      bands,
+      allowance: { from: pay, to: 100 },
     };
   }
-  return { rounded: v, pay, note };
+  return { rounded: v, pay, note, bands };
 }
 
 // ---------------------------------------------------------------------------
@@ -264,22 +286,23 @@ export function airVoidPay({ av, esalClass, isFirstSublot = false } = {}) {
 // on the minimum pays 100 and not MCL. Not ported; documented so nobody
 // "restores" it.
 export function vmaPay({ minVMA, vma, isFirstSublot = false, mixTypeCode = 5 } = {}) {
-  if (!isNum(vma) || !isNum(minVMA)) return { dev: null, pay: null };
+  if (!isNum(vma) || !isNum(minVMA)) return { dev: null, rounded: null, pay: null, rule: null };
   const dev = vma - minVMA;
   const d = xlRound(dev, 1);
 
-  let pay;
+  // `rule` names the A47:H54 row that fired - same purpose as acPay's.
+  let pay, rule;
   if (!paysOn(mixTypeCode)) {
     // Every band is gated on the Superpave codes, so a non-Superpave mixture
     // takes MAX(0,0,0,0,0) = 0. A genuine quirk of the sheet, not a guess.
-    pay = 0;
+    pay = 0; rule = { band: 'mixture type is not Superpave', pay: 0 };
   } else if (d < -1) {
-    pay = MCL;
+    pay = MCL; rule = { band: 'dev < -1.0', pay: MCL };
   } else {
-    let best = 0;
-    if (d >= 0 && d <= 200) best = Math.max(best, 100);
-    if (d >= -0.5 && d <= -0.1) best = Math.max(best, 95);
-    if (d >= -1 && d <= -0.6) best = Math.max(best, 90);
+    let best = 0; rule = { band: 'no band matched', pay: 0 };
+    if (d >= 0 && d <= 200) { best = Math.max(best, 100); rule = { band: 'dev >= 0.0', pay: 100 }; }
+    if (d >= -0.5 && d <= -0.1) { best = Math.max(best, 95); rule = { band: 'dev -0.5 to -0.1', pay: 95 }; }
+    if (d >= -1 && d <= -0.6) { best = Math.max(best, 90); rule = { band: 'dev -1.0 to -0.6', pay: 90 }; }
     pay = best;
   }
 
@@ -289,11 +312,14 @@ export function vmaPay({ minVMA, vma, isFirstSublot = false, mixTypeCode = 5 } =
   if (isFirstSublot && (pay === MCL || (isNum(pay) && pay >= 90))) {
     return {
       dev,
+      rounded: d,
       pay: 100,
       note: pay === MCL ? 'sublot-1 allowance applied to an MCL VMA (Excel ranks "MCL" above 90)' : null,
+      rule,
+      allowance: { from: pay, to: 100 },
     };
   }
-  return { dev, pay };
+  return { dev, rounded: d, pay, rule };
 }
 
 // ---------------------------------------------------------------------------
@@ -327,48 +353,64 @@ export function sublotPay({
 
 // Lane cores - Calculations!A23:T34. Three band edges and two factors move on
 // ESAL Class 2, which is the only class the sheet treats specially here.
-export function laneCorePay(pctSolid, { esalClass, mixTypeCode = 5 } = {}) {
-  if (!isNum(pctSolid)) return null;
-  if (!paysOn(mixTypeCode)) return MCL;             // every row gates on J1; sum 0 -> MCL
+// `laneCoreDetail` is the same table with its working shown - the rounded
+// density, every row it landed on and the factor each contributed - and
+// laneCorePay() is its `pay` alone. One table, read once, so the readout that
+// prints "93.4 -> 92.0-93.9 -> 100" cannot disagree with the number it paid.
+export function laneCoreDetail(pctSolid, { esalClass, mixTypeCode = 5 } = {}) {
+  if (!isNum(pctSolid)) return { rounded: null, matched: [], pay: null };
+  if (!paysOn(mixTypeCode)) {                        // every row gates on J1; sum 0 -> MCL
+    return { rounded: xlRound(pctSolid, 1), matched: [], pay: MCL, note: 'mixture type is not Superpave, so no density band pays' };
+  }
   const d = xlRound(pctSolid, 1);
   const cls = Number(esalClass);
   const bands = [
-    [94, 96, 105],                                   // row 24
-    [92, 93.9, 100],                                 // row 25
-    [91, 91.9, 95],                                  // row 26
-    [96.1, 97, 100],                                 // row 27
-    [90, 90.9, 90],                                  // row 28
-    [97.1, 97.5, 90],                                // row 29
-    [97.6, 98.5, cls === 2 ? 85 : 0],                // row 30, D30 = IF(D15=2,85,0)
-    [89, 89.9, cls === 2 ? 75 : 0],                  // row 31, D31 = IF(D15=2,75,0)
-    [0, cls === 2 ? 88.9 : 89.9, 65],                // row 32, C32 = IF(D15=2,88.9,89.9)
-    [cls === 2 ? 98.6 : 97.6, 200, 65],              // row 33, B33 = IF(D15=2,98.6,97.6)
+    [94, 96, 105, 24],                               // row 24
+    [92, 93.9, 100, 25],                             // row 25
+    [91, 91.9, 95, 26],                              // row 26
+    [96.1, 97, 100, 27],                             // row 27
+    [90, 90.9, 90, 28],                              // row 28
+    [97.1, 97.5, 90, 29],                            // row 29
+    [97.6, 98.5, cls === 2 ? 85 : 0, 30],            // row 30, D30 = IF(D15=2,85,0)
+    [89, 89.9, cls === 2 ? 75 : 0, 31],              // row 31, D31 = IF(D15=2,75,0)
+    [0, cls === 2 ? 88.9 : 89.9, 65, 32],            // row 32, C32 = IF(D15=2,88.9,89.9)
+    [cls === 2 ? 98.6 : 97.6, 200, 65, 33],          // row 33, B33 = IF(D15=2,98.6,97.6)
   ];
+  const matched = [];
   let sum = 0;
-  for (const [lo, hi, factor] of bands) if (d >= lo && d <= hi) sum += factor;
-  return sum === 0 ? MCL : sum;                      // Calculations!E34
+  for (const [lo, hi, factor, row] of bands) if (d >= lo && d <= hi) { sum += factor; matched.push({ lo, hi, factor, row }); }
+  return { rounded: d, matched, pay: sum === 0 ? MCL : sum };   // Calculations!E34
+}
+export function laneCorePay(pctSolid, opts = {}) {
+  return laneCoreDetail(pctSolid, opts).pay;
 }
 
 // Joint cores - Calculations!A57:L67. No ESAL Class dependence, and NO "MCL"
 // branch: E67 is a bare SUM, and the 0-87.9 band means every core that exists
 // pays at least 75. A joint core cannot take the lot out of the pay schedule.
-export function jointCorePay(pctSolid, { mixTypeCode = 5 } = {}) {
-  if (!isNum(pctSolid)) return null;
-  if (!paysOn(mixTypeCode)) return 0;
+export function jointCoreDetail(pctSolid, { mixTypeCode = 5 } = {}) {
+  if (!isNum(pctSolid)) return { rounded: null, matched: [], pay: null };
+  if (!paysOn(mixTypeCode)) {
+    return { rounded: xlRound(pctSolid, 1), matched: [], pay: 0, note: 'mixture type is not Superpave, so no density band pays' };
+  }
   const d = xlRound(pctSolid, 1);
   const bands = [
-    [97.1, 200, 75],   // row 58 - over-compacted joint is penalised, same as under
-    [96.6, 97, 90],    // row 59
-    [96.1, 96.5, 100], // row 60
-    [92, 96, 105],     // row 61
-    [90, 91.9, 100],   // row 62
-    [89, 89.9, 95],    // row 63
-    [88, 88.9, 90],    // row 64
-    [0, 87.9, 75],     // row 65
+    [97.1, 200, 75, 58],   // row 58 - over-compacted joint is penalised, same as under
+    [96.6, 97, 90, 59],    // row 59
+    [96.1, 96.5, 100, 60], // row 60
+    [92, 96, 105, 61],     // row 61
+    [90, 91.9, 100, 62],   // row 62
+    [89, 89.9, 95, 63],    // row 63
+    [88, 88.9, 90, 64],    // row 64
+    [0, 87.9, 75, 65],     // row 65
   ];
+  const matched = [];
   let sum = 0;
-  for (const [lo, hi, factor] of bands) if (d >= lo && d <= hi) sum += factor;
-  return sum;
+  for (const [lo, hi, factor, row] of bands) if (d >= lo && d <= hi) { sum += factor; matched.push({ lo, hi, factor, row }); }
+  return { rounded: d, matched, pay: sum };
+}
+export function jointCorePay(pctSolid, opts = {}) {
+  return jointCoreDetail(pctSolid, opts).pay;
 }
 
 // ---------------------------------------------------------------------------
@@ -385,35 +427,48 @@ export function jointCorePay(pctSolid, { mixTypeCode = 5 } = {}) {
 export function laneDensityLot({
   sublotCores = [], lotNumber, densityOption = 1, esalClass, mixTypeCode = 5,
 } = {}) {
-  if (Number(densityOption) === 2) return { sublots: [0, null, null, null], lot: 0 };
+  // `cores` (per sublot, per core: rounded density, the band rows it landed
+  // on, its pay) and `rules` (one sentence per sublot saying how its figure
+  // was arrived at) are the working; `sublots` and `lot` are unchanged.
+  if (Number(densityOption) === 2) {
+    return { sublots: [0, null, null, null], lot: 0, cores: [[], [], [], []],
+             rules: ['density option B pays no lane density (Calculations!H12 = 2)', null, null, null],
+             lotRule: 'density option B pays no lane density' };
+  }
   const first = Number(lotNumber) === 1;
+  const details = [0, 1, 2, 3].map(i => (sublotCores[i] || []).map(c => laneCoreDetail(c, { esalClass, mixTypeCode })));
+  const rules = [null, null, null, null];
   const sublots = [0, 1, 2, 3].map(i => {
-    const cores = (sublotCores[i] || []).map(c => laneCorePay(c, { esalClass, mixTypeCode }));
+    const cores = details[i].map(d => d.pay);
     // Cores!J14 - sublot 1 of lot 1 is 100 with cores or without.
-    if (i === 0 && first) return 100;
+    if (i === 0 && first) { rules[i] = 'sublot 1 of lot 1 pays 100 with cores or without (Cores!J14)'; return 100; }
     const present = cores.filter(v => !blank(v));
-    if (!present.length) return null;
+    if (!present.length) { rules[i] = 'no cores yet'; return null; }
     if (present.some(v => v === MCL)) {
       // A single MCL core is text inside AVERAGE, which Excel skips - so the
       // sublot average is over the numeric cores only. Reproduced literally.
       const avg = avgPresent(present);
+      rules[i] = 'average of the cores that paid - an MCL core is text, which AVERAGE skips';
+      if (avg === 65) rules[i] += '; an average of exactly 65 is a call, not a payment';
       return avg === 65 ? 'Call MCL' : avg;
     }
     const avg = avgPresent(present);
     // Cores!J19/J24/J29 - an average of exactly 65 means every core was in the
     // bottom band, and that is a call rather than a payment.
+    rules[i] = avg === 65 ? 'every core in the bottom band - an average of exactly 65 is a call, not a payment' : 'average of the cores';
     return avg === 65 ? 'Call MCL' : avg;
   });
   const present = sublots.filter(v => !blank(v));
-  let lot = null;
+  let lot = null, lotRule = 'no sublot has a lane density yet';
   if (present.length) {
-    if (present.some(v => v === 'Call MCL')) lot = 'Call MCL';
+    if (present.some(v => v === 'Call MCL')) { lot = 'Call MCL'; lotRule = 'a sublot is Call MCL, so the lot is'; }
     else {
       const avg = avgPresent(present);
       lot = avg === 65 ? 'Call MCL' : avg;            // Cores!J30
+      lotRule = avg === 65 ? 'the sublots average exactly 65, which is a call' : 'average of the sublots present (Cores!J30)';
     }
   }
-  return { sublots, lot };
+  return { sublots, lot, cores: details, rules, lotRule };
 }
 
 // Cores!J33:J45. H11 = 2 means joints are not being paid on, and the sheet
@@ -421,14 +476,22 @@ export function laneDensityLot({
 export function jointDensityLot({
   sublotCores = [], lotNumber, jointDensityFlag = 1, mixTypeCode = 5,
 } = {}) {
-  if (Number(jointDensityFlag) === 2) return { sublots: [null, null, null, null], lot: null };
+  if (Number(jointDensityFlag) === 2) {
+    return { sublots: [null, null, null, null], lot: null, cores: [[], [], [], []],
+             rules: [null, null, null, null], lotRule: 'joint density does not count on this lot (Calculations!H11 = 2)' };
+  }
   const first = Number(lotNumber) === 1;
+  const details = [0, 1, 2, 3].map(i => (sublotCores[i] || []).map(c => jointCoreDetail(c, { mixTypeCode })));
+  const rules = [null, null, null, null];
   const sublots = [0, 1, 2, 3].map(i => {
-    if (i === 0 && first) return 100;                 // Cores!J35
-    const cores = (sublotCores[i] || []).map(c => jointCorePay(c, { mixTypeCode })).filter(v => !blank(v));
+    if (i === 0 && first) { rules[i] = 'sublot 1 of lot 1 pays 100 with cores or without (Cores!J35)'; return 100; }
+    const cores = details[i].map(d => d.pay).filter(v => !blank(v));
+    rules[i] = cores.length ? 'average of the cores' : 'no cores yet';
     return cores.length ? avgPresent(cores) : null;
   });
-  return { sublots, lot: avgPresent(sublots.filter(v => !blank(v))) };
+  const lot = avgPresent(sublots.filter(v => !blank(v)));
+  return { sublots, lot, cores: details, rules,
+           lotRule: lot == null ? 'no sublot has a joint density yet' : 'average of the sublots present (Cores!J45)' };
 }
 
 // ---------------------------------------------------------------------------
