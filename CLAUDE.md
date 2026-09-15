@@ -3349,6 +3349,21 @@ read-only, so a write test goes through `apply_migration` and ends in
   is the feature working, not a bug in it. Screenshot a tall step with the
   fade disabled (`animation:none` on `.section`), or a capture taller than
   the viewport comes back dimmed.
+  **Restyled the same evening** (Jake: "visually it looks a little rigid...
+  what it shows is exactly what I wanted though"). The first cut was hairlines
+  and uppercase mono on every row. Now each property is a rounded card whose
+  summary is the line, the marker is a small disc that turns, a pay value is
+  a pill coloured by direction (`.paypill.up/.down/.even/.mcl` - the verdict
+  strip's own states, so a 95 in a sublot row and a Penalty at the top read
+  as one fact), the schedule band is a chip with its formula beside it, the
+  roll-up sits in a tinted box, and the working uses real glyphs: × ÷ − → and
+  ≤ ≥ in the band labels. The content is byte-for-byte the same facts.
+  **One trap from that pass, worth a sentence**: swapping ` / ` for ` ÷ ` across
+  the readout block also rewrote three JavaScript divisions inside template
+  expressions (`(value * weight) / 100`) and the module stopped parsing. A
+  glyph substitution over a file that mixes prose and code has to be checked
+  against the code, not only the prose. The signed figures (`-6.25 tons`)
+  keep the ASCII hyphen, deliberately - the copy-into-an-email rule stands.
 
 ## Conventions for changing this file
 
