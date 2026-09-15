@@ -443,14 +443,14 @@ export function payViewHTML(result, ctx = {}) {
 // Three layers, on native <details> so the disclosure needs no script and a
 // keyboard reaches it:
 //   1. the line     property | lot value | weight | contribution
-//   2. why          per sublot: measured -> rounded -> the schedule band it
-//                   landed on -> pay, then how the sublots average to the lot
+//   2. why          per sublot: measured → rounded → the schedule band it
+//                   landed on → pay, then how the sublots average to the lot
 //                   value and what it contributes to the final pay
 //   3. the figures  the weighings and the formula each measured value came
 //                   from, cell by cell
 // Layers 1 and 2 come from lotPay()'s own return - the `rule`, `bands` and
 // `cores` pay.mjs carries - so nothing here re-derives a band; the readout
-// that says "93.4 -> 92.0-93.9 -> 100" reads the same table that paid it.
+// that says "93.4 → 92.0-93.9 → 100" reads the same table that paid it.
 // Layer 3 needs the raw weights, which lotPay() never sees: the page passes
 // them as `ctx.trace` (lotPayTrace() in designbook.html). Without a trace a
 // sublot line is a plain row and the third layer simply is not offered.
@@ -458,6 +458,17 @@ export function payViewHTML(result, ctx = {}) {
 // `ctx.open` is the list of data-key values to render open. The page
 // re-renders this on every keystroke anywhere in the lot, and a readout that
 // folded every panel a person had opened would be unusable.
+
+// A pay value as a pill, coloured by which way it moved the money: green
+// above 100, red below, neutral at 100, gold for MCL. Same states the
+// verdict strip uses, so a 95 in a sublot row and a Penalty at the top
+// read as the same fact.
+function payBadge(v, esc) {
+  if (isMCL(v)) return `<span class="paypill mcl">${esc(v)}</span>`;
+  if (blank(v)) return '<span class="prsub">—</span>';
+  const cls = isNum(v) ? (v > 100 ? ' up' : v < 100 ? ' down' : ' even') : '';
+  return `<span class="paypill${cls}">${esc(isNum(v) ? trim(v) : String(v))}</span>`;
+}
 
 const fx = (v, dp) => (isNum(v) ? Number(v).toFixed(dp) : '—');   // fixed decimals: weighings and gravities
 const sg = (v, dp) => (isNum(v) ? sign(v) + Math.abs(v).toFixed(dp) : '—');   // signed deviation
@@ -481,7 +492,7 @@ function gmbFigures(esc, t) {
   const lines = [eqHTML(esc, 'Gmb', `${fx(t.gmb, 3)} - bulk specific gravity, the average of the specimens`, 'Superpave G, Average row')];
   (t.specimens || []).forEach((s, k) => {
     lines.push(eqHTML(esc, `specimen ${k + 1}`,
-      `${fx(s.air, 1)} g in air / (${fx(s.ssd, 1)} SSD - ${fx(s.water, 1)} in water = ${fx(s.volume, 1)}) = ${fx(s.bsg, 3)}`,
+      `${fx(s.air, 1)} g in air ÷ (${fx(s.ssd, 1)} SSD − ${fx(s.water, 1)} in water = ${fx(s.volume, 1)}) = ${fx(s.bsg, 3)}`,
       'Superpave F, G', 'sub'));
   });
   return lines.join('');
@@ -491,7 +502,7 @@ function gmmFigures(esc, t) {
   const lines = [eqHTML(esc, 'Gmm', `${fx(t.gmm, 3)} - maximum specific gravity (Rice), the average of the bowls`, 'Superpave row 42')];
   (t.dets || []).forEach((d, k) => {
     lines.push(eqHTML(esc, `bowl ${k + 1}`,
-      `${fx(d.mix, 1)} g mix / (${fx(d.mix, 1)} + ${fx(d.calibration, 1)} calibration - ${fx(d.finalWeight, 1)} final + ${fx(d.absorbedWater ?? 0, 1)} absorbed) = ${fx(d.msg, 3)}`,
+      `${fx(d.mix, 1)} g mix ÷ (${fx(d.mix, 1)} + ${fx(d.calibration, 1)} calibration − ${fx(d.finalWeight, 1)} final + ${fx(d.absorbedWater ?? 0, 1)} absorbed) = ${fx(d.msg, 3)}`,
       'Superpave row 41', 'sub'));
   });
   return lines.join('');
@@ -501,40 +512,40 @@ function acFigures(esc, t, hm, s) {
   const out = [];
   if (hm) {
     out.push(eqHTML(esc, 'Gse', `${fx(hm.gse, 3)} - effective aggregate gravity, from the hand-mixed check sample`, 'Superpave!J8'));
-    out.push(eqHTML(esc, '', `(100 - ${fx(hm.binderPct, 2)} hand-mixed %AC) / (100 / ${fx(hm.gmm, 3)} hand-mixed Gmm - ${fx(hm.binderPct, 2)} / 1.03) = ${fx(hm.gse, 3)}`, '', 'sub'));
+    out.push(eqHTML(esc, '', `(100 − ${fx(hm.binderPct, 2)} hand-mixed %AC) ÷ (100 ÷ ${fx(hm.gmm, 3)} hand-mixed Gmm - ${fx(hm.binderPct, 2)} ÷ 1.03) = ${fx(hm.gse, 3)}`, '', 'sub'));
   }
   out.push(gmmFigures(esc, t));
   out.push(eqHTML(esc, 'back-calculated %AC',
-    `1.03 x (${fx(t.gse, 3)} - ${fx(t.gmm, 3)}) / (${fx(t.gmm, 3)} x (${fx(t.gse, 3)} - 1.03)) x 100 = ${fx(t.backCalc, 2)}`, 'Gradation!D34'));
+    `1.03 × (${fx(t.gse, 3)} − ${fx(t.gmm, 3)}) ÷ (${fx(t.gmm, 3)} × (${fx(t.gse, 3)} − 1.03)) × 100 = ${fx(t.backCalc, 2)}`, 'Gradation!D34'));
   if (t.moisture && isNum(t.moisture.pct)) {
     const m = t.moisture;
     out.push(eqHTML(esc, 'moisture',
-      `((${fx(m.before, 1)} - ${fx(m.pan, 1)}) - (${fx(m.after, 1)} - ${fx(m.pan, 1)})) / (${fx(m.before, 1)} - ${fx(m.pan, 1)}) x 100 = ${fx(m.pct, 2)}%`, 'Superpave G48'));
-    out.push(eqHTML(esc, '%AC', `${fx(t.backCalc, 2)} - ${fx(m.pct, 2)} = ${fx(t.binderPct, 2)}`, "Gradation!D33 -> Superpave!B14"));
+      `((${fx(m.before, 1)} − ${fx(m.pan, 1)}) − (${fx(m.after, 1)} − ${fx(m.pan, 1)})) ÷ (${fx(m.before, 1)} − ${fx(m.pan, 1)}) × 100 = ${fx(m.pct, 2)}%`, 'Superpave G48'));
+    out.push(eqHTML(esc, '%AC', `${fx(t.backCalc, 2)} − ${fx(m.pct, 2)} = ${fx(t.binderPct, 2)}`, "Gradation!D33 → Superpave!B14"));
   } else {
     out.push(eqHTML(esc, '%AC', `${fx(t.binderPct, 2)} - no moisture entered, so nothing is taken off`, 'Superpave!B14'));
   }
-  out.push(eqHTML(esc, 'deviation', `${fx(t.binderPct, 2)} - ${fx(s.jmfAC, 2)} JMF = ${sg(isNum(t.binderPct) && isNum(s.jmfAC) ? t.binderPct - s.jmfAC : null, 2)}`, "'Pay Values'!C13"));
+  out.push(eqHTML(esc, 'deviation', `${fx(t.binderPct, 2)} − ${fx(s.jmfAC, 2)} JMF = ${sg(isNum(t.binderPct) && isNum(s.jmfAC) ? t.binderPct - s.jmfAC : null, 2)}`, "'Pay Values'!C13"));
   return out.join('');
 }
 function avFigures(esc, t) {
   if (!t) return '';
   return gmbFigures(esc, t) + gmmFigures(esc, t)
-    + eqHTML(esc, 'air voids', `(${fx(t.gmm, 3)} - ${fx(t.gmb, 3)}) / ${fx(t.gmm, 3)} x 100 = ${fx(t.va, 2)}%`, "Superpave J -> 'Pay Values'!F13");
+    + eqHTML(esc, 'air voids', `(${fx(t.gmm, 3)} − ${fx(t.gmb, 3)}) ÷ ${fx(t.gmm, 3)} × 100 = ${fx(t.va, 2)}%`, "Superpave J → 'Pay Values'!F13");
 }
 function vmaFigures(esc, t, s) {
   if (!t) return '';
   return gmbFigures(esc, t)
     + eqHTML(esc, '%AC', `${fx(t.binderPct, 2)} - back-calculated, see the % AC line`, 'Superpave!B14')
     + eqHTML(esc, 'Gsb', `${fx(t.gsb, 3)} - combined aggregate gravity for this sublot, from the blend`, 'Superpave R9:U9')
-    + eqHTML(esc, 'VMA', `100 - ${fx(t.gmb, 3)} x (100 - ${fx(t.binderPct, 2)}) / ${fx(t.gsb, 3)} = ${fx(t.vma, 2)}%`, "Superpave M -> 'Pay Values'!I13")
-    + eqHTML(esc, 'deviation', `${fx(t.vma, 2)} - ${fx(s.minVMA, 2)} minimum = ${sg(isNum(t.vma) && isNum(s.minVMA) ? t.vma - s.minVMA : null, 2)}`, "'Pay Values'!J13");
+    + eqHTML(esc, 'VMA', `100 − ${fx(t.gmb, 3)} × (100 − ${fx(t.binderPct, 2)}) ÷ ${fx(t.gsb, 3)} = ${fx(t.vma, 2)}%`, "Superpave M → 'Pay Values'!I13")
+    + eqHTML(esc, 'deviation', `${fx(t.vma, 2)} − ${fx(s.minVMA, 2)} minimum = ${sg(isNum(t.vma) && isNum(s.minVMA) ? t.vma - s.minVMA : null, 2)}`, "'Pay Values'!J13");
 }
 function coreFigures(esc, c) {
   if (!c) return '';
-  return eqHTML(esc, 'BSG', `${fx(c.air, 1)} g in air / (${fx(c.ssd, 1)} SSD - ${fx(c.water, 1)} in water) = ${fx(c.bsg, 3)}`, 'Cores G', 'sub')
-    + eqHTML(esc, 'density', `${fx(c.bsg, 3)} x 62.4 = ${fx(c.density, 1)} pcf`, 'Cores H', 'sub')
-    + eqHTML(esc, '% solid', `${fx(c.density, 1)} / (${fx(c.msg, 3)} sublot Gmm x 62.4) x 100 = ${fx(c.pctSolid, 2)}%`, 'Cores I', 'sub');
+  return eqHTML(esc, 'BSG', `${fx(c.air, 1)} g in air ÷ (${fx(c.ssd, 1)} SSD − ${fx(c.water, 1)} in water) = ${fx(c.bsg, 3)}`, 'Cores G', 'sub')
+    + eqHTML(esc, 'density', `${fx(c.bsg, 3)} × 62.4 = ${fx(c.density, 1)} pcf`, 'Cores H', 'sub')
+    + eqHTML(esc, '% solid', `${fx(c.density, 1)} ÷ (${fx(c.msg, 3)} sublot Gmm × 62.4) × 100 = ${fx(c.pctSolid, 2)}%`, 'Cores I', 'sub');
 }
 
 // ---- layer 2: why a property's lot value is what it is --------------------
@@ -549,15 +560,17 @@ function subGrid(esc, cells, cls = '') {
 // workbook overrode it (the "*For Sublot # 1 Only" column).
 function bandText(esc, r, kind) {
   if (!r) return '';
+  const chip = (band, formula) => `<span class="payband">${esc(band)}</span>`
+    + (formula ? `<span class="payformula">→ ${esc(formula)}</span>` : '');
   let s = '';
   if (kind === 'av') {
     const b = r.bands || [];
-    s = b.length ? b.map((x) => x.band + (x.formula ? ` -> ${x.formula}` : '')).join(' + ') : '—';
+    s = b.length ? b.map((x) => chip(x.band, x.formula)).join(' + ') : '<span class="prsub">—</span>';
   } else {
-    s = r.rule ? r.rule.band : '—';
+    s = r.rule ? chip(r.rule.band) : '<span class="prsub">—</span>';
   }
-  if (r.allowance) s += ` · sublot-1 allowance: ${isMCL(r.allowance.from) ? r.allowance.from : trim(r.allowance.from)} -> 100`;
-  return esc(s);
+  if (r.allowance) s += `<span class="payallow">sublot-1 allowance: ${esc(isMCL(r.allowance.from) ? r.allowance.from : trim(r.allowance.from))} → 100</span>`;
+  return s;
 }
 
 function volumetricWhy(p, result, ctx, esc, open) {
@@ -584,7 +597,7 @@ function volumetricWhy(p, result, ctx, esc, open) {
       figures = vmaFigures(esc, t, inp);
     }
     const cells = [esc(`Sublot ${i + 1}`), `<span class="mono">${esc(measured)}</span>`, `<span class="mono">${esc(rounded)}</span>`,
-                   bandText(esc, r, p.key), `<span class="mono">${payCell(r.pay, esc)}</span>`];
+                   bandText(esc, r, p.key), payBadge(r.pay, esc)];
     const note = r.note ? `<div class="payx-note">${esc(r.note)}</div>` : '';
     if (figures) {
       rows.push(detailsHTML(`sub.${p.key}.${i}`, open, 'payx-sub', subGrid(esc, cells), figures + note));
@@ -605,9 +618,9 @@ function volumetricWhy(p, result, ctx, esc, open) {
 function contributionEq(esc, by) {
   const v = by ? by.value : null, w = by ? by.weight : 0;
   if (!w) return eqHTML(esc, 'counts for', 'nothing - this property carries no weight on this lot', "'Pay Values'!E20:E24", 'roll');
-  if (isMCL(v)) return eqHTML(esc, 'counts for', `${v} x ${w}% - the sheet cannot multiply text, so there is no final pay value`, 'Calculations!A71', 'roll');
-  if (!isNum(v)) return eqHTML(esc, 'counts for', `— x ${w}% - no value yet`, 'Calculations!A71', 'roll');
-  return eqHTML(esc, 'counts for', `${trim(v)} x ${w}% = ${trim((v * w) / 100)} of the final pay value`, 'Calculations!A71', 'roll');
+  if (isMCL(v)) return eqHTML(esc, 'counts for', `${v} × ${w}% - the sheet cannot multiply text, so there is no final pay value`, 'Calculations!A71', 'roll');
+  if (!isNum(v)) return eqHTML(esc, 'counts for', `— × ${w}% - no value yet`, 'Calculations!A71', 'roll');
+  return eqHTML(esc, 'counts for', `${trim(v)} × ${w}% = ${trim((v * w) / 100)} of the final pay value`, 'Calculations!A71', 'roll');
 }
 
 function densityWhy(p, result, ctx, esc, open) {
@@ -626,16 +639,16 @@ function densityWhy(p, result, ctx, esc, open) {
     if (blank(v) && !cores.length && !rule) return;
     const each = cores.length ? cores.map((c) => (isMCL(c.pay) ? c.pay : trim(c.pay))).join(', ') : '—';
     const cells = [esc(`Sublot ${i + 1}`), `<span class="mono">${esc(cores.length ? String(cores.length) : '—')}</span>`,
-                   `<span class="mono">${esc(each)}</span>`, esc(rule || ''), `<span class="mono">${payCell(v, esc)}</span>`];
+                   `<span class="mono">${esc(each)}</span>`, esc(rule || ''), payBadge(v, esc)];
     if (!cores.length) { rows.push(subGrid(esc, cells)); return; }
     const t = trace[i] || [];
     const body = cores.map((c, k) => {
       const band = c.matched && c.matched.length
-        ? c.matched.map((m) => `${fx(m.lo, 1)} - ${m.hi >= 200 ? 'up' : fx(m.hi, 1)} (row ${m.row}) -> ${m.factor}`).join(' + ')
-        : (c.note || 'no band matched -> MCL');
+        ? c.matched.map((m) => `${fx(m.lo, 1)} - ${m.hi >= 200 ? 'up' : fx(m.hi, 1)} (row ${m.row}) → ${m.factor}`).join(' + ')
+        : (c.note || 'no band matched → MCL');
       const tc = t[k] || null;
       const id = tc && tc.id ? tc.id : `core ${k + 1}`;
-      return eqHTML(esc, id, `${tc ? fx(tc.pctSolid, 2) : fx(c.rounded, 1)}% solid -> rounded ${fx(c.rounded, 1)} -> ${band} = ${isMCL(c.pay) ? c.pay : trim(c.pay)}`, `Calculations row ${label === 'lane' ? '22' : '56'}`)
+      return eqHTML(esc, id, `${tc ? fx(tc.pctSolid, 2) : fx(c.rounded, 1)}% solid → rounded ${fx(c.rounded, 1)} → ${band} = ${isMCL(c.pay) ? c.pay : trim(c.pay)}`, `Calculations row ${label === 'lane' ? '22' : '56'}`)
         + coreFigures(esc, tc);
     }).join('');
     rows.push(detailsHTML(`core.${p.key}.${i}`, open, 'payx-sub', subGrid(esc, cells), body));
@@ -665,8 +678,8 @@ function propertyLine(p, result, esc) {
   else if (delta != null && Math.abs(delta) > 1e-9) note = `${delta < 0 ? 'costs' : 'adds'} ${trim(Math.abs(delta))}% of the lot`;
   else note = 'no effect';
   return `<span class="payx-l">${esc(p.label)}<span class="payx-cell mono">${esc(p.cell)}</span></span>`
-    + `<span class="payx-v mono">${payCell(value, esc)}</span>`
-    + `<span class="payx-w mono">${esc(`x${weight}%`)}</span>`
+    + `<span class="payx-v">${payBadge(value, esc)}</span>`
+    + `<span class="payx-w mono">${esc(`×${weight}%`)}</span>`
     + `<span class="payx-c mono">${contribution == null ? '<span class="prsub">—</span>' : esc(trim(contribution))}</span>`
     + `<span class="payx-n">${esc(note)}</span>`;
 }
@@ -677,39 +690,39 @@ function finalLines(result, ctx, esc, open) {
   const sum = terms.map((p) => {
     const t = by[p.key];
     const v = isMCL(t.value) ? t.value : blank(t.value) ? '—' : trim(t.value);
-    return `${v} x ${t.weight}%`;
+    return `${v} × ${t.weight}%`;
   }).join(' + ');
   const final = result.finalPct;
-  let body = eqHTML(esc, 'final pay value', `${sum} = ${isNum(final) ? trim(final) : '—'}`, "Calculations!A71 -> 'Pay Values'!J21");
+  let body = eqHTML(esc, 'final pay value', `${sum} = ${isNum(final) ? trim(final) : '—'}`, "Calculations!A71 → 'Pay Values'!J21");
   if (Number(ctx.acceptanceOption) === 3) body = eqHTML(esc, 'final pay value', '100 - Visual acceptance pays 100 whatever the properties read', "'Pay Values'!J21");
   if (!isNum(final)) (result.notes || []).forEach((n) => { body += `<div class="payx-note">${esc(n)}</div>`; });
   if (isNum(final) && final > 100) {
     body += eqHTML(esc, 'capped', `${trim(result.finalPctCapped)} - Calculations!A72 caps at 100 and the sheet prints "***Final Pay should be made at 100% Maximum"; J23/J24 multiply by the UNCAPPED figure`, 'Calculations!A72');
   }
   const line1 = `<span class="payx-l">Final pay value<span class="payx-cell mono">'Pay Values'!J21</span></span>`
-    + `<span class="payx-v mono"><strong>${isNum(final) ? esc(trim(final)) : payCell(final, esc)}</strong></span>`
-    + `<span class="payx-w mono">${esc(`x${Object.values(result.weights || {}).reduce((a, b) => a + (b || 0), 0)}%`)}</span>`
+    + `<span class="payx-v">${payBadge(final, esc)}</span>`
+    + `<span class="payx-w mono">${esc(`×${Object.values(result.weights || {}).reduce((a, b) => a + (b || 0), 0)}%`)}</span>`
     + `<span class="payx-c mono"></span><span class="payx-n">${esc(isNum(final) ? 'the five contributions, added' : 'no value - open for why')}</span>`;
   const out = [detailsHTML('final', open, 'payx-prop total', line1, body)];
 
   const net = result.payTons, tons = result.tonnageAdj, money = result.dollarAdj;
   const wedge = isNum(ctx.wedgeTons) ? ctx.wedgeTons : 0;
   const tonsBody = eqHTML(esc, 'tonnage adjustment',
-    isNum(tons) ? `(${trim(final)} - 100) x (${fx(ctx.tonnage, 2)} tons - ${fx(wedge, 2)} wedge = ${fx(net, 2)}) / 100 = ${sg(tons, 2)} tons`
+    isNum(tons) ? `(${trim(final)} − 100) × (${fx(ctx.tonnage, 2)} tons - ${fx(wedge, 2)} wedge = ${fx(net, 2)}) ÷ 100 = ${sg(tons, 2)} tons`
                 : 'no final pay value, so no adjustment', "'Pay Values'!J23")
     + (wedge > 0 ? eqHTML(esc, 'wedge', `${fx(wedge, 2)} tons of pavement wedge come off the top - wedge is paid at its own rate`, "'Pay Values'!J20") : '');
   out.push(detailsHTML('tons', open, 'payx-prop total',
     `<span class="payx-l">Tonnage adjustment<span class="payx-cell mono">'Pay Values'!J23</span></span>`
     + `<span class="payx-v mono">${esc(fmtTons(tons))}</span><span class="payx-w mono"></span><span class="payx-c mono"></span>`
-    + `<span class="payx-n">${esc(isNum(tons) ? `(final - 100) x ${fx(net, 2)} pay tons / 100` : 'no value yet')}</span>`, tonsBody));
+    + `<span class="payx-n">${esc(isNum(tons) ? `(final - 100) × ${fx(net, 2)} pay tons ÷ 100` : 'no value yet')}</span>`, tonsBody));
 
   const moneyBody = eqHTML(esc, 'pay adjustment',
-    isNum(money) ? `${sg(tons, 2)} tons x ${fmtMoney(ctx.unitPrice, { signed: false })} = ${fmtMoney(money)}` : 'no tonnage adjustment, so no dollar figure', "'Pay Values'!J24")
+    isNum(money) ? `${sg(tons, 2)} tons × ${fmtMoney(ctx.unitPrice, { signed: false })} = ${fmtMoney(money)}` : 'no tonnage adjustment, so no dollar figure', "'Pay Values'!J24")
     + eqHTML(esc, 'unit price', `${fmtMoney(ctx.unitPrice, { signed: false })} a ton is the spec's defined unit price for the Lot Pay Adjustment (402.05.02), the same for every mix - not the contract's bid price`, "'Pay Values'!F5");
   out.push(detailsHTML('money', open, 'payx-prop total hero',
     `<span class="payx-l">Pay adjustment<span class="payx-cell mono">'Pay Values'!J24</span></span>`
     + `<span class="payx-v mono"><strong>${esc(fmtMoney(money))}</strong></span><span class="payx-w mono"></span><span class="payx-c mono"></span>`
-    + `<span class="payx-n">${esc(isNum(money) ? `tons x ${fmtMoney(ctx.unitPrice, { signed: false })}` : 'no value yet')}</span>`, moneyBody));
+    + `<span class="payx-n">${esc(isNum(money) ? `tons × ${fmtMoney(ctx.unitPrice, { signed: false })}` : 'no value yet')}</span>`, moneyBody));
   return out.join('');
 }
 

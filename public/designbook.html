@@ -920,70 +920,94 @@
   .fp-defaultnote.show{display:block;}
   /* ===== LOT PAY, LAYERED =================================================
      Three layers on native <details> (payExplainHTML in PB_PAY): the line,
-     why, the figures. The summary IS the line, so the whole row is the
-     click target, and the marker is drawn rather than the browser's so the
-     chevron sits in its own 16px track and the columns line up with the
-     header strip above them. */
+     why, the figures. Each property is a rounded card whose summary IS the
+     line, so the whole row is the click target; the marker is a small disc
+     that turns, drawn here so it sits in its own track and the columns line
+     up with the caption strip. Pay values are pills coloured by direction
+     (the verdict strip's own states), the schedule band is a chip, and the
+     working underneath uses real glyphs - × ÷ − → - because a person reads
+     it as arithmetic, not as code. Jake, 2026-09-15: "visually it looks a
+     little rigid" - the first cut was hairlines and uppercase mono on every
+     row; the content did not change, only the chrome. */
+  .paygrid{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:0 0 14px;}
+  @media (max-width:700px){ .paygrid{grid-template-columns:1fr;} }
+  .paymcl{color:var(--flag); font-weight:600; letter-spacing:.04em;}
   .payx-hint{font-weight:400; text-transform:none; letter-spacing:0; margin-left:8px; color:var(--muted);}
-  .payx-list{border-top:1px solid var(--line); margin-top:4px;}
+  .payx-list{display:flex; flex-direction:column; gap:8px; margin-top:6px;}
   .payx-d>summary{list-style:none; cursor:pointer;}
   .payx-d>summary::-webkit-details-marker{display:none;}
-  .payx-prop>summary{display:grid; grid-template-columns:16px minmax(0,2fr) 92px 62px 78px minmax(0,1.7fr);
-       gap:0 12px; align-items:center; padding:9px 8px 9px 6px; border-bottom:1px solid var(--line); font-size:13px;}
-  .payx-prop>summary::before{content:"\25B8"; color:var(--accent); font-size:12px; text-align:center;}
-  .payx-prop[open]>summary::before{content:"\25BE";}
-  .payx-prop>summary:hover{background:var(--well);}
-  .payx-cols{display:grid; grid-template-columns:16px minmax(0,2fr) 92px 62px 78px minmax(0,1.7fr); gap:0 12px;
-       padding:6px 8px 6px 6px; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);}
+  .payx-cols{display:grid; grid-template-columns:20px minmax(0,2fr) 96px 64px 84px minmax(0,1.7fr); gap:0 14px;
+       padding:0 14px 2px 12px; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);}
   .payx-cols::before{content:"";}
-  .payx-l{color:var(--ink); min-width:0;}
-  .payx-l .payx-cell{display:block; font-size:10px; color:var(--muted); font-weight:400;}
+  .payx-prop{background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden;}
+  .payx-prop>summary{display:grid; grid-template-columns:20px minmax(0,2fr) 96px 64px 84px minmax(0,1.7fr);
+       gap:0 14px; align-items:center; padding:11px 14px 11px 12px; font-size:13px; transition:background .15s;}
+  .payx-prop>summary::before,.payx-sub>summary .payx-row::before{
+       content:"\203A"; display:grid; place-items:center; width:20px; height:20px; border-radius:50%;
+       background:var(--accent-soft); color:var(--accent); font-size:15px; font-weight:600; line-height:1;
+       transition:transform .15s;}
+  .payx-prop[open]>summary::before,.payx-sub[open]>summary .payx-row::before{transform:rotate(90deg);}
+  .payx-prop>summary:hover{background:var(--well);}
+  .payx-prop[open]>summary{background:var(--well); border-bottom:1px solid var(--line);}
+  .payx-l{color:var(--ink); font-weight:600; min-width:0;}
+  .payx-l .payx-cell{display:block; font-size:10px; color:var(--muted); font-weight:400; margin-top:1px;}
   .payx-v,.payx-w,.payx-c{text-align:right; white-space:nowrap;}
-  .payx-v{color:var(--ink); font-size:14px;}
   .payx-w,.payx-c{color:var(--muted); font-size:12px;}
   .payx-n{font-size:11.5px; color:var(--muted); min-width:0;}
-  .payx-prop.total>summary{background:var(--wash);}
-  .payx-prop.total>summary .payx-l{font-weight:600;}
-  .payx-prop.hero>summary{background:var(--flag-soft);}
-  .payx-body{padding:8px 10px 12px 34px; background:var(--well); border-bottom:1px solid var(--line);}
-  /* Layer 2's sublot rows: one grid for the header strip and every row, so
-     the columns cannot drift - the same rule the repeating tables learned. */
-  .payx-row{display:grid; grid-template-columns:22px 76px minmax(0,1.4fr) 132px minmax(0,2.4fr) 60px; gap:0 10px;
-       align-items:center; padding:5px 0; font-size:12.5px; border-bottom:1px solid var(--line);}
+  .payx-prop.total{background:var(--wash);}
+  .payx-prop.hero{background:var(--flag-soft); border-color:#EAD9A6;}
+  .payx-prop.hero>summary:hover,.payx-prop.hero[open]>summary{background:#F7EBC4;}
+  .payx-body{padding:10px 14px 14px 46px;}
+  .paypill{display:inline-block; min-width:40px; padding:2px 9px; border-radius:999px; text-align:center;
+       font-family:'Roboto Mono',monospace; font-size:12px; background:var(--wash); color:var(--ink);}
+  .paypill.up{background:var(--ok-soft); color:var(--ok);}
+  .paypill.down{background:#FBEEEE; color:var(--bad);}
+  .paypill.mcl{background:var(--flag-soft); color:var(--flag); font-weight:600; letter-spacing:.04em;}
+  .payx-v .paypill{font-size:13px; padding:3px 11px;}
+  /* Layer 2: the sublot strip. One grid for the caption row and every sublot
+     row, so the columns cannot drift. */
+  .payx-row{display:grid; grid-template-columns:20px 72px minmax(0,1fr) 118px minmax(0,3.2fr) 64px; gap:0 12px;
+       align-items:center; padding:7px 8px; font-size:12.5px; border-radius:8px;}
   .payx-row>span{min-width:0;}
   .payx-row .payx-x4{text-align:right;}
-  .payx-row.head{font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); border-bottom:1px solid var(--line);}
-  .payx-row.head::before,.payx-row::before{content:""; display:block;}
-  .payx-sub>summary .payx-row::before{content:"\25B8"; color:var(--accent); font-size:11px; text-align:center;}
-  .payx-sub[open]>summary .payx-row::before{content:"\25BE";}
-  .payx-sub>summary:hover .payx-row{background:var(--panel);}
-  .payx-sub .payx-body{background:var(--panel); border:1px solid var(--line); border-radius:6px; margin:6px 0 10px 22px; padding:8px 12px;}
-  /* Layer 3: one line of working - name | expression | cell. */
-  .payx-eq{display:grid; grid-template-columns:150px minmax(0,1fr) auto; gap:0 12px; align-items:baseline; padding:3px 0; font-size:12.5px;}
-  .payx-eq .k{font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);}
-  .payx-eq .e{color:var(--ink); font-size:12px; overflow-wrap:anywhere;}
-  .payx-eq .c{font-size:10px; color:var(--muted); white-space:nowrap;}
-  .payx-eq.sub{padding-left:16px;} .payx-eq.sub .k{text-transform:none; letter-spacing:0;}
-  .payx-eq.roll{border-top:1px dashed var(--line); margin-top:8px; padding-top:8px;}
-  .payx-eq.roll+.payx-eq.roll{border-top:0; margin-top:0; padding-top:3px;}
+  .payx-row.head{font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);
+       border-bottom:1px solid var(--line); border-radius:0; padding-bottom:5px; margin-bottom:2px;}
+  .payx-row::before{content:""; display:block;}
+  .payx-sub>summary:hover .payx-row{background:var(--well);}
+  .payx-sub .payx-body{background:var(--well); border-radius:10px; margin:4px 0 10px 32px; padding:10px 14px;}
+  .payband{display:inline-block; padding:1px 7px; border-radius:6px; background:var(--accent-soft); color:var(--accent);
+       font-family:'Roboto Mono',monospace; font-size:11.5px; margin-right:6px; white-space:nowrap;}
+  .payformula{color:var(--muted); font-family:'Roboto Mono',monospace; font-size:11px; white-space:nowrap;}
+  .payallow{display:block; font-size:11px; color:var(--flag); margin-top:3px;}
+  /* Layer 3: one line of working - name | expression | cell. Sub-lines (a
+     specimen, a bowl) hang off a rule under their average. */
+  .payx-eq{display:grid; grid-template-columns:140px minmax(0,1fr) auto; gap:0 12px; align-items:baseline; padding:4px 0; font-size:12.5px;}
+  .payx-eq .k{font-size:11px; color:var(--muted);}
+  .payx-eq .e{color:var(--ink); font-size:12.5px; overflow-wrap:anywhere;}
+  .payx-eq .c{font-size:10px; color:var(--muted); background:var(--wash); border-radius:4px; padding:1px 6px; white-space:nowrap;}
+  .payx-eq.sub{margin-left:12px; padding-left:12px; border-left:2px solid var(--line);}
+  .payx-eq.roll{margin-top:10px; padding:8px 12px; background:var(--accent-soft); border-radius:8px;}
+  .payx-eq.roll .k{color:var(--accent); font-weight:600;}
+  .payx-eq.roll .c{background:var(--panel);}
+  .payx-eq.roll+.payx-eq.roll{margin-top:4px;}
   .payx-note{font-size:11.5px; color:var(--flag); margin:4px 0 6px;}
-  /* A phone: the line keeps label, value and the note; weight and counts go
-     inside "why", where they are said in a sentence anyway. The working
-     stacks its three parts. Below the rules they override, per convention. */
+  /* A phone: the line keeps label, value and the note; weight and counts are
+     said in a sentence inside "why" anyway. The working stacks. Below the
+     rules they override, per convention. */
   @media (max-width:700px){
     .payx-cols{display:none;}
-    .payx-prop>summary{grid-template-columns:16px minmax(0,1fr) auto; row-gap:2px;}
+    .payx-prop>summary{grid-template-columns:20px minmax(0,1fr) auto; row-gap:2px;}
     .payx-prop>summary .payx-w,.payx-prop>summary .payx-c{display:none;}
     .payx-prop>summary .payx-n{grid-column:2/4;}
     .payx-body{padding-left:12px;}
-    .payx-row{grid-template-columns:22px minmax(0,1fr) 60px; row-gap:2px;}
+    .payx-row{grid-template-columns:20px minmax(0,1fr) 64px; row-gap:2px;}
     .payx-row .payx-x1,.payx-row .payx-x2,.payx-row .payx-x3{grid-column:2; font-size:12px;}
     .payx-row .payx-x1{font-weight:600;}
     .payx-row .payx-x4{grid-column:3; grid-row:1;}
     .payx-row.head .payx-x1,.payx-row.head .payx-x2,.payx-row.head .payx-x3{display:none;}
     .payx-sub .payx-body{margin-left:0;}
-    .payx-eq{grid-template-columns:1fr; gap:0;}
-    .payx-eq .c{white-space:normal;}
+    .payx-eq{grid-template-columns:1fr; gap:2px 0;}
+    .payx-eq .c{white-space:normal; justify-self:start;}
   }
   .fp-card{background:var(--accent-soft); border-radius:var(--radius); padding:9px 12px;}
   .fp-card .l{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--accent); margin-bottom:2px;}
@@ -12003,9 +12027,9 @@ function acPay({ jmfAC, ac, isFirstSublot = false } = {}) {
   // air voids and VMA below it does not rescue an MCL-sized deviation - past
   // 0.7 the lot is still MCL on its first sublot. ('Pay Values'!D13)
   if (isFirstSublot && d <= 0.7 && d > 0.5) {
-    return { dev, rounded: d, pay: 100, rule: { band: '|dev| 0.6 - 0.7, sublot 1 of lot 1', pay: 100, allowance: true } };
+    return { dev, rounded: d, pay: 100, rule: { band: '|dev| 0.6 – 0.7, sublot 1 of lot 1', pay: 100, allowance: true } };
   }
-  if (d <= 0.5) return { dev, rounded: d, pay: 100, rule: { band: '|dev| <= 0.5', pay: 100 } };
+  if (d <= 0.5) return { dev, rounded: d, pay: 100, rule: { band: '|dev| ≤ 0.5', pay: 100 } };
   if (d <= 0.6) return { dev, rounded: d, pay: 95, rule: { band: '|dev| = 0.6', pay: 95 } };
   if (d <= 0.7) return { dev, rounded: d, pay: 90, rule: { band: '|dev| = 0.7', pay: 90 } };
   return { dev, rounded: d, pay: MCL, rule: { band: '|dev| > 0.7', pay: MCL } };
@@ -12050,24 +12074,24 @@ function airVoidPay({ av, esalClass, isFirstSublot = false } = {}) {
   // the sheet SUMS them and this reproduces the sheet.
   let pay = 0, note = null;
   const bands = [];
-  if (lowClass && (v <= 1.4 || v >= 6.6)) { pay = MCL; bands.push({ band: '<= 1.4 or >= 6.6 (Class 1-2)', pay: MCL }); }
+  if (lowClass && (v <= 1.4 || v >= 6.6)) { pay = MCL; bands.push({ band: '≤ 1.4 or ≥ 6.6 (Class 1-2)', pay: MCL }); }
   else if (highClass && (v < 2 || v > 6)) { pay = MCL; bands.push({ band: '< 2.0 or > 6.0 (Class 3-4)', pay: MCL }); }
   else {
     let sum = 0;
-    if (v >= 3 && v <= 4) { sum += 105; bands.push({ band: '3.0 - 4.0', pay: 105 }); }
+    if (v >= 3 && v <= 4) { sum += 105; bands.push({ band: '3.0 – 4.0', pay: 105 }); }
     if (lowClass && v <= 2.9 && v >= 1.5) {
       const p = tidy(100 * (1 + 0.1 * (v - 3))); sum += p;
-      bands.push({ band: '1.5 - 2.9 (Class 1-2)', formula: '100 x (1 + 0.1 x (av - 3.0))', pay: p });
+      bands.push({ band: '1.5 – 2.9 (Class 1-2)', formula: '100 × (1 + 0.1 × (av − 3.0))', pay: p });
     }
     if (highClass && v <= 2.9 && v >= 2) {
       const p = tidy(100 * (1 + 0.1 * (v - 3))); sum += p;
-      bands.push({ band: '2.0 - 2.9 (Class 3-4)', formula: '100 x (1 + 0.1 x (av - 3.0))', pay: p });
+      bands.push({ band: '2.0 – 2.9 (Class 3-4)', formula: '100 × (1 + 0.1 × (av − 3.0))', pay: p });
     }
     if ((lowClass || highClass) && v <= 6 && v >= 4.1) {
       const p = tidy(100 * (1 + 0.1 * (4.5 - v))); sum += p;
-      bands.push({ band: '4.1 - 6.0', formula: '100 x (1 + 0.1 x (4.5 - av))', pay: p });
+      bands.push({ band: '4.1 – 6.0', formula: '100 × (1 + 0.1 × (4.5 − av))', pay: p });
     }
-    if (lowClass && v >= 6.1 && v <= 6.5) { sum += 75; bands.push({ band: '6.1 - 6.5 (Class 1-2)', pay: 75 }); }
+    if (lowClass && v >= 6.1 && v <= 6.5) { sum += 75; bands.push({ band: '6.1 – 6.5 (Class 1-2)', pay: 75 }); }
     pay = tidy(sum);
     if (!lowClass && !highClass) {
       note = `AADTT Class ${esalClass ?? '(blank)'} is outside the workbook's 1-4 list; only the 3.0-4.0 band pays`;
@@ -12122,12 +12146,12 @@ function vmaPay({ minVMA, vma, isFirstSublot = false, mixTypeCode = 5 } = {}) {
     // takes MAX(0,0,0,0,0) = 0. A genuine quirk of the sheet, not a guess.
     pay = 0; rule = { band: 'mixture type is not Superpave', pay: 0 };
   } else if (d < -1) {
-    pay = MCL; rule = { band: 'dev < -1.0', pay: MCL };
+    pay = MCL; rule = { band: 'dev < −1.0', pay: MCL };
   } else {
     let best = 0; rule = { band: 'no band matched', pay: 0 };
-    if (d >= 0 && d <= 200) { best = Math.max(best, 100); rule = { band: 'dev >= 0.0', pay: 100 }; }
-    if (d >= -0.5 && d <= -0.1) { best = Math.max(best, 95); rule = { band: 'dev -0.5 to -0.1', pay: 95 }; }
-    if (d >= -1 && d <= -0.6) { best = Math.max(best, 90); rule = { band: 'dev -1.0 to -0.6', pay: 90 }; }
+    if (d >= 0 && d <= 200) { best = Math.max(best, 100); rule = { band: 'dev ≥ 0.0', pay: 100 }; }
+    if (d >= -0.5 && d <= -0.1) { best = Math.max(best, 95); rule = { band: 'dev −0.5 to −0.1', pay: 95 }; }
+    if (d >= -1 && d <= -0.6) { best = Math.max(best, 90); rule = { band: 'dev −1.0 to −0.6', pay: 90 }; }
     pay = best;
   }
 
@@ -12894,14 +12918,14 @@ function payViewHTML(result, ctx = {}) {
 // Three layers, on native <details> so the disclosure needs no script and a
 // keyboard reaches it:
 //   1. the line     property | lot value | weight | contribution
-//   2. why          per sublot: measured -> rounded -> the schedule band it
-//                   landed on -> pay, then how the sublots average to the lot
+//   2. why          per sublot: measured → rounded → the schedule band it
+//                   landed on → pay, then how the sublots average to the lot
 //                   value and what it contributes to the final pay
 //   3. the figures  the weighings and the formula each measured value came
 //                   from, cell by cell
 // Layers 1 and 2 come from lotPay()'s own return - the `rule`, `bands` and
 // `cores` pay.mjs carries - so nothing here re-derives a band; the readout
-// that says "93.4 -> 92.0-93.9 -> 100" reads the same table that paid it.
+// that says "93.4 → 92.0-93.9 → 100" reads the same table that paid it.
 // Layer 3 needs the raw weights, which lotPay() never sees: the page passes
 // them as `ctx.trace` (lotPayTrace() in designbook.html). Without a trace a
 // sublot line is a plain row and the third layer simply is not offered.
@@ -12909,6 +12933,17 @@ function payViewHTML(result, ctx = {}) {
 // `ctx.open` is the list of data-key values to render open. The page
 // re-renders this on every keystroke anywhere in the lot, and a readout that
 // folded every panel a person had opened would be unusable.
+
+// A pay value as a pill, coloured by which way it moved the money: green
+// above 100, red below, neutral at 100, gold for MCL. Same states the
+// verdict strip uses, so a 95 in a sublot row and a Penalty at the top
+// read as the same fact.
+function payBadge(v, esc) {
+  if (isMCL(v)) return `<span class="paypill mcl">${esc(v)}</span>`;
+  if (blank(v)) return '<span class="prsub">—</span>';
+  const cls = isNum(v) ? (v > 100 ? ' up' : v < 100 ? ' down' : ' even') : '';
+  return `<span class="paypill${cls}">${esc(isNum(v) ? trim(v) : String(v))}</span>`;
+}
 
 const fx = (v, dp) => (isNum(v) ? Number(v).toFixed(dp) : '—');   // fixed decimals: weighings and gravities
 const sg = (v, dp) => (isNum(v) ? sign(v) + Math.abs(v).toFixed(dp) : '—');   // signed deviation
@@ -12932,7 +12967,7 @@ function gmbFigures(esc, t) {
   const lines = [eqHTML(esc, 'Gmb', `${fx(t.gmb, 3)} - bulk specific gravity, the average of the specimens`, 'Superpave G, Average row')];
   (t.specimens || []).forEach((s, k) => {
     lines.push(eqHTML(esc, `specimen ${k + 1}`,
-      `${fx(s.air, 1)} g in air / (${fx(s.ssd, 1)} SSD - ${fx(s.water, 1)} in water = ${fx(s.volume, 1)}) = ${fx(s.bsg, 3)}`,
+      `${fx(s.air, 1)} g in air ÷ (${fx(s.ssd, 1)} SSD − ${fx(s.water, 1)} in water = ${fx(s.volume, 1)}) = ${fx(s.bsg, 3)}`,
       'Superpave F, G', 'sub'));
   });
   return lines.join('');
@@ -12942,7 +12977,7 @@ function gmmFigures(esc, t) {
   const lines = [eqHTML(esc, 'Gmm', `${fx(t.gmm, 3)} - maximum specific gravity (Rice), the average of the bowls`, 'Superpave row 42')];
   (t.dets || []).forEach((d, k) => {
     lines.push(eqHTML(esc, `bowl ${k + 1}`,
-      `${fx(d.mix, 1)} g mix / (${fx(d.mix, 1)} + ${fx(d.calibration, 1)} calibration - ${fx(d.finalWeight, 1)} final + ${fx(d.absorbedWater ?? 0, 1)} absorbed) = ${fx(d.msg, 3)}`,
+      `${fx(d.mix, 1)} g mix ÷ (${fx(d.mix, 1)} + ${fx(d.calibration, 1)} calibration − ${fx(d.finalWeight, 1)} final + ${fx(d.absorbedWater ?? 0, 1)} absorbed) = ${fx(d.msg, 3)}`,
       'Superpave row 41', 'sub'));
   });
   return lines.join('');
@@ -12952,40 +12987,40 @@ function acFigures(esc, t, hm, s) {
   const out = [];
   if (hm) {
     out.push(eqHTML(esc, 'Gse', `${fx(hm.gse, 3)} - effective aggregate gravity, from the hand-mixed check sample`, 'Superpave!J8'));
-    out.push(eqHTML(esc, '', `(100 - ${fx(hm.binderPct, 2)} hand-mixed %AC) / (100 / ${fx(hm.gmm, 3)} hand-mixed Gmm - ${fx(hm.binderPct, 2)} / 1.03) = ${fx(hm.gse, 3)}`, '', 'sub'));
+    out.push(eqHTML(esc, '', `(100 − ${fx(hm.binderPct, 2)} hand-mixed %AC) ÷ (100 ÷ ${fx(hm.gmm, 3)} hand-mixed Gmm - ${fx(hm.binderPct, 2)} ÷ 1.03) = ${fx(hm.gse, 3)}`, '', 'sub'));
   }
   out.push(gmmFigures(esc, t));
   out.push(eqHTML(esc, 'back-calculated %AC',
-    `1.03 x (${fx(t.gse, 3)} - ${fx(t.gmm, 3)}) / (${fx(t.gmm, 3)} x (${fx(t.gse, 3)} - 1.03)) x 100 = ${fx(t.backCalc, 2)}`, 'Gradation!D34'));
+    `1.03 × (${fx(t.gse, 3)} − ${fx(t.gmm, 3)}) ÷ (${fx(t.gmm, 3)} × (${fx(t.gse, 3)} − 1.03)) × 100 = ${fx(t.backCalc, 2)}`, 'Gradation!D34'));
   if (t.moisture && isNum(t.moisture.pct)) {
     const m = t.moisture;
     out.push(eqHTML(esc, 'moisture',
-      `((${fx(m.before, 1)} - ${fx(m.pan, 1)}) - (${fx(m.after, 1)} - ${fx(m.pan, 1)})) / (${fx(m.before, 1)} - ${fx(m.pan, 1)}) x 100 = ${fx(m.pct, 2)}%`, 'Superpave G48'));
-    out.push(eqHTML(esc, '%AC', `${fx(t.backCalc, 2)} - ${fx(m.pct, 2)} = ${fx(t.binderPct, 2)}`, "Gradation!D33 -> Superpave!B14"));
+      `((${fx(m.before, 1)} − ${fx(m.pan, 1)}) − (${fx(m.after, 1)} − ${fx(m.pan, 1)})) ÷ (${fx(m.before, 1)} − ${fx(m.pan, 1)}) × 100 = ${fx(m.pct, 2)}%`, 'Superpave G48'));
+    out.push(eqHTML(esc, '%AC', `${fx(t.backCalc, 2)} − ${fx(m.pct, 2)} = ${fx(t.binderPct, 2)}`, "Gradation!D33 → Superpave!B14"));
   } else {
     out.push(eqHTML(esc, '%AC', `${fx(t.binderPct, 2)} - no moisture entered, so nothing is taken off`, 'Superpave!B14'));
   }
-  out.push(eqHTML(esc, 'deviation', `${fx(t.binderPct, 2)} - ${fx(s.jmfAC, 2)} JMF = ${sg(isNum(t.binderPct) && isNum(s.jmfAC) ? t.binderPct - s.jmfAC : null, 2)}`, "'Pay Values'!C13"));
+  out.push(eqHTML(esc, 'deviation', `${fx(t.binderPct, 2)} − ${fx(s.jmfAC, 2)} JMF = ${sg(isNum(t.binderPct) && isNum(s.jmfAC) ? t.binderPct - s.jmfAC : null, 2)}`, "'Pay Values'!C13"));
   return out.join('');
 }
 function avFigures(esc, t) {
   if (!t) return '';
   return gmbFigures(esc, t) + gmmFigures(esc, t)
-    + eqHTML(esc, 'air voids', `(${fx(t.gmm, 3)} - ${fx(t.gmb, 3)}) / ${fx(t.gmm, 3)} x 100 = ${fx(t.va, 2)}%`, "Superpave J -> 'Pay Values'!F13");
+    + eqHTML(esc, 'air voids', `(${fx(t.gmm, 3)} − ${fx(t.gmb, 3)}) ÷ ${fx(t.gmm, 3)} × 100 = ${fx(t.va, 2)}%`, "Superpave J → 'Pay Values'!F13");
 }
 function vmaFigures(esc, t, s) {
   if (!t) return '';
   return gmbFigures(esc, t)
     + eqHTML(esc, '%AC', `${fx(t.binderPct, 2)} - back-calculated, see the % AC line`, 'Superpave!B14')
     + eqHTML(esc, 'Gsb', `${fx(t.gsb, 3)} - combined aggregate gravity for this sublot, from the blend`, 'Superpave R9:U9')
-    + eqHTML(esc, 'VMA', `100 - ${fx(t.gmb, 3)} x (100 - ${fx(t.binderPct, 2)}) / ${fx(t.gsb, 3)} = ${fx(t.vma, 2)}%`, "Superpave M -> 'Pay Values'!I13")
-    + eqHTML(esc, 'deviation', `${fx(t.vma, 2)} - ${fx(s.minVMA, 2)} minimum = ${sg(isNum(t.vma) && isNum(s.minVMA) ? t.vma - s.minVMA : null, 2)}`, "'Pay Values'!J13");
+    + eqHTML(esc, 'VMA', `100 − ${fx(t.gmb, 3)} × (100 − ${fx(t.binderPct, 2)}) ÷ ${fx(t.gsb, 3)} = ${fx(t.vma, 2)}%`, "Superpave M → 'Pay Values'!I13")
+    + eqHTML(esc, 'deviation', `${fx(t.vma, 2)} − ${fx(s.minVMA, 2)} minimum = ${sg(isNum(t.vma) && isNum(s.minVMA) ? t.vma - s.minVMA : null, 2)}`, "'Pay Values'!J13");
 }
 function coreFigures(esc, c) {
   if (!c) return '';
-  return eqHTML(esc, 'BSG', `${fx(c.air, 1)} g in air / (${fx(c.ssd, 1)} SSD - ${fx(c.water, 1)} in water) = ${fx(c.bsg, 3)}`, 'Cores G', 'sub')
-    + eqHTML(esc, 'density', `${fx(c.bsg, 3)} x 62.4 = ${fx(c.density, 1)} pcf`, 'Cores H', 'sub')
-    + eqHTML(esc, '% solid', `${fx(c.density, 1)} / (${fx(c.msg, 3)} sublot Gmm x 62.4) x 100 = ${fx(c.pctSolid, 2)}%`, 'Cores I', 'sub');
+  return eqHTML(esc, 'BSG', `${fx(c.air, 1)} g in air ÷ (${fx(c.ssd, 1)} SSD − ${fx(c.water, 1)} in water) = ${fx(c.bsg, 3)}`, 'Cores G', 'sub')
+    + eqHTML(esc, 'density', `${fx(c.bsg, 3)} × 62.4 = ${fx(c.density, 1)} pcf`, 'Cores H', 'sub')
+    + eqHTML(esc, '% solid', `${fx(c.density, 1)} ÷ (${fx(c.msg, 3)} sublot Gmm × 62.4) × 100 = ${fx(c.pctSolid, 2)}%`, 'Cores I', 'sub');
 }
 
 // ---- layer 2: why a property's lot value is what it is --------------------
@@ -13000,15 +13035,17 @@ function subGrid(esc, cells, cls = '') {
 // workbook overrode it (the "*For Sublot # 1 Only" column).
 function bandText(esc, r, kind) {
   if (!r) return '';
+  const chip = (band, formula) => `<span class="payband">${esc(band)}</span>`
+    + (formula ? `<span class="payformula">→ ${esc(formula)}</span>` : '');
   let s = '';
   if (kind === 'av') {
     const b = r.bands || [];
-    s = b.length ? b.map((x) => x.band + (x.formula ? ` -> ${x.formula}` : '')).join(' + ') : '—';
+    s = b.length ? b.map((x) => chip(x.band, x.formula)).join(' + ') : '<span class="prsub">—</span>';
   } else {
-    s = r.rule ? r.rule.band : '—';
+    s = r.rule ? chip(r.rule.band) : '<span class="prsub">—</span>';
   }
-  if (r.allowance) s += ` · sublot-1 allowance: ${isMCL(r.allowance.from) ? r.allowance.from : trim(r.allowance.from)} -> 100`;
-  return esc(s);
+  if (r.allowance) s += `<span class="payallow">sublot-1 allowance: ${esc(isMCL(r.allowance.from) ? r.allowance.from : trim(r.allowance.from))} → 100</span>`;
+  return s;
 }
 
 function volumetricWhy(p, result, ctx, esc, open) {
@@ -13035,7 +13072,7 @@ function volumetricWhy(p, result, ctx, esc, open) {
       figures = vmaFigures(esc, t, inp);
     }
     const cells = [esc(`Sublot ${i + 1}`), `<span class="mono">${esc(measured)}</span>`, `<span class="mono">${esc(rounded)}</span>`,
-                   bandText(esc, r, p.key), `<span class="mono">${payCell(r.pay, esc)}</span>`];
+                   bandText(esc, r, p.key), payBadge(r.pay, esc)];
     const note = r.note ? `<div class="payx-note">${esc(r.note)}</div>` : '';
     if (figures) {
       rows.push(detailsHTML(`sub.${p.key}.${i}`, open, 'payx-sub', subGrid(esc, cells), figures + note));
@@ -13056,9 +13093,9 @@ function volumetricWhy(p, result, ctx, esc, open) {
 function contributionEq(esc, by) {
   const v = by ? by.value : null, w = by ? by.weight : 0;
   if (!w) return eqHTML(esc, 'counts for', 'nothing - this property carries no weight on this lot', "'Pay Values'!E20:E24", 'roll');
-  if (isMCL(v)) return eqHTML(esc, 'counts for', `${v} x ${w}% - the sheet cannot multiply text, so there is no final pay value`, 'Calculations!A71', 'roll');
-  if (!isNum(v)) return eqHTML(esc, 'counts for', `— x ${w}% - no value yet`, 'Calculations!A71', 'roll');
-  return eqHTML(esc, 'counts for', `${trim(v)} x ${w}% = ${trim((v * w) / 100)} of the final pay value`, 'Calculations!A71', 'roll');
+  if (isMCL(v)) return eqHTML(esc, 'counts for', `${v} × ${w}% - the sheet cannot multiply text, so there is no final pay value`, 'Calculations!A71', 'roll');
+  if (!isNum(v)) return eqHTML(esc, 'counts for', `— × ${w}% - no value yet`, 'Calculations!A71', 'roll');
+  return eqHTML(esc, 'counts for', `${trim(v)} × ${w}% = ${trim((v * w) / 100)} of the final pay value`, 'Calculations!A71', 'roll');
 }
 
 function densityWhy(p, result, ctx, esc, open) {
@@ -13077,16 +13114,16 @@ function densityWhy(p, result, ctx, esc, open) {
     if (blank(v) && !cores.length && !rule) return;
     const each = cores.length ? cores.map((c) => (isMCL(c.pay) ? c.pay : trim(c.pay))).join(', ') : '—';
     const cells = [esc(`Sublot ${i + 1}`), `<span class="mono">${esc(cores.length ? String(cores.length) : '—')}</span>`,
-                   `<span class="mono">${esc(each)}</span>`, esc(rule || ''), `<span class="mono">${payCell(v, esc)}</span>`];
+                   `<span class="mono">${esc(each)}</span>`, esc(rule || ''), payBadge(v, esc)];
     if (!cores.length) { rows.push(subGrid(esc, cells)); return; }
     const t = trace[i] || [];
     const body = cores.map((c, k) => {
       const band = c.matched && c.matched.length
-        ? c.matched.map((m) => `${fx(m.lo, 1)} - ${m.hi >= 200 ? 'up' : fx(m.hi, 1)} (row ${m.row}) -> ${m.factor}`).join(' + ')
-        : (c.note || 'no band matched -> MCL');
+        ? c.matched.map((m) => `${fx(m.lo, 1)} - ${m.hi >= 200 ? 'up' : fx(m.hi, 1)} (row ${m.row}) → ${m.factor}`).join(' + ')
+        : (c.note || 'no band matched → MCL');
       const tc = t[k] || null;
       const id = tc && tc.id ? tc.id : `core ${k + 1}`;
-      return eqHTML(esc, id, `${tc ? fx(tc.pctSolid, 2) : fx(c.rounded, 1)}% solid -> rounded ${fx(c.rounded, 1)} -> ${band} = ${isMCL(c.pay) ? c.pay : trim(c.pay)}`, `Calculations row ${label === 'lane' ? '22' : '56'}`)
+      return eqHTML(esc, id, `${tc ? fx(tc.pctSolid, 2) : fx(c.rounded, 1)}% solid → rounded ${fx(c.rounded, 1)} → ${band} = ${isMCL(c.pay) ? c.pay : trim(c.pay)}`, `Calculations row ${label === 'lane' ? '22' : '56'}`)
         + coreFigures(esc, tc);
     }).join('');
     rows.push(detailsHTML(`core.${p.key}.${i}`, open, 'payx-sub', subGrid(esc, cells), body));
@@ -13116,8 +13153,8 @@ function propertyLine(p, result, esc) {
   else if (delta != null && Math.abs(delta) > 1e-9) note = `${delta < 0 ? 'costs' : 'adds'} ${trim(Math.abs(delta))}% of the lot`;
   else note = 'no effect';
   return `<span class="payx-l">${esc(p.label)}<span class="payx-cell mono">${esc(p.cell)}</span></span>`
-    + `<span class="payx-v mono">${payCell(value, esc)}</span>`
-    + `<span class="payx-w mono">${esc(`x${weight}%`)}</span>`
+    + `<span class="payx-v">${payBadge(value, esc)}</span>`
+    + `<span class="payx-w mono">${esc(`×${weight}%`)}</span>`
     + `<span class="payx-c mono">${contribution == null ? '<span class="prsub">—</span>' : esc(trim(contribution))}</span>`
     + `<span class="payx-n">${esc(note)}</span>`;
 }
@@ -13128,39 +13165,39 @@ function finalLines(result, ctx, esc, open) {
   const sum = terms.map((p) => {
     const t = by[p.key];
     const v = isMCL(t.value) ? t.value : blank(t.value) ? '—' : trim(t.value);
-    return `${v} x ${t.weight}%`;
+    return `${v} × ${t.weight}%`;
   }).join(' + ');
   const final = result.finalPct;
-  let body = eqHTML(esc, 'final pay value', `${sum} = ${isNum(final) ? trim(final) : '—'}`, "Calculations!A71 -> 'Pay Values'!J21");
+  let body = eqHTML(esc, 'final pay value', `${sum} = ${isNum(final) ? trim(final) : '—'}`, "Calculations!A71 → 'Pay Values'!J21");
   if (Number(ctx.acceptanceOption) === 3) body = eqHTML(esc, 'final pay value', '100 - Visual acceptance pays 100 whatever the properties read', "'Pay Values'!J21");
   if (!isNum(final)) (result.notes || []).forEach((n) => { body += `<div class="payx-note">${esc(n)}</div>`; });
   if (isNum(final) && final > 100) {
     body += eqHTML(esc, 'capped', `${trim(result.finalPctCapped)} - Calculations!A72 caps at 100 and the sheet prints "***Final Pay should be made at 100% Maximum"; J23/J24 multiply by the UNCAPPED figure`, 'Calculations!A72');
   }
   const line1 = `<span class="payx-l">Final pay value<span class="payx-cell mono">'Pay Values'!J21</span></span>`
-    + `<span class="payx-v mono"><strong>${isNum(final) ? esc(trim(final)) : payCell(final, esc)}</strong></span>`
-    + `<span class="payx-w mono">${esc(`x${Object.values(result.weights || {}).reduce((a, b) => a + (b || 0), 0)}%`)}</span>`
+    + `<span class="payx-v">${payBadge(final, esc)}</span>`
+    + `<span class="payx-w mono">${esc(`×${Object.values(result.weights || {}).reduce((a, b) => a + (b || 0), 0)}%`)}</span>`
     + `<span class="payx-c mono"></span><span class="payx-n">${esc(isNum(final) ? 'the five contributions, added' : 'no value - open for why')}</span>`;
   const out = [detailsHTML('final', open, 'payx-prop total', line1, body)];
 
   const net = result.payTons, tons = result.tonnageAdj, money = result.dollarAdj;
   const wedge = isNum(ctx.wedgeTons) ? ctx.wedgeTons : 0;
   const tonsBody = eqHTML(esc, 'tonnage adjustment',
-    isNum(tons) ? `(${trim(final)} - 100) x (${fx(ctx.tonnage, 2)} tons - ${fx(wedge, 2)} wedge = ${fx(net, 2)}) / 100 = ${sg(tons, 2)} tons`
+    isNum(tons) ? `(${trim(final)} − 100) × (${fx(ctx.tonnage, 2)} tons - ${fx(wedge, 2)} wedge = ${fx(net, 2)}) ÷ 100 = ${sg(tons, 2)} tons`
                 : 'no final pay value, so no adjustment', "'Pay Values'!J23")
     + (wedge > 0 ? eqHTML(esc, 'wedge', `${fx(wedge, 2)} tons of pavement wedge come off the top - wedge is paid at its own rate`, "'Pay Values'!J20") : '');
   out.push(detailsHTML('tons', open, 'payx-prop total',
     `<span class="payx-l">Tonnage adjustment<span class="payx-cell mono">'Pay Values'!J23</span></span>`
     + `<span class="payx-v mono">${esc(fmtTons(tons))}</span><span class="payx-w mono"></span><span class="payx-c mono"></span>`
-    + `<span class="payx-n">${esc(isNum(tons) ? `(final - 100) x ${fx(net, 2)} pay tons / 100` : 'no value yet')}</span>`, tonsBody));
+    + `<span class="payx-n">${esc(isNum(tons) ? `(final - 100) × ${fx(net, 2)} pay tons ÷ 100` : 'no value yet')}</span>`, tonsBody));
 
   const moneyBody = eqHTML(esc, 'pay adjustment',
-    isNum(money) ? `${sg(tons, 2)} tons x ${fmtMoney(ctx.unitPrice, { signed: false })} = ${fmtMoney(money)}` : 'no tonnage adjustment, so no dollar figure', "'Pay Values'!J24")
+    isNum(money) ? `${sg(tons, 2)} tons × ${fmtMoney(ctx.unitPrice, { signed: false })} = ${fmtMoney(money)}` : 'no tonnage adjustment, so no dollar figure', "'Pay Values'!J24")
     + eqHTML(esc, 'unit price', `${fmtMoney(ctx.unitPrice, { signed: false })} a ton is the spec's defined unit price for the Lot Pay Adjustment (402.05.02), the same for every mix - not the contract's bid price`, "'Pay Values'!F5");
   out.push(detailsHTML('money', open, 'payx-prop total hero',
     `<span class="payx-l">Pay adjustment<span class="payx-cell mono">'Pay Values'!J24</span></span>`
     + `<span class="payx-v mono"><strong>${esc(fmtMoney(money))}</strong></span><span class="payx-w mono"></span><span class="payx-c mono"></span>`
-    + `<span class="payx-n">${esc(isNum(money) ? `tons x ${fmtMoney(ctx.unitPrice, { signed: false })}` : 'no value yet')}</span>`, moneyBody));
+    + `<span class="payx-n">${esc(isNum(money) ? `tons × ${fmtMoney(ctx.unitPrice, { signed: false })}` : 'no value yet')}</span>`, moneyBody));
   return out.join('');
 }
 

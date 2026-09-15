@@ -326,19 +326,19 @@ const real = files.slice(0, 2).map((f, i) => {
   const av1 = result.perSublot[0].av;
   shows(W, text, av1.bands.map((b) => b.band).join(''));
   shows(W, text, `average(${result.perSublot.map((x) => x.av.pay).join(', ')}) = ${result.byProperty.av.value}`);
-  shows(W, text, `${result.byProperty.av.value} x ${result.weights.av}% = `);
+  shows(W, text, `${result.byProperty.av.value} × ${result.weights.av}% = `);
   // the final line writes the weighted sum out in full
-  shows(W, text, `x ${result.weights.laneDensity}% + `);
+  shows(W, text, `× ${result.weights.laneDensity}% + `);
   shows(W, text, `= ${result.finalPct}`);
   shows(W, text, "'Pay Values'!F5");           // the $50 is explained where the dollars are
   // layer 3: the weighings, the formula and the cell
-  shows(W, text, '4785.2 g in air / (4793.6 SSD - 2771.4 in water = 2022.2) = 2.366');
-  shows(W, text, '2000.0 g mix / (2000.0 + 7400.0 calibration - 8590.0 final + 0.0 absorbed) = 2.469');
-  shows(W, text, '(2.469 - 2.366) / 2.469 x 100 = ');
-  shows(W, text, '1.03 x (2.7212 - 2.469)'.replace('2.7212', '2.721'));
-  shows(W, text, '((1500.0 - 300.0) - (1492.0 - 300.0)) / (1500.0 - 300.0) x 100 = 0.67%');
-  shows(W, text, '1250.0 g in air / (1255.0 SSD - 720.0 in water) = 2.336');
-  shows(W, text, '145.8 / (2.469 sublot Gmm x 62.4) x 100 = ');
+  shows(W, text, '4785.2 g in air ÷ (4793.6 SSD − 2771.4 in water = 2022.2) = 2.366');
+  shows(W, text, '2000.0 g mix ÷ (2000.0 + 7400.0 calibration − 8590.0 final + 0.0 absorbed) = 2.469');
+  shows(W, text, '(2.469 − 2.366) ÷ 2.469 × 100 = ');
+  shows(W, text, '1.03 × (2.721 − 2.469)');
+  shows(W, text, '((1500.0 − 300.0) − (1492.0 − 300.0)) ÷ (1500.0 − 300.0) × 100 = 0.67%');
+  shows(W, text, '1250.0 g in air ÷ (1255.0 SSD − 720.0 in water) = 2.336');
+  shows(W, text, '145.8 ÷ (2.469 sublot Gmm × 62.4) × 100 = ');
   shows(W, text, `${base.lotNumber}-2-A`);      // a core is named by its own id
   // open state is honoured, and nothing else is open
   const opened = [...html.matchAll(/<details class="payx-d[^"]*" data-key="([^"]+)" open>/g)].map((m) => m[1]).sort();
@@ -357,7 +357,7 @@ const real = files.slice(0, 2).map((f, i) => {
   console.log(`  ${bareCores > 0 ? 'ok  ' : 'FAIL'}  but a density sublot still opens to its per-core bands (${bareCores} do)`);
   if (bareSubs) fails.push(`${W}: ${bareSubs} sublot(s) offered figures with no trace to show`);
   if (!bareCores) fails.push(`${W}: density sublots lost their per-core layer without a trace`);
-  shows(W, toText(bare), `% solid -> rounded ${result.laneDetail.cores[1][0].rounded} -> `);
+  shows(W, toText(bare), `% solid → rounded ${result.laneDetail.cores[1][0].rounded} → `);
   shows(W, toText(bare), `average(${result.perSublot.map((x) => x.av.pay).join(', ')}) = ${result.byProperty.av.value}`);
   // escaping: a hostile core id is data
   const hostile = '<img src=x onerror=alert(1)>';
@@ -373,7 +373,7 @@ const real = files.slice(0, 2).map((f, i) => {
   const mclText = toText(payExplainHTML(mclRes, { ...base, trace, open: ['prop.av', 'final'] }));
   shows(W, mclText, '< 2.0 or > 6.0 (Class 3-4)');
   shows(W, mclText, 'a sublot is MCL, so the lot value is MCL');
-  shows(W, mclText, 'MCL x 25%');
+  shows(W, mclText, 'MCL × 25%');
   if (process.argv.includes('--print')) console.log('\n' + text);
 }
 

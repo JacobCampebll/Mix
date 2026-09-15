@@ -178,9 +178,9 @@ export function acPay({ jmfAC, ac, isFirstSublot = false } = {}) {
   // air voids and VMA below it does not rescue an MCL-sized deviation - past
   // 0.7 the lot is still MCL on its first sublot. ('Pay Values'!D13)
   if (isFirstSublot && d <= 0.7 && d > 0.5) {
-    return { dev, rounded: d, pay: 100, rule: { band: '|dev| 0.6 - 0.7, sublot 1 of lot 1', pay: 100, allowance: true } };
+    return { dev, rounded: d, pay: 100, rule: { band: '|dev| 0.6 – 0.7, sublot 1 of lot 1', pay: 100, allowance: true } };
   }
-  if (d <= 0.5) return { dev, rounded: d, pay: 100, rule: { band: '|dev| <= 0.5', pay: 100 } };
+  if (d <= 0.5) return { dev, rounded: d, pay: 100, rule: { band: '|dev| ≤ 0.5', pay: 100 } };
   if (d <= 0.6) return { dev, rounded: d, pay: 95, rule: { band: '|dev| = 0.6', pay: 95 } };
   if (d <= 0.7) return { dev, rounded: d, pay: 90, rule: { band: '|dev| = 0.7', pay: 90 } };
   return { dev, rounded: d, pay: MCL, rule: { band: '|dev| > 0.7', pay: MCL } };
@@ -225,24 +225,24 @@ export function airVoidPay({ av, esalClass, isFirstSublot = false } = {}) {
   // the sheet SUMS them and this reproduces the sheet.
   let pay = 0, note = null;
   const bands = [];
-  if (lowClass && (v <= 1.4 || v >= 6.6)) { pay = MCL; bands.push({ band: '<= 1.4 or >= 6.6 (Class 1-2)', pay: MCL }); }
+  if (lowClass && (v <= 1.4 || v >= 6.6)) { pay = MCL; bands.push({ band: '≤ 1.4 or ≥ 6.6 (Class 1-2)', pay: MCL }); }
   else if (highClass && (v < 2 || v > 6)) { pay = MCL; bands.push({ band: '< 2.0 or > 6.0 (Class 3-4)', pay: MCL }); }
   else {
     let sum = 0;
-    if (v >= 3 && v <= 4) { sum += 105; bands.push({ band: '3.0 - 4.0', pay: 105 }); }
+    if (v >= 3 && v <= 4) { sum += 105; bands.push({ band: '3.0 – 4.0', pay: 105 }); }
     if (lowClass && v <= 2.9 && v >= 1.5) {
       const p = tidy(100 * (1 + 0.1 * (v - 3))); sum += p;
-      bands.push({ band: '1.5 - 2.9 (Class 1-2)', formula: '100 x (1 + 0.1 x (av - 3.0))', pay: p });
+      bands.push({ band: '1.5 – 2.9 (Class 1-2)', formula: '100 × (1 + 0.1 × (av − 3.0))', pay: p });
     }
     if (highClass && v <= 2.9 && v >= 2) {
       const p = tidy(100 * (1 + 0.1 * (v - 3))); sum += p;
-      bands.push({ band: '2.0 - 2.9 (Class 3-4)', formula: '100 x (1 + 0.1 x (av - 3.0))', pay: p });
+      bands.push({ band: '2.0 – 2.9 (Class 3-4)', formula: '100 × (1 + 0.1 × (av − 3.0))', pay: p });
     }
     if ((lowClass || highClass) && v <= 6 && v >= 4.1) {
       const p = tidy(100 * (1 + 0.1 * (4.5 - v))); sum += p;
-      bands.push({ band: '4.1 - 6.0', formula: '100 x (1 + 0.1 x (4.5 - av))', pay: p });
+      bands.push({ band: '4.1 – 6.0', formula: '100 × (1 + 0.1 × (4.5 − av))', pay: p });
     }
-    if (lowClass && v >= 6.1 && v <= 6.5) { sum += 75; bands.push({ band: '6.1 - 6.5 (Class 1-2)', pay: 75 }); }
+    if (lowClass && v >= 6.1 && v <= 6.5) { sum += 75; bands.push({ band: '6.1 – 6.5 (Class 1-2)', pay: 75 }); }
     pay = tidy(sum);
     if (!lowClass && !highClass) {
       note = `AADTT Class ${esalClass ?? '(blank)'} is outside the workbook's 1-4 list; only the 3.0-4.0 band pays`;
@@ -297,12 +297,12 @@ export function vmaPay({ minVMA, vma, isFirstSublot = false, mixTypeCode = 5 } =
     // takes MAX(0,0,0,0,0) = 0. A genuine quirk of the sheet, not a guess.
     pay = 0; rule = { band: 'mixture type is not Superpave', pay: 0 };
   } else if (d < -1) {
-    pay = MCL; rule = { band: 'dev < -1.0', pay: MCL };
+    pay = MCL; rule = { band: 'dev < −1.0', pay: MCL };
   } else {
     let best = 0; rule = { band: 'no band matched', pay: 0 };
-    if (d >= 0 && d <= 200) { best = Math.max(best, 100); rule = { band: 'dev >= 0.0', pay: 100 }; }
-    if (d >= -0.5 && d <= -0.1) { best = Math.max(best, 95); rule = { band: 'dev -0.5 to -0.1', pay: 95 }; }
-    if (d >= -1 && d <= -0.6) { best = Math.max(best, 90); rule = { band: 'dev -1.0 to -0.6', pay: 90 }; }
+    if (d >= 0 && d <= 200) { best = Math.max(best, 100); rule = { band: 'dev ≥ 0.0', pay: 100 }; }
+    if (d >= -0.5 && d <= -0.1) { best = Math.max(best, 95); rule = { band: 'dev −0.5 to −0.1', pay: 95 }; }
+    if (d >= -1 && d <= -0.6) { best = Math.max(best, 90); rule = { band: 'dev −1.0 to −0.6', pay: 90 }; }
     pay = best;
   }
 
