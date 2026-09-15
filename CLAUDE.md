@@ -13,6 +13,53 @@ codes). The `designs` table is the submission record and its audit trail, not
 a reference library, and the Portal is the place to submit and to see where a
 submission stands - do not design it as a browse-and-search catalogue.
 
+**Whose app this is - KYTC's, for the whole state** (Jake, 2026-09-15: "quit
+thinking about the allen company and our apps for this site, its kytc and the
+entire states app"). Every asphalt producer in Kentucky: 376 technicians, 130
+plants, twelve districts, many companies. So **a feature only one contractor
+can use is a feature KYTC cannot ship**, however much work it saves that one.
+
+The worked example, proposed and rejected the same day: importing plant
+tickets from **ILS** - The Allen Company's own ticketing system - to fill a
+lot's tonnage. It would have removed typing for one producer and for nobody
+else. The general rule it came from is the part worth keeping: **a data
+source has to be one every contractor already has**, which in practice means
+KYTC's own - the proposals, pay estimates and contract items that
+`kytc-lookup` / `kytc-items` / `kytc-notes` already read.
+
+The architecture mostly enforces this already, and that is the argument for
+keeping it. Plants, producers, terminals and grades all resolve from
+Supabase, so no contractor's name appears in a served page at all - checked
+2026-09-15, zero matches for allen / boonesboro / berea anywhere under
+`public/`. Same rule as everywhere else in this file: a row added to a table
+reaches every page, a value added to a `CONFIG` reaches one page and is
+usually one shop's.
+
+**The one place it leaked: `CONFIG.MIXPACK.DISTRICTS` holds district 07 and
+nothing else** - which is the district Allen's plants are in. A reviewer in
+any of the other eleven generates a MixPack with no lab unit and no sample
+id. It `need()`s, so the gap is stated rather than silent, but the workbook
+is incomplete. The template appears to carry the whole list at
+`Chart Data`!AV2:AV14 (`LU00642`, then `LU01210` ... `LU12210`), untrusted so
+far because it disagrees with the one real data point - see the P/S lab id
+note further down for why those may be two different questions. **Open for
+Andrew**: the lab unit and sample-lab code for districts 01-12.
+
+**And the one worth acting on: every file this app has ever been checked
+against is one shop's.** Two real AMAWs, both Boonesboro, both contract
+252112, both `CL3 ASPH SURF 0.38A PG64-22`; one approved MixPack, #467PA; one
+contract behind the proposal and pay-estimate lookups. Every gotcha recorded
+in this file came from a real file disagreeing with an assumption - so for a
+state-wide app, **breadth of real files is worth more than any feature**.
+What is missing, in rough order of value: a completed AMAW from another
+district or producer; a lot carrying a QA or IQ sample (neither real lot has
+one, so `Super Verify` has never been checked against a cached answer, only
+against the template's own formulas); an approved design for something other
+than a 0.38 surface; and anything at all for a **specialty mixture**
+(402.05.01 - OGFC, ATDB, pavement wedge, leveling and wedging, scratch
+course), which PlantBook does not model and refuses to pay rather than paying
+a silent 0%.
+
 Live at **https://kytcmix.netlify.app** (Netlify project `kytcmix`). Pages are
 served from `public/`; `/` redirects to `login.html`.
 
