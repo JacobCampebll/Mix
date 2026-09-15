@@ -155,7 +155,7 @@ function flagsSentence(result, ctx) {
     bits.push(Number(ctx.jointDensityFlag) === 1 ? 'joint density counts' : 'joint density does not count');
   }
   if (ctx.densityOption != null) bits.push(`density option ${Number(ctx.densityOption) === 2 ? 'B' : 'A'}`);
-  if (ctx.esalClass != null) bits.push(`ESAL Class ${ctx.esalClass}`);
+  if (ctx.esalClass != null) bits.push(`AADTT Class ${ctx.esalClass}`);
   return bits.join(' · ');
 }
 

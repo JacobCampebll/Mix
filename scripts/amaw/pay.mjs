@@ -225,7 +225,7 @@ export function airVoidPay({ av, esalClass, isFirstSublot = false } = {}) {
     if (lowClass && v >= 6.1 && v <= 6.5) sum += 75;
     pay = tidy(sum);
     if (!lowClass && !highClass) {
-      note = `ESAL Class ${esalClass ?? '(blank)'} is outside the workbook's 1-4 list; only the 3.0-4.0 band pays`;
+      note = `AADTT Class ${esalClass ?? '(blank)'} is outside the workbook's 1-4 list; only the 3.0-4.0 band pays`;
     }
   }
 

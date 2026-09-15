@@ -670,9 +670,25 @@ export const LOT_TABLE_ROUTES = {
   project_items: { by: 'lot', into: 'rows@project_items', passthrough: true,
     cols: { project: 'project', line: 'line', quantity: 'quantity', unit: 'unit' },
     drop: { description: 'screen-only: INPUTS.projectItems is A..D = project/line/qty/unit' } },
+  // 2026-09-15: `blend` is identity only now (producer/AGP/type & size/BOD) -
+  // the percentage moved to its own per-sublot table, `blend_pct`, below.
+  // `pct_1..pct_4` used to live here and are gone from the schema, not just
+  // dropped from this mapping - see sections.mjs's BLEND_IDENTITY_SPEC.
   blend: { by: 'lot', into: 'rows@aggregate', blend: true,
     cols: { producer: 'producer', agp: 'agp_number', type_size: 'type_size', bod: 'bod' },
-    drop: { pct_1: 'fans out per sublot', pct_2: '', pct_3: '', pct_4: '' } },
+    drop: { component: 'identity anchor only (keeps collectForm() from dropping a blank slot out of position) - never written' } },
+  // Declared orphan (`into: null`), same footing as blend_gsb below: this
+  // table is read by the CUSTOM fan-out further down (search "blend_pct"),
+  // not by the generic per-block routing above, because it needs to GROUP by
+  // its own `sublot` cell first and then match POSITION within that group to
+  // `blend`'s own row order - one column mapping cannot express that join.
+  // `producer`/`type_size` are read-only mirrors (sections.mjs) and carry no
+  // information the workbook needs a second time.
+  blend_pct: { by: 'lot', into: null,
+    drop: { sublot: 'groups the fan-out below, not written anywhere',
+            producer: 'read-only mirror of blend[i].producer',
+            type_size: 'read-only mirror of blend[i].type_size',
+            pct: 'fans out per sublot, see the custom fan-out below' } },
   blend_gsb: { by: 'lot', into: null,
     drop: { gsb_1: 'Superpave R9:U9, a formula over the blend', gsb_2: '', gsb_3: '', gsb_4: '' } },
 };
@@ -833,11 +849,25 @@ export function lotRecords(values, rows, existing) {
   // -- the blend fans out the other way: ONE form row, four sublot records.
   //    Each component keeps its position, which is what INPUTS.blend's
   //    `first + i` already assumes.
+  //
+  //    2026-09-15: the percentage no longer lives ON blendRows (pct_1..
+  //    pct_4 are gone from the schema - sections.mjs's BLEND_IDENTITY_SPEC).
+  //    It is its own table, `blend_pct`, 24 rows (six components x four
+  //    sublots) each carrying its OWN `sublot` cell - the same "group by a
+  //    real identity value, never by raw array position" rule mat_cores/
+  //    sublot_bsg already use, not a new one. GROUP by that cell first, THEN
+  //    match POSITION within the group to blendRows' own order - safe only
+  //    because both tables are fixed now (BLEND_IDENTITY_SPEC, BLEND_PCT_SPEC
+  //    in sections.mjs), so neither can reorder or drop a MIDDLE slot out
+  //    from under the other; see BLEND_IDENTITY_SPEC's own comment for why
+  //    that stopped being true the moment blend was still growable.
   const blendRows = src.blend;
-  if (Array.isArray(blendRows) && blendRows.length) {
+  const blendPctRows = src.blend_pct;
+  if (Array.isArray(blendRows) && blendRows.length && Array.isArray(blendPctRows)) {
     [1, 2, 3, 4].forEach((s) => {
       const name = `QC0${s}`;
-      const per = blendRows.map((c) => ({ pct: c[`pct_${s}`] }));
+      const mine = blendPctRows.filter((r) => sublotIndex(r.sublot) === s);
+      const per = blendRows.map((c, i) => ({ pct: mine[i] ? mine[i].pct : null }));
       if (!per.some((c) => amHas(c.pct))) return;
       const r = block(name); r.rows = { ...(r.rows || {}) };
       if (!r.rows.blend) r.rows.blend = per;
@@ -1084,7 +1114,7 @@ export function amawCells(lot, tpl, ref) {
   write(FLAGS.perfSpecMadeWith, amStr(v.perf_spec_made_with));
   for (const [key, addr, what] of [
     ['mix_type_code', FLAGS.mixTypeCode, 'mixture type code; the density and VMA pay tables pay nothing without it'],
-    ['esal_class', FLAGS.esalClass, 'ESAL class; every pay band edge moves with it'],
+    ['esal_class', FLAGS.esalClass, 'AADTT class; every pay band edge moves with it'],
     ['acceptance_method', FLAGS.acceptanceMethod, 'acceptance method (Volumetrics / Gradation / Visual)'],
     ['density_option', FLAGS.densityOption, 'density option A or B'],
   ]) if (!amHas(v[key])) need(addr, what);

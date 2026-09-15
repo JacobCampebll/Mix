@@ -493,7 +493,13 @@ namespace('PB_SECTIONS', '2. PB_SECTIONS vs scripts/amaw/sections.mjs');
   // not what a chain of deltas implies it should hold. A count rather than
   // a list on purpose - a schema that still stringifies identically but has
   // lost a section is a different page.
-  ok('SECTIONS carries twenty-one sections', P.SECTIONS.length === 21, P.SECTIONS.length);
+  // 2026-09-15: down to twenty - the standalone "Aggregate Blend" section
+  // (into: "sublot-1") is gone, folded into buildSublotTabSections()'s own
+  // rows/fields so it can sit at the TOP of each tab (into-children always
+  // render after a section's own body). One fewer top-level section, two
+  // more row-table keys (blend split into BLEND_IDENTITY_SPEC + a per-sublot
+  // BLEND_PCT_SPEC) - the count that moved is sections, not tables.
+  ok('SECTIONS carries twenty sections', P.SECTIONS.length === 20, P.SECTIONS.length);
   const ids = P.SECTIONS.map((s) => s.id);
   ok('every section id is unique', new Set(ids).size === ids.length, ids);
   ok('the status step is `lot-status`, not `status` — DesignBook owns that id '
