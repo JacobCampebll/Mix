@@ -1114,7 +1114,7 @@ export function amawCells(lot, tpl, ref) {
   write(FLAGS.perfSpecMadeWith, amStr(v.perf_spec_made_with));
   for (const [key, addr, what] of [
     ['mix_type_code', FLAGS.mixTypeCode, 'mixture type code; the density and VMA pay tables pay nothing without it'],
-    ['esal_class', FLAGS.esalClass, 'ESAL class; every pay band edge moves with it'],
+    ['esal_class', FLAGS.esalClass, 'AADTT class; every pay band edge moves with it'],
     ['acceptance_method', FLAGS.acceptanceMethod, 'acceptance method (Volumetrics / Gradation / Visual)'],
     ['density_option', FLAGS.densityOption, 'density option A or B'],
   ]) if (!amHas(v[key])) need(addr, what);

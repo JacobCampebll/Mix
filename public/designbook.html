@@ -11518,7 +11518,7 @@ function airVoidPay({ av, esalClass, isFirstSublot = false } = {}) {
     if (lowClass && v >= 6.1 && v <= 6.5) sum += 75;
     pay = tidy(sum);
     if (!lowClass && !highClass) {
-      note = `ESAL Class ${esalClass ?? '(blank)'} is outside the workbook's 1-4 list; only the 3.0-4.0 band pays`;
+      note = `AADTT Class ${esalClass ?? '(blank)'} is outside the workbook's 1-4 list; only the 3.0-4.0 band pays`;
     }
   }
 
@@ -12011,7 +12011,7 @@ function flagsSentence(result, ctx) {
     bits.push(Number(ctx.jointDensityFlag) === 1 ? 'joint density counts' : 'joint density does not count');
   }
   if (ctx.densityOption != null) bits.push(`density option ${Number(ctx.densityOption) === 2 ? 'B' : 'A'}`);
-  if (ctx.esalClass != null) bits.push(`ESAL Class ${ctx.esalClass}`);
+  if (ctx.esalClass != null) bits.push(`AADTT Class ${ctx.esalClass}`);
   return bits.join(' · ');
 }
 
@@ -14380,7 +14380,7 @@ function amawCells(lot, tpl, ref) {
   write(FLAGS.perfSpecMadeWith, amStr(v.perf_spec_made_with));
   for (const [key, addr, what] of [
     ['mix_type_code', FLAGS.mixTypeCode, 'mixture type code; the density and VMA pay tables pay nothing without it'],
-    ['esal_class', FLAGS.esalClass, 'ESAL class; every pay band edge moves with it'],
+    ['esal_class', FLAGS.esalClass, 'AADTT class; every pay band edge moves with it'],
     ['acceptance_method', FLAGS.acceptanceMethod, 'acceptance method (Volumetrics / Gradation / Visual)'],
     ['density_option', FLAGS.densityOption, 'density option A or B'],
   ]) if (!amHas(v[key])) need(addr, what);
