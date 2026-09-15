@@ -69,8 +69,18 @@ export async function run({ browser, results, books }) {
       const after = await page.evaluate(() => collectForm());
       const emptyRows = await page.evaluate(() => {
         // Add a blank row to every table and prove collectForm() drops it.
+        // SUM, never assign. PlantBook's Sublot 1-4 tabs render one shared
+        // table as four `[data-rowlist="key"]` blocks (sliceIndices), so an
+        // assignment keeps only the LAST block's count and every sliced table
+        // then looks like it collected four times what the DOM holds. This
+        // check reported all twelve of them as "collected twice" on
+        // 2026-09-14 when nothing was wrong with the page - written when one
+        // key meant one element, and never revisited when that stopped
+        // being true.
         const counts = {};
-        document.querySelectorAll("[data-rowlist]").forEach((l) => { counts[l.dataset.rowlist] = l.children.length; });
+        document.querySelectorAll("[data-rowlist]").forEach((l) => {
+          counts[l.dataset.rowlist] = (counts[l.dataset.rowlist] || 0) + l.children.length;
+        });
         return counts;
       });
       const collectedRows = Object.fromEntries(Object.entries(after.rows).map(([k, v]) => [k, v.length]));

@@ -228,10 +228,10 @@ const readonlySieveKeys = new Set();
 // blocks, not four different tables that happen to share a name. Tracked
 // separately from `rowKeys` so the ordinary "used twice" failure still
 // fires for an accidental duplicate that does NOT declare sliceIndices.
-const sliceCoverage = new Map();   // key -> { seedLen, seen: Set<number>, wheres: string[] }
+const sliceCoverage = new Map();   // key -> { seedLen, seen: Set<number>, order: number[], wheres: string[] }
 const claimSlice = (spec, where) => {
   const seedLen = Array.isArray(spec.seed) ? spec.seed.length : 0;
-  const cov = sliceCoverage.get(spec.key) || { seedLen, seen: new Set(), wheres: [] };
+  const cov = sliceCoverage.get(spec.key) || { seedLen, seen: new Set(), order: [], wheres: [] };
   if (cov.seedLen !== seedLen)
     fail("I", `${where} slices a ${seedLen}-row seed, but another section slicing "${spec.key}" saw ${cov.seedLen}`);
   cov.wheres.push(where);
@@ -241,6 +241,7 @@ const claimSlice = (spec, where) => {
     else if (cov.seen.has(i))
       fail("I", `${where} slices index ${i}, already sliced by another section`);
     else cov.seen.add(i);
+    cov.order.push(i);
   }
   sliceCoverage.set(spec.key, cov);
 };
@@ -448,10 +449,31 @@ for (const s of S) {
 //  from collectForm(), since a row nobody renders is a row nobody can type
 //  into), and an overlap duplicates one sublot's DOM node under two keys,
 //  which is exactly the class of bug a duplicate `data-rowlist` risks.
+//
+//  AND THE SLICES HAVE TO RUN IN ORDER, which covering every row exactly once
+//  does NOT imply and which cost a real regression on 2026-09-14. `sliceIndices`
+//  indexes into the SEED, while collectForm() reads the rendered rows back in
+//  DOM order - tab 1's, then tab 2's, and so on. Those are the same list only
+//  when the concatenation of the slices, in section order, is 0,1,2,...,n-1.
+//  The Department Verification tables were seeded record-major, giving tab n
+//  the pair [n-1, 4+(n-1)]: every row rendered exactly once, this check passed,
+//  and a save-and-reopen re-sliced a list that was no longer in seed order and
+//  moved sublot 3's record onto sublot 1's tab - permuting further on every
+//  cycle. Nothing errored, because the values travel with the row and the
+//  mapper keys on them rather than on position, so the AMAW stayed right while
+//  the screen lied about which sublot it was showing.
 for (const [key, cov] of sliceCoverage) {
   if (cov.seen.size !== cov.seedLen)
     fail("I", `row table "${key}" is sliced across ${cov.wheres.length} section(s) (${cov.wheres.join(", ")}) ` +
       `but covers ${cov.seen.size} of its ${cov.seedLen} seed rows`);
+  else {
+    const at = cov.order.findIndex((v, i) => v !== i);
+    if (at >= 0)
+      fail("I", `row table "${key}" slices out of order across ${cov.wheres.join(", ")} — ` +
+        `concatenated they read ${cov.order.join(",")}, and position ${at} holds ${cov.order[at]} rather than ${at}. ` +
+        `collectForm() reads these rows back in DOM order, so a save and reopen would re-slice a list that is ` +
+        `no longer in seed order and move rows between tabs. Re-order the SEED so each tab's slice is contiguous.`);
+  }
 }
 
 // =====================================================================

@@ -3020,20 +3020,32 @@ const PB_SECTIONS = (() => {
   // across all four tabs. See verifyRowOf4()/verifySpecimenOf4() below for the
   // slice indices, and the section's own comment for what did and did not
   // need a mapper.mjs change to get here.
-  const VERIFY_SEED = VERIFY_RECORDS.flatMap((r) =>
-    ["1", "2", "3", "4"].map((sublot) => ({ record: r.label, sublot_verified: sublot })));
-  const VERIFY_ROW_SEED = VERIFY_RECORDS.flatMap((r) =>
-    ["1", "2", "3", "4"].map((sublot) => ({ record: r.key, sublot })));
-  const VERIFY_SPECIMEN_SEED = VERIFY_RECORDS.flatMap((r) =>
-    ["1", "2", "3", "4"].flatMap((sublot) =>
-      ["1", "2"].map((specimen) => ({ record: r.key, sublot, specimen }))));
-  // n is 1..4. Both seeds above are ordered [QA-sub1..QA-sub4, IQ-sub1..IQ-sub4]
-  // (VERIFY_RECORDS.flatMap outer loop is the record), so sublot n's QA slot is
-  // at index n-1 and its IQ slot at 4+(n-1) - same arithmetic family as
-  // oneOf4()/twoOf4()/fourOf4() above, just two records instead of one table.
-  const verifyRowOf4 = (n) => [n - 1, 4 + (n - 1)];
-  const verifySpecimenOf4 = (n) =>
-    [2 * (n - 1), 2 * (n - 1) + 1, 8 + 2 * (n - 1), 8 + 2 * (n - 1) + 1];
+  // ORDER MATTERS AND IS SUBLOT-MAJOR, not record-major. The four Sublot tabs
+// render slices of these seeds BY INDEX, and collectForm() reads them back in
+// DOM order - tab 1's rows, then tab 2's, and so on. Those two orders are the
+// same list only while each tab's slice is CONTIGUOUS and the tabs run in
+// order. Record-major seeds gave tab n the pair [n-1, 4+(n-1)], which
+// interleaves, so a save and reopen re-sliced a list that was no longer in
+// seed order and put sublot 3's Department record on sublot 1's tab -
+// permuting again on every cycle, and never noticed because the values travel
+// with the row and the mapper keys on them rather than on position.
+// check_sections.mjs now fails ANY spec whose slices do not concatenate to
+// 0..n-1 in section order, so this cannot come back quietly.
+const VERIFY_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
+  VERIFY_RECORDS.map((r) => ({ record: r.label, sublot_verified: sublot })));
+const VERIFY_ROW_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
+  VERIFY_RECORDS.map((r) => ({ record: r.key, sublot })));
+const VERIFY_SPECIMEN_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
+  VERIFY_RECORDS.flatMap((r) =>
+    ["1", "2"].map((specimen) => ({ record: r.key, sublot, specimen }))));
+// n is 1..4. Sublot-major puts sublot n's two records together at 2(n-1) and
+// its four specimens at 4(n-1) - the same arithmetic as twoOf4()/fourOf4()
+// below, written out rather than referenced because those are declared LATER
+// in this module and an eager reference to them here would be a TDZ
+// ReferenceError at load, before one line of this file runs.
+const verifyRowOf4 = (n) => [2 * (n - 1), 2 * (n - 1) + 1];
+const verifySpecimenOf4 = (n) =>
+  [4 * (n - 1), 4 * (n - 1) + 1, 4 * (n - 1) + 2, 4 * (n - 1) + 3];
 
   // The two Rice determinations of the lot's hand-mixed check sample
   // (`Superpave` columns M and N). One per lot, not per sublot.
