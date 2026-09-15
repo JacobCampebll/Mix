@@ -71,19 +71,26 @@ const READ = (approval) => {
       if (!/^sublot-[1-4]$/.test(sid)) return;
       const card = sec.querySelector(".steplock");
       const ctl = Array.from(sec.querySelectorAll("input,select,textarea"));
-      // Derived from the page's own two exemption lists rather than named
-      // here. Hardcoding them went stale within a day: Andrew's PR #24 turned
-      // Aggregate Blend from a sub-section into row tables, and this probe
-      // went on passing while quietly measuring only the hand-mix. What is
-      // under test is that the page leaves these ENABLED inside a locked tab;
-      // that the lists name real things is check_page_plantbook.mjs's job.
+      // Derived from the page's own THREE exemption lists rather than named
+      // here. Hardcoding them went stale within a day once already: Andrew's
+      // PR #24 turned Aggregate Blend from a sub-section into row tables, and
+      // this probe went on passing while quietly measuring only the hand-mix.
+      // It went stale a second time the same way when PR #26 folded `blend`
+      // into `blend_pct` (a table-level exemption can't express "this table
+      // is per-sublot in one column and lot-level in six others", so the
+      // exemption moved to LOT_LEVEL_ROW_COLUMNS) - fixed here rather than
+      // left to rediscover, same lesson twice. What is under test is that the
+      // page leaves these ENABLED inside a locked tab; that the lists name
+      // real things is check_page_plantbook.mjs's job.
       const subs = new Set(PB_SECTIONS.LOT_LEVEL_SUBBLOCKS);
       const tbls = new Set(PB_SECTIONS.LOT_LEVEL_ROW_TABLES);
+      const cols = new Set(PB_SECTIONS.LOT_LEVEL_ROW_COLUMNS);
       const lotLevel = (el) => {
         const sub = el.closest("[data-subsection]");
         if (sub && subs.has(sub.dataset.subsection)) return true;
         const list = el.closest("[data-rowlist]");
-        return !!(list && tbls.has(list.dataset.rowlist));
+        if (list && tbls.has(list.dataset.rowlist)) return true;
+        return !!(el.dataset.row && el.dataset.col && cols.has(`${el.dataset.row}.${el.dataset.col}`));
       };
       o[sid] = {
         locked: sec.classList.contains("locked"),

@@ -3147,20 +3147,42 @@ const PB_SECTIONS = (() => {
    *  1's tab, and on lot 2 or later - where sublot 1 is gated like any other -
    *  locking them with it would leave that lot no way to state its own blend.
    *
-   *  TWO LISTS BECAUSE THERE ARE TWO SHAPES, and that is worth knowing rather
-   *  than discovering: Andrew's 2026-09-14 split (PR #24) turned Aggregate
-   *  Blend from an `into: "sublot-1"` SUB-SECTION into row TABLES on the tab
-   *  itself, so an exemption that only knew about sub-sections silently stopped
-   *  covering it. check_page_plantbook.mjs caught exactly that on the merge and
-   *  fails if either list names something that is not really there.
+   *  2026-09-15b CORRECTION: `LOT_LEVEL_ROW_TABLES` used to also name `blend`,
+   *  back when Aggregate Blend's identity lived on its own six-row table. That
+   *  table is GONE - identity now lives inside `blend_pct` itself, mirrored
+   *  across all four sublots' own copies (aggBlendColumns()) - and `blend_pct`
+   *  is sliced per sublot, so it can never be a whole exempt TABLE the way
+   *  `blend` was: `blend_pct`'s own `pct` column is genuinely this sublot's
+   *  data ("that's how techs have been filling out the previous AMAW to
+   *  date") and must lock with its tab, while `component`/`producer`/`agp`/
+   *  `type_size`/`bod`/`design_pct` describe the lot and must not. One table,
+   *  two different answers per column - see LOT_LEVEL_ROW_COLUMNS below.
    *
-   *  NOTE WHAT IS DELIBERATELY *NOT* HERE: `blend_pct`. That table is sliced
-   *  six rows per tab precisely so each sublot edits its own percentage
-   *  ("that's how techs have been filling out the previous AMAW to date"), so
-   *  it is this sublot's data and locks with it. Only the component identity -
-   *  producer, AGP, type & size, BOD - is typed once for the lot. */
+   *  THIS IS THE EXACT FAILURE THIS COMMENT ALREADY WARNED ABOUT, ONE MERGE
+   *  LATER. The first version of this note said a hardcoded exemption "went
+   *  stale within a day" when PR #24 reshaped Aggregate Blend and the merge
+   *  was textually clean; PR #26 reshaped it again (folding `blend` into
+   *  `blend_pct`) and the SAME silent drift happened to `LOT_LEVEL_ROW_TABLES`
+   *  itself, caught only because `check_page_plantbook.mjs`'s "every exempt
+   *  table is real" assertion started failing. Two independent, unrelated
+   *  PRs hitting the same trap is the argument for keeping that assertion
+   *  rather than trusting the two authors to remember each other's work. */
   const LOT_LEVEL_SUBBLOCKS = ["handmix"];
-  const LOT_LEVEL_ROW_TABLES = ["blend", "blend_gsb"];
+  // blend_gsb is still a whole exempt TABLE, unaffected by the blend_pct
+  // merge: one hidden row, never sliced, purely computed storage for the
+  // per-sublot Combined Gsb readout.
+  const LOT_LEVEL_ROW_TABLES = ["blend_gsb"];
+  // "<row table key>.<column key>" pairs that describe the LOT rather than
+  // one sublot's own sample, even though they live inside a table that is
+  // otherwise sliced per sublot. See the note above for why blend_pct needs
+  // this rather than a whole-table exemption. `pct` is deliberately NOT
+  // here - exempting it would leave a future sublot editable through the
+  // one door the lock exists to close, the same reasoning `blend_pct`
+  // itself was kept off LOT_LEVEL_ROW_TABLES for before this merge.
+  const LOT_LEVEL_ROW_COLUMNS = [
+    "blend_pct.sublot", "blend_pct.component", "blend_pct.producer",
+    "blend_pct.agp", "blend_pct.type_size", "blend_pct.bod", "blend_pct.design_pct",
+  ];
 
   /* Seeded rather than asked for, which Jake asked for on 2026-09-13 ("do it
    * and the acc per sublot too"). Both of his real accepted lots read code 3 on
@@ -4536,7 +4558,7 @@ const verifySpecimenOf4 = (n) =>
 
   return { AC_METHODS, acMethodCode, CITES, DESIGNBOOK_CITE_KEYS, REFERENCE_TABLES, REFERENCE_KEYS, SECTIONS,
            SETUP_LOT, SETUP_SUBLOT, sublotOfSectionId, sublotNeedsSample,
-           LOT_LEVEL_SUBBLOCKS, LOT_LEVEL_ROW_TABLES };
+           LOT_LEVEL_SUBBLOCKS, LOT_LEVEL_ROW_TABLES, LOT_LEVEL_ROW_COLUMNS };
 })();
 /* ===== END PLANTBOOK SCHEMA ===== */
 
@@ -6993,16 +7015,26 @@ function lockedSublotNumber(sectionId) {
  * than this sublot's sample is exempt (PB_SECTIONS.LOT_LEVEL_SUBBLOCKS) -
  * Aggregate Blend and the hand-mixed check sample both sit on Sublot 1's tab,
  * and on lot 2, where sublot 1 is gated like any other, locking them with it
- * would leave the lot no way to state its own blend. */
+ * would leave the lot no way to state its own blend.
+ *
+ * THREE EXEMPTIONS NOW, NOT TWO: a sub-block, a whole row table, or ONE
+ * COLUMN of a row table (PB_SECTIONS.LOT_LEVEL_ROW_COLUMNS, 2026-09-15b).
+ * Aggregate Blend's identity used to be its own exempt table (`blend`); it
+ * now lives inside `blend_pct` itself, which is sliced per sublot because
+ * its `pct` column genuinely is this sublot's own data - so the exemption
+ * has to name the six identity columns individually rather than the whole
+ * table, or `pct` would wrongly stay unlocked right along with them. */
 function sublotLockControls(sec) {
   const subs = new Set(PB_SECTIONS.LOT_LEVEL_SUBBLOCKS);
   const tables = new Set(PB_SECTIONS.LOT_LEVEL_ROW_TABLES);
+  const cols = new Set(PB_SECTIONS.LOT_LEVEL_ROW_COLUMNS);
   return Array.from(sec.querySelectorAll("input, select, textarea, button.addrow, button.rmbtn"))
     .filter((el) => {
       const sub = el.closest("[data-subsection]");
       if (sub && subs.has(sub.dataset.subsection)) return false;
       const list = el.closest("[data-rowlist]");
       if (list && tables.has(list.dataset.rowlist)) return false;
+      if (el.dataset.row && el.dataset.col && cols.has(`${el.dataset.row}.${el.dataset.col}`)) return false;
       return true;
     });
 }
