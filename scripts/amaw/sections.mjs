@@ -1174,6 +1174,20 @@ export const PLANTBOOK_SECTIONS = [
     id: "lot", label: "Contract & Mix", step: "Contract & Mix",
     tag: "AMAW · Pay Values header — from the approved design, or typed",
     type: "grid",
+    // LEDGER. This step is mostly READ rather than filled - a lot inherits
+    // its contract, plant, mix and class from the approval and a technician
+    // types three or four things - so a grid of sixteen plates read as
+    // sixteen questions. Jake, 2026-09-15 ("lets go with ledger", chosen
+    // from five mocked directions): label | value rows under hairlines,
+    // two columns on a wide window. It is a STYLESHEET fact: the same
+    // gridHTML(), the same inputFor(), the same classes and data-field
+    // attributes, so collectForm(), the rail, the sublot locks and the
+    // harness see nothing different. `layout` reaches the page as the
+    // section's data-layout attribute and nothing else reads it.
+    layout: "ledger",
+    // Printed under the band, once. The wash is the provisional-value
+    // tint this project already uses; the rule is what a blank box became.
+    legend: "Shaded values are read from the approval. A blue rule is yours to fill.",
     cites: ["jmf", "accept402"],
     // A button in the section head, the same shape Contract Information's
     // contract lookup has. `key` is what the page dispatches on; the schema

@@ -518,6 +518,76 @@
   .crit.fail{color:var(--bad); font-weight:600;}
   .box.critfail{border-color:var(--bad); background:#FBEEEE;}
 
+  /* ===== LEDGER LAYOUT ===================================================
+     A section whose schema declares `layout: "ledger"` (PlantBook's Contract
+     & Mix - Jake, 2026-09-15, "lets go with ledger", picked from five mocked
+     directions) draws its scalar fields as label | value rows under
+     hairlines instead of a grid of plates: that step is mostly READ off the
+     approval, and sixteen plates read as sixteen questions. It is the same
+     gridHTML(), inputFor(), classes and data-field attributes - only this
+     block knows - so collectForm(), the rail, the locks and the harness are
+     untouched.
+     Scoped on the section's data-layout attribute, every rule here is
+     (0,3,0) against the base .grid/.field/.box at (0,1,0) and so also beats
+     their @media overrides at every width. The cost of that is the trap
+     CLAUDE.md records for .rowitem .box: anything the base restates in a
+     media query - the 16px / 44px phone box - has to be restated HERE, and
+     is, at the bottom of the block. */
+  .seclegend{margin:-4px 0 14px; font-size:12.5px; color:var(--muted); line-height:1.5;}
+  .section[data-layout="ledger"] .grid{grid-template-columns:1fr; gap:0; border-top:1px solid var(--line);}
+  /* Two columns only once the form has its full 1116px: at 936px (a 1000px
+     window) a 180px label left the approved-mix line 250px and it clipped.
+     The pairs then read across - Contract | County, Plant | Lot number - and
+     the hairlines of the two columns share a row, so they line up. */
+  @media (min-width:1244px){
+    .section[data-layout="ledger"] .grid{grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 48px;}
+  }
+  .section[data-layout="ledger"] .field{display:grid; grid-template-columns:180px minmax(0,1fr); gap:0 14px;
+       align-items:center; padding:5px 0; border-bottom:1px solid var(--line);}
+  .section[data-layout="ledger"] .field label{margin:0; letter-spacing:.06em;}
+  /* background-COLOR, never the shorthand: select.box carries its drawn caret
+     as a background-image, and the base .box.prefilled shorthand already
+     wipes it off every prefilled select - which is why the caret is restated
+     below rather than trusted. */
+  .section[data-layout="ledger"] .box{background-color:transparent; border:0; border-bottom:1.5px solid transparent;
+       border-radius:0; min-height:30px; padding:3px 2px; font-size:14px;}
+  /* Ink, not accent, for a mono value here: blue is the "yours to fill" signal
+     on this step, and a blue contract number would wear it without meaning it. */
+  .section[data-layout="ledger"] input.box.mono,
+  .section[data-layout="ledger"] select.box.mono{color:var(--ink);}
+  .section[data-layout="ledger"] select.box{padding-right:22px;
+       background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
+                        linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+       background-position:calc(100% - 10px) calc(50% + 1px), calc(100% - 5px) calc(50% + 1px);
+       background-size:5px 5px, 5px 5px; background-repeat:no-repeat;}
+  /* All FOUR longhands above, not two: the shorthand that wiped the image
+     also reset size and repeat, and restoring image + position alone tiled
+     the caret across the whole box (seen, 2026-09-15). */
+  /* Yours to fill: a blue rule under the value. Read from a file: a soft wash
+     behind it. The wash IS the provisional-value tint this project insists
+     on (CLAUDE.md) - it stops being a plate, it does not stop. The :not()
+     chain on the third rule matches the base inset-edge rule's specificity
+     exactly; one link shorter and the 2px bar stays. */
+  .section[data-layout="ledger"] .box:not(.prefilled):not(.autofilled):not([readonly]):not(:disabled){border-bottom-color:var(--accent);}
+  .section[data-layout="ledger"] .box.prefilled,
+  .section[data-layout="ledger"] .box.autofilled{background-color:var(--accent-soft); padding-left:8px; padding-right:8px; border-radius:4px;}
+  .section[data-layout="ledger"] .box.prefilled:not(.critfail):not([readonly]):not(:disabled),
+  .section[data-layout="ledger"] .box.autofilled:not(.critfail):not([readonly]):not(:disabled){box-shadow:none;}
+  .section[data-layout="ledger"] select.box.prefilled,
+  .section[data-layout="ledger"] select.box.autofilled{padding-right:22px;}
+  .section[data-layout="ledger"] .box.critfail{background-color:#FBEEEE; border-bottom-color:var(--bad);}
+  .section[data-layout="ledger"] .rowblocks{margin-top:8px;}
+  /* The phone restatements (see the block comment). 150px labels below 700
+     leave the approved-mix line its 346px at 16px mono down to 560, where the
+     label moves above the value and the rule runs the full width. */
+  @media (max-width:700px){
+    .section[data-layout="ledger"] .box{min-height:44px; font-size:16px;}
+    .section[data-layout="ledger"] .field{grid-template-columns:150px minmax(0,1fr);}
+  }
+  @media (max-width:560px){
+    .section[data-layout="ledger"] .field{grid-template-columns:1fr; gap:2px 0; padding:8px 0 4px;}
+  }
+
   /* Searchable reference dropdown. One shared popup for the whole page,
      positioned against the focused input in JS (see comboPosition), so it
      is position:fixed and must sit above the sticky appbar (z-index 20). */
@@ -3974,6 +4044,20 @@ const verifySpecimenOf4 = (n) =>
       id: "lot", label: "Contract & Mix", step: "Contract & Mix",
       tag: "AMAW · Pay Values header — from the approved design, or typed",
       type: "grid",
+      // LEDGER. This step is mostly READ rather than filled - a lot inherits
+      // its contract, plant, mix and class from the approval and a technician
+      // types three or four things - so a grid of sixteen plates read as
+      // sixteen questions. Jake, 2026-09-15 ("lets go with ledger", chosen
+      // from five mocked directions): label | value rows under hairlines,
+      // two columns on a wide window. It is a STYLESHEET fact: the same
+      // gridHTML(), the same inputFor(), the same classes and data-field
+      // attributes, so collectForm(), the rail, the sublot locks and the
+      // harness see nothing different. `layout` reaches the page as the
+      // section's data-layout attribute and nothing else reads it.
+      layout: "ledger",
+      // Printed under the band, once. The wash is the provisional-value
+      // tint this project already uses; the rule is what a blank box became.
+      legend: "Shaded values are read from the approval. A blue rule is yours to fill.",
       cites: ["jmf", "accept402"],
       // A button in the section head, the same shape Contract Information's
       // contract lookup has. `key` is what the page dispatches on; the schema
@@ -5549,11 +5633,16 @@ function renderForm() {
     // section adds a step and nothing else has to be told. .tsrresults is
     // emitted here rather than being appended by computeTSR(), which used to
     // put it at the very end of the section.
-    return `<section class="section step" id="${s.id}" data-section="${s.id}" data-label="${s.label}" data-step="${i}">
+    // `layout` is a schema word the STYLESHEET reads (the ledger step); it
+    // is an attribute here and nothing in the script dispatches on it.
+    const layoutAttr = s.layout ? ` data-layout="${esc(s.layout)}"` : "";
+    const legend = s.legend ? `<p class="seclegend">${esc(s.legend)}</p>` : "";
+    return `<section class="section step" id="${s.id}" data-section="${s.id}" data-label="${s.label}" data-step="${i}"${layoutAttr}>
       <div class="section-head"><div class="headtitle"><span class="kicker"></span><h2>${s.label}</h2></div>
         <span class="headmeta">${sectionCitesHTML(s)}${lookupHTML(s)}<span class="section-tag mono">${s.tag}</span></span></div>
       ${lookupNoteHTML(s)}
       <div class="steplock" hidden></div>
+      ${legend}
       ${sectionBodyHTML(s)}
       ${child}
       ${s.id === "tsr" ? `<div class="tsrresults"></div>` : ""}
