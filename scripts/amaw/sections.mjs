@@ -783,9 +783,13 @@ const VERIFY_IDENTITY_SPEC = {
       options: ["Yes", "No"] },
   ],
 };
+// Andrew, 2026-09-15: paired the same way the Sublots' own BSG/MSG are
+// (`span: [6, 12]`, see the note on SUBLOT_BSG_SPEC) - these two carry one
+// extra "Record" column (8 vs 7), which is what actually overflowed a
+// narrower window: reported off a real screenshot, not guessed.
 const VERIFY_BSG_SPEC = {
   key: "verify_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for this record",
-  banded: true, fixed: true,
+  banded: true, fixed: true, span: [6, 12],
   grid: ".7fr .5fr .5fr 1fr 1fr 1fr .9fr .9fr",
   seed: VERIFY_SPECIMEN_SEED,
   columns: [
@@ -801,7 +805,7 @@ const VERIFY_BSG_SPEC = {
 };
 const VERIFY_MSG_SPEC = {
   key: "verify_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for this record",
-  banded: true, fixed: true,
+  banded: true, fixed: true, span: [6, 12],
   grid: ".7fr .5fr .5fr 1fr 1fr 1fr 1fr .8fr",
   seed: VERIFY_SPECIMEN_SEED,
   columns: [
@@ -829,13 +833,20 @@ const VERIFY_MOISTURE_SPEC = {
     { key: "moisture", label: "% moisture", type: "number", req: false, mono: true, readonly: true },
   ],
 };
+// Andrew, 2026-09-15: `chips: true`, same reasoning as SUBLOT_VOLUMETRICS_SPEC
+// - always read-only, always computed, a full grid table + header is mostly
+// blank space around eight short numbers. Unlike the sublot version this can
+// hold up to two rows (QA01 and IQ01), so `record` stays VISIBLE - it is the
+// only thing telling the two chip strips apart - and only `sublot` (this
+// tab's own number, already said once above) is chipHide.
 const VERIFY_VOLUMETRICS_SPEC = {
   key: "verify_volumetrics", heading: "Verification volumetrics — computed", banded: true, fixed: true,
+  chips: true,
   grid: ".7fr .5fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
   seed: VERIFY_ROW_SEED,
   columns: [
     { key: "record", label: "Record", type: "text", readonly: true },
-    { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+    { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true, chipHide: true },
     { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
     { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
     { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },

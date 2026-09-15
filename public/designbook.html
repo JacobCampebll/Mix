@@ -564,16 +564,40 @@
      2026-09-13 across both books: every repeating table was out, from 7px to
      969px, at every width from 800 to 1500. Sharing a scroller makes them
      scroll together; it never made them agree about where a column is.
-     A single grid COLUMN does. `minmax(max-content,1fr)` is at least the
-     larger of the two children's max-contents and at most the container, and
-     both children stretch to it, so there is one set of track widths and they
-     cannot drift. The scroll still happens, because the track may exceed the
-     container - which is the behaviour CLAUDE.md asked for: a table that
-     cannot fit its columns scrolls rather than squeezing them.
+     A single grid COLUMN does - both children stretch to it, so there is one
+     set of track widths and they cannot drift. That guarantee comes from
+     SHARING the track, not from what its minimum is; the minimum is a
+     separate decision the rule below got wrong for four years' worth of
+     tables and is worth stating precisely.
+     CORRECTED 2026-09-15, off a real screenshot at 80% browser zoom: the
+     shared track's floor was `max-content` - at least as wide as its widest
+     child's content rendered on ONE LINE, headings included. A header label
+     like "Wt in air (g)" can wrap (nothing sets `white-space:nowrap` on it),
+     but max-content sizing evaluates every child AS IF wrapping were
+     disabled, so the track came out exactly wide enough that the label never
+     actually needed to wrap - and summed across seven or eight columns of
+     mostly-header-driven width, that floor exceeded even an 1180px card
+     (measured: a 10-column ticket table wanted 1635px at 975px available,
+     660px of real, reproducible overflow having nothing to do with zoom
+     level) and badly exceeded a paired half-width table (BSG wanted 1022px
+     at 479px available). `minmax(0,1fr)` removes that floor: the track still
+     stretches to fill 100% of whatever the container hands it (nothing here
+     changes the OUTER width), but a column inside it can now shrink below
+     its label's one-line width and wrap onto two, which is what actually
+     lets seven short numeric columns fit into a card - or half of one -
+     instead of the label text forcing every column as wide as its longest
+     word... which for most of these labels is still short, so most columns
+     do not even end up wrapping; they were simply never as wide as
+     max-content claimed. Verified after the change: zero overflow on every
+     row table in both books at 1400px, including every one this file
+     already measured clean before (TSR, Performance, KYCT, Aggregate
+     Structure) - the fix removes a floor, it does not touch the ceiling
+     `.rowscroll{overflow-x:auto}` still provides for the day a table
+     genuinely cannot fit even wrapped.
      Above 700px only: below that the rows are already cards, one field per
      line, and there is no header strip to line up with. */
   @media (min-width:701px){
-    .rowscroll{display:grid; grid-template-columns:minmax(max-content,1fr);}
+    .rowscroll{display:grid; grid-template-columns:minmax(0,1fr);}
     .rowscroll > .rowhead, .rowscroll > .rowlist{min-width:0;}
   }
   /* Each row still carries its labels for the phone layout below. */
@@ -676,19 +700,28 @@
      rule it overrides, which is this file's convention and not decoration:
      a @media block is not a tiebreaker, it only gates when the block
      applies (see CLAUDE.md). */
-  .gradwrap.wide{grid-template-columns:minmax(0,1.4fr) minmax(240px,1fr);}
+  .gradwrap.wide{grid-template-columns:auto minmax(280px,1fr);}
   @media (max-width:900px){ .gradwrap.wide{grid-template-columns:1fr;} }
   .sievescroll{overflow-x:auto; max-width:100%;}
-  /* Inside a scroller, width:100% is not a width - it is a squeeze. The base
-     rule below sets it, which is right for DesignBook's two columns and wrong
-     for a lot's eight: at 360px it gave each sieve input 40px and every value
-     clipped inside a container that was supposed to be scrolling instead.
-     So the wide table sizes to its content and only stretches when there is
-     room to spare. The inputs carry the floor, because a % passing is up to
-     five characters and 16px type on a phone (which is a zoom fix, not
-     taste - iOS zooms the page in on any focused input under 16px). */
-  .gradwrap.wide table.sievetable{width:auto; min-width:100%;}
+  /* CORRECTED 2026-09-15, off a real screenshot: this table has exactly TWO
+     columns everywhere now (JMF target + one sublot's weights, since
+     Gradation moved onto the Sublot tabs) - not the up-to-eight
+     (JMF + 4 sublots + QA + IQ) the `min-width:100%` rule this replaces was
+     written for. That rule fought the `width:auto` beside it, stretching a
+     table that only needs ~280px to fill a track sized for it AND a chart -
+     "the JMF and sublot boxes are pretty wide for how little space those
+     numbers take up." `table-layout:fixed` with the explicit widths below
+     sizes the table to what a sieve label and a 6-character weight actually
+     need; `.gradwrap.wide`'s own track above gives the width this frees to
+     the chart instead. The phone floor is unchanged - a % passing or a
+     cumulative weight is up to six characters, and 16px input type on a
+     phone is a zoom fix, not taste (iOS zooms the page in on any focused
+     input under 16px) - and everything here still sits inside its own
+     scroller, the one thing on this page allowed to be wider than the form. */
+  .gradwrap.wide table.sievetable{width:auto; table-layout:fixed;}
   .gradwrap.wide table.sievetable th, .gradwrap.wide table.sievetable td{white-space:nowrap;}
+  .gradwrap.wide table.sievetable th:first-child, .gradwrap.wide table.sievetable td:first-child{width:76px;}
+  .gradwrap.wide table.sievetable th:not(:first-child), .gradwrap.wide table.sievetable td:not(:first-child){width:112px;}
   .gradwrap.wide table.sievetable input{min-width:76px;}
   table.sievetable th.target{color:var(--accent);}
   table.sievetable th.dept{color:var(--flag);}
@@ -806,7 +839,19 @@
   .dvsplit{display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr);
            gap:18px 34px; align-items:start;}
   .dvsplit.one{grid-template-columns:minmax(0,620px); justify-content:center;}
-  @media (max-width:1000px){ .dvsplit{grid-template-columns:1fr;} }
+  /* PlantBook's Design Values mirror (2026-09-15): two EQUAL-width halves of
+     one list, not the workbook/computed pair .dvsplit was built for - Andrew,
+     off a real screenshot, "design values info in tab 1 can be tightened
+     spatially, quite a bit". Ten stacked rows read half as tall as five and
+     five side by side; reuses .dvsplit's grid rather than a third layout. */
+  .dvsplit.twin{grid-template-columns:1fr 1fr; gap:0 24px;}
+  @media (max-width:1000px){
+    .dvsplit{grid-template-columns:1fr;}
+    /* .dvsplit.twin (2 classes) outranks the bare .dvsplit rule just above
+       whatever the source order, same cascade trap CLAUDE.md already records
+       for @media overrides - restated here, not left to lose silently. */
+    .dvsplit.twin{grid-template-columns:1fr;}
+  }
   .dvtable{border-top:1px solid var(--line); min-width:0;}
   .dvrow{display:grid; grid-template-columns:minmax(0,1fr) 108px;
          align-items:baseline; gap:14px; padding:5px 4px;
@@ -3508,9 +3553,13 @@ const PB_SECTIONS = (() => {
         options: ["Yes", "No"] },
     ],
   };
+  // Andrew, 2026-09-15: paired the same way the Sublots' own BSG/MSG are
+  // (`span: [6, 12]`, see the note on SUBLOT_BSG_SPEC) - these two carry one
+  // extra "Record" column (8 vs 7), which is what actually overflowed a
+  // narrower window: reported off a real screenshot, not guessed.
   const VERIFY_BSG_SPEC = {
     key: "verify_bsg", heading: "Bulk specific gravity (BSG) — 2 samples for this record",
-    banded: true, fixed: true,
+    banded: true, fixed: true, span: [6, 12],
     grid: ".7fr .5fr .5fr 1fr 1fr 1fr .9fr .9fr",
     seed: VERIFY_SPECIMEN_SEED,
     columns: [
@@ -3526,7 +3575,7 @@ const PB_SECTIONS = (() => {
   };
   const VERIFY_MSG_SPEC = {
     key: "verify_msg", heading: "Maximum specific gravity (MSG, Rice) — 2 bowls for this record",
-    banded: true, fixed: true,
+    banded: true, fixed: true, span: [6, 12],
     grid: ".7fr .5fr .5fr 1fr 1fr 1fr 1fr .8fr",
     seed: VERIFY_SPECIMEN_SEED,
     columns: [
@@ -3554,13 +3603,20 @@ const PB_SECTIONS = (() => {
       { key: "moisture", label: "% moisture", type: "number", req: false, mono: true, readonly: true },
     ],
   };
+  // Andrew, 2026-09-15: `chips: true`, same reasoning as SUBLOT_VOLUMETRICS_SPEC
+  // - always read-only, always computed, a full grid table + header is mostly
+  // blank space around eight short numbers. Unlike the sublot version this can
+  // hold up to two rows (QA01 and IQ01), so `record` stays VISIBLE - it is the
+  // only thing telling the two chip strips apart - and only `sublot` (this
+  // tab's own number, already said once above) is chipHide.
   const VERIFY_VOLUMETRICS_SPEC = {
     key: "verify_volumetrics", heading: "Verification volumetrics — computed", banded: true, fixed: true,
+    chips: true,
     grid: ".7fr .5fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr",
     seed: VERIFY_ROW_SEED,
     columns: [
       { key: "record", label: "Record", type: "text", readonly: true },
-      { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
+      { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true, chipHide: true },
       { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
       { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
       { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
@@ -17247,26 +17303,37 @@ function designAggregateMirrorHTML(d) {
 // match DesignBook's own outputs (design_pb/gmm_design/etc. in CONFIG.DP),
 // not PlantBook's sublot-measurement tolerances, because this is the
 // design's figure, not a sublot's.
+// Andrew, 2026-09-15: two five-row columns instead of one ten-row column -
+// "design values info in tab 1 can be tightened spatially, quite a bit", off
+// a real screenshot. Reuses DesignBook's own .dvsplit grid (built for a
+// workbook/computed pair) with a new equal-width `.twin` modifier rather than
+// inventing a second layout; .dvtable/.dvrow themselves are untouched, so
+// each half is still the exact row DesignBook's own Design Values prints.
 function designValuesMirrorHTML(d) {
   if (!d) return `<div class="dmirror-empty">No approval opened yet.</div>`;
   const v = d.volumetrics || {};
   const DP = CONFIG.DP;
-  const rows = [
-    ["AC / Design Pb (%)", d.jmf_ac, DP.design_pb],
-    ["Air voids / Va (%)", v.va, DP.va_design],
-    ["VMA (%)", v.vma, DP.vma_design],
-    ["VFA (%)", v.vfa, DP.vfa_design],
-    ["Gmm", v.gmm, DP.gmm_design],
-    ["Gmb", v.gmb, DP.gmb_design],
-    ["Gse", v.gse, DP.gse],
-    ["Effective AC / Pbe (%)", v.pbe, DP.pbe],
-    ["Dust ratio", v.dust_pbe, DP.dust_pbe],
-    ["Unit weight / density (pcf)", v.density, DP.density],
+  const cols = [
+    [
+      ["AC / Design Pb (%)", d.jmf_ac, DP.design_pb],
+      ["Air voids / Va (%)", v.va, DP.va_design],
+      ["VMA (%)", v.vma, DP.vma_design],
+      ["VFA (%)", v.vfa, DP.vfa_design],
+      ["Gmm", v.gmm, DP.gmm_design],
+    ],
+    [
+      ["Gmb", v.gmb, DP.gmb_design],
+      ["Gse", v.gse, DP.gse],
+      ["Effective AC / Pbe (%)", v.pbe, DP.pbe],
+      ["Dust ratio", v.dust_pbe, DP.dust_pbe],
+      ["Unit weight / density (pcf)", v.density, DP.density],
+    ],
   ];
-  return `<div class="dvtable">` + rows.map(([label, val, dp]) =>
+  const table = (rows) => `<div class="dvtable">` + rows.map(([label, val, dp]) =>
     `<div class="dvrow"><span class="l">${esc(label)}</span>
        <span class="v${val == null ? " none" : ""}">${val == null ? "—" : fmt(val, dp)}</span>
      </div>`).join("") + `</div>`;
+  return `<div class="dvsplit twin">${cols.map(table).join("")}</div>`;
 }
 
 function paintDesignMirror() {
