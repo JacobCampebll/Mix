@@ -276,6 +276,74 @@ export function acMethodCode(label) {
   const i = AC_METHODS.indexOf(String(label == null ? "" : label).trim());
   return i < 0 ? null : i + 1;
 }
+// ---------------------------------------------------------------------
+//  Which sublots a technician may fill in
+// ---------------------------------------------------------------------
+//
+//  Jake, 2026-09-15: "we don't want people to be able to jump to future
+//  sublots... Only Lot 1, sublot 1 is the set up so in theory its always
+//  unlocked."
+//
+//  WHY THERE IS A GATE AT ALL. A sublot is 1,000 tons (2026 Std Spec
+//  402.03.02 A)) and its sample is taken at a point chosen at random inside
+//  that tonnage. A technician cannot record sublot 3's sample before sublot
+//  3's material has been made and the random point drawn, so a form that
+//  lets them fill it in early is a form that invites made-up numbers into a
+//  record KYTC pays against. The tool that draws those points does not exist
+//  yet, so today the gate has no key: locked sublots stay locked and say so.
+//
+//  WHY LOT 1 SUBLOT 1 IS DIFFERENT, AND IT IS NOT AN EXEMPTION WE INVENTED.
+//  It is the plant setup sample, and the workbook already treats it as one
+//  in two independent places. `'Pay Values'!D13`/`G13` widen the AC ladder to
+//  0.7 and rescue an air void or VMA to 100 on that one sublot, gated on the
+//  LOT number (`F3=1`) - pay.mjs reproduces both as `isFirstSublot`. And the
+//  MEDL staging's `VI01` record, the "verification/initial" sample, has no
+//  storage of its own: addresses.mjs records that it READS sublot 1's cells.
+//  Lot 1's first sublot is filed twice, once as production and once as the
+//  initial verification. Nothing can gate it, because it is what establishes
+//  the plant in the first place.
+//
+//  A BLANK LOT NUMBER READS AS LOT 1, deliberately. `lot_number` is seeded to
+//  1 by intake.mjs and is `req: true`, so blank means "not typed yet" rather
+//  than "not lot 1" - and locking every sublot the moment somebody clears
+//  that box gives a technician a form with nothing open on it and no way to
+//  tell why. The lock is a guardrail against wandering into a future sublot,
+//  not a security boundary (the page is directly linkable and the lot lives
+//  in the browser), so it fails open on an unreadable answer and says what it
+//  assumed.
+//
+//  PURE, and here rather than in the page, so `check_sections.mjs` can hold
+//  it to the section ids it actually has to match.
+export const SETUP_LOT = 1;
+export const SETUP_SUBLOT = 1;
+
+/** The sublot a section belongs to, or null for a section that is not one of
+ *  the four tabs. Matches the tab itself AND everything drawn inside it -
+ *  "sublot-3", "sublot-3-gradation", "sublot-3-verify". */
+export function sublotOfSectionId(id) {
+  const m = /^sublot-([1-4])(?:-|$)/.exec(String(id == null ? "" : id));
+  return m ? Number(m[1]) : null;
+}
+
+/** Does this sublot wait on a random sample point? False only for the setup
+ *  sample, and for anything that is not a sublot tab at all. */
+export function sublotNeedsSample(sublotNumber, lotNumber) {
+  const s = Number(sublotNumber);
+  if (!Number.isInteger(s) || s < SETUP_SUBLOT || s > 4) return false;
+  const l = Number(lotNumber);
+  const setupLot = !Number.isFinite(l) || l === SETUP_LOT;   // blank reads as lot 1
+  return !(setupLot && s === SETUP_SUBLOT);
+}
+
+/** The sub-blocks that describe the LOT rather than one sublot's sample, and
+ *  so are never gated even when the tab they happen to sit on is. Both live
+ *  on Sublot 1's tab (Andrew, 2026-09-14) - the blend is typed once and its
+ *  percentages fan out to all four records, and the hand-mixed check sample
+ *  is `Superpave` N42/N43, one per lot. On lot 2 or later, where sublot 1 is
+ *  gated like any other, locking these with it would leave the lot with no
+ *  way to state its own blend. */
+export const LOT_LEVEL_SUBBLOCKS = ["blend", "handmix"];
+
 /* Seeded rather than asked for, which Jake asked for on 2026-09-13 ("do it
  * and the acc per sublot too"). Both of his real accepted lots read code 3 on
  * all four sublots, and an ignition furnace is what a plant lab actually has;

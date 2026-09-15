@@ -39,8 +39,9 @@ import * as roundtrip from "./checks/roundtrip.mjs";
 import * as shapes from "./checks/shapes.mjs";
 import * as bookswitch from "./checks/bookswitch.mjs";
 import * as compaction from "./checks/compaction.mjs";
+import * as sublotlocks from "./checks/sublotlocks.mjs";
 
-const CHECKS = [ids, steps, shapes, roundtrip, viewports, bookswitch, compaction];
+const CHECKS = [ids, steps, shapes, roundtrip, viewports, bookswitch, compaction, sublotlocks];
 
 async function main() {
   const argv = process.argv.slice(2);

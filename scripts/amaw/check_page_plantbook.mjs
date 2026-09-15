@@ -447,7 +447,35 @@ namespace('PB_SECTIONS', '2. PB_SECTIONS vs scripts/amaw/sections.mjs');
   same('the surface is exactly the namespaced names',
        Object.keys(P).sort(),
        ['AC_METHODS', 'CITES', 'DESIGNBOOK_CITE_KEYS', 'REFERENCE_KEYS', 'REFERENCE_TABLES',
-        'SECTIONS', 'acMethodCode'].sort());
+        'SECTIONS', 'acMethodCode',
+        // PlantBook's sublot locks (2026-09-15). The RULE is here rather than
+        // in the page so it can be checked against the section ids it has to
+        // match; the page owns only who is exempt (a reviewer, or the
+        // ?sublots=open build bypass), which is about the viewer rather than
+        // about the lot.
+        'SETUP_LOT', 'SETUP_SUBLOT', 'sublotOfSectionId', 'sublotNeedsSample',
+        'LOT_LEVEL_SUBBLOCKS'].sort());
+  // The lock rule itself. The cases that matter are the setup exemption and
+  // its exact boundary: lot 1 sublot 1 open, lot 1 sublot 2 gated, lot 2
+  // sublot 1 gated, and a blank lot number reading as lot 1 rather than
+  // locking a technician out of a form they have not filled in yet.
+  sweep('sublotNeedsSample()', P.sublotNeedsSample, MOD_SECTIONS.sublotNeedsSample,
+        [[1, 1], [2, 1], [3, 1], [4, 1], [1, 2], [2, 2], [1, 3], [1, ''], [1, null],
+         [1, undefined], [1, 'x'], [0, 1], [5, 1], [null, 1], ['1', '1'], ['2', '1']]);
+  sweep('sublotOfSectionId()', P.sublotOfSectionId, MOD_SECTIONS.sublotOfSectionId,
+        [['sublot-1'], ['sublot-4'], ['sublot-2-gradation'], ['sublot-3-verify'],
+         ['lot'], ['pay'], ['blend'], ['handmix'], ['sublot-5'], ['sublot-'], [''],
+         [null], [undefined], ['SUBLOT-1']]);
+  same('LOT_LEVEL_SUBBLOCKS is identical', P.LOT_LEVEL_SUBBLOCKS, MOD_SECTIONS.LOT_LEVEL_SUBBLOCKS);
+  // Every id the lock rule exempts has to BE a section, or the exemption is a
+  // typo that silently locks a lot-level block on lot 2 and leaves the lot
+  // with no way to state its own blend.
+  ok('every LOT_LEVEL_SUBBLOCK is a real section drawn inside a sublot tab',
+     MOD_SECTIONS.LOT_LEVEL_SUBBLOCKS.every((id) => {
+       const sec = MOD_SECTIONS.PLANTBOOK_SECTIONS.find((x) => x.id === id);
+       return sec && MOD_SECTIONS.sublotOfSectionId(sec.into) != null;
+     }), MOD_SECTIONS.LOT_LEVEL_SUBBLOCKS.join(', '));
+
   ok('isRapRow is NOT on the surface — the splice deleted it as the module asks, '
    + 'and the schema calls the page\'s hoisted copy instead', !('isRapRow' in P));
   ok('…and sections.mjs still exports the copy it tells the splice to delete, '

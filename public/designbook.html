@@ -243,6 +243,35 @@
   .railstep.partial .dot{border-color:var(--flag); background:var(--flag-soft); color:var(--flag);}
   .railstep.current{background:var(--navy); border-color:var(--navy); color:#FFFFFF; font-weight:600;}
   .railstep.current .dot{border-color:var(--gold); background:var(--navy); color:var(--gold);}
+  /* A LOCKED SUBLOT (PlantBook, 2026-09-15). Greyed but still clickable, which
+     is Jake's ask - you can look at a future sublot, you just cannot fill it
+     in. The chip keeps its hover and its click so it never reads as broken;
+     it is `.current` that still wins when you are standing on it, so the
+     lock rule sits ABOVE .current here rather than below (a later rule of
+     the same specificity takes the tie - the cascade trap this file records
+     for @media blocks, one rung sideways). */
+  .railstep.locked{opacity:.55;}
+  .railstep.locked .dot{border-style:dashed;}
+  .railstep.locked.current{opacity:1;}
+
+  /* The card that says why a sublot is shut. It sits above the section's own
+     body, which is ALWAYS rendered - see paintSublotLocks() for why removing
+     a locked tab's inputs would silently re-slice every later tab's rows. */
+  .steplock{margin:0 0 14px; padding:12px 14px; border-radius:8px;
+            border:1px dashed var(--line); background:var(--panel);
+            color:var(--muted); font-size:13px; line-height:1.5;}
+  .steplock strong{color:var(--ink); font-weight:600;}
+  .steplock.holding{border-style:solid; border-color:var(--flag); background:var(--flag-soft);}
+  /* Disabled rather than hidden, so the values stay readable and stay in the
+     document. Safari and iOS grey a disabled control almost to nothing. */
+  .section.locked .box:disabled{opacity:.75; color:var(--ink); -webkit-text-fill-color:var(--ink);
+                                background:var(--panel); cursor:not-allowed;}
+
+  /* The build bypass announces itself. ?sublots=open is for making demo lots
+     from a contractor account; a reviewer needs no flag. */
+  .lockbypass{margin:0 0 12px; padding:9px 13px; border-radius:8px;
+              border:1px solid var(--flag); background:var(--flag-soft);
+              color:var(--ink); font-size:12.5px; line-height:1.45;}
   .railstep.current.filled .dot{background:var(--gold); border-color:var(--gold); color:var(--navy);}
   .railstep.current.partial .dot{background:var(--navy); border-color:var(--gold); color:var(--gold);}
   .railstep:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
@@ -2969,6 +2998,74 @@ const PB_SECTIONS = (() => {
     const i = AC_METHODS.indexOf(String(label == null ? "" : label).trim());
     return i < 0 ? null : i + 1;
   }
+  // ---------------------------------------------------------------------
+  //  Which sublots a technician may fill in
+  // ---------------------------------------------------------------------
+  //
+  //  Jake, 2026-09-15: "we don't want people to be able to jump to future
+  //  sublots... Only Lot 1, sublot 1 is the set up so in theory its always
+  //  unlocked."
+  //
+  //  WHY THERE IS A GATE AT ALL. A sublot is 1,000 tons (2026 Std Spec
+  //  402.03.02 A)) and its sample is taken at a point chosen at random inside
+  //  that tonnage. A technician cannot record sublot 3's sample before sublot
+  //  3's material has been made and the random point drawn, so a form that
+  //  lets them fill it in early is a form that invites made-up numbers into a
+  //  record KYTC pays against. The tool that draws those points does not exist
+  //  yet, so today the gate has no key: locked sublots stay locked and say so.
+  //
+  //  WHY LOT 1 SUBLOT 1 IS DIFFERENT, AND IT IS NOT AN EXEMPTION WE INVENTED.
+  //  It is the plant setup sample, and the workbook already treats it as one
+  //  in two independent places. `'Pay Values'!D13`/`G13` widen the AC ladder to
+  //  0.7 and rescue an air void or VMA to 100 on that one sublot, gated on the
+  //  LOT number (`F3=1`) - pay.mjs reproduces both as `isFirstSublot`. And the
+  //  MEDL staging's `VI01` record, the "verification/initial" sample, has no
+  //  storage of its own: addresses.mjs records that it READS sublot 1's cells.
+  //  Lot 1's first sublot is filed twice, once as production and once as the
+  //  initial verification. Nothing can gate it, because it is what establishes
+  //  the plant in the first place.
+  //
+  //  A BLANK LOT NUMBER READS AS LOT 1, deliberately. `lot_number` is seeded to
+  //  1 by intake.mjs and is `req: true`, so blank means "not typed yet" rather
+  //  than "not lot 1" - and locking every sublot the moment somebody clears
+  //  that box gives a technician a form with nothing open on it and no way to
+  //  tell why. The lock is a guardrail against wandering into a future sublot,
+  //  not a security boundary (the page is directly linkable and the lot lives
+  //  in the browser), so it fails open on an unreadable answer and says what it
+  //  assumed.
+  //
+  //  PURE, and here rather than in the page, so `check_sections.mjs` can hold
+  //  it to the section ids it actually has to match.
+  const SETUP_LOT = 1;
+  const SETUP_SUBLOT = 1;
+
+  /** The sublot a section belongs to, or null for a section that is not one of
+   *  the four tabs. Matches the tab itself AND everything drawn inside it -
+   *  "sublot-3", "sublot-3-gradation", "sublot-3-verify". */
+  function sublotOfSectionId(id) {
+    const m = /^sublot-([1-4])(?:-|$)/.exec(String(id == null ? "" : id));
+    return m ? Number(m[1]) : null;
+  }
+
+  /** Does this sublot wait on a random sample point? False only for the setup
+   *  sample, and for anything that is not a sublot tab at all. */
+  function sublotNeedsSample(sublotNumber, lotNumber) {
+    const s = Number(sublotNumber);
+    if (!Number.isInteger(s) || s < SETUP_SUBLOT || s > 4) return false;
+    const l = Number(lotNumber);
+    const setupLot = !Number.isFinite(l) || l === SETUP_LOT;   // blank reads as lot 1
+    return !(setupLot && s === SETUP_SUBLOT);
+  }
+
+  /** The sub-blocks that describe the LOT rather than one sublot's sample, and
+   *  so are never gated even when the tab they happen to sit on is. Both live
+   *  on Sublot 1's tab (Andrew, 2026-09-14) - the blend is typed once and its
+   *  percentages fan out to all four records, and the hand-mixed check sample
+   *  is `Superpave` N42/N43, one per lot. On lot 2 or later, where sublot 1 is
+   *  gated like any other, locking these with it would leave the lot with no
+   *  way to state its own blend. */
+  const LOT_LEVEL_SUBBLOCKS = ["blend", "handmix"];
+
   /* Seeded rather than asked for, which Jake asked for on 2026-09-13 ("do it
    * and the acc per sublot too"). Both of his real accepted lots read code 3 on
    * all four sublots, and an ignition furnace is what a plant lab actually has;
@@ -4297,7 +4394,8 @@ const verifySpecimenOf4 = (n) =>
     },
   ];
 
-  return { AC_METHODS, acMethodCode, CITES, DESIGNBOOK_CITE_KEYS, REFERENCE_TABLES, REFERENCE_KEYS, SECTIONS };
+  return { AC_METHODS, acMethodCode, CITES, DESIGNBOOK_CITE_KEYS, REFERENCE_TABLES, REFERENCE_KEYS, SECTIONS,
+           SETUP_LOT, SETUP_SUBLOT, sublotOfSectionId, sublotNeedsSample, LOT_LEVEL_SUBBLOCKS };
 })();
 /* ===== END PLANTBOOK SCHEMA ===== */
 
@@ -4370,6 +4468,14 @@ const state = {
   savedExtractedFrom: null, // extracted_from as carried in a reopened review PDF
   downloadedAt: null, // when the last review PDF was taken - the only "saved" there is
   canReview: false,  // technicians.can_review - may move past Internal Review, send back to Draft
+  // ?sublots=open - the build bypass for PlantBook's sublot locks. A reviewer
+  // needs no flag (see sublotLocked()); this is for whoever is building demo
+  // lots from a contractor account. It announces itself in a banner AND is
+  // stamped onto the lot, because a lot with all four sublots filled under the
+  // bypass is otherwise indistinguishable from one produced a sublot at a
+  // time - the same reason the approval's verification state is carried rather
+  // than assumed.
+  sublotsOpen: new URLSearchParams(location.search).get("sublots") === "open",
   saving: false,
   step: 0,           // which of activeSections() is on screen (index, not the visible position)
   // Which book is on screen, from ?book= at boot and from the switch in the
@@ -5141,7 +5247,17 @@ function sectionBodyHTML(s) {
 
 function renderForm() {
   const tops = topSections();
-  $("sections").innerHTML = tops.map((s, i) => {
+  // ?sublots=open announces itself. It is a build shortcut for making demo
+  // lots from a contractor account, and a page that quietly behaved
+  // differently from everyone else's would be worse than no shortcut - a
+  // screenshot taken in this mode has to say so on its face.
+  const bypass = isPlantBook() && state.sublotsOpen
+    ? `<div class="lockbypass"><strong>Sublot locks are off for this session.</strong> ` +
+      `Every sublot is open because this page was loaded with <code>?sublots=open</code>. ` +
+      `A lot built this way is stamped as such in the PDF and the working copy. ` +
+      `Reload without that to see what a technician sees.</div>`
+    : "";
+  $("sections").innerHTML = bypass + tops.map((s, i) => {
     // A section with `into` set draws inside its host's body as a labelled
     // sub-block rather than as a section of its own. It is not a .section, so
     // recompute()'s sweep counts its required fields under the host - which
@@ -5165,6 +5281,7 @@ function renderForm() {
       <div class="section-head"><div class="headtitle"><span class="kicker"></span><h2>${s.label}</h2></div>
         <span class="headmeta">${sectionCitesHTML(s)}${lookupHTML(s)}<span class="section-tag mono">${s.tag}</span></span></div>
       ${lookupNoteHTML(s)}
+      <div class="steplock" hidden></div>
       ${sectionBodyHTML(s)}
       ${child}
       ${s.id === "tsr" ? `<div class="tsrresults"></div>` : ""}
@@ -6585,6 +6702,129 @@ function setStepVisible(id, on) {
 }
 function applyPolishVisibility() { return setStepVisible("polish", polishApplies()); }
 
+/* ---------- PlantBook's sublot locks ----------
+ *
+ * Jake, 2026-09-15: "we don't want people to be able to jump to future
+ * sublots... Only Lot 1, sublot 1 is the set up so in theory its always
+ * unlocked." The WHY, and why lot 1 sublot 1 cannot be gated, is in
+ * PB_SECTIONS beside sublotNeedsSample() - it is the plant setup sample, and
+ * the workbook already treats it as one in two independent places.
+ *
+ * THREE THINGS ABOUT THE IMPLEMENTATION ARE LOAD-BEARING.
+ *
+ * 1. THE BODY IS ALWAYS RENDERED. A locked tab keeps every one of its inputs
+ *    in the document, disabled; the placeholder is a card ABOVE them, not a
+ *    replacement for them. Removing them would be the slice bug this file
+ *    records from the other end: the four Sublot tabs render one shared row
+ *    table as four `[data-rowlist]` blocks and collectForm() concatenates
+ *    them IN DOM ORDER, so a missing block shortens the list and every later
+ *    tab's sliceIndices then reads somebody else's rows. It would also drop
+ *    those rows out of the AMAW entirely. Lock the tab, never the data.
+ *
+ * 2. IT IS PAINTED, NOT RENDERED. `lot_number` decides which sublots are
+ *    gated, and a person types it on the Contract & Mix step - so the locks
+ *    have to re-evaluate on a keystroke rather than on a re-render. Same
+ *    split as paintStepChrome() / paintLotReadouts(), and called from the
+ *    same place.
+ *
+ * 3. IT IS A GUARDRAIL, NOT A BOUNDARY, and it should be described that way
+ *    to anyone who asks. Every page here is directly linkable and the lot
+ *    lives in the browser; this stops somebody wandering into sublot 3 by
+ *    accident, and cannot stop somebody determined. The real integrity
+ *    control is that a lot submittal is stamped with whoever was signed in.
+ */
+/* Which of a sublot tab's columns arrive already filled, ASKED OF THE SCHEMA
+ * rather than listed here. A row is not "holding data" because it knows which
+ * sublot and specimen it is, or because its AC method is seeded to Ignition
+ * Furnace - and a hand-kept list of those would rot the first time somebody
+ * seeds a new column, silently, by telling a technician a blank sublot is
+ * already holding something. Same idea as the bridge's "drop a row whose
+ * non-identity cells are all null", derived the same way: from the seed. */
+function seededColumnsOf(sectionId) {
+  const cols = new Set();
+  for (const sec of activeSections()) {
+    if (sec.id !== sectionId && sec.into !== sectionId) continue;
+    for (const spec of (Array.isArray(sec.rows) ? sec.rows : [])) {
+      for (const row of (spec.seed || [])) {
+        for (const [k, v] of Object.entries(row || {}))
+          if (v != null && String(v).trim() !== "") cols.add(k);
+      }
+    }
+  }
+  return cols;
+}
+
+function lockedSublotNumber(sectionId) {
+  if (!isPlantBook()) return null;
+  const n = PB_SECTIONS.sublotOfSectionId(sectionId);
+  if (n == null) return null;
+  if (!PB_SECTIONS.sublotNeedsSample(n, fieldValue("lot_number"))) return null;
+  // Andrew and Tate need no flag: they receive the submitted lot and build the
+  // AMAW from it, and a reviewer who cannot open sublot 3 cannot review it.
+  if (state.canReview || state.sublotsOpen) return null;
+  return n;
+}
+
+/* Every control the lock covers. A sub-block that describes the LOT rather
+ * than this sublot's sample is exempt (PB_SECTIONS.LOT_LEVEL_SUBBLOCKS) -
+ * Aggregate Blend and the hand-mixed check sample both sit on Sublot 1's tab,
+ * and on lot 2, where sublot 1 is gated like any other, locking them with it
+ * would leave the lot no way to state its own blend. */
+function sublotLockControls(sec) {
+  const exempt = new Set(PB_SECTIONS.LOT_LEVEL_SUBBLOCKS);
+  return Array.from(sec.querySelectorAll("input, select, textarea, button.addrow, button.rmbtn"))
+    .filter((el) => {
+      const host = el.closest("[data-subsection]");
+      return !(host && exempt.has(host.dataset.subsection));
+    });
+}
+
+function paintSublotLocks() {
+  document.querySelectorAll("#sections .section").forEach((sec) => {
+    const id = sec.dataset.section;
+    const n = lockedSublotNumber(id);
+    const card = sec.querySelector(".steplock");
+    sec.classList.toggle("locked", n != null);
+    document.querySelectorAll(`.railstep[data-target="${id}"]`)
+      .forEach((b) => b.classList.toggle("locked", n != null));
+    const controls = sublotLockControls(sec);
+    controls.forEach((el) => {
+      if (n == null) { if (el.dataset.lockedOff) { el.disabled = false; delete el.dataset.lockedOff; } }
+      else if (!el.disabled) { el.disabled = true; el.dataset.lockedOff = "1"; }
+    });
+    if (!card) return;
+    if (n == null) { card.hidden = true; return; }
+    card.hidden = false;
+    // Locked and EMPTY is the ordinary case and the one Jake described.
+    // Locked and CARRYING DATA is not hypothetical: a lot built under
+    // ?sublots=open and handed to a plant tech without it lands there, and so
+    // does any lot saved before these locks shipped. It has to show what it
+    // holds - a placeholder over real data would hide three quarters of a
+    // finished lot - so only the wording changes.
+    const seeded = seededColumnsOf(id);
+    const has = controls.some((el) => {
+      if (!/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) return false;
+      // A readonly cell is computed or is the JMF target mirrored onto all
+      // four tabs; neither is something a person recorded here.
+      if (el.readOnly || el.tabIndex < 0) return false;
+      if (!String(el.value == null ? "" : el.value).trim()) return false;
+      const col = el.dataset ? el.dataset.col : null;
+      return !(col && seeded.has(col));
+    });
+    card.className = "steplock" + (has ? " holding" : "");
+    card.innerHTML = has
+      ? `<strong>Sublot ${n} is locked, and is showing what it already holds.</strong> ` +
+        `These values are read-only here. They are still part of the lot and still reach the AMAW - ` +
+        `nothing has been dropped.`
+      : `<strong>Sublot ${n} is not open yet.</strong> ` +
+        `A sublot's sample is taken at a point chosen at random inside its 1,000 tons ` +
+        `(KYTC 402.03.02 A)), so it cannot be recorded before that material is made and the point drawn. ` +
+        `The random sampling tool that opens a sublot is still to be built. ` +
+        `Lot 1 sublot 1 is the plant setup sample and is always open.`;
+  });
+}
+
+
 /* CORES EXIST ONLY ON AN OPTION A JOB (Jake, 2026-09-13: "it only needs to
  * have a tab on option A jobs"), and the spec says the same in one line:
  * "Option B. The Department will not require any cores." (2026 Std Spec
@@ -7225,6 +7465,7 @@ function recompute() {
   computeRapNote();
   // Last, because everything above may have changed which steps are visible.
   paintStepChrome();
+  paintSublotLocks();
 }
 
 // Go to the step a section is on, and put the cursor where the item points.
@@ -8343,6 +8584,15 @@ function handoffPayload(action) {
     version: CONFIG.HANDOFF.VERSION,
     doc_kind: CONFIG.HANDOFF.DOC.review,
     book: state.book,
+    // Stamped when a lot is built with PlantBook's sublot locks bypassed
+    // (?sublots=open). A lot with all four sublots filled under the bypass is
+    // otherwise indistinguishable from one produced a sublot at a time, and
+    // these files go to Andrew and Tate. Deliberately `undefined` rather than
+    // `false` in the ordinary case, so the key is absent from every real lot
+    // and its presence is the whole signal - the same shape as `lot` above.
+    // Note a REVIEWER needs no bypass and is not stamped: seeing every sublot
+    // of a lot they were sent is ordinary review, not a build shortcut.
+    sublots_unlocked: (state.book === "plantbook" && state.sublotsOpen) || undefined,
     generated_at: new Date().toISOString(),
     generated_by: who,
     stage: (stages[state.stageIdx] || stages[0]).key,
