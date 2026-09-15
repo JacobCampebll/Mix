@@ -861,14 +861,15 @@ export function lotFromApproval(payload, opts = {}) {
     pct_blend: num(r.pct_blend),
     gsb: num(r.gsb),
   }));
-  // sections.mjs's `blend` columns exactly: producer / agp / type_size / bod
-  // and one percentage per sublot. Four explicit percentage columns rather
-  // than one is that file's own decision and the right one - a plant that
-  // adjusts its blend mid-lot is then representable instead of being quietly
-  // flattened - so the design's figure is seeded into all four and whoever
-  // shifts the blend overwrites the sublot they shifted.
+  // sections.mjs's `blend` columns exactly: producer / agp / type_size / bod.
+  // 2026-09-15: the four pct_N columns that used to live on THIS row moved to
+  // their own per-sublot table, `blend_pct` (BLEND_PCT_SPEC) - identity is
+  // seeded here once, the design's percentage is seeded into all four
+  // sublots' OWN copies below, and whoever edits a sublot's percentage on
+  // its own tab overwrites just that one, same intent as before ("a plant
+  // that adjusts its blend mid-lot is representable"), just typed where a
+  // technician actually types it now.
   const blend = agg.map((r) => {
-    const pct = num(r.pct_blend);
     const row = {
       producer: str(r.producer) || null,
       // NO AGP NUMBER. The approval does not carry one: the legacy importer
@@ -884,18 +885,38 @@ export function lotFromApproval(payload, opts = {}) {
       type_size: str(r.type_size) || null,
       bod: num(r.gsb),
     };
-    for (let i = 0; i < AGGREGATE.pctCols.length; i++) row[`pct_${i + 1}`] = pct;
     // Not a schema column - `alt`/isRapRow() re-derives it from Type & size
     // at render time. Carried on the report only, so the caller can say
     // "row 6 is the RAP" without re-implementing the test.
     row._rap = isRapType(r.type_size);
     return row;
   });
+  // BLEND_PCT_SPEC's own shape: one row per component PER SUBLOT, grouped by
+  // its own `sublot` cell (the same value-based join mapper.mjs's fan-out and
+  // the page's paintBlendMirrors() both use, never raw array position across
+  // sublots). `producer`/`type_size` mirror `blend[i]` here too, same as the
+  // page paints live - a lot reopened from this envelope shows the right
+  // component beside each percentage before any recompute() has even run.
+  const blend_pct = [];
+  for (let s = 1; s <= 4; s++) {
+    agg.forEach((r) => {
+      blend_pct.push({
+        sublot: String(s),
+        producer: str(r.producer) || null,
+        type_size: str(r.type_size) || null,
+        pct: num(r.pct_blend),
+      });
+    });
+  }
   if (blend.length) {
     inherited.push({ key: 'blend', value: blend, from: 'rows.aggregate',
                      to: `${AGGREGATE.sheet}!${AGGREGATE.cols.producerCode}${AGGREGATE.first}:${AGGREGATE.cols.bod}${AGGREGATE.first + AGGREGATE.count - 1}`,
+                     note: 'identity only - see blend_pct for the percentage, seeded into all four sublots' });
+    inherited.push({ key: 'blend_pct', value: blend_pct, from: 'rows.aggregate[].pct_blend',
+                     to: `${AGGREGATE.sheet}!${AGGREGATE.cols.pct}${AGGREGATE.first}:${AGGREGATE.cols.pct}${AGGREGATE.first + AGGREGATE.count - 1} x4 sublots`,
                      note: `percentages seeded into all four sublot columns ${AGGREGATE.pctCols.join('/')}` });
     sources.blend = `${sourceLabel(a)} · rows.aggregate`;
+    sources.blend_pct = sources.blend;
     if (blend.length > AGGREGATE.count)
       warnings.push({ code: 'blend-too-long',
         message: `The design has ${blend.length} aggregate components; the AMAW's blend block holds ${AGGREGATE.count}.` });
@@ -1152,6 +1173,7 @@ export function lotFromApproval(payload, opts = {}) {
     volumetrics: achieved,
     combined_gsb: combinedGsb,
     blend,
+    blend_pct,
     // The design's own Aggregate Structure table, unreshaped - see
     // `aggregateStructure` above. Read-only reference; `lot.rows.blend` above
     // is the plant's working copy of the same components.
@@ -1164,6 +1186,7 @@ export function lotFromApproval(payload, opts = {}) {
   // is the blend, which is the design's, not the lot's.
   lot.rows = {
     blend,
+    blend_pct,
     ...(blendGsb ? { blend_gsb: blendGsb } : {}),
     project_items: projectItems,
     sublot_tickets: [], sublot_volumetrics: [],
