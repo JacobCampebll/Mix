@@ -20,7 +20,7 @@
 // port, so it is left exactly as it is rather than refactored to suit this.
 import { execFileSync } from 'child_process';
 import { lotPay, MCL } from './pay.mjs';
-import { payViewHTML, payWarnings, payHeadline } from './payview.mjs';
+import { payViewHTML, payExplainHTML, payWarnings, payHeadline } from './payview.mjs';
 
 // ---------------------------------------------------------------------------
 // A minimal xlsx reader: sheet name -> Map(ref -> cached value)
@@ -288,6 +288,93 @@ const real = files.slice(0, 2).map((f, i) => {
   const pre = r.warns.some((x) => /&lt;|&amp;/.test(x.text));
   console.log(`  ${pre ? 'FAIL' : 'ok  '}  warning text is plain data, not pre-escaped (the rail escapes it)`);
   if (pre) fails.push('escaping: warning text is pre-escaped and would double-escape in the rail');
+}
+
+// ---------------------------------------------------------------------------
+// The layered readout - payExplainHTML()
+// ---------------------------------------------------------------------------
+//
+// Layers 1 and 2 must say what lotPay() decided, in the schedule's words; the
+// third layer must print the weighings it is handed and not be offered when
+// it is handed none. Rendered off real lot 1 with a synthetic trace, because
+// a completed AMAW carries the weighings only in cells this reader does not
+// read - the figures here are checked for being PRINTED, not for being the
+// lot's (check_volumetrics.mjs is what checks the arithmetic behind them).
+{
+  console.log(`\n${'-'.repeat(72)}\nLayered readout (payExplainHTML) on real lot 1`);
+  const base = real[0].input;
+  const result = lotPay(base);
+  const spec = (k) => ({ air: 4785.2 + k, water: 2771.4, ssd: 4793.6, volume: 2022.2, bsg: 2.366 });
+  const det = (k) => ({ mix: 2000 + k, calibration: 7400, finalWeight: 8590, absorbedWater: 0, msg: 2.469 });
+  const trace = {
+    handmix: { binderPct: 5.9, gmm: 2.4809, gse: 2.7212, dets: [det(0), det(10)] },
+    sublots: base.sublots.map((sub, i) => ({
+      specimens: [spec(0), spec(5)], dets: [det(0), det(5)], gmb: 2.366, gmm: 2.469, gse: 2.7212,
+      moisture: { before: 1500, after: 1492, pan: 300, pct: 0.6667 },
+      backCalc: 6.2, binderPct: sub.ac, gsb: 2.66, va: sub.av, vma: sub.vma, absorbedAC: 0.5, pbe: sub.ac - 0.5,
+    })),
+    lane: base.laneCores.map((cores, i) => cores.map((pct, k) => ({ id: `${base.lotNumber}-${i + 1}-${'ABCD'[k]}`, air: 1250, water: 720, ssd: 1255, bsg: 2.336, density: 145.8, msg: 2.469, pctSolid: pct }))),
+    joint: base.jointCores.map((cores, i) => cores.map((pct, k) => ({ id: `${base.lotNumber}-${i + 1}-J${k + 1}`, air: 1250, water: 690, ssd: 1255, bsg: 2.212, density: 138.0, msg: 2.469, pctSolid: pct }))),
+  };
+  const open = ['prop.av', 'sub.av.1', 'prop.laneDensity', 'core.laneDensity.1', 'final', 'money'];
+  const html = payExplainHTML(result, { ...base, trace, open });
+  const text = toText(html);
+  const W = 'layered';
+  // layer 1: every property line, with its cell
+  for (const cell of ["'Pay Values'!B21", "'Pay Values'!B22", "'Pay Values'!D17", "'Pay Values'!G17", "'Pay Values'!K17", "'Pay Values'!J21", "'Pay Values'!J23", "'Pay Values'!J24"]) shows(W, text, cell);
+  // layer 2: the band each sublot's air void landed on, in the schedule's words, and the roll-up
+  const av1 = result.perSublot[0].av;
+  shows(W, text, av1.bands.map((b) => b.band).join(''));
+  shows(W, text, `average(${result.perSublot.map((x) => x.av.pay).join(', ')}) = ${result.byProperty.av.value}`);
+  shows(W, text, `${result.byProperty.av.value} x ${result.weights.av}% = `);
+  // the final line writes the weighted sum out in full
+  shows(W, text, `x ${result.weights.laneDensity}% + `);
+  shows(W, text, `= ${result.finalPct}`);
+  shows(W, text, "'Pay Values'!F5");           // the $50 is explained where the dollars are
+  // layer 3: the weighings, the formula and the cell
+  shows(W, text, '4785.2 g in air / (4793.6 SSD - 2771.4 in water = 2022.2) = 2.366');
+  shows(W, text, '2000.0 g mix / (2000.0 + 7400.0 calibration - 8590.0 final + 0.0 absorbed) = 2.469');
+  shows(W, text, '(2.469 - 2.366) / 2.469 x 100 = ');
+  shows(W, text, '1.03 x (2.7212 - 2.469)'.replace('2.7212', '2.721'));
+  shows(W, text, '((1500.0 - 300.0) - (1492.0 - 300.0)) / (1500.0 - 300.0) x 100 = 0.67%');
+  shows(W, text, '1250.0 g in air / (1255.0 SSD - 720.0 in water) = 2.336');
+  shows(W, text, '145.8 / (2.469 sublot Gmm x 62.4) x 100 = ');
+  shows(W, text, `${base.lotNumber}-2-A`);      // a core is named by its own id
+  // open state is honoured, and nothing else is open
+  const opened = [...html.matchAll(/<details class="payx-d[^"]*" data-key="([^"]+)" open>/g)].map((m) => m[1]).sort();
+  const wantOpen = open.slice().sort();
+  const openOK = JSON.stringify(opened) === JSON.stringify(wantOpen);
+  console.log(`  ${openOK ? 'ok  ' : 'FAIL'}  exactly the requested panels render open (${opened.join(', ')})`);
+  if (!openOK) fails.push(`${W}: open panels were ${opened.join(',')} not ${wantOpen.join(',')}`);
+  // no trace -> no third layer is offered, and layers 1-2 are unchanged
+  // (A density sublot still opens - its nested layer is the per-core band,
+  // which lotPay() knows without any weighing; only the volumetric sublots'
+  // third layer is weighings alone.)
+  const bare = payExplainHTML(result, { ...base });
+  const bareSubs = (bare.match(/class="payx-d payx-sub" data-key="sub\./g) || []).length;
+  const bareCores = (bare.match(/class="payx-d payx-sub" data-key="core\./g) || []).length;
+  console.log(`  ${bareSubs === 0 ? 'ok  ' : 'FAIL'}  without a trace no volumetric sublot offers a third layer (${bareSubs} did)`);
+  console.log(`  ${bareCores > 0 ? 'ok  ' : 'FAIL'}  but a density sublot still opens to its per-core bands (${bareCores} do)`);
+  if (bareSubs) fails.push(`${W}: ${bareSubs} sublot(s) offered figures with no trace to show`);
+  if (!bareCores) fails.push(`${W}: density sublots lost their per-core layer without a trace`);
+  shows(W, toText(bare), `% solid -> rounded ${result.laneDetail.cores[1][0].rounded} -> `);
+  shows(W, toText(bare), `average(${result.perSublot.map((x) => x.av.pay).join(', ')}) = ${result.byProperty.av.value}`);
+  // escaping: a hostile core id is data
+  const hostile = '<img src=x onerror=alert(1)>';
+  const evil = { ...trace, lane: trace.lane.map((cs) => cs.map((c) => ({ ...c, id: hostile }))) };
+  const h2 = payExplainHTML(result, { ...base, trace: evil, open: ['prop.laneDensity', 'core.laneDensity.1'] });
+  const leaked = /<img\b/.test(h2), escaped = h2.includes('&lt;img src=x onerror=alert(1)&gt;');
+  console.log(`  ${leaked ? 'FAIL' : 'ok  '}  a hostile core id is escaped, not interpolated`);
+  console.log(`  ${escaped ? 'ok  ' : 'FAIL'}  and still shown, escaped`);
+  if (leaked) fails.push(`${W}: a hostile core id reached the HTML raw`);
+  if (!escaped) fails.push(`${W}: a hostile core id was dropped instead of escaped`);
+  // MCL stays text in every layer
+  const mclRes = lotPay({ ...base, sublots: base.sublots.map((x, i) => (i === 1 ? { ...x, av: 7.5 } : x)) });
+  const mclText = toText(payExplainHTML(mclRes, { ...base, trace, open: ['prop.av', 'final'] }));
+  shows(W, mclText, '< 2.0 or > 6.0 (Class 3-4)');
+  shows(W, mclText, 'a sublot is MCL, so the lot value is MCL');
+  shows(W, mclText, 'MCL x 25%');
+  if (process.argv.includes('--print')) console.log('\n' + text);
 }
 
 // ---------------------------------------------------------------------------

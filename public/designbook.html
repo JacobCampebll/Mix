@@ -918,6 +918,73 @@
   .pritem.unproven .prmark{color:var(--flag);}
   @media (max-width:700px){ .prtable thead th{min-width:112px;} }
   .fp-defaultnote.show{display:block;}
+  /* ===== LOT PAY, LAYERED =================================================
+     Three layers on native <details> (payExplainHTML in PB_PAY): the line,
+     why, the figures. The summary IS the line, so the whole row is the
+     click target, and the marker is drawn rather than the browser's so the
+     chevron sits in its own 16px track and the columns line up with the
+     header strip above them. */
+  .payx-hint{font-weight:400; text-transform:none; letter-spacing:0; margin-left:8px; color:var(--muted);}
+  .payx-list{border-top:1px solid var(--line); margin-top:4px;}
+  .payx-d>summary{list-style:none; cursor:pointer;}
+  .payx-d>summary::-webkit-details-marker{display:none;}
+  .payx-prop>summary{display:grid; grid-template-columns:16px minmax(0,2fr) 92px 62px 78px minmax(0,1.7fr);
+       gap:0 12px; align-items:center; padding:9px 8px 9px 6px; border-bottom:1px solid var(--line); font-size:13px;}
+  .payx-prop>summary::before{content:"\25B8"; color:var(--accent); font-size:12px; text-align:center;}
+  .payx-prop[open]>summary::before{content:"\25BE";}
+  .payx-prop>summary:hover{background:var(--well);}
+  .payx-cols{display:grid; grid-template-columns:16px minmax(0,2fr) 92px 62px 78px minmax(0,1.7fr); gap:0 12px;
+       padding:6px 8px 6px 6px; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);}
+  .payx-cols::before{content:"";}
+  .payx-l{color:var(--ink); min-width:0;}
+  .payx-l .payx-cell{display:block; font-size:10px; color:var(--muted); font-weight:400;}
+  .payx-v,.payx-w,.payx-c{text-align:right; white-space:nowrap;}
+  .payx-v{color:var(--ink); font-size:14px;}
+  .payx-w,.payx-c{color:var(--muted); font-size:12px;}
+  .payx-n{font-size:11.5px; color:var(--muted); min-width:0;}
+  .payx-prop.total>summary{background:var(--wash);}
+  .payx-prop.total>summary .payx-l{font-weight:600;}
+  .payx-prop.hero>summary{background:var(--flag-soft);}
+  .payx-body{padding:8px 10px 12px 34px; background:var(--well); border-bottom:1px solid var(--line);}
+  /* Layer 2's sublot rows: one grid for the header strip and every row, so
+     the columns cannot drift - the same rule the repeating tables learned. */
+  .payx-row{display:grid; grid-template-columns:22px 76px minmax(0,1.4fr) 132px minmax(0,2.4fr) 60px; gap:0 10px;
+       align-items:center; padding:5px 0; font-size:12.5px; border-bottom:1px solid var(--line);}
+  .payx-row>span{min-width:0;}
+  .payx-row .payx-x4{text-align:right;}
+  .payx-row.head{font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); border-bottom:1px solid var(--line);}
+  .payx-row.head::before,.payx-row::before{content:""; display:block;}
+  .payx-sub>summary .payx-row::before{content:"\25B8"; color:var(--accent); font-size:11px; text-align:center;}
+  .payx-sub[open]>summary .payx-row::before{content:"\25BE";}
+  .payx-sub>summary:hover .payx-row{background:var(--panel);}
+  .payx-sub .payx-body{background:var(--panel); border:1px solid var(--line); border-radius:6px; margin:6px 0 10px 22px; padding:8px 12px;}
+  /* Layer 3: one line of working - name | expression | cell. */
+  .payx-eq{display:grid; grid-template-columns:150px minmax(0,1fr) auto; gap:0 12px; align-items:baseline; padding:3px 0; font-size:12.5px;}
+  .payx-eq .k{font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted);}
+  .payx-eq .e{color:var(--ink); font-size:12px; overflow-wrap:anywhere;}
+  .payx-eq .c{font-size:10px; color:var(--muted); white-space:nowrap;}
+  .payx-eq.sub{padding-left:16px;} .payx-eq.sub .k{text-transform:none; letter-spacing:0;}
+  .payx-eq.roll{border-top:1px dashed var(--line); margin-top:8px; padding-top:8px;}
+  .payx-eq.roll+.payx-eq.roll{border-top:0; margin-top:0; padding-top:3px;}
+  .payx-note{font-size:11.5px; color:var(--flag); margin:4px 0 6px;}
+  /* A phone: the line keeps label, value and the note; weight and counts go
+     inside "why", where they are said in a sentence anyway. The working
+     stacks its three parts. Below the rules they override, per convention. */
+  @media (max-width:700px){
+    .payx-cols{display:none;}
+    .payx-prop>summary{grid-template-columns:16px minmax(0,1fr) auto; row-gap:2px;}
+    .payx-prop>summary .payx-w,.payx-prop>summary .payx-c{display:none;}
+    .payx-prop>summary .payx-n{grid-column:2/4;}
+    .payx-body{padding-left:12px;}
+    .payx-row{grid-template-columns:22px minmax(0,1fr) 60px; row-gap:2px;}
+    .payx-row .payx-x1,.payx-row .payx-x2,.payx-row .payx-x3{grid-column:2; font-size:12px;}
+    .payx-row .payx-x1{font-weight:600;}
+    .payx-row .payx-x4{grid-column:3; grid-row:1;}
+    .payx-row.head .payx-x1,.payx-row.head .payx-x2,.payx-row.head .payx-x3{display:none;}
+    .payx-sub .payx-body{margin-left:0;}
+    .payx-eq{grid-template-columns:1fr; gap:0;}
+    .payx-eq .c{white-space:normal;}
+  }
   .fp-card{background:var(--accent-soft); border-radius:var(--radius); padding:9px 12px;}
   .fp-card .l{font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--accent); margin-bottom:2px;}
   .fp-card .v{font-family:'Roboto Mono',monospace; font-size:16px; color:var(--ink);}
@@ -4506,35 +4573,14 @@ const verifySpecimenOf4 = (n) =>
       //  model and says so in `notes`. Those notes belong under this table.
       id: "pay", label: "Lot Pay", step: "Lot Pay",
       tag: "computed from the sublots, cores and the approved JMF",
-      type: "computed",
+      // `pay` is its own body type (payStepHTML on the page): a layered
+      // readout - the line, why, the figures - built by payview.mjs's
+      // payExplainHTML() off lotPay()'s own return. It used to be a
+      // "computed" dvtable of eleven rows; Jake, 2026-09-15: "click on each
+      // part and it shows why the pay value is what it is and then one click
+      // further beyond that and it shows exactly what numbers went into it".
+      type: "pay",
       cites: ["pay402", "density402"],
-      // computedHTML()'s head band names the table, and its default is
-      // DesignBook's "From Four Points". A lot's figures come from the
-      // sublots, the cores and the approved JMF, so it says so.
-      valueHead: "Lot pay",
-      note: "Read-only \u2014 computed from the sublots, the cores and the three " +
-            "figures the approved design supplies. A weight of \u00d70% means that " +
-            "property does not count on this lot.",
-      outputs: [
-        { key: "pay_joint_density", label: "Joint density (%)", weight: "jointDensity",
-          row: "Joint density" },
-        { key: "pay_lane_density",  label: "Lane density (%)",  weight: "laneDensity",
-          row: "Lane density" },
-        { key: "pay_ac",   label: "%AC (%)",      weight: "ac",  row: "%AC" },
-        { key: "pay_av",   label: "Air voids (%)", weight: "av", row: "Air voids" },
-        { key: "pay_vma",  label: "VMA (%)",      weight: "vma", row: "VMA" },
-        // Calculations!A71, printed as-is at 'Pay Values'!J21. NOT capped:
-        // A72 computes the capped figure and the sheet then does not use it —
-        // the cap is a printed instruction to the person paying ("***Final Pay
-        // should be made at 100% Maximum"). J23/J24 multiply by the UNCAPPED
-        // one, so both print and neither is quietly dropped.
-        { key: "pay_final_pct",     label: "Final pay (%)",            row: "Final pay" },
-        { key: "pay_final_capped",  label: "Final pay, capped at 100%", row: "Capped (advisory)" },
-        // ('Pay Values'!J20 off the top: wedge is paid at its own rate.)
-        { key: "pay_tons",          label: "Pay tonnage",   row: "Tonnage less wedge" },
-        { key: "pay_tonnage_adj",   label: "Tonnage adjustment", row: "Tonnage adjustment" },
-        { key: "pay_dollar_adj",    label: "Dollar adjustment ($)", row: "Dollar adjustment" },
-      ],
     },
 
     {
@@ -5594,6 +5640,7 @@ function sectionBodyHTML(s) {
   if (s.type === "fourpoint") return fourpointHTML(s);
   if (s.type === "polish") return polishHTML(s);
   if (s.type === "computed") return computedHTML(s);
+  if (s.type === "pay") return payStepHTML(s);
   if (s.type === "design-mirror") return designMirrorHTML(s);
   let body = "";
   if (s.fields) body += gridHTML(s.fields);
@@ -11945,17 +11992,23 @@ const paysOn = code => SUPERPAVE_CODES.has(Number(code));
 // rounded to a tenth. Note the ladder is on ROUND(ABS(dev),1), so a deviation
 // of 0.55 is 0.6 and loses 5%, while 0.549 is 0.5 and loses nothing.
 function acPay({ jmfAC, ac, isFirstSublot = false } = {}) {
-  if (!isNum(ac) || !isNum(jmfAC)) return { dev: null, pay: null };
+  if (!isNum(ac) || !isNum(jmfAC)) return { dev: null, rounded: null, pay: null, rule: null };
   const dev = ac - jmfAC;
   const d = xlRound(Math.abs(dev), 1);
+  // `rule` is the ladder step that fired, in the words the schedule uses -
+  // so the readout can say WHY a sublot paid what it did rather than only
+  // what. It names the band and its factor and nothing else; the readout
+  // never re-derives a band, so there is one copy of this arithmetic.
   // The sublot-1 allowance is the ONLY place the AC ladder differs, and unlike
   // air voids and VMA below it does not rescue an MCL-sized deviation - past
   // 0.7 the lot is still MCL on its first sublot. ('Pay Values'!D13)
-  if (isFirstSublot && d <= 0.7) return { dev, pay: 100 };
-  if (d <= 0.5) return { dev, pay: 100 };
-  if (d <= 0.6) return { dev, pay: 95 };
-  if (d <= 0.7) return { dev, pay: 90 };
-  return { dev, pay: MCL };
+  if (isFirstSublot && d <= 0.7 && d > 0.5) {
+    return { dev, rounded: d, pay: 100, rule: { band: '|dev| 0.6 - 0.7, sublot 1 of lot 1', pay: 100, allowance: true } };
+  }
+  if (d <= 0.5) return { dev, rounded: d, pay: 100, rule: { band: '|dev| <= 0.5', pay: 100 } };
+  if (d <= 0.6) return { dev, rounded: d, pay: 95, rule: { band: '|dev| = 0.6', pay: 95 } };
+  if (d <= 0.7) return { dev, rounded: d, pay: 90, rule: { band: '|dev| = 0.7', pay: 90 } };
+  return { dev, rounded: d, pay: MCL, rule: { band: '|dev| > 0.7', pay: MCL } };
 }
 
 // ---------------------------------------------------------------------------
@@ -11985,22 +12038,36 @@ function acPay({ jmfAC, ac, isFirstSublot = false } = {}) {
 // return says so rather than guessing. And this block, unlike density and VMA,
 // has no mixture-type gate at all.
 function airVoidPay({ av, esalClass, isFirstSublot = false } = {}) {
-  if (!isNum(av)) return { rounded: null, pay: null, note: null };
+  if (!isNum(av)) return { rounded: null, pay: null, note: null, bands: [] };
   const v = xlRound(av, 1);
   const cls = Number(esalClass);
   const lowClass = cls === 1 || cls === 2;   // AG3/AG6/AG7
   const highClass = cls === 3 || cls === 4;  // AG4/AG8
 
+  // `bands` records every AG:AN row that matched, with its factor, so the
+  // readout can show the schedule line a sublot landed on. The bands are
+  // disjoint, so it is one entry on any real lot; the shape is a list because
+  // the sheet SUMS them and this reproduces the sheet.
   let pay = 0, note = null;
-  if (lowClass && (v <= 1.4 || v >= 6.6)) pay = MCL;
-  else if (highClass && (v < 2 || v > 6)) pay = MCL;
+  const bands = [];
+  if (lowClass && (v <= 1.4 || v >= 6.6)) { pay = MCL; bands.push({ band: '<= 1.4 or >= 6.6 (Class 1-2)', pay: MCL }); }
+  else if (highClass && (v < 2 || v > 6)) { pay = MCL; bands.push({ band: '< 2.0 or > 6.0 (Class 3-4)', pay: MCL }); }
   else {
     let sum = 0;
-    if (v >= 3 && v <= 4) sum += 105;
-    if (lowClass && v <= 2.9 && v >= 1.5) sum += tidy(100 * (1 + 0.1 * (v - 3)));
-    if (highClass && v <= 2.9 && v >= 2) sum += tidy(100 * (1 + 0.1 * (v - 3)));
-    if ((lowClass || highClass) && v <= 6 && v >= 4.1) sum += tidy(100 * (1 + 0.1 * (4.5 - v)));
-    if (lowClass && v >= 6.1 && v <= 6.5) sum += 75;
+    if (v >= 3 && v <= 4) { sum += 105; bands.push({ band: '3.0 - 4.0', pay: 105 }); }
+    if (lowClass && v <= 2.9 && v >= 1.5) {
+      const p = tidy(100 * (1 + 0.1 * (v - 3))); sum += p;
+      bands.push({ band: '1.5 - 2.9 (Class 1-2)', formula: '100 x (1 + 0.1 x (av - 3.0))', pay: p });
+    }
+    if (highClass && v <= 2.9 && v >= 2) {
+      const p = tidy(100 * (1 + 0.1 * (v - 3))); sum += p;
+      bands.push({ band: '2.0 - 2.9 (Class 3-4)', formula: '100 x (1 + 0.1 x (av - 3.0))', pay: p });
+    }
+    if ((lowClass || highClass) && v <= 6 && v >= 4.1) {
+      const p = tidy(100 * (1 + 0.1 * (4.5 - v))); sum += p;
+      bands.push({ band: '4.1 - 6.0', formula: '100 x (1 + 0.1 x (4.5 - av))', pay: p });
+    }
+    if (lowClass && v >= 6.1 && v <= 6.5) { sum += 75; bands.push({ band: '6.1 - 6.5 (Class 1-2)', pay: 75 }); }
     pay = tidy(sum);
     if (!lowClass && !highClass) {
       note = `AADTT Class ${esalClass ?? '(blank)'} is outside the workbook's 1-4 list; only the 3.0-4.0 band pays`;
@@ -12021,9 +12088,11 @@ function airVoidPay({ av, esalClass, isFirstSublot = false } = {}) {
       note: pay === MCL
         ? 'sublot-1 allowance applied to an MCL air void - Excel ranks text above every number, so AH9>=90 is true for "MCL"'
         : note,
+      bands,
+      allowance: { from: pay, to: 100 },
     };
   }
-  return { rounded: v, pay, note };
+  return { rounded: v, pay, note, bands };
 }
 
 // ---------------------------------------------------------------------------
@@ -12042,22 +12111,23 @@ function airVoidPay({ av, esalClass, isFirstSublot = false } = {}) {
 // on the minimum pays 100 and not MCL. Not ported; documented so nobody
 // "restores" it.
 function vmaPay({ minVMA, vma, isFirstSublot = false, mixTypeCode = 5 } = {}) {
-  if (!isNum(vma) || !isNum(minVMA)) return { dev: null, pay: null };
+  if (!isNum(vma) || !isNum(minVMA)) return { dev: null, rounded: null, pay: null, rule: null };
   const dev = vma - minVMA;
   const d = xlRound(dev, 1);
 
-  let pay;
+  // `rule` names the A47:H54 row that fired - same purpose as acPay's.
+  let pay, rule;
   if (!paysOn(mixTypeCode)) {
     // Every band is gated on the Superpave codes, so a non-Superpave mixture
     // takes MAX(0,0,0,0,0) = 0. A genuine quirk of the sheet, not a guess.
-    pay = 0;
+    pay = 0; rule = { band: 'mixture type is not Superpave', pay: 0 };
   } else if (d < -1) {
-    pay = MCL;
+    pay = MCL; rule = { band: 'dev < -1.0', pay: MCL };
   } else {
-    let best = 0;
-    if (d >= 0 && d <= 200) best = Math.max(best, 100);
-    if (d >= -0.5 && d <= -0.1) best = Math.max(best, 95);
-    if (d >= -1 && d <= -0.6) best = Math.max(best, 90);
+    let best = 0; rule = { band: 'no band matched', pay: 0 };
+    if (d >= 0 && d <= 200) { best = Math.max(best, 100); rule = { band: 'dev >= 0.0', pay: 100 }; }
+    if (d >= -0.5 && d <= -0.1) { best = Math.max(best, 95); rule = { band: 'dev -0.5 to -0.1', pay: 95 }; }
+    if (d >= -1 && d <= -0.6) { best = Math.max(best, 90); rule = { band: 'dev -1.0 to -0.6', pay: 90 }; }
     pay = best;
   }
 
@@ -12067,11 +12137,14 @@ function vmaPay({ minVMA, vma, isFirstSublot = false, mixTypeCode = 5 } = {}) {
   if (isFirstSublot && (pay === MCL || (isNum(pay) && pay >= 90))) {
     return {
       dev,
+      rounded: d,
       pay: 100,
       note: pay === MCL ? 'sublot-1 allowance applied to an MCL VMA (Excel ranks "MCL" above 90)' : null,
+      rule,
+      allowance: { from: pay, to: 100 },
     };
   }
-  return { dev, pay };
+  return { dev, rounded: d, pay, rule };
 }
 
 // ---------------------------------------------------------------------------
@@ -12105,48 +12178,64 @@ function sublotPay({
 
 // Lane cores - Calculations!A23:T34. Three band edges and two factors move on
 // ESAL Class 2, which is the only class the sheet treats specially here.
-function laneCorePay(pctSolid, { esalClass, mixTypeCode = 5 } = {}) {
-  if (!isNum(pctSolid)) return null;
-  if (!paysOn(mixTypeCode)) return MCL;             // every row gates on J1; sum 0 -> MCL
+// `laneCoreDetail` is the same table with its working shown - the rounded
+// density, every row it landed on and the factor each contributed - and
+// laneCorePay() is its `pay` alone. One table, read once, so the readout that
+// prints "93.4 -> 92.0-93.9 -> 100" cannot disagree with the number it paid.
+function laneCoreDetail(pctSolid, { esalClass, mixTypeCode = 5 } = {}) {
+  if (!isNum(pctSolid)) return { rounded: null, matched: [], pay: null };
+  if (!paysOn(mixTypeCode)) {                        // every row gates on J1; sum 0 -> MCL
+    return { rounded: xlRound(pctSolid, 1), matched: [], pay: MCL, note: 'mixture type is not Superpave, so no density band pays' };
+  }
   const d = xlRound(pctSolid, 1);
   const cls = Number(esalClass);
   const bands = [
-    [94, 96, 105],                                   // row 24
-    [92, 93.9, 100],                                 // row 25
-    [91, 91.9, 95],                                  // row 26
-    [96.1, 97, 100],                                 // row 27
-    [90, 90.9, 90],                                  // row 28
-    [97.1, 97.5, 90],                                // row 29
-    [97.6, 98.5, cls === 2 ? 85 : 0],                // row 30, D30 = IF(D15=2,85,0)
-    [89, 89.9, cls === 2 ? 75 : 0],                  // row 31, D31 = IF(D15=2,75,0)
-    [0, cls === 2 ? 88.9 : 89.9, 65],                // row 32, C32 = IF(D15=2,88.9,89.9)
-    [cls === 2 ? 98.6 : 97.6, 200, 65],              // row 33, B33 = IF(D15=2,98.6,97.6)
+    [94, 96, 105, 24],                               // row 24
+    [92, 93.9, 100, 25],                             // row 25
+    [91, 91.9, 95, 26],                              // row 26
+    [96.1, 97, 100, 27],                             // row 27
+    [90, 90.9, 90, 28],                              // row 28
+    [97.1, 97.5, 90, 29],                            // row 29
+    [97.6, 98.5, cls === 2 ? 85 : 0, 30],            // row 30, D30 = IF(D15=2,85,0)
+    [89, 89.9, cls === 2 ? 75 : 0, 31],              // row 31, D31 = IF(D15=2,75,0)
+    [0, cls === 2 ? 88.9 : 89.9, 65, 32],            // row 32, C32 = IF(D15=2,88.9,89.9)
+    [cls === 2 ? 98.6 : 97.6, 200, 65, 33],          // row 33, B33 = IF(D15=2,98.6,97.6)
   ];
+  const matched = [];
   let sum = 0;
-  for (const [lo, hi, factor] of bands) if (d >= lo && d <= hi) sum += factor;
-  return sum === 0 ? MCL : sum;                      // Calculations!E34
+  for (const [lo, hi, factor, row] of bands) if (d >= lo && d <= hi) { sum += factor; matched.push({ lo, hi, factor, row }); }
+  return { rounded: d, matched, pay: sum === 0 ? MCL : sum };   // Calculations!E34
+}
+function laneCorePay(pctSolid, opts = {}) {
+  return laneCoreDetail(pctSolid, opts).pay;
 }
 
 // Joint cores - Calculations!A57:L67. No ESAL Class dependence, and NO "MCL"
 // branch: E67 is a bare SUM, and the 0-87.9 band means every core that exists
 // pays at least 75. A joint core cannot take the lot out of the pay schedule.
-function jointCorePay(pctSolid, { mixTypeCode = 5 } = {}) {
-  if (!isNum(pctSolid)) return null;
-  if (!paysOn(mixTypeCode)) return 0;
+function jointCoreDetail(pctSolid, { mixTypeCode = 5 } = {}) {
+  if (!isNum(pctSolid)) return { rounded: null, matched: [], pay: null };
+  if (!paysOn(mixTypeCode)) {
+    return { rounded: xlRound(pctSolid, 1), matched: [], pay: 0, note: 'mixture type is not Superpave, so no density band pays' };
+  }
   const d = xlRound(pctSolid, 1);
   const bands = [
-    [97.1, 200, 75],   // row 58 - over-compacted joint is penalised, same as under
-    [96.6, 97, 90],    // row 59
-    [96.1, 96.5, 100], // row 60
-    [92, 96, 105],     // row 61
-    [90, 91.9, 100],   // row 62
-    [89, 89.9, 95],    // row 63
-    [88, 88.9, 90],    // row 64
-    [0, 87.9, 75],     // row 65
+    [97.1, 200, 75, 58],   // row 58 - over-compacted joint is penalised, same as under
+    [96.6, 97, 90, 59],    // row 59
+    [96.1, 96.5, 100, 60], // row 60
+    [92, 96, 105, 61],     // row 61
+    [90, 91.9, 100, 62],   // row 62
+    [89, 89.9, 95, 63],    // row 63
+    [88, 88.9, 90, 64],    // row 64
+    [0, 87.9, 75, 65],     // row 65
   ];
+  const matched = [];
   let sum = 0;
-  for (const [lo, hi, factor] of bands) if (d >= lo && d <= hi) sum += factor;
-  return sum;
+  for (const [lo, hi, factor, row] of bands) if (d >= lo && d <= hi) { sum += factor; matched.push({ lo, hi, factor, row }); }
+  return { rounded: d, matched, pay: sum };
+}
+function jointCorePay(pctSolid, opts = {}) {
+  return jointCoreDetail(pctSolid, opts).pay;
 }
 
 // ---------------------------------------------------------------------------
@@ -12163,35 +12252,48 @@ function jointCorePay(pctSolid, { mixTypeCode = 5 } = {}) {
 function laneDensityLot({
   sublotCores = [], lotNumber, densityOption = 1, esalClass, mixTypeCode = 5,
 } = {}) {
-  if (Number(densityOption) === 2) return { sublots: [0, null, null, null], lot: 0 };
+  // `cores` (per sublot, per core: rounded density, the band rows it landed
+  // on, its pay) and `rules` (one sentence per sublot saying how its figure
+  // was arrived at) are the working; `sublots` and `lot` are unchanged.
+  if (Number(densityOption) === 2) {
+    return { sublots: [0, null, null, null], lot: 0, cores: [[], [], [], []],
+             rules: ['density option B pays no lane density (Calculations!H12 = 2)', null, null, null],
+             lotRule: 'density option B pays no lane density' };
+  }
   const first = Number(lotNumber) === 1;
+  const details = [0, 1, 2, 3].map(i => (sublotCores[i] || []).map(c => laneCoreDetail(c, { esalClass, mixTypeCode })));
+  const rules = [null, null, null, null];
   const sublots = [0, 1, 2, 3].map(i => {
-    const cores = (sublotCores[i] || []).map(c => laneCorePay(c, { esalClass, mixTypeCode }));
+    const cores = details[i].map(d => d.pay);
     // Cores!J14 - sublot 1 of lot 1 is 100 with cores or without.
-    if (i === 0 && first) return 100;
+    if (i === 0 && first) { rules[i] = 'sublot 1 of lot 1 pays 100 with cores or without (Cores!J14)'; return 100; }
     const present = cores.filter(v => !blank(v));
-    if (!present.length) return null;
+    if (!present.length) { rules[i] = 'no cores yet'; return null; }
     if (present.some(v => v === MCL)) {
       // A single MCL core is text inside AVERAGE, which Excel skips - so the
       // sublot average is over the numeric cores only. Reproduced literally.
       const avg = avgPresent(present);
+      rules[i] = 'average of the cores that paid - an MCL core is text, which AVERAGE skips';
+      if (avg === 65) rules[i] += '; an average of exactly 65 is a call, not a payment';
       return avg === 65 ? 'Call MCL' : avg;
     }
     const avg = avgPresent(present);
     // Cores!J19/J24/J29 - an average of exactly 65 means every core was in the
     // bottom band, and that is a call rather than a payment.
+    rules[i] = avg === 65 ? 'every core in the bottom band - an average of exactly 65 is a call, not a payment' : 'average of the cores';
     return avg === 65 ? 'Call MCL' : avg;
   });
   const present = sublots.filter(v => !blank(v));
-  let lot = null;
+  let lot = null, lotRule = 'no sublot has a lane density yet';
   if (present.length) {
-    if (present.some(v => v === 'Call MCL')) lot = 'Call MCL';
+    if (present.some(v => v === 'Call MCL')) { lot = 'Call MCL'; lotRule = 'a sublot is Call MCL, so the lot is'; }
     else {
       const avg = avgPresent(present);
       lot = avg === 65 ? 'Call MCL' : avg;            // Cores!J30
+      lotRule = avg === 65 ? 'the sublots average exactly 65, which is a call' : 'average of the sublots present (Cores!J30)';
     }
   }
-  return { sublots, lot };
+  return { sublots, lot, cores: details, rules, lotRule };
 }
 
 // Cores!J33:J45. H11 = 2 means joints are not being paid on, and the sheet
@@ -12199,14 +12301,22 @@ function laneDensityLot({
 function jointDensityLot({
   sublotCores = [], lotNumber, jointDensityFlag = 1, mixTypeCode = 5,
 } = {}) {
-  if (Number(jointDensityFlag) === 2) return { sublots: [null, null, null, null], lot: null };
+  if (Number(jointDensityFlag) === 2) {
+    return { sublots: [null, null, null, null], lot: null, cores: [[], [], [], []],
+             rules: [null, null, null, null], lotRule: 'joint density does not count on this lot (Calculations!H11 = 2)' };
+  }
   const first = Number(lotNumber) === 1;
+  const details = [0, 1, 2, 3].map(i => (sublotCores[i] || []).map(c => jointCoreDetail(c, { mixTypeCode })));
+  const rules = [null, null, null, null];
   const sublots = [0, 1, 2, 3].map(i => {
-    if (i === 0 && first) return 100;                 // Cores!J35
-    const cores = (sublotCores[i] || []).map(c => jointCorePay(c, { mixTypeCode })).filter(v => !blank(v));
+    if (i === 0 && first) { rules[i] = 'sublot 1 of lot 1 pays 100 with cores or without (Cores!J35)'; return 100; }
+    const cores = details[i].map(d => d.pay).filter(v => !blank(v));
+    rules[i] = cores.length ? 'average of the cores' : 'no cores yet';
     return cores.length ? avgPresent(cores) : null;
   });
-  return { sublots, lot: avgPresent(sublots.filter(v => !blank(v))) };
+  const lot = avgPresent(sublots.filter(v => !blank(v)));
+  return { sublots, lot, cores: details, rules,
+           lotRule: lot == null ? 'no sublot has a joint density yet' : 'average of the sublots present (Cores!J45)' };
 }
 
 // ---------------------------------------------------------------------------
@@ -12774,6 +12884,319 @@ function payViewHTML(result, ctx = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// The layered readout - click a line for why, click again for the figures
+// ---------------------------------------------------------------------------
+//
+// Jake, 2026-09-15: "I would like it to be where you can click on each part
+// and it shows why the pay value is what it is and then one click further
+// beyond that and it shows exactly what numbers went into it."
+//
+// Three layers, on native <details> so the disclosure needs no script and a
+// keyboard reaches it:
+//   1. the line     property | lot value | weight | contribution
+//   2. why          per sublot: measured -> rounded -> the schedule band it
+//                   landed on -> pay, then how the sublots average to the lot
+//                   value and what it contributes to the final pay
+//   3. the figures  the weighings and the formula each measured value came
+//                   from, cell by cell
+// Layers 1 and 2 come from lotPay()'s own return - the `rule`, `bands` and
+// `cores` pay.mjs carries - so nothing here re-derives a band; the readout
+// that says "93.4 -> 92.0-93.9 -> 100" reads the same table that paid it.
+// Layer 3 needs the raw weights, which lotPay() never sees: the page passes
+// them as `ctx.trace` (lotPayTrace() in designbook.html). Without a trace a
+// sublot line is a plain row and the third layer simply is not offered.
+//
+// `ctx.open` is the list of data-key values to render open. The page
+// re-renders this on every keystroke anywhere in the lot, and a readout that
+// folded every panel a person had opened would be unusable.
+
+const fx = (v, dp) => (isNum(v) ? Number(v).toFixed(dp) : '—');   // fixed decimals: weighings and gravities
+const sg = (v, dp) => (isNum(v) ? sign(v) + Math.abs(v).toFixed(dp) : '—');   // signed deviation
+
+function detailsHTML(key, open, cls, summary, body) {
+  return `<details class="payx-d${cls ? ' ' + cls : ''}" data-key="${key}"${open.has(key) ? ' open' : ''}>`
+    + `<summary>${summary}</summary><div class="payx-body">${body}</div></details>`;
+}
+
+// One line of working: a name, the expression, and the cell it lives in.
+function eqHTML(esc, name, expr, cell, cls = '') {
+  return `<div class="payx-eq${cls ? ' ' + cls : ''}"><span class="k">${esc(name)}</span>`
+    + `<span class="e mono">${esc(expr)}</span>`
+    + (cell ? `<span class="c mono">${esc(cell)}</span>` : '') + `</div>`;
+}
+
+// ---- layer 3: the figures behind one sublot's measured value ---------------
+
+function gmbFigures(esc, t) {
+  if (!t) return '';
+  const lines = [eqHTML(esc, 'Gmb', `${fx(t.gmb, 3)} - bulk specific gravity, the average of the specimens`, 'Superpave G, Average row')];
+  (t.specimens || []).forEach((s, k) => {
+    lines.push(eqHTML(esc, `specimen ${k + 1}`,
+      `${fx(s.air, 1)} g in air / (${fx(s.ssd, 1)} SSD - ${fx(s.water, 1)} in water = ${fx(s.volume, 1)}) = ${fx(s.bsg, 3)}`,
+      'Superpave F, G', 'sub'));
+  });
+  return lines.join('');
+}
+function gmmFigures(esc, t) {
+  if (!t) return '';
+  const lines = [eqHTML(esc, 'Gmm', `${fx(t.gmm, 3)} - maximum specific gravity (Rice), the average of the bowls`, 'Superpave row 42')];
+  (t.dets || []).forEach((d, k) => {
+    lines.push(eqHTML(esc, `bowl ${k + 1}`,
+      `${fx(d.mix, 1)} g mix / (${fx(d.mix, 1)} + ${fx(d.calibration, 1)} calibration - ${fx(d.finalWeight, 1)} final + ${fx(d.absorbedWater ?? 0, 1)} absorbed) = ${fx(d.msg, 3)}`,
+      'Superpave row 41', 'sub'));
+  });
+  return lines.join('');
+}
+function acFigures(esc, t, hm, s) {
+  if (!t) return '';
+  const out = [];
+  if (hm) {
+    out.push(eqHTML(esc, 'Gse', `${fx(hm.gse, 3)} - effective aggregate gravity, from the hand-mixed check sample`, 'Superpave!J8'));
+    out.push(eqHTML(esc, '', `(100 - ${fx(hm.binderPct, 2)} hand-mixed %AC) / (100 / ${fx(hm.gmm, 3)} hand-mixed Gmm - ${fx(hm.binderPct, 2)} / 1.03) = ${fx(hm.gse, 3)}`, '', 'sub'));
+  }
+  out.push(gmmFigures(esc, t));
+  out.push(eqHTML(esc, 'back-calculated %AC',
+    `1.03 x (${fx(t.gse, 3)} - ${fx(t.gmm, 3)}) / (${fx(t.gmm, 3)} x (${fx(t.gse, 3)} - 1.03)) x 100 = ${fx(t.backCalc, 2)}`, 'Gradation!D34'));
+  if (t.moisture && isNum(t.moisture.pct)) {
+    const m = t.moisture;
+    out.push(eqHTML(esc, 'moisture',
+      `((${fx(m.before, 1)} - ${fx(m.pan, 1)}) - (${fx(m.after, 1)} - ${fx(m.pan, 1)})) / (${fx(m.before, 1)} - ${fx(m.pan, 1)}) x 100 = ${fx(m.pct, 2)}%`, 'Superpave G48'));
+    out.push(eqHTML(esc, '%AC', `${fx(t.backCalc, 2)} - ${fx(m.pct, 2)} = ${fx(t.binderPct, 2)}`, "Gradation!D33 -> Superpave!B14"));
+  } else {
+    out.push(eqHTML(esc, '%AC', `${fx(t.binderPct, 2)} - no moisture entered, so nothing is taken off`, 'Superpave!B14'));
+  }
+  out.push(eqHTML(esc, 'deviation', `${fx(t.binderPct, 2)} - ${fx(s.jmfAC, 2)} JMF = ${sg(isNum(t.binderPct) && isNum(s.jmfAC) ? t.binderPct - s.jmfAC : null, 2)}`, "'Pay Values'!C13"));
+  return out.join('');
+}
+function avFigures(esc, t) {
+  if (!t) return '';
+  return gmbFigures(esc, t) + gmmFigures(esc, t)
+    + eqHTML(esc, 'air voids', `(${fx(t.gmm, 3)} - ${fx(t.gmb, 3)}) / ${fx(t.gmm, 3)} x 100 = ${fx(t.va, 2)}%`, "Superpave J -> 'Pay Values'!F13");
+}
+function vmaFigures(esc, t, s) {
+  if (!t) return '';
+  return gmbFigures(esc, t)
+    + eqHTML(esc, '%AC', `${fx(t.binderPct, 2)} - back-calculated, see the % AC line`, 'Superpave!B14')
+    + eqHTML(esc, 'Gsb', `${fx(t.gsb, 3)} - combined aggregate gravity for this sublot, from the blend`, 'Superpave R9:U9')
+    + eqHTML(esc, 'VMA', `100 - ${fx(t.gmb, 3)} x (100 - ${fx(t.binderPct, 2)}) / ${fx(t.gsb, 3)} = ${fx(t.vma, 2)}%`, "Superpave M -> 'Pay Values'!I13")
+    + eqHTML(esc, 'deviation', `${fx(t.vma, 2)} - ${fx(s.minVMA, 2)} minimum = ${sg(isNum(t.vma) && isNum(s.minVMA) ? t.vma - s.minVMA : null, 2)}`, "'Pay Values'!J13");
+}
+function coreFigures(esc, c) {
+  if (!c) return '';
+  return eqHTML(esc, 'BSG', `${fx(c.air, 1)} g in air / (${fx(c.ssd, 1)} SSD - ${fx(c.water, 1)} in water) = ${fx(c.bsg, 3)}`, 'Cores G', 'sub')
+    + eqHTML(esc, 'density', `${fx(c.bsg, 3)} x 62.4 = ${fx(c.density, 1)} pcf`, 'Cores H', 'sub')
+    + eqHTML(esc, '% solid', `${fx(c.density, 1)} / (${fx(c.msg, 3)} sublot Gmm x 62.4) x 100 = ${fx(c.pctSolid, 2)}%`, 'Cores I', 'sub');
+}
+
+// ---- layer 2: why a property's lot value is what it is --------------------
+
+const SUB_HEAD = ['Sublot', 'Measured', 'Rounded', 'Schedule band', 'Pay'];
+
+function subGrid(esc, cells, cls = '') {
+  return `<div class="payx-row${cls ? ' ' + cls : ''}">${cells.map((c, i) => `<span class="payx-x${i}">${c}</span>`).join('')}</div>`;
+}
+
+// The band that fired, as the schedule reads it, plus the allowance when the
+// workbook overrode it (the "*For Sublot # 1 Only" column).
+function bandText(esc, r, kind) {
+  if (!r) return '';
+  let s = '';
+  if (kind === 'av') {
+    const b = r.bands || [];
+    s = b.length ? b.map((x) => x.band + (x.formula ? ` -> ${x.formula}` : '')).join(' + ') : '—';
+  } else {
+    s = r.rule ? r.rule.band : '—';
+  }
+  if (r.allowance) s += ` · sublot-1 allowance: ${isMCL(r.allowance.from) ? r.allowance.from : trim(r.allowance.from)} -> 100`;
+  return esc(s);
+}
+
+function volumetricWhy(p, result, ctx, esc, open) {
+  const per = result.perSublot || [];
+  const trace = ctx.trace || {};
+  const rows = [subGrid(esc, SUB_HEAD.map(esc), 'head')];
+  per.forEach((s, i) => {
+    const r = s ? s[p.key] : null;
+    if (!r) return;
+    const inp = (ctx.sublots || [])[i] || {};
+    const t = (trace.sublots || [])[i] || null;
+    let measured, rounded, figures = '';
+    if (p.key === 'ac') {
+      measured = isNum(r.dev) ? `${fx(inp.ac, 2)}% (JMF ${fx(inp.jmfAC, 2)}, dev ${sg(r.dev, 2)})` : '—';
+      rounded = isNum(r.rounded) ? `|dev| ${fx(r.rounded, 1)}` : '—';
+      figures = acFigures(esc, t, trace.handmix, inp);
+    } else if (p.key === 'av') {
+      measured = isNum(inp.av) ? `${fx(inp.av, 2)}%` : '—';
+      rounded = isNum(r.rounded) ? fx(r.rounded, 1) : '—';
+      figures = avFigures(esc, t);
+    } else {
+      measured = isNum(r.dev) ? `${fx(inp.vma, 2)}% (min ${fx(inp.minVMA, 2)}, dev ${sg(r.dev, 2)})` : '—';
+      rounded = isNum(r.rounded) ? sg(r.rounded, 1) : '—';
+      figures = vmaFigures(esc, t, inp);
+    }
+    const cells = [esc(`Sublot ${i + 1}`), `<span class="mono">${esc(measured)}</span>`, `<span class="mono">${esc(rounded)}</span>`,
+                   bandText(esc, r, p.key), `<span class="mono">${payCell(r.pay, esc)}</span>`];
+    const note = r.note ? `<div class="payx-note">${esc(r.note)}</div>` : '';
+    if (figures) {
+      rows.push(detailsHTML(`sub.${p.key}.${i}`, open, 'payx-sub', subGrid(esc, cells), figures + note));
+    } else {
+      rows.push(subGrid(esc, cells) + note);
+    }
+  });
+  const pays = per.map((s) => (s && s[p.key] ? s[p.key].pay : null)).filter((v) => !blank(v));
+  const by = (result.byProperty || {})[p.key] || {};
+  let roll;
+  if (Number(ctx.acceptanceOption) === 3) roll = 'Visual acceptance: the lot value is 100 whatever the sublots read';
+  else if (!pays.length) roll = 'no sublot has a value yet';
+  else if (pays.some(isMCL)) roll = `a sublot is ${MCL}, so the lot value is ${MCL} - the lot leaves the pay schedule`;
+  else roll = `average(${pays.map((v) => trim(v)).join(', ')}) = ${trim(by.value)}`;
+  return rows.join('') + eqHTML(esc, 'lot value', roll, p.cell, 'roll') + contributionEq(esc, by);
+}
+
+function contributionEq(esc, by) {
+  const v = by ? by.value : null, w = by ? by.weight : 0;
+  if (!w) return eqHTML(esc, 'counts for', 'nothing - this property carries no weight on this lot', "'Pay Values'!E20:E24", 'roll');
+  if (isMCL(v)) return eqHTML(esc, 'counts for', `${v} x ${w}% - the sheet cannot multiply text, so there is no final pay value`, 'Calculations!A71', 'roll');
+  if (!isNum(v)) return eqHTML(esc, 'counts for', `— x ${w}% - no value yet`, 'Calculations!A71', 'roll');
+  return eqHTML(esc, 'counts for', `${trim(v)} x ${w}% = ${trim((v * w) / 100)} of the final pay value`, 'Calculations!A71', 'roll');
+}
+
+function densityWhy(p, result, ctx, esc, open) {
+  const detail = p.key === 'laneDensity' ? result.laneDetail : result.jointDetail;
+  const by = (result.byProperty || {})[p.key] || {};
+  const label = p.key === 'laneDensity' ? 'lane' : 'joint';
+  if (!detail) {
+    return eqHTML(esc, 'lot value', isNum(by.value) ? `${trim(by.value)} - supplied as a ready figure, no cores to show` : 'no value', p.cell, 'roll')
+      + contributionEq(esc, by);
+  }
+  const trace = ((ctx.trace || {})[label]) || [];
+  const rows = [subGrid(esc, ['Sublot', 'Cores', 'Each core pays', 'How the sublot is arrived at', 'Pay'].map(esc), 'head')];
+  (detail.sublots || []).forEach((v, i) => {
+    const cores = (detail.cores || [])[i] || [];
+    const rule = (detail.rules || [])[i];
+    if (blank(v) && !cores.length && !rule) return;
+    const each = cores.length ? cores.map((c) => (isMCL(c.pay) ? c.pay : trim(c.pay))).join(', ') : '—';
+    const cells = [esc(`Sublot ${i + 1}`), `<span class="mono">${esc(cores.length ? String(cores.length) : '—')}</span>`,
+                   `<span class="mono">${esc(each)}</span>`, esc(rule || ''), `<span class="mono">${payCell(v, esc)}</span>`];
+    if (!cores.length) { rows.push(subGrid(esc, cells)); return; }
+    const t = trace[i] || [];
+    const body = cores.map((c, k) => {
+      const band = c.matched && c.matched.length
+        ? c.matched.map((m) => `${fx(m.lo, 1)} - ${m.hi >= 200 ? 'up' : fx(m.hi, 1)} (row ${m.row}) -> ${m.factor}`).join(' + ')
+        : (c.note || 'no band matched -> MCL');
+      const tc = t[k] || null;
+      const id = tc && tc.id ? tc.id : `core ${k + 1}`;
+      return eqHTML(esc, id, `${tc ? fx(tc.pctSolid, 2) : fx(c.rounded, 1)}% solid -> rounded ${fx(c.rounded, 1)} -> ${band} = ${isMCL(c.pay) ? c.pay : trim(c.pay)}`, `Calculations row ${label === 'lane' ? '22' : '56'}`)
+        + coreFigures(esc, tc);
+    }).join('');
+    rows.push(detailsHTML(`core.${p.key}.${i}`, open, 'payx-sub', subGrid(esc, cells), body));
+  });
+  let roll = detail.lotRule || '';
+  const present = (detail.sublots || []).filter((v) => !blank(v));
+  if (present.length && !present.some(isMCL) && isNum(detail.lot)) roll = `average(${present.map((v) => trim(v)).join(', ')}) = ${trim(detail.lot)} - ${roll}`;
+  if (p.key === 'jointDensity' && blank(detail.lot) && by.value === 100 && by.weight > 0) {
+    roll = "no joint cores anywhere on the lot, so 'Pay Values'!B21 falls back to 100 - an untested joint is not a deduction";
+  }
+  return rows.join('') + eqHTML(esc, 'lot value', roll, p.cell, 'roll') + contributionEq(esc, by);
+}
+
+// ---- layer 1: the lines -----------------------------------------------------
+
+function propertyLine(p, result, esc) {
+  const by = (result.byProperty || {})[p.key] || {};
+  const w = (result.weights || {})[p.key] || 0;
+  const value = by.value, weight = by.weight ?? w;
+  const live = weight > 0;
+  const contribution = live && isNum(value) ? (value * weight) / 100 : null;
+  const delta = live && isNum(value) ? ((value - 100) * weight) / 100 : null;
+  let note = '';
+  if (!live) note = 'not in force on this lot';
+  else if (isMCL(value)) note = 'off the pay schedule';
+  else if (blank(value)) note = 'no result yet';
+  else if (delta != null && Math.abs(delta) > 1e-9) note = `${delta < 0 ? 'costs' : 'adds'} ${trim(Math.abs(delta))}% of the lot`;
+  else note = 'no effect';
+  return `<span class="payx-l">${esc(p.label)}<span class="payx-cell mono">${esc(p.cell)}</span></span>`
+    + `<span class="payx-v mono">${payCell(value, esc)}</span>`
+    + `<span class="payx-w mono">${esc(`x${weight}%`)}</span>`
+    + `<span class="payx-c mono">${contribution == null ? '<span class="prsub">—</span>' : esc(trim(contribution))}</span>`
+    + `<span class="payx-n">${esc(note)}</span>`;
+}
+
+function finalLines(result, ctx, esc, open) {
+  const by = result.byProperty || {};
+  const terms = PROPERTIES.filter((p) => by[p.key] && !(p.key === 'jointDensity' && blank(by[p.key].value)));
+  const sum = terms.map((p) => {
+    const t = by[p.key];
+    const v = isMCL(t.value) ? t.value : blank(t.value) ? '—' : trim(t.value);
+    return `${v} x ${t.weight}%`;
+  }).join(' + ');
+  const final = result.finalPct;
+  let body = eqHTML(esc, 'final pay value', `${sum} = ${isNum(final) ? trim(final) : '—'}`, "Calculations!A71 -> 'Pay Values'!J21");
+  if (Number(ctx.acceptanceOption) === 3) body = eqHTML(esc, 'final pay value', '100 - Visual acceptance pays 100 whatever the properties read', "'Pay Values'!J21");
+  if (!isNum(final)) (result.notes || []).forEach((n) => { body += `<div class="payx-note">${esc(n)}</div>`; });
+  if (isNum(final) && final > 100) {
+    body += eqHTML(esc, 'capped', `${trim(result.finalPctCapped)} - Calculations!A72 caps at 100 and the sheet prints "***Final Pay should be made at 100% Maximum"; J23/J24 multiply by the UNCAPPED figure`, 'Calculations!A72');
+  }
+  const line1 = `<span class="payx-l">Final pay value<span class="payx-cell mono">'Pay Values'!J21</span></span>`
+    + `<span class="payx-v mono"><strong>${isNum(final) ? esc(trim(final)) : payCell(final, esc)}</strong></span>`
+    + `<span class="payx-w mono">${esc(`x${Object.values(result.weights || {}).reduce((a, b) => a + (b || 0), 0)}%`)}</span>`
+    + `<span class="payx-c mono"></span><span class="payx-n">${esc(isNum(final) ? 'the five contributions, added' : 'no value - open for why')}</span>`;
+  const out = [detailsHTML('final', open, 'payx-prop total', line1, body)];
+
+  const net = result.payTons, tons = result.tonnageAdj, money = result.dollarAdj;
+  const wedge = isNum(ctx.wedgeTons) ? ctx.wedgeTons : 0;
+  const tonsBody = eqHTML(esc, 'tonnage adjustment',
+    isNum(tons) ? `(${trim(final)} - 100) x (${fx(ctx.tonnage, 2)} tons - ${fx(wedge, 2)} wedge = ${fx(net, 2)}) / 100 = ${sg(tons, 2)} tons`
+                : 'no final pay value, so no adjustment', "'Pay Values'!J23")
+    + (wedge > 0 ? eqHTML(esc, 'wedge', `${fx(wedge, 2)} tons of pavement wedge come off the top - wedge is paid at its own rate`, "'Pay Values'!J20") : '');
+  out.push(detailsHTML('tons', open, 'payx-prop total',
+    `<span class="payx-l">Tonnage adjustment<span class="payx-cell mono">'Pay Values'!J23</span></span>`
+    + `<span class="payx-v mono">${esc(fmtTons(tons))}</span><span class="payx-w mono"></span><span class="payx-c mono"></span>`
+    + `<span class="payx-n">${esc(isNum(tons) ? `(final - 100) x ${fx(net, 2)} pay tons / 100` : 'no value yet')}</span>`, tonsBody));
+
+  const moneyBody = eqHTML(esc, 'pay adjustment',
+    isNum(money) ? `${sg(tons, 2)} tons x ${fmtMoney(ctx.unitPrice, { signed: false })} = ${fmtMoney(money)}` : 'no tonnage adjustment, so no dollar figure', "'Pay Values'!J24")
+    + eqHTML(esc, 'unit price', `${fmtMoney(ctx.unitPrice, { signed: false })} a ton is the spec's defined unit price for the Lot Pay Adjustment (402.05.02), the same for every mix - not the contract's bid price`, "'Pay Values'!F5");
+  out.push(detailsHTML('money', open, 'payx-prop total hero',
+    `<span class="payx-l">Pay adjustment<span class="payx-cell mono">'Pay Values'!J24</span></span>`
+    + `<span class="payx-v mono"><strong>${esc(fmtMoney(money))}</strong></span><span class="payx-w mono"></span><span class="payx-c mono"></span>`
+    + `<span class="payx-n">${esc(isNum(money) ? `tons x ${fmtMoney(ctx.unitPrice, { signed: false })}` : 'no value yet')}</span>`, moneyBody));
+  return out.join('');
+}
+
+// ---- the readout -------------------------------------------------------------
+//
+//   payExplainHTML(lotPay(inputs), { esc, open, trace, ...inputs })
+//
+// `ctx` carries lotPay's own inputs (sublots, flags, tonnage, unitPrice,
+// wedgeTons - the same object works) plus `trace` and `open`. Everything is
+// optional; less context means fewer figures, never a wrong one.
+function payExplainHTML(result, ctx = {}) {
+  if (!result) return `<div class="prempty">No lot to pay on yet.</div>`;
+  const esc = ctx.esc || escapeHTML;
+  const open = new Set(ctx.open || []);
+  const h = payHeadline(result, ctx);
+  const lines = PROPERTIES.map((p) => {
+    const why = (p.key === 'laneDensity' || p.key === 'jointDensity')
+      ? densityWhy(p, result, ctx, esc, open)
+      : volumetricWhy(p, result, ctx, esc, open);
+    return detailsHTML(`prop.${p.key}`, open, 'payx-prop', propertyLine(p, result, esc), why);
+  }).join('');
+  return `<div class="payreadout payx">
+    ${headlineHTML(h, esc)}
+    <div class="rowgroup-head">How the lot pay was arrived at <span class="payx-hint">click a line for why, and a sublot for the figures behind it</span></div>
+    <div class="payx-list">
+      <div class="payx-cols"><span class="payx-l">Property</span><span class="payx-v">Lot value</span><span class="payx-w">Weight</span><span class="payx-c">Counts</span><span class="payx-n"></span></div>
+      ${lines}
+      ${finalLines(result, ctx, esc, open)}
+    </div>
+    ${notesHTML(result, esc)}
+    <div class="computed-note">Read-only — computed from the sublot results and the cores.
+      Final pay value is 'Pay Values'!J21, the tonnage adjustment J23 and the pay adjustment J24.</div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------------------
 // Rail warnings
 // ---------------------------------------------------------------------------
 //
@@ -12841,11 +13264,11 @@ function payWarnings(result, ctx = {}) {
   return {
     // from pay.mjs
     MCL, xlRound, avgPresent, lotAverage, propertyWeights, vmaMinimumFor,
-    airVoidTargetFor, acPay, airVoidPay, vmaPay, sublotPay, laneCorePay,
-    jointCorePay, laneDensityLot, jointDensityLot, lotPay,
+    airVoidTargetFor, acPay, airVoidPay, vmaPay, sublotPay, laneCoreDetail, laneCorePay,
+    jointCoreDetail, jointCorePay, laneDensityLot, jointDensityLot, lotPay,
     // from payview.mjs
     escapeHTML, fmtPct, fmtTons, fmtMoney, payHeadline, collectNotes,
-    payViewHTML, payWarnings,
+    payViewHTML, payExplainHTML, payWarnings,
   };
 })();
 /* ===== END PLANTBOOK PAY ===== */
@@ -18220,6 +18643,7 @@ function computeSublotVolumetrics() {
   const moistRows = rowsOfList("sublot_moisture");
   const gsbRow = rowsOfList("blend_gsb")[0] || null;
   const out = [];
+  const traces = [];
 
   volRows.forEach((vRow, i) => {
     const sub = String(i + 1);
@@ -18244,6 +18668,7 @@ function computeSublotVolumetrics() {
     }) : null;
     if (mRow) putCell(mRow, "moisture", moisture, CONFIG.DP.moisture ?? 2);
 
+    const gsb = gsbRow ? num(cellValue(gsbRow, `gsb_${sub}`)) : null;
     const v = PB_VOL.sublotVolumetrics({
       specimens, determinations: dets,
       // NOT `cellValue(vRow, "binder_pct")`. That cell is READONLY and this
@@ -18254,7 +18679,7 @@ function computeSublotVolumetrics() {
       // this sublot's Gmm, less the moisture.
       binderPct: null,
       moisture,
-      gsb: gsbRow ? num(cellValue(gsbRow, `gsb_${sub}`)) : null,
+      gsb,
       gse: hm.gse,
       // The Gradation step collects WEIGHTS since 2026-09-14, so the % passing
       // the #200 comes from what computeGradation() worked out - the old
@@ -18303,7 +18728,23 @@ function computeSublotVolumetrics() {
     const dr = putCell(vRow, "dust_ratio", v.dustRatio, CONFIG.DP.dust_ratio);
     if (dr) dr.title = v.dustRatioNote || "(% passing the #200, from the Gradation step) / Pbe - Superpave O";
     out.push(v);
+    // For the Lot Pay readout's third layer - the same weighings this
+    // function just computed from, with what each produced.
+    traces.push({
+      specimens: specimens.map((s, k) => ({ ...s, volume: (v.bsgEach[k] || {}).volume, bsg: (v.bsgEach[k] || {}).bsg })),
+      dets: dets.map((d, k) => ({ ...d, msg: (v.msgEach[k] || {}).msg })),
+      gmb: v.gmb, gmm: v.gmm, gse: hm.gse,
+      moisture: mRow ? { before: num(cellValue(mRow, "wt_before")), after: num(cellValue(mRow, "wt_after")),
+                         pan: num(cellValue(mRow, "wt_pan")), pct: moisture } : null,
+      backCalc: v.backCalcBinderPct, binderPct: v.binderPct, gsb,
+      va: v.va, vma: v.vma, absorbedAC: v.absorbedAC, pbe: v.pbe,
+    });
   });
+  state.volTrace = {
+    handmix: { binderPct: num(fieldValue("lot_handmix_binder_pct")), gmm: hm.gmm, gse: hm.gse,
+               dets: hmDets.map((d, k) => ({ ...d, msg: hm.each[k] ? hm.each[k].msg : null })) },
+    sublots: traces,
+  };
   // The lot's Gse rides back out with the sublots because the Verification
   // step needs the same one and it is a lot-level figure - recomputing it
   // there would be a second answer to one question, which is the failure
@@ -18494,6 +18935,7 @@ function computeCoreSolids() {
   if (!isPlantBook()) return;
   const mixTypeCode = lotMixTypeCode();
   const esalClass = fieldValue("lot_esal_class");
+  const trace = { lane: [[], [], [], []], joint: [[], [], [], []] };
   [["mat_cores", true], ["joint_cores", false]].forEach(([key, isLane]) => {
     rowsOfList(key).forEach((row) => {
       const sub = row.querySelector('[data-col="sublot"]');
@@ -18514,6 +18956,14 @@ function computeCoreSolids() {
       putCell(row, "density", d.density, CONFIG.DP.unit_weight);
 
       const pct = putCell(row, "pct_solid", d.pctSolid, CONFIG.DP.pct_solid);
+      // Only a core WITH a % solid, because coresBySublot() feeds lotPay()
+      // only those, and the readout pairs this list with lotPay's by index.
+      if (d.pctSolid != null && idx != null && idx >= 1 && idx <= 4) {
+        trace[isLane ? "lane" : "joint"][idx - 1].push({
+          id: cellValue(row, "core_id"), air: num(cellValue(row, "wt_air")), water: num(cellValue(row, "wt_water")),
+          ssd: num(cellValue(row, "wt_ssd")), bsg: d.bsg, density: d.density, msg, pctSolid: d.pctSolid,
+        });
+      }
       if (pct) {
         pct.title = d.pctSolid != null
           ? `${fmt(d.density, CONFIG.DP.unit_weight)} pcf / (sublot MSG ${fmt(msg, CONFIG.DP.handmix_gmm)} x ${CONFIG.AMAW_PCF}) - Cores I`
@@ -18533,6 +18983,7 @@ function computeCoreSolids() {
         : `${isLane ? "Lane" : "Joint"} density pay value for ${fmt(d.pctSolid, CONFIG.DP.pct_solid)}% - KYTC 402.05`;
     });
   });
+  state.coreTrace = trace;
 }
 
 /* ---------- the form, in the shape lotPay() takes ----------
@@ -18604,6 +19055,17 @@ function lotPayInputs() {
   };
 }
 
+/* ---------- Lot Pay: the layered readout's host ----------
+ *
+ * One element, filled by computeLotPay() on every recompute. The readout
+ * itself is PB_PAY.payExplainHTML() - pure, checked against the module -
+ * and this is only where it lands. `into: "pay"` children (the approval's
+ * three figures) render after it, as for any host section.
+ */
+function payStepHTML() {
+  return `<div id="payReadout" class="payreadout payx"></div>`;
+}
+
 /* ---------- Lot Pay: compute, then paint ----------
  *
  * Two things about the painting are load-bearing and are the reason this does
@@ -18625,49 +19087,28 @@ function computeLotPay() {
   if (!isPlantBook()) return null;
   const sec = document.querySelector('[data-section="pay"]');
   if (!sec) return null;
-  const r = PB_PAY.lotPay(lotPayInputs());
-
-  const put = (key, text, cls) => {
-    const el = sec.querySelector(`[data-dv="${key}"]`);
-    if (!el) return;
-    el.textContent = text;
-    el.className = "v" + (cls ? " " + cls : "") + (text === "—" ? " none" : "");
-  };
-  [["pay_joint_density", r.byProperty.jointDensity],
-   ["pay_lane_density", r.byProperty.laneDensity],
-   ["pay_ac", r.byProperty.ac],
-   ["pay_av", r.byProperty.av],
-   ["pay_vma", r.byProperty.vma]].forEach(([key, prop]) => {
-    put(key, payText(prop.value, 2), prop.value === PB_PAY.MCL ? "bad" : "");
-  });
-  // The weights, painted from the same answer rather than from a second
-  // reading of the flags - propertyWeights() has already run inside lotPay()
-  // and its result is what the arithmetic actually used. The schema's
-  // `weight` key IS the name in that object, which is why computedHTML()
-  // emits it verbatim as data-dvw.
-  sec.querySelectorAll("[data-dvw]").forEach((el) => {
-    const w = r.weights[el.dataset.dvw];
-    el.textContent = w == null ? "—" : `\u00d7${w}%`;
-  });
-
-  put("pay_final_pct", payText(r.finalPct, 4),
-      r.finalPct == null ? "" : (r.finalPct < 100 ? "bad" : r.finalPct > 100 ? "ok" : ""));
-  put("pay_final_capped", payText(r.finalPctCapped, 4));
-  put("pay_tons", payText(r.payTons, 2));
-  put("pay_tonnage_adj", payText(r.tonnageAdj, 2));
-  put("pay_dollar_adj", r.dollarAdj == null ? "—" : PB_PAY.fmtMoney(r.dollarAdj),
-      r.dollarAdj == null ? "" : (r.dollarAdj < 0 ? "bad" : r.dollarAdj > 0 ? "ok" : ""));
-
-  // pay.mjs's own notes - the two branches that produce no final pay at all,
-  // and both are correct answers rather than failures: an MCL property, and
-  // Gradation acceptance, whose pay is a second schedule over fifteen
-  // sieve/AC deviations per sublot that the module does not model and says
-  // so. They belong under the table, not in the 44px action bar.
-  const notes = $("payNotes");
-  if (notes) {
-    notes.innerHTML = (r.notes || []).map((n) => `<p>${esc(n)}</p>`).join("");
+  const inputs = lotPayInputs();
+  const r = PB_PAY.lotPay(inputs);
+  const host = $("payReadout");
+  if (host) {
+    // This runs on every keystroke anywhere in the lot. A person who has
+    // opened "why" on air voids and "the figures" on sublot 3 must find
+    // them still open after typing a core weight, so the open keys are read
+    // off the old DOM and handed back to the renderer.
+    const open = Array.from(host.querySelectorAll("details[data-key][open]")).map((d) => d.dataset.key);
+    host.innerHTML = PB_PAY.payExplainHTML(r, { ...inputs, esc, open, trace: lotPayTrace(), label: sec.dataset.label });
   }
   return r;
+}
+
+/* The figures behind the figures: what computeSublotVolumetrics() and
+ * computeCoreSolids() were handed, in the shape payExplainHTML() prints.
+ * Both of those already hold every weighing when they run; they stash it on
+ * `state` rather than this function reading the tables a second time, which
+ * would be a second reader of the same cells and the two would drift. */
+function lotPayTrace() {
+  const vt = state.volTrace || {}, ct = state.coreTrace || {};
+  return { handmix: vt.handmix || null, sublots: vt.sublots || [], lane: ct.lane || [], joint: ct.joint || [] };
 }
 
 /* ---------- the lot's own stage ladder ---------- */

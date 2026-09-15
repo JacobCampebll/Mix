@@ -1636,35 +1636,14 @@ export const PLANTBOOK_SECTIONS = [
     //  model and says so in `notes`. Those notes belong under this table.
     id: "pay", label: "Lot Pay", step: "Lot Pay",
     tag: "computed from the sublots, cores and the approved JMF",
-    type: "computed",
+    // `pay` is its own body type (payStepHTML on the page): a layered
+    // readout - the line, why, the figures - built by payview.mjs's
+    // payExplainHTML() off lotPay()'s own return. It used to be a
+    // "computed" dvtable of eleven rows; Jake, 2026-09-15: "click on each
+    // part and it shows why the pay value is what it is and then one click
+    // further beyond that and it shows exactly what numbers went into it".
+    type: "pay",
     cites: ["pay402", "density402"],
-    // computedHTML()'s head band names the table, and its default is
-    // DesignBook's "From Four Points". A lot's figures come from the
-    // sublots, the cores and the approved JMF, so it says so.
-    valueHead: "Lot pay",
-    note: "Read-only \u2014 computed from the sublots, the cores and the three " +
-          "figures the approved design supplies. A weight of \u00d70% means that " +
-          "property does not count on this lot.",
-    outputs: [
-      { key: "pay_joint_density", label: "Joint density (%)", weight: "jointDensity",
-        row: "Joint density" },
-      { key: "pay_lane_density",  label: "Lane density (%)",  weight: "laneDensity",
-        row: "Lane density" },
-      { key: "pay_ac",   label: "%AC (%)",      weight: "ac",  row: "%AC" },
-      { key: "pay_av",   label: "Air voids (%)", weight: "av", row: "Air voids" },
-      { key: "pay_vma",  label: "VMA (%)",      weight: "vma", row: "VMA" },
-      // Calculations!A71, printed as-is at 'Pay Values'!J21. NOT capped:
-      // A72 computes the capped figure and the sheet then does not use it —
-      // the cap is a printed instruction to the person paying ("***Final Pay
-      // should be made at 100% Maximum"). J23/J24 multiply by the UNCAPPED
-      // one, so both print and neither is quietly dropped.
-      { key: "pay_final_pct",     label: "Final pay (%)",            row: "Final pay" },
-      { key: "pay_final_capped",  label: "Final pay, capped at 100%", row: "Capped (advisory)" },
-      // ('Pay Values'!J20 off the top: wedge is paid at its own rate.)
-      { key: "pay_tons",          label: "Pay tonnage",   row: "Tonnage less wedge" },
-      { key: "pay_tonnage_adj",   label: "Tonnage adjustment", row: "Tonnage adjustment" },
-      { key: "pay_dollar_adj",    label: "Dollar adjustment ($)", row: "Dollar adjustment" },
-    ],
   },
 
   {

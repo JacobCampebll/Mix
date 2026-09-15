@@ -771,18 +771,37 @@ namespace('PB_PAY', '4. PB_PAY vs scripts/amaw/pay.mjs + payview.mjs');
   // payview does no arithmetic — what it can still do is lose money in the
   // rendering, so the comparison is BYTE-identical HTML, not a parsed shape.
   const ctxFor = (label, input) => ({ label, id: 'pv', ...input });
-  let htmlBad = 0, headBad = 0, warnBad = 0, notesBad = 0, bytes = 0;
+  // The layered readout too, with a synthetic trace so the third layer
+  // renders, and with panels open so the open-state plumbing is compared.
+  const traceFor = (input) => ({
+    handmix: { binderPct: 5.9, gmm: 2.4809, gse: 2.7212, dets: [{ mix: 2000, calibration: 7400, finalWeight: 8590, absorbedWater: 0, msg: 2.469 }] },
+    sublots: (input.sublots || []).map((sub) => ({
+      specimens: [{ air: 4785.2, water: 2771.4, ssd: 4793.6, volume: 2022.2, bsg: 2.366 }],
+      dets: [{ mix: 2000, calibration: 7400, finalWeight: 8590, absorbedWater: 0, msg: 2.469 }],
+      gmb: 2.366, gmm: 2.469, gse: 2.7212, moisture: { before: 1500, after: 1492, pan: 300, pct: 0.6667 },
+      backCalc: 6.2, binderPct: sub.ac, gsb: 2.66, va: sub.av, vma: sub.vma, absorbedAC: 0.5, pbe: 5,
+    })),
+    lane: (input.laneCores || []).map((cs, i) => cs.map((pct, k) => ({ id: `${i + 1}-${k}`, air: 1250, water: 720, ssd: 1255, bsg: 2.336, density: 145.8, msg: 2.469, pctSolid: pct }))),
+    joint: (input.jointCores || []).map((cs, i) => cs.map((pct, k) => ({ id: `${i + 1}-J${k}`, air: 1250, water: 690, ssd: 1255, bsg: 2.212, density: 138, msg: 2.469, pctSolid: pct }))),
+  });
+  const OPEN = ['prop.av', 'sub.av.1', 'prop.laneDensity', 'core.laneDensity.1', 'prop.jointDensity', 'final', 'tons', 'money'];
+  let htmlBad = 0, headBad = 0, warnBad = 0, notesBad = 0, bytes = 0, xBad = 0, xBytes = 0;
   for (const [label, input] of lotInputs) {
     const rp = P.lotPay(input), rm = M.lotPay(input);
     const c = ctxFor(label, input);
     const hp = P.payViewHTML(rp, c), hm = M.payViewHTML(rm, c);
     bytes += hp.length;
     if (hp !== hm) { htmlBad++; console.log(`          payViewHTML differs on "${label}" (${firstDiff(hp, hm)})`); }
+    const xc = { ...c, trace: traceFor(input), open: OPEN };
+    const xp = P.payExplainHTML(rp, xc), xm = M.payExplainHTML(rm, xc);
+    xBytes += xp.length;
+    if (xp !== xm) { xBad++; console.log(`          payExplainHTML differs on "${label}" (${firstDiff(xp, xm)})`); }
     if (stable(P.payHeadline(rp, c)) !== stable(M.payHeadline(rm, c))) headBad++;
     if (stable(P.payWarnings(rp, c)) !== stable(M.payWarnings(rm, c))) warnBad++;
     if (stable(P.collectNotes(rp)) !== stable(M.collectNotes(rm))) notesBad++;
   }
   ok(`payViewHTML() is byte-identical on ${lotInputs.length} lots (${(bytes / 1024).toFixed(0)} KB rendered)`, htmlBad === 0, `${htmlBad} differ`);
+  ok(`payExplainHTML() is byte-identical on ${lotInputs.length} lots, three layers open (${(xBytes / 1024).toFixed(0)} KB rendered)`, xBad === 0, `${xBad} differ`);
   ok(`payHeadline() agrees on ${lotInputs.length} lots`, headBad === 0, `${headBad} differ`);
   ok(`payWarnings() agrees on ${lotInputs.length} lots`, warnBad === 0, `${warnBad} differ`);
   ok(`collectNotes() agrees on ${lotInputs.length} lots`, notesBad === 0, `${notesBad} differ`);
