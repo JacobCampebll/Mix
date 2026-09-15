@@ -1343,7 +1343,6 @@ export const PLANTBOOK_SECTIONS = [
       // t_smpl.smpl_id is empty and nothing would load — KYTC evidently
       // fills it at submission. Read an empty one as "not ready to hand
       // off", not as a read failure, which is why it is optional here.
-      { key: "lot_sample_id_prefix", label: "Sample id prefix", type: "text", req: false, mono: true },
     ],
       // The AMAW's `Project Items` sheet, A6:C99 - the same sheet, the same
       // three columns and the same ListObject the MixPack has, so the

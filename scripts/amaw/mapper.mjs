@@ -415,7 +415,6 @@ export const LOT_FIELD_ALIASES = {
   lot_joint_density: 'joint_density',
   lot_kytc_lab: 'kytc_lab_id',
   lot_ps_lab: 'ps_lab_id',
-  lot_sample_id_prefix: 'sample_id_prefix',
   lot_binder_terminal: 'binder_producer',
   lot_binder_grade: 'binder_grade_key',
   lot_additive: 'additive',
@@ -456,7 +455,17 @@ const DENSITY_OPTION_CODES = { A: 1, B: 2 };
  *  evalOnly. Checked in the shipped template rather than assumed - its
  *  neighbour H13 carries no formula at all, which is exactly why the two
  *  were lumped together and both skipped. */
-const DESIGN_LIFTS = { jmf_ac: 'jmf_ac', min_vma: 'min_vma' };
+const DESIGN_LIFTS = {
+  jmf_ac: 'jmf_ac', min_vma: 'min_vma',
+  // 'Pay Values'!D7, "Approved Mix Design:" - KYTC's own sample id for the
+  // APPROVAL ("07640AMD260403" in both real lots), and the cell `t_smpl`
+  // actually reads. Nothing supplied it until 2026-09-15; generate.mjs has
+  // been naming it as missing since it was written. DesignBook builds exactly
+  // this string for the MixPack's own `Design Data!C10`, so PlantBook derives
+  // it the same way rather than inventing a second convention - see
+  // approvalSampleId() on the page, which is where the district table lives.
+  approved_mix_design: 'approved_mix_design',
+};
 
 /** The lot's scalars under the names this file reads them by. */
 export function lotScalars(values) {

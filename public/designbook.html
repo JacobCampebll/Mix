@@ -4143,7 +4143,6 @@ const verifySpecimenOf4 = (n) =>
         // t_smpl.smpl_id is empty and nothing would load — KYTC evidently
         // fills it at submission. Read an empty one as "not ready to hand
         // off", not as a read failure, which is why it is optional here.
-        { key: "lot_sample_id_prefix", label: "Sample id prefix", type: "text", req: false, mono: true },
       ],
         // The AMAW's `Project Items` sheet, A6:C99 - the same sheet, the same
         // three columns and the same ListObject the MixPack has, so the
@@ -14097,7 +14096,6 @@ const LOT_FIELD_ALIASES = {
   lot_joint_density: 'joint_density',
   lot_kytc_lab: 'kytc_lab_id',
   lot_ps_lab: 'ps_lab_id',
-  lot_sample_id_prefix: 'sample_id_prefix',
   lot_binder_terminal: 'binder_producer',
   lot_binder_grade: 'binder_grade_key',
   lot_additive: 'additive',
@@ -14138,7 +14136,17 @@ const DENSITY_OPTION_CODES = { A: 1, B: 2 };
  *  evalOnly. Checked in the shipped template rather than assumed - its
  *  neighbour H13 carries no formula at all, which is exactly why the two
  *  were lumped together and both skipped. */
-const DESIGN_LIFTS = { jmf_ac: 'jmf_ac', min_vma: 'min_vma' };
+const DESIGN_LIFTS = {
+  jmf_ac: 'jmf_ac', min_vma: 'min_vma',
+  // 'Pay Values'!D7, "Approved Mix Design:" - KYTC's own sample id for the
+  // APPROVAL ("07640AMD260403" in both real lots), and the cell `t_smpl`
+  // actually reads. Nothing supplied it until 2026-09-15; generate.mjs has
+  // been naming it as missing since it was written. DesignBook builds exactly
+  // this string for the MixPack's own `Design Data!C10`, so PlantBook derives
+  // it the same way rather than inventing a second convention - see
+  // approvalSampleId() on the page, which is where the district table lives.
+  approved_mix_design: 'approved_mix_design',
+};
 
 /** The lot's scalars under the names this file reads them by. */
 function lotScalars(values) {
@@ -18671,6 +18679,54 @@ async function verifyApproval(payload) {
   }
 }
 
+/* The approval's own KYTC sample id, built DesignBook's way.
+ *
+ * Jake, 2026-09-15: "Just do it like the designbook does and not make it
+ * editable. Not sure it needs to be seen on the site?"
+ *
+ * TWO CELLS WEAR THIS NAME AND ONLY ONE OF THEM HAS A KNOWN CONVENTION, so
+ * only one is filled:
+ *
+ *  - `'Pay Values'!D7` "Approved Mix Design:" is the APPROVAL's sample id -
+ *    "07640AMD260403" in both real lots - and it is the cell `t_smpl` reads.
+ *    DesignBook already builds exactly this string for the MixPack's own
+ *    `Design Data!C10` (mixpackCells()), so this is not a new convention, it
+ *    is the same one: district + that district's sample-lab code + "AMD" +
+ *    the approval's two-digit year + its four-digit sequence. Derived here
+ *    rather than in intake.mjs because the district table is DesignBook's
+ *    `CONFIG.MIXPACK.DISTRICTS` and lives on the page.
+ *
+ *  - `'Pay Values'!B3`, the sample id PREFIX that every `t_smpl.smpl_id` is
+ *    built from ("<prefix>VI01", "<prefix>QC01"), is NOT filled and its box is
+ *    gone from the form. Nobody knows the convention for a LOT's prefix,
+ *    **both real accepted lots leave it blank**, and this project's own rule
+ *    is that a guessed identifier in a MEDL field is worse than an empty one -
+ *    the same call as a wrong compaction Option. The mapper still `need()`s
+ *    it, so the gap stays named in the generator's report rather than
+ *    disappearing with the box.
+ *
+ * NOT SHOWN, per Jake, and nothing to edit: it is a derived identifier, and
+ * a form that lets somebody retype it is a form that lets somebody break the
+ * join to the design.
+ *
+ * NULL FOR ELEVEN DISTRICTS, and that is the honest answer rather than a
+ * guess. `CONFIG.MIXPACK.DISTRICTS` carries district 07 alone - the statewide
+ * hole CLAUDE.md records - so a plant anywhere else derives nothing and D7
+ * stays as empty as it is today, with generate.mjs still naming it. Closing
+ * that closes it for both books at once.
+ */
+function approvalSampleId(lot) {
+  const d = lot && lot.values && lot.values.design;
+  const a = d && d.approval;
+  const mixId = a && a.mix_id ? String(a.mix_id).trim() : "";
+  const amp = lot && lot.amp_number ? String(lot.amp_number).trim() : "";
+  const district = /^AMP(\d{2})/.exec(amp) ? /^AMP(\d{2})/.exec(amp)[1] : "";
+  const dist = district && CONFIG.MIXPACK.DISTRICTS[district];
+  if (!dist || !/^\d{8}$/.test(mixId)) return null;
+  // Same read as mixpackCells(): the eight-digit mix id is 00 + yy + seq.
+  return `${district}${dist.sampleLab}AMD${mixId.slice(2, 4)}${mixId.slice(-4)}`;
+}
+
 async function openApprovalForLot(payload, label) {
   const verification = await verifyApproval(payload);
   const out = PB_LOT.lotFromApproval(payload, { verification });
@@ -18681,6 +18737,11 @@ async function openApprovalForLot(payload, label) {
   if (submittedFor("plantbook")) state.submitted = null;   // see openLotEnvelope()
   state.lot = out.lot;
   state.lotReport = out.report;
+  // Derived, never typed - see approvalSampleId(). Onto `values.design` so it
+  // travels with the lot and reaches the workbook through DESIGN_LIFTS, the
+  // same path as the JMF %AC and the minimum VMA.
+  const sid = approvalSampleId(out.lot);
+  if (sid) state.lot.values.design.approved_mix_design = sid;
   state.job = {
     cid: out.lot.contract_id,
     letting: (payload.job && payload.job.letting) || "",

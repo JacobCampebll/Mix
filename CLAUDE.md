@@ -3213,6 +3213,39 @@ read-only, so a write test goes through `apply_migration` and ends in
   pointed at a `node_modules` carrying pdf-lib, xlsx and fflate - 339 passing
   as of 2026-09-15.
 
+- **The Sample id prefix box is gone, and the cell that DID have a known
+  convention is filled instead** (Jake, 2026-09-15: "Just do it like the
+  designbook does and not make it editable. Not sure it needs to be seen on
+  the site?"). Two cells wear this name and only one of them is guessable, so
+  only one is written - which is the whole content of this entry.
+  **`'Pay Values'!D7` "Approved Mix Design:" is the APPROVAL's sample id**
+  (`07640AMD260403` in both real lots) and is the cell `t_smpl` actually
+  reads. Nothing supplied it until now; `generate.mjs` has named it as missing
+  since it was written. DesignBook already builds exactly this string for the
+  MixPack's own `Design Data!C10`, so `approvalSampleId()` is that same
+  convention rather than a second one: district + that district's sample-lab
+  code + `AMD` + the approval's two-digit year + its four-digit sequence, all
+  read off the eight-digit mix id (`00` + yy + seq) the lot already inherits.
+  It lands on `values.design` and reaches the workbook through `DESIGN_LIFTS`,
+  the same path as the JMF %AC and the minimum VMA. Derived on the PAGE
+  because the district table is DesignBook's `CONFIG.MIXPACK.DISTRICTS`.
+  Verified end to end: an approval on `AMP070301` with mix id `00260467`
+  derives `07640AMD260467` and reaches `lotScalars()` under the mapper's own
+  name.
+  **`'Pay Values'!B3`, the prefix every `t_smpl.smpl_id` is built from, is
+  still NOT written, and that is the decision rather than an omission.** Its
+  box is gone because nobody should type a MEDL identifier freehand, but
+  nothing fills it either: the convention for a LOT's prefix is unknown, and
+  **both real accepted lots leave it blank**. A guessed identifier in a MEDL
+  field is worse than an empty one - the same call this file already makes for
+  a wrong compaction Option. The mapper still `need()`s it, so the gap stays
+  named in the generator's report instead of disappearing with the box.
+  **Eleven districts derive NOTHING**, which is honest rather than a guess:
+  `CONFIG.MIXPACK.DISTRICTS` carries district 07 alone - the statewide hole
+  recorded near the top of this file - so a plant anywhere else leaves D7 as
+  empty as it was, with `generate.mjs` still naming it. Closing that one gap
+  closes it for both books at once, which is the argument for closing it.
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
