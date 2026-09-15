@@ -378,11 +378,17 @@ for (const s of S) {
     // header shears away from the rows. An inline style cannot be
     // overridden by a media query without !important (CLAUDE.md), so this
     // is not something a breakpoint can rescue.
+    //
+    // A `hidden` column (2026-09-15b, AGG_BLEND_SPEC's own `sublot`) gets no
+    // track at all - `display:none` (rowHTML()) removes it from CSS Grid's
+    // auto-placement entirely, and rowHeadHTML() skips it too, so only the
+    // VISIBLE columns need to agree with the grid.
+    const visible = spec.columns.filter((c) => !c.hidden);
     const tracks = String(spec.grid || "").trim().split(/\s+/).filter(Boolean);
-    const want = spec.columns.length + (spec.fixed ? 0 : 1);
+    const want = visible.length + (spec.fixed ? 0 : 1);
     if (!spec.grid) fail("D", `${where} has no grid template`);
     else if (tracks.length !== want)
-      fail("D", `${where} has ${tracks.length} grid tracks for ${spec.columns.length} columns ` +
+      fail("D", `${where} has ${tracks.length} grid tracks for ${visible.length} visible columns ` +
         `(want ${want}${spec.fixed ? "" : " — columns + the remove button"})`);
     else if (!spec.fixed && tracks[tracks.length - 1] !== "auto")
       fail("D", `${where} ends its grid with "${tracks[tracks.length - 1]}" — the remove button's track is \`auto\``);
