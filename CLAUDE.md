@@ -3292,6 +3292,64 @@ read-only, so a write test goes through `apply_migration` and ends in
   `go()` is at opacity 0 and reads as a page-wide dim - wait ~900ms, or the
   colours you are checking are not the colours on screen.
 
+- **Lot Pay is a layered readout now: the line, why, and the figures**
+  (Jake, 2026-09-15: "click on each part and it shows why the pay value is
+  what it is and then one click further beyond that and it shows exactly what
+  numbers went into it"). It was a `computed` dvtable of eleven rows - a
+  number beside a weight, and nothing to say where either came from. Now each
+  property is a line (lot value | weight | what it counts for), opening to a
+  per-sublot strip (measured -> rounded -> the schedule band it landed on ->
+  pay, then the average and the contribution), and each sublot opening to the
+  weighings and the formula behind its measured value, cell by cell. The final
+  pay, tonnage and dollar lines open the same way and write their arithmetic
+  out in full - including that the $50 is the spec's defined unit price, not
+  the bid price, said where the dollars are.
+  **Nothing in the readout re-derives a band.** `pay.mjs` now RETURNS its own
+  working: `acPay`/`vmaPay` carry `rule` (the ladder step that fired),
+  `airVoidPay` carries `bands` (every AG:AN row that matched - a list because
+  the sheet sums them), all three carry `allowance` when the sublot-1 column
+  overrode them, and `laneCoreDetail`/`jointCoreDetail` are the two density
+  tables with their matched rows shown, `laneCorePay`/`jointCorePay` being
+  their `.pay`. `laneDensityLot`/`jointDensityLot` return `cores`, `rules`
+  and `lotRule` beside the unchanged `sublots`/`lot`. All additive:
+  `check_pay.mjs` still matches 127/127 cells on both real lots.
+  **The third layer needs weighings lotPay() never sees**, so the page passes
+  `ctx.trace` - `computeSublotVolumetrics()` and `computeCoreSolids()` stash
+  what they were handed on `state.volTrace` / `state.coreTrace` as they run,
+  and `lotPayTrace()` shapes it. Stashed there rather than read again in
+  `lotPayInputs()`, because a second reader of the same cells is the drift
+  this file keeps recording. The core trace pushes ONLY cores with a % solid,
+  in table order, because `coresBySublot()` feeds lotPay() only those and the
+  readout pairs the two lists by index. Without a trace (the PDF, a checker) a
+  volumetric sublot is a plain row; a density sublot still opens, because its
+  nested layer is the per-core band, which lotPay() knows without a weighing.
+  **It is native `<details>`, and the open panels survive the re-render.**
+  `computeLotPay()` runs on every keystroke anywhere in the lot and rewrites
+  the readout; it reads the open `data-key`s off the old DOM first and hands
+  them back as `ctx.open`, so a person mid-comparison does not watch every
+  panel fold. Verified in a browser: type into a core weight, six panels stay
+  open.
+  `payExplainHTML()` in `payview.mjs` is the renderer, pure, spliced into
+  `PB_PAY` like the rest; `check_page_plantbook.mjs` compares it
+  byte-identical on the five synthetic lots with a trace and eight panels
+  open, and `check_payview.mjs` asserts the three layers' text on real lot 1,
+  that no volumetric sublot offers figures without a trace, that a hostile
+  core id is escaped, and that MCL stays text in every layer. The section is
+  `type: "pay"` (`payStepHTML()` hosts it; `outputs` are gone from the
+  schema); `RENDER.pay` in the PDF is untouched and still prints the plain
+  table.
+  **One thing the readout surfaced that a table never would**: on lot 1
+  sublot 1 the allowance is not only a rescue - `'Pay Values'!G13` is
+  `IF(AND(F3=1,AH9>=90),100,AH9)`, so an air void that would have paid 103
+  pays 100 there too. The strip prints "sublot-1 allowance: 103 -> 100". It
+  is the workbook, reproduced; whether KYTC means it is the same open
+  question as the MCL-on-sublot-1 one above.
+  And a probe note: my first realistic fill had a hand-mix bowl 10 g off, the
+  %AC came out MCL, and the readout traced it to the bowl in one click - which
+  is the feature working, not a bug in it. Screenshot a tall step with the
+  fade disabled (`animation:none` on `.section`), or a capture taller than
+  the viewport comes back dimmed.
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
