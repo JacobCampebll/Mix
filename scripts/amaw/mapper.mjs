@@ -670,10 +670,15 @@ export const LOT_TABLE_ROUTES = {
   project_items: { by: 'lot', into: 'rows@project_items', passthrough: true,
     cols: { project: 'project', line: 'line', quantity: 'quantity', unit: 'unit' },
     drop: { description: 'screen-only: INPUTS.projectItems is A..D = project/line/qty/unit' } },
-  // 2026-09-15: `blend` is identity only now (producer/AGP/type & size/BOD) -
-  // the percentage moved to its own per-sublot table, `blend_pct`, below.
-  // `pct_1..pct_4` used to live here and are gone from the schema, not just
-  // dropped from this mapping - see sections.mjs's BLEND_IDENTITY_SPEC.
+  // `blend` is identity only (producer/AGP/type & size/BOD) - the percentage
+  // lives on `blend_pct` below. 2026-09-15b: the page no longer collects a
+  // separate `blend` list at all (it folded producer/AGP/type & size/BOD
+  // into `blend_pct` itself, one merged "Aggregate Blend" table per sublot
+  // tab) - `lotRecords()` derives this route's input from `blend_pct`'s own
+  // Sublot 1 rows before this table runs, so the route itself, and
+  // everything downstream of it (amawCells()'s `rows.aggregate` read), is
+  // unchanged. A lot saved before that merge still carries a genuine
+  // `rows.blend` and takes that path unmodified.
   blend: { by: 'lot', into: 'rows@aggregate', blend: true,
     cols: { producer: 'producer', agp: 'agp_number', type_size: 'type_size', bod: 'bod' },
     drop: { component: 'identity anchor only (keeps collectForm() from dropping a blank slot out of position) - never written' } },
@@ -682,12 +687,19 @@ export const LOT_TABLE_ROUTES = {
   // not by the generic per-block routing above, because it needs to GROUP by
   // its own `sublot` cell first and then match POSITION within that group to
   // `blend`'s own row order - one column mapping cannot express that join.
-  // `producer`/`type_size` are read-only mirrors (sections.mjs) and carry no
-  // information the workbook needs a second time.
+  // `producer`/`agp`/`type_size`/`bod`/`design_pct` are read-only mirrors or
+  // reference-only figures (sections.mjs) and carry no information the
+  // workbook needs a second time - `producer`/`agp`/`type_size`/`bod` are
+  // what the `blend` route above already reads, off this same table's own
+  // Sublot 1 rows.
   blend_pct: { by: 'lot', into: null,
     drop: { sublot: 'groups the fan-out below, not written anywhere',
-            producer: 'read-only mirror of blend[i].producer',
-            type_size: 'read-only mirror of blend[i].type_size',
+            component: 'identity anchor only (keeps collectForm() from dropping a blank slot out of position) - never written',
+            producer: 'same figure the blend route above reads off Sublot 1\'s own rows',
+            agp: 'same figure the blend route above reads off Sublot 1\'s own rows',
+            type_size: 'same figure the blend route above reads off Sublot 1\'s own rows',
+            bod: 'same figure the blend route above reads off Sublot 1\'s own rows',
+            design_pct: 'the approved design\'s own blend % - reference only, not a workbook cell',
             pct: 'fans out per sublot, see the custom fan-out below' } },
   blend_gsb: { by: 'lot', into: null,
     drop: { gsb_1: 'Superpave R9:U9, a formula over the blend', gsb_2: '', gsb_3: '', gsb_4: '' } },
@@ -734,7 +746,27 @@ function hasMeasurement(row, route) {
  * @returns {{records: object, unmapped: string[]}}
  */
 export function lotRecords(values, rows, existing) {
-  const src = rows || {};
+  const src = { ...(rows || {}) };
+  // 2026-09-15b: the page merged what used to be two row-lists (`blend`,
+  // identity only, six rows; `blend_pct`, this component's % per sublot)
+  // into one - producer/AGP/type & size/BOD now live INSIDE `blend_pct`
+  // itself, mirrored across all four sublots' own copies, edited only on
+  // Sublot 1. So there is no longer a separate `src.blend` for the `blend`
+  // route (LOT_TABLE_ROUTES.blend, -> rows@aggregate) or the custom pct
+  // fan-out below to read - derive it here, once, from Sublot 1's own six
+  // `blend_pct` rows (`sublot === "1"`), so both keep working unmodified. A
+  // lot saved before this merge still carries a genuine `rows.blend` and
+  // that takes precedence, unchanged.
+  if (!Array.isArray(src.blend) || !src.blend.length) {
+    const pct1 = Array.isArray(src.blend_pct)
+      ? src.blend_pct.filter((r) => sublotIndex(r.sublot) === 1) : [];
+    if (pct1.length) {
+      src.blend = pct1.map((r) => ({
+        component: r.component, producer: r.producer, agp: r.agp,
+        type_size: r.type_size, bod: r.bod,
+      }));
+    }
+  }
   const out = {};
   const unmapped = [];
   // Start from whatever is already in the mapper's own vocabulary. A lot read
@@ -850,17 +882,17 @@ export function lotRecords(values, rows, existing) {
   //    Each component keeps its position, which is what INPUTS.blend's
   //    `first + i` already assumes.
   //
-  //    2026-09-15: the percentage no longer lives ON blendRows (pct_1..
-  //    pct_4 are gone from the schema - sections.mjs's BLEND_IDENTITY_SPEC).
-  //    It is its own table, `blend_pct`, 24 rows (six components x four
-  //    sublots) each carrying its OWN `sublot` cell - the same "group by a
-  //    real identity value, never by raw array position" rule mat_cores/
-  //    sublot_bsg already use, not a new one. GROUP by that cell first, THEN
-  //    match POSITION within the group to blendRows' own order - safe only
-  //    because both tables are fixed now (BLEND_IDENTITY_SPEC, BLEND_PCT_SPEC
-  //    in sections.mjs), so neither can reorder or drop a MIDDLE slot out
-  //    from under the other; see BLEND_IDENTITY_SPEC's own comment for why
-  //    that stopped being true the moment blend was still growable.
+  //    The percentage does not live on blendRows - it is its own table,
+  //    `blend_pct`, 24 rows (six components x four sublots) each carrying
+  //    its OWN `sublot` cell - the same "group by a real identity value,
+  //    never by raw array position" rule mat_cores/sublot_bsg already use,
+  //    not a new one. GROUP by that cell first, THEN match POSITION within
+  //    the group to blendRows' own order - safe only because both are fixed
+  //    (sections.mjs's `blend_pct` and, whether real or derived above,
+  //    `blendRows`), so neither can reorder or drop a MIDDLE slot out from
+  //    under the other. `blendRows` here is `src.blend` - real for a lot
+  //    saved before the 2026-09-15b merge, derived from `blend_pct`'s own
+  //    Sublot 1 rows for one saved after it (see the top of this function).
   const blendRows = src.blend;
   const blendPctRows = src.blend_pct;
   if (Array.isArray(blendRows) && blendRows.length && Array.isArray(blendPctRows)) {

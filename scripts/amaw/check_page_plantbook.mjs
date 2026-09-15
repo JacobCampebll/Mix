@@ -454,7 +454,7 @@ namespace('PB_SECTIONS', '2. PB_SECTIONS vs scripts/amaw/sections.mjs');
         // ?sublots=open build bypass), which is about the viewer rather than
         // about the lot.
         'SETUP_LOT', 'SETUP_SUBLOT', 'sublotOfSectionId', 'sublotNeedsSample',
-        'LOT_LEVEL_SUBBLOCKS', 'LOT_LEVEL_ROW_TABLES'].sort());
+        'LOT_LEVEL_SUBBLOCKS', 'LOT_LEVEL_ROW_TABLES', 'LOT_LEVEL_ROW_COLUMNS'].sort());
   // The lock rule itself. The cases that matter are the setup exemption and
   // its exact boundary: lot 1 sublot 1 open, lot 1 sublot 2 gated, lot 2
   // sublot 1 gated, and a blank lot number reading as lot 1 rather than
@@ -468,12 +468,17 @@ namespace('PB_SECTIONS', '2. PB_SECTIONS vs scripts/amaw/sections.mjs');
          [null], [undefined], ['SUBLOT-1']]);
   same('LOT_LEVEL_SUBBLOCKS is identical', P.LOT_LEVEL_SUBBLOCKS, MOD_SECTIONS.LOT_LEVEL_SUBBLOCKS);
   same('LOT_LEVEL_ROW_TABLES is identical', P.LOT_LEVEL_ROW_TABLES, MOD_SECTIONS.LOT_LEVEL_ROW_TABLES);
+  same('LOT_LEVEL_ROW_COLUMNS is identical', P.LOT_LEVEL_ROW_COLUMNS, MOD_SECTIONS.LOT_LEVEL_ROW_COLUMNS);
   // Everything the lock rule exempts has to really BE there, or the exemption
   // is a name that matches nothing: it would silently lock a lot-level block
   // on lot 2 and leave that lot no way to state its own blend. This caught
   // exactly that on 2026-09-15, when Andrew's PR #24 turned Aggregate Blend
   // from an `into: "sublot-1"` sub-section into row TABLES on the tab and the
-  // merge was textually clean. Two shapes, so two assertions.
+  // merge was textually clean. It caught the SAME failure again on
+  // 2026-09-15b, a merge later: PR #26 folded `blend` into `blend_pct`, so
+  // `LOT_LEVEL_ROW_TABLES`'s `blend` entry stopped naming anything real, and
+  // this exact assertion is what failed rather than something silent in
+  // production. Three shapes exempted now, so three assertions.
   ok('every LOT_LEVEL_SUBBLOCK is a real section drawn inside a sublot tab',
      MOD_SECTIONS.LOT_LEVEL_SUBBLOCKS.every((id) => {
        const sec = MOD_SECTIONS.PLANTBOOK_SECTIONS.find((x) => x.id === id);
@@ -495,6 +500,34 @@ namespace('PB_SECTIONS', '2. PB_SECTIONS vs scripts/amaw/sections.mjs');
          (Array.isArray(sec.rows) ? sec.rows : [])
            .some((r) => r.key === key && Array.isArray(r.sliceIndices)))),
      MOD_SECTIONS.LOT_LEVEL_ROW_TABLES.join(', ') || '(none)');
+  // LOT_LEVEL_ROW_COLUMNS is the column-level answer for a table that IS
+  // sliced per sublot but is not entirely this sublot's own data (blend_pct:
+  // `pct` is, `component`/`producer`/`agp`/`type_size`/`bod`/`design_pct`
+  // aren't). Same "every exemption has to name something real" rule as the
+  // other two lists, parsed as "<row table key>.<column key>".
+  ok('every LOT_LEVEL_ROW_COLUMN is a real column of a real row table on a sublot tab',
+     MOD_SECTIONS.LOT_LEVEL_ROW_COLUMNS.every((pair) => {
+       const [tableKey, colKey] = pair.split('.');
+       return MOD_SECTIONS.PLANTBOOK_SECTIONS.some((sec) =>
+         MOD_SECTIONS.sublotOfSectionId(sec.id) != null &&
+         (Array.isArray(sec.rows) ? sec.rows : []).some((r) =>
+           r.key === tableKey && (r.columns || []).some((c) => c.key === colKey)));
+     }), MOD_SECTIONS.LOT_LEVEL_ROW_COLUMNS.join(', ') || '(none)');
+  // And the column-level exemption must not add up to the WHOLE table: that
+  // would be exempting a sliced table by the back door, the exact thing "no
+  // exempt row table is sliced per sublot" (above) exists to refuse for
+  // LOT_LEVEL_ROW_TABLES. A sliced table with every one of its columns
+  // exempted has no column left for the lock to actually cover.
+  ok('a sliced row table with any LOT_LEVEL_ROW_COLUMN exemption keeps at least one column NOT exempted',
+     MOD_SECTIONS.PLANTBOOK_SECTIONS.every((sec) =>
+       (Array.isArray(sec.rows) ? sec.rows : [])
+         .filter((r) => Array.isArray(r.sliceIndices))
+         .every((r) => {
+           const exempt = MOD_SECTIONS.LOT_LEVEL_ROW_COLUMNS.filter((pair) => pair.startsWith(`${r.key}.`));
+           if (!exempt.length) return true;
+           return (r.columns || []).some((c) => !exempt.includes(`${r.key}.${c.key}`));
+         })),
+     MOD_SECTIONS.LOT_LEVEL_ROW_COLUMNS.join(', ') || '(none)');
 
   ok('isRapRow is NOT on the surface — the splice deleted it as the module asks, '
    + 'and the schema calls the page\'s hoisted copy instead', !('isRapRow' in P));

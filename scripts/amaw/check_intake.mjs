@@ -161,35 +161,45 @@ if (!approval) {
     ok('...and a VMA pay band', s.vma.pay != null, s.vma);
 
     // --- blend, Gsb, gradation ---------------------------------------
-    ok('blend inherited, one row per design component',
-       d.blend.length === (approval.rows.aggregate || []).length, d.blend.length);
-    ok('blend carries type & size and BOD specific gravity',
-       d.blend.every((b) => b.type_size && b.bod != null));
+    // 2026-09-15b: identity (producer/AGP/type & size/BOD) folded into
+    // blend_pct itself - Sublot 1's own six rows (`sublot === "1"`) are what
+    // used to be the separate `blend` list, so these checks read that slice.
+    const sublot1 = d.blend_pct.filter((b) => String(b.sublot) === '1');
+    ok('blend inherited, one row per design component, into Sublot 1',
+       sublot1.length === (approval.rows.aggregate || []).length, sublot1.length);
+    ok('Sublot 1\'s rows carry type & size and BOD specific gravity',
+       sublot1.every((b) => b.type_size && b.bod != null));
     ok('the RAP row is found by Type & size, not by Producer',
-       d.blend.some((b) => b._rap) === (approval.rows.aggregate || []).some((x) => /RAP/i.test(x.type_size || '')),
-       d.blend.filter((b) => b._rap).map((b) => b.type_size));
+       sublot1.some((b) => b._rap) === (approval.rows.aggregate || []).some((x) => /RAP/i.test(x.type_size || '')),
+       sublot1.filter((b) => b._rap).map((b) => b.type_size));
     ok('NO AGP code came across - the payload does not carry one',
-       d.blend.every((b) => b.agp === null));
+       sublot1.every((b) => b.agp === null));
     ok('...and the report says a technician still owes it',
-       r.report.typed.some((t) => t.key === 'blend[].agp'));
-    // The blend has to land under sections.mjs's own column keys or the form
-    // renders six empty rows and nobody notices. 2026-09-15: pct_1..pct_4
-    // moved OFF this table onto blend_pct (BLEND_PCT_SPEC) - identity only
-    // here now.
-    ok('blend rows use the schema\'s column keys',
-       d.blend.every((b) => 'producer' in b && 'agp' in b && 'type_size' in b && 'bod' in b),
-       Object.keys(d.blend[0] || {}));
+       r.report.typed.some((t) => t.key === 'blend_pct[].agp'));
     ok('blend_pct is 6 x 4 = 24 rows (six components, four sublots)',
-       d.blend_pct.length === d.blend.length * 4, d.blend_pct.length);
+       d.blend_pct.length === sublot1.length * 4, d.blend_pct.length);
+    // Every row has to land under sections.mjs's own column keys or the form
+    // renders empty cells and nobody notices - identity + design_pct +
+    // component + sublot are on every row now, not just Sublot 1's.
     ok('blend_pct rows use the schema\'s column keys',
-       d.blend_pct.every((b) => 'sublot' in b && 'producer' in b && 'type_size' in b && 'pct' in b),
+       d.blend_pct.every((b) => 'sublot' in b && 'component' in b && 'producer' in b
+         && 'agp' in b && 'type_size' in b && 'bod' in b && 'design_pct' in b && 'pct' in b),
        Object.keys(d.blend_pct[0] || {}));
-    ok('the design\'s percentage is seeded into all four sublots\' own rows',
+    ok('identity (producer/AGP/type & size/BOD) is the SAME on every sublot\'s own rows',
+       [2, 3, 4].every((s) => {
+         const mine = d.blend_pct.filter((b) => Number(b.sublot) === s);
+         return mine.length === sublot1.length && mine.every((b, i) =>
+           b.producer === sublot1[i].producer && b.type_size === sublot1[i].type_size
+           && b.bod === sublot1[i].bod && b.component === sublot1[i].component);
+       }),
+       d.blend_pct.map((b) => [b.sublot, b.component, b.producer]));
+    ok('the design\'s percentage is seeded into all four sublots\' own "pct" AND their separate, never-edited "design_pct"',
        [1, 2, 3, 4].every((s) => {
          const mine = d.blend_pct.filter((b) => Number(b.sublot) === s);
-         return mine.length === d.blend.length && mine.every((b, i) => b.pct === d.blend_pct[i].pct);
+         return mine.length === sublot1.length
+           && mine.every((b, i) => b.pct === sublot1[i].pct && b.design_pct === sublot1[i].pct);
        }),
-       d.blend_pct.map((b) => [b.sublot, b.pct]));
+       d.blend_pct.map((b) => [b.sublot, b.pct, b.design_pct]));
     ok('combined Gsb is seeded across the blend_gsb row',
        lot.rows.blend_gsb[0].gsb_1 === d.combined_gsb && lot.rows.blend_gsb[0].gsb_4 === d.combined_gsb,
        lot.rows.blend_gsb);

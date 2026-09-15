@@ -347,13 +347,42 @@ export function sublotNeedsSample(sublotNumber, lotNumber) {
  *  covering it. check_page_plantbook.mjs caught exactly that on the merge and
  *  fails if either list names something that is not really there.
  *
- *  NOTE WHAT IS DELIBERATELY *NOT* HERE: `blend_pct`. That table is sliced
- *  six rows per tab precisely so each sublot edits its own percentage
- *  ("that's how techs have been filling out the previous AMAW to date"), so
- *  it is this sublot's data and locks with it. Only the component identity -
- *  producer, AGP, type & size, BOD - is typed once for the lot. */
+ *  2026-09-15b CORRECTION: `LOT_LEVEL_ROW_TABLES` used to also name `blend`,
+ *  back when Aggregate Blend's identity lived on its own six-row table. That
+ *  table is GONE - identity now lives inside `blend_pct` itself, mirrored
+ *  across all four sublots' own copies (aggBlendColumns()) - and `blend_pct`
+ *  is sliced per sublot, so it can never be a whole exempt TABLE the way
+ *  `blend` was: `blend_pct`'s own `pct` column is genuinely this sublot's
+ *  data ("that's how techs have been filling out the previous AMAW to
+ *  date") and must lock with its tab, while `component`/`producer`/`agp`/
+ *  `type_size`/`bod`/`design_pct` describe the lot and must not. One table,
+ *  two different answers per column - see LOT_LEVEL_ROW_COLUMNS below.
+ *
+ *  THIS IS THE EXACT FAILURE THIS COMMENT ALREADY WARNED ABOUT, ONE MERGE
+ *  LATER. The first version of this note said a hardcoded exemption "went
+ *  stale within a day" when PR #24 reshaped Aggregate Blend and the merge
+ *  was textually clean; PR #26 reshaped it again (folding `blend` into
+ *  `blend_pct`) and the SAME silent drift happened to `LOT_LEVEL_ROW_TABLES`
+ *  itself, caught only because `check_page_plantbook.mjs`'s "every exempt
+ *  table is real" assertion started failing. Two independent, unrelated
+ *  PRs hitting the same trap is the argument for keeping that assertion
+ *  rather than trusting the two authors to remember each other's work. */
 export const LOT_LEVEL_SUBBLOCKS = ["handmix"];
-export const LOT_LEVEL_ROW_TABLES = ["blend", "blend_gsb"];
+// blend_gsb is still a whole exempt TABLE, unaffected by the blend_pct
+// merge: one hidden row, never sliced, purely computed storage for the
+// per-sublot Combined Gsb readout.
+export const LOT_LEVEL_ROW_TABLES = ["blend_gsb"];
+// "<row table key>.<column key>" pairs that describe the LOT rather than one
+// sublot's own sample, even though they live inside a table that is
+// otherwise sliced per sublot. See the note above for why blend_pct needs
+// this rather than a whole-table exemption. `pct` is deliberately NOT here -
+// exempting it would leave a future sublot editable through the one door
+// the lock exists to close, the same reasoning `blend_pct` itself was kept
+// off LOT_LEVEL_ROW_TABLES for before this merge.
+export const LOT_LEVEL_ROW_COLUMNS = [
+  "blend_pct.sublot", "blend_pct.component", "blend_pct.producer",
+  "blend_pct.agp", "blend_pct.type_size", "blend_pct.bod", "blend_pct.design_pct",
+];
 
 /* Seeded rather than asked for, which Jake asked for on 2026-09-13 ("do it
  * and the acc per sublot too"). Both of his real accepted lots read code 3 on
@@ -456,16 +485,14 @@ const MAT_CORE_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
   ["A", "B", "C", "D"].map((suffix) => ({ sublot, core_id: suffix })));
 const JOINT_CORE_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
   ["J1", "J2"].map((suffix) => ({ sublot, core_id: suffix })));
-// Six blank slots — AGGREGATE.count, the blend's own fixed component count
-// (Superpave rows 3..8) — nothing to pre-fill, unlike a core's lettered id.
-// `component` is the identity anchor - see BLEND_IDENTITY_SPEC's own note
-// on why a blend row needs one now that it never used to.
-const BLEND_SEED = [1, 2, 3, 4, 5, 6].map((component) => ({ component: String(component) }));
 // 24 = 6 components x 4 sublots, same "identity cell always painted, never
 // dropped, never compacted" shape MAT_CORE_SEED already relies on - see
-// BLEND_PCT_SPEC below for why this table has to be fixed, not growable.
+// AGG_BLEND_SPEC below for why this table has to be fixed, not growable.
+// `component` (1-6, the same value repeated once per sublot group) is the
+// second identity anchor, alongside `sublot` - see AGG_BLEND_SPEC's own note
+// on why a row needs one now that producer/AGP/type/BOD live here too.
 const BLEND_PCT_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
-  [0, 1, 2, 3, 4, 5].map(() => ({ sublot })));
+  [1, 2, 3, 4, 5, 6].map((component) => ({ sublot, component: String(component) })));
 
 // ---------------------------------------------------------------------
 //  Sublot 1-4 tabs — one shared table, sliced four ways
@@ -732,72 +759,74 @@ const JOINT_CORES_SPEC = {
 };
 
 // ---------------------------------------------------------------------
-//  Aggregate Blend — split across the four Sublot tabs (Andrew, 2026-09-15)
+//  Aggregate Blend — one table, on every Sublot tab (Andrew, 2026-09-15b)
 // ---------------------------------------------------------------------
 //
-//  "Agg structure table needs to be present in every sublot tab, not just
-//  sublot 1... doesn't need to show other sublots['] columns." And: "each
-//  tab edits its own percentage, because that's how techs have been filling
-//  out the previous AMAW to date." Two tables now, not one:
+//  Combines what used to be two tables (BLEND_IDENTITY_SPEC, Sublot-1-only,
+//  and BLEND_PCT_SPEC's own narrower mirror) into one, present on all four
+//  tabs: "the aggregate table [should be] present in each sublot tab
+//  containing individual Gsb and design %s, but... the last column
+//  represented in each sublot tab [should] show that specific sublot's
+//  blend %s". So: component / producer / AGP / type & size / BOD sp. gr. /
+//  Design % are the SAME six values on every tab (edited once, on Sublot 1 -
+//  Andrew's standing call, 2026-09-14: one canonical edit point beats four
+//  that could disagree), and the last column, Sublot %, is THIS tab's own.
 //
-//  BLEND_IDENTITY_SPEC — producer / AGP / type & size / BOD, unchanged from
-//  the section this replaces, still typed on Sublot 1 ONLY (Andrew's
-//  standing call, 2026-09-14: AGP sometimes has no source but the producer
-//  name, so one canonical edit point beats four that could disagree). The
-//  one real change: FIXED, not growable. `Superpave` rows 3..8 are six real
-//  slots whether or not a lot uses all of them (AGGREGATE.count), so this
-//  now matches mat_cores/joint_cores' own "always six/four/two, identity
-//  cell always painted, never dropped or compacted" shape instead of the
-//  old add/remove UI - which is what makes BLEND_PCT_SPEC below safe: it
-//  depends on POSITION i meaning "the same component" on both tables, and a
-//  growable list can reorder or shrink that position out from under it the
-//  moment a row is removed. `check_sections.mjs` (E)'s own row-key rule
-//  already treats a fixed, position-keyed table as the safe default; this
-//  was the one place blend still disagreed with it.
+//  `aggBlendColumns(editable)` returns the shared column list, differing
+//  only in `readonly`/`req` on the five identity+design columns: Sublot 1's
+//  copy gets `editable: true` (typed, sourced against `aggregates`/
+//  `aggregate_types`), Sublots 2-4 get `editable: false` (painted by
+//  paintBlendMirrors(), designbook.html, same "read-only mirror" pattern
+//  `producer`/`type_size` already used before this merge). `pct` ("Sublot
+//  %") is ALWAYS editable - it is the one column that is genuinely this
+//  tab's own.
 //
-//  BLEND_PCT_SPEC — one table, 24 rows (6 components x 4 sublots, same
-//  MAT_CORE_SEED shape), sliced six-per-tab via sixOf4() so each Sublot tab
-//  edits only ITS OWN percentage. `producer`/`type_size` are READ-ONLY
-//  mirrors (painted from BLEND_IDENTITY_SPEC's live rows by
-//  paintBlendMirrors(), designbook.html) so a technician on Sublot 3 can
-//  still see WHICH component they are typing a percentage for without
-//  visiting Sublot 1 - deliberately not the full four-column identity
-//  (AGP/BOD stay Sublot-1-only) to keep this table as narrow as the rest of
-//  this session's pairing work. `agp`/`bod` are still one click away on
-//  Sublot 1's own table if needed.
+//  `design_pct` ("Design %") is new: the approved design's own blend % for
+//  this component (`lot.values.design.aggregate[].pct_blend`, intake.mjs),
+//  read-only on every tab, seeded once and never touched by editing a
+//  sublot's own %. It is a comparison figure only - not a workbook cell,
+//  see LOT_TABLE_ROUTES.blend_pct's `drop` entry for it.
 //
-//  THE DATA MODEL MAPPER.MJS SEES DOES NOT CHANGE - `QC0n.rows.blend[i].pct`
-//  is exactly what it always fanned pct_N out to; only WHERE the page reads
-//  that percentage from changed (mapper.mjs's own fan-out, not its read
-//  side). `blend_gsb` (the computed one-row, four-column storage the VMA
-//  math already reads) is untouched too - see buildSublotTabSections()
-//  below for where it now lives, HIDDEN, since its value has always had a
-//  visible home in the per-tab "Combined Gsb" readout.
-// FOUND VERIFYING THIS IN A REAL BROWSER, 2026-09-15: `fixed: true` alone
-// was not enough. collectForm() drops a row only when EVERY cell in it is
-// null - which relies on an identity cell that is ALWAYS painted, the same
-// trick MAT_CORE_SEED's `core_id` already leans on. BLEND_PCT_SPEC has one
-// (`sublot`), so it never shrinks; BLEND_IDENTITY_SPEC did NOT (producer/
-// agp/type_size/bod are all genuinely optional), so an unused slot DID drop
-// out of `blend` while its six-per-sublot BLEND_PCT_SPEC rows stayed put -
-// and the moment a blank slot sat in the MIDDLE rather than at the end,
-// position i on the two tables stopped meaning the same component. `component`
-// below is that missing identity cell - the fix is one more always-painted
-// column, not a rethink of the position-matching design.
-const BLEND_IDENTITY_SPEC = {
-  key: "blend", heading: "Blend components", banded: true, fixed: true,
-  seed: BLEND_SEED,
-  // Five tracks now (component + four columns) - still no trailing `auto`
-  // for a remove button: `fixed: true` means rowHTML() never renders one.
-  grid: ".3fr 1.9fr .75fr 1.15fr .5fr",
-  columns: [
+//  ONE TABLE, ONE ROW-LIST KEY (`blend_pct`, unchanged - a rename would
+//  ripple through LOT_TABLE_ROUTES, every check_*.mjs fixture and
+//  docs/amaw-map.md for no behavioural gain). What used to be a SEPARATE
+//  `blend` list (identity only, six rows) no longer exists as its own
+//  table: Sublot 1's own six `blend_pct` rows (`sublot === "1"`) ARE the
+//  identity now, and mapper.mjs's `lotRecords()` derives the old `blend`
+//  shape from exactly that slice before running LOT_TABLE_ROUTES.blend and
+//  the custom pct fan-out - both unchanged from before this merge. A lot
+//  saved before this change still carries a genuine `rows.blend` and that
+//  derivation is skipped in favour of it.
+//
+//  FIXED, not growable, still for the reason BLEND_IDENTITY_SPEC used to
+//  give: `Superpave` rows 3..8 are six real slots whether or not a lot uses
+//  all of them (AGGREGATE.count), matching mat_cores/joint_cores' own
+//  "always six/four/two, identity cell always painted, never dropped or
+//  compacted" shape. `sublot` was already an always-painted identity anchor
+//  (BLEND_PCT_SEED); `component` still has to be too, for the same reason
+//  discovered verifying this in a real browser 2026-09-15: collectForm()
+//  drops a row only when EVERY cell in it is null, and producer/agp/
+//  type_size/bod are all genuinely optional, so a blank component in the
+//  MIDDLE of Sublot 1's six would silently compact the rest upward and
+//  desync `component`'s own numbering from row position - `component`
+//  itself is what stops that, being the one cell always painted regardless.
+function aggBlendColumns(editable) {
+  return [
+    // `hidden: true` - a real, always-collected cell (rowHTML()'s own note),
+    // just not a printed column: the tab a row is on already says which
+    // sublot it belongs to. It is not decorative - paintBlendMirrors(),
+    // computeBlendGsb() and mapper.mjs's fan-out all GROUP blend_pct's 24
+    // rows by this cell's VALUE first, never by raw DOM position, the same
+    // "group by a real identity value" rule mat_cores/sublot_bsg already use.
+    { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true, hidden: true },
     { key: "component", label: "#", type: "text", mono: true, readonly: true },
     // AGP and AMP are different registries, and a RAP row needs the second
     // one — an AGP number is an aggregate producer, an AMP number is an
     // asphalt plant, and RAP is millings, so its "producer" is the plant
     // they came off. `alt` swaps the list and the label per row, detected
     // by Type & size (never by Producer).
-    { key: "producer", label: "Producer", type: "text", req: true, source: "aggregates",
+    { key: "producer", label: "Producer", type: "text", req: editable, readonly: !editable,
+      source: "aggregates",
       // The workbook stores the CODE (Superpave!N, "AGP027501"), not the
       // name, so the code has to reach the payload — unlike a legacy
       // MixPack import, where `_agp` rides on the row and is deliberately
@@ -819,25 +848,37 @@ const BLEND_IDENTITY_SPEC = {
     // Filled from the chosen producer, and editable — a retired producer or
     // an older spelling that the table lacks is a WARNING and is KEPT,
     // never blanked (CLAUDE.md's provisional-values rule applied to lists).
-    { key: "agp", label: "AGP / AMP", type: "text", req: true, mono: true },
-    { key: "type_size", label: "Type & size", type: "text", req: true,
+    { key: "agp", label: "AGP / AMP", type: "text", req: editable, mono: true, readonly: !editable },
+    { key: "type_size", label: "Type & size", type: "text", req: editable, readonly: !editable,
       source: "aggregate_types" },
     // Superpave!Q. KYTC's own wording on the sheet.
-    { key: "bod", label: "BOD sp. gr.", type: "number", req: true, mono: true },
-  ],
-};
-const BLEND_PCT_SPEC = {
-  key: "blend_pct", heading: "This sublot's % blend", banded: true, fixed: true,
-  seed: BLEND_PCT_SEED,
-  grid: ".5fr 1.6fr 1.1fr .5fr",
-  columns: [
-    { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
-    // Mirrors, not a second edit point - see the section note above.
-    { key: "producer", label: "Producer", type: "text", readonly: true },
-    { key: "type_size", label: "Type & size", type: "text", readonly: true },
-    { key: "pct", label: "% blend", type: "number", req: true, mono: true },
-  ],
-};
+    { key: "bod", label: "BOD sp. gr.", type: "number", req: editable, mono: true, readonly: !editable },
+    // The design's own blend % for this component - reference only, never
+    // typed and never overwritten by editing "Sublot %" below.
+    { key: "design_pct", label: "Design %", type: "number", mono: true, readonly: true },
+    { key: "pct", label: "Sublot %", type: "number", req: true, mono: true },
+  ];
+}
+function aggBlendSpec(n) {
+  return {
+    ...sliceSpec({
+      key: "blend_pct", heading: "Aggregate Blend", banded: true, fixed: true,
+      seed: BLEND_PCT_SEED,
+      // Seven tracks - component, producer, AGP, type & size, BOD, Design %,
+      // Sublot %.
+      grid: ".3fr 1.7fr .7fr 1.05fr .5fr .55fr .55fr",
+      columns: aggBlendColumns(n === 1),
+    }, sixOf4(n)),
+    // The stat lives IN the row-group's own navy banner (rowHeadingHTML(),
+    // designbook.html) rather than as a separate readout field above it -
+    // Andrew, 2026-09-15: "wrap the Gsb value into the agg structure box
+    // instead of having it live all by itself in its own box... obvious
+    // and standout, but not taking up its own box." Painted by the same
+    // `show('blend_gsb_${n}', ...)` call paintLotReadouts() already made
+    // when this was a `fields` readout - only the markup it targets moved.
+    stat: { label: "Combined Gsb", out: `blend_gsb_${n}` },
+  };
+}
 // Superpave row 9, R9/S9/T9/U9. Fixed at one row because there is exactly
 // one combined Gsb per sublot; readonly because it is computed from the
 // blend percentages and the BODs, and a typed combined Gsb that disagrees
@@ -868,29 +909,14 @@ function buildSublotTabSections() {
   const out = [];
   for (let n = 1; n <= 4; n++) {
     const rows = [];
-    // Aggregate Blend, moved to the TOP of every tab (Andrew, 2026-09-15:
-    // "relocate agg table(s) to the top of each sublot tab") - `into`
-    // children render AFTER a section's own body (renderForm() appends
-    // them: `${sectionBodyHTML(s)} ${child}`), which is what stopped the
-    // old standalone "blend" `into: "sublot-1"` section from ever sitting
-    // above the ticket table. Folding it into this function's own `rows`
-    // is what actually moves it - it is no longer an `into` section at all.
-    // Identity only on Sublot 1 (see BLEND_IDENTITY_SPEC's own note); every
-    // tab gets its own slice of the percentage table right after it, so
-    // Sublot 1 reads identity-then-its-own-%, same shape every other tab
-    // shows minus the identity rows they don't own.
-    if (n === 1) rows.push(BLEND_IDENTITY_SPEC);
-    rows.push({
-      ...sliceSpec(BLEND_PCT_SPEC, sixOf4(n)),
-      // The stat lives IN the row-group's own navy banner (rowHeadingHTML(),
-      // designbook.html) rather than as a separate readout field above it -
-      // Andrew, 2026-09-15: "wrap the Gsb value into the agg structure box
-      // instead of having it live all by itself in its own box... obvious
-      // and standout, but not taking up its own box." Painted by the same
-      // `show('blend_gsb_${n}', ...)` call paintLotReadouts() already made
-      // when this was a `fields` readout - only the markup it targets moved.
-      stat: { label: "Combined Gsb", out: `blend_gsb_${n}` },
-    });
+    // Aggregate Blend, at the TOP of every tab (Andrew, 2026-09-15: "relocate
+    // agg table(s) to the top of each sublot tab") - `into` children render
+    // AFTER a section's own body (renderForm() appends them:
+    // `${sectionBodyHTML(s)} ${child}`), which is what stopped the old
+    // standalone "blend" `into: "sublot-1"` section from ever sitting above
+    // the ticket table. Folding it into this function's own `rows` is what
+    // actually moves it - it is no longer an `into` section at all.
+    rows.push(aggBlendSpec(n));
     rows.push(
       sliceSpec(SUBLOT_TICKETS_SPEC, oneOf4(n)),
       sliceSpec(SUBLOT_BSG_SPEC, twoOf4(n)),

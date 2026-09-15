@@ -849,11 +849,12 @@ export function lotFromApproval(payload, opts = {}) {
   const agg = Array.isArray(rows.aggregate) ? rows.aggregate : [];
   // DesignBook's own Aggregate Structure table, verbatim - producer / type &
   // size / mat code / % blend / Gsb, the same five columns `CONFIG.SECTIONS`
-  // renders on that book. Carried alongside `blend` below rather than instead
-  // of it: `blend` is reshaped for the AMAW's own columns (no mat_code, `gsb`
-  // renamed `bod`, one percentage per sublot) and is the plant's working
-  // data; this is what was APPROVED, read-only, for the Lot step's mirror of
-  // the design. Two different jobs, so two different shapes of the same rows.
+  // renders on that book. Carried alongside `blend_pct` below rather than
+  // instead of it: `blend_pct` is reshaped for the AMAW's own columns (no
+  // mat_code, `gsb` renamed `bod`, one percentage per sublot) and is the
+  // plant's working data; this is what was APPROVED, read-only, for the Lot
+  // step's mirror of the design. Two different jobs, so two different shapes
+  // of the same rows.
   const aggregateStructure = agg.map((r) => ({
     producer: str(r.producer) || null,
     type_size: str(r.type_size) || null,
@@ -861,71 +862,68 @@ export function lotFromApproval(payload, opts = {}) {
     pct_blend: num(r.pct_blend),
     gsb: num(r.gsb),
   }));
-  // sections.mjs's `blend` columns exactly: producer / agp / type_size / bod.
-  // 2026-09-15: the four pct_N columns that used to live on THIS row moved to
-  // their own per-sublot table, `blend_pct` (BLEND_PCT_SPEC) - identity is
-  // seeded here once, the design's percentage is seeded into all four
-  // sublots' OWN copies below, and whoever edits a sublot's percentage on
-  // its own tab overwrites just that one, same intent as before ("a plant
-  // that adjusts its blend mid-lot is representable"), just typed where a
-  // technician actually types it now.
-  const blend = agg.map((r) => {
-    const row = {
-      producer: str(r.producer) || null,
-      // NO AGP NUMBER. The approval does not carry one: the legacy importer
-      // resolves the producer by KYTC's own AGP/AMP number and rides it on
-      // the row as `_agp`, which CLAUDE.md records is deliberately not a
-      // schema column and never reaches the payload. sections.mjs makes it a
-      // real column here because the loader reads it, so it has to be
-      // resolved from the producer NAME against `aggregates` (or `plants`
-      // for a RAP row) on load, or typed. Same lesson as the TSR thickness,
-      // from the other side: the key we needed was dropped at the boundary,
-      // so we carry the label and say the key is owed.
-      agp: null,
-      type_size: str(r.type_size) || null,
-      bod: num(r.gsb),
-    };
-    // Not a schema column - `alt`/isRapRow() re-derives it from Type & size
-    // at render time. Carried on the report only, so the caller can say
-    // "row 6 is the RAP" without re-implementing the test.
-    row._rap = isRapType(r.type_size);
-    return row;
-  });
-  // BLEND_PCT_SPEC's own shape: one row per component PER SUBLOT, grouped by
-  // its own `sublot` cell (the same value-based join mapper.mjs's fan-out and
-  // the page's paintBlendMirrors() both use, never raw array position across
-  // sublots). `producer`/`type_size` mirror `blend[i]` here too, same as the
-  // page paints live - a lot reopened from this envelope shows the right
-  // component beside each percentage before any recompute() has even run.
+  // sections.mjs's `blend_pct` columns: component / producer / agp /
+  // type_size / bod / design_pct / pct - 2026-09-15b, folded from what used
+  // to be two lists (a six-row `blend` identity table plus this one) into
+  // one, present on every sublot tab. One row per component PER SUBLOT (24
+  // total), grouped by its own `sublot` cell (the same value-based join
+  // mapper.mjs's fan-out and the page's paintBlendMirrors() both use, never
+  // raw array position across sublots) and, within a sublot's own six, kept
+  // in POSITION by `component` (1-6) - the identity anchor a blank
+  // producer/agp/type_size/bod would otherwise let collectForm() drop out of
+  // place, same reason MAT_CORE_SEED's `core_id` is always painted.
+  //
+  // Producer/AGP/type_size/BOD are the SAME six values on every sublot -
+  // Sublot 1 is the one place they are typed (one canonical edit point beats
+  // four that could disagree), Sublots 2-4 mirror them read-only
+  // (paintBlendMirrors(), designbook.html) - so they are seeded identically
+  // into all 24 rows here, exactly as the old six-row `blend` list was.
+  // `design_pct` and `pct` both start at the design's own blend % for this
+  // component, but only `pct` is ever edited afterwards: `design_pct` is a
+  // separate, never-touched copy kept for comparison once a sublot's own %
+  // has moved away from what was designed.
   const blend_pct = [];
   for (let s = 1; s <= 4; s++) {
-    agg.forEach((r) => {
+    agg.forEach((r, i) => {
       blend_pct.push({
         sublot: String(s),
+        component: String(i + 1),
         producer: str(r.producer) || null,
+        // NO AGP NUMBER. The approval does not carry one: the legacy importer
+        // resolves the producer by KYTC's own AGP/AMP number and rides it on
+        // the row as `_agp`, which CLAUDE.md records is deliberately not a
+        // schema column and never reaches the payload. sections.mjs makes it
+        // a real column here because the loader reads it, so it has to be
+        // resolved from the producer NAME against `aggregates` (or `plants`
+        // for a RAP row) on load, or typed. Same lesson as the TSR thickness,
+        // from the other side: the key we needed was dropped at the
+        // boundary, so we carry the label and say the key is owed.
+        agp: null,
         type_size: str(r.type_size) || null,
+        bod: num(r.gsb),
+        design_pct: num(r.pct_blend),
         pct: num(r.pct_blend),
+        // Not a schema column - `alt`/isRapRow() re-derives it from Type &
+        // size at render time. Carried on the report only, so the caller can
+        // say "component 6 is the RAP" without re-implementing the test.
+        _rap: isRapType(r.type_size),
       });
     });
   }
-  if (blend.length) {
-    inherited.push({ key: 'blend', value: blend, from: 'rows.aggregate',
-                     to: `${AGGREGATE.sheet}!${AGGREGATE.cols.producerCode}${AGGREGATE.first}:${AGGREGATE.cols.bod}${AGGREGATE.first + AGGREGATE.count - 1}`,
-                     note: 'identity only - see blend_pct for the percentage, seeded into all four sublots' });
-    inherited.push({ key: 'blend_pct', value: blend_pct, from: 'rows.aggregate[].pct_blend',
-                     to: `${AGGREGATE.sheet}!${AGGREGATE.cols.pct}${AGGREGATE.first}:${AGGREGATE.cols.pct}${AGGREGATE.first + AGGREGATE.count - 1} x4 sublots`,
-                     note: `percentages seeded into all four sublot columns ${AGGREGATE.pctCols.join('/')}` });
-    sources.blend = `${sourceLabel(a)} · rows.aggregate`;
-    sources.blend_pct = sources.blend;
-    if (blend.length > AGGREGATE.count)
+  if (agg.length) {
+    inherited.push({ key: 'blend_pct', value: blend_pct, from: 'rows.aggregate',
+                     to: `${AGGREGATE.sheet}!${AGGREGATE.cols.producerCode}${AGGREGATE.first}:${AGGREGATE.cols.bod}${AGGREGATE.first + AGGREGATE.count - 1}, ${AGGREGATE.cols.pct}${AGGREGATE.first}:${AGGREGATE.cols.pct}${AGGREGATE.first + AGGREGATE.count - 1} x4 sublots`,
+                     note: `identity seeded once, mirrored across all four sublots; percentages seeded into all four sublot columns ${AGGREGATE.pctCols.join('/')} as each sublot's own starting %, alongside a separate never-edited Design % copy` });
+    sources.blend_pct = `${sourceLabel(a)} · rows.aggregate`;
+    if (agg.length > AGGREGATE.count)
       warnings.push({ code: 'blend-too-long',
-        message: `The design has ${blend.length} aggregate components; the AMAW's blend block holds ${AGGREGATE.count}.` });
-    needsTyping('blend[].agp',
+        message: `The design has ${agg.length} aggregate components; the AMAW's blend block holds ${AGGREGATE.count}.` });
+    needsTyping('blend_pct[].agp',
       `${AGGREGATE.sheet}!${AGGREGATE.cols.producerCode}${AGGREGATE.first}:${AGGREGATE.cols.producerCode}${AGGREGATE.first + AGGREGATE.count - 1}`,
       'The approval carries producer NAMES, not AGP/AMP numbers - DesignBook drops the code at the payload boundary. Resolve each name against `aggregates` (or `plants` for a RAP row) on load, or have the technician pick.',
       ['medl-load']);
   } else {
-    wasMissing('blend', 'The approval carries no aggregate structure.', ['medl-load']);
+    wasMissing('blend_pct', 'The approval carries no aggregate structure.', ['medl-load']);
   }
 
   const combinedGsb = num(fp['const:fp_gsb']);
@@ -1172,11 +1170,10 @@ export function lotFromApproval(payload, opts = {}) {
     min_vma: minVma,
     volumetrics: achieved,
     combined_gsb: combinedGsb,
-    blend,
     blend_pct,
     // The design's own Aggregate Structure table, unreshaped - see
-    // `aggregateStructure` above. Read-only reference; `lot.rows.blend` above
-    // is the plant's working copy of the same components.
+    // `aggregateStructure` above. Read-only reference; `lot.rows.blend_pct`
+    // above is the plant's working copy of the same components.
     aggregate: aggregateStructure,
     jmf_gradation: jmf,
   };
@@ -1185,7 +1182,6 @@ export function lotFromApproval(payload, opts = {}) {
   // and sections.mjs seeds the four fixed sublot rows itself. What IS seeded
   // is the blend, which is the design's, not the lot's.
   lot.rows = {
-    blend,
     blend_pct,
     ...(blendGsb ? { blend_gsb: blendGsb } : {}),
     project_items: projectItems,
