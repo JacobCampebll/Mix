@@ -2997,6 +2997,222 @@ read-only, so a write test goes through `apply_migration` and ends in
   nowhere to live on the current Aggregate Structure form) are in
   `docs/lam-polish-resistant-sources.md` and `supabase/polish_resistant_sources.sql`.
 
+- **A sliced row table's tabs must slice CONTIGUOUSLY AND IN ORDER, and
+  covering every seed row exactly once does not imply it.** PlantBook's four
+  Sublot tabs render one shared row table as four `[data-rowlist]` blocks
+  (`sliceIndices`, Andrew's PR #19), and `collectForm()` reads them back in
+  DOM order - tab 1's rows, then tab 2's. `sliceIndices` indexes into the
+  SEED. Those are the same list only when the concatenation of the slices, in
+  section order, is 0,1,2,...,n-1.
+  PR #21 seeded the Department Verification tables **record-major** (QA01's
+  four sublots, then IQ01's four), so tab n got `[n-1, 4+(n-1)]` and the
+  concatenation read `0,4,1,5,2,6,3,7`. Every row rendered exactly once, the
+  existing coverage check passed, and a save-and-reopen re-sliced a list that
+  was no longer in seed order: **sublot 3's Department record came back on
+  sublot 1's tab, permuting further on every cycle.** Invisible because the
+  values travel WITH the row and `mapper.mjs` keys on them rather than on
+  position, so the generated AMAW stayed right while the screen lied about
+  which sublot it was showing. Found by the browser harness on 2026-09-15;
+  all four module checks were green throughout.
+  **The fix is the SEED order, never the slicer** - sublot-major puts sublot
+  n's two records together at 2(n-1). `check_sections.mjs` now fails any spec
+  whose slices do not concatenate to 0..n-1 in section order, naming the table
+  and the position, so this cannot come back quietly.
+  The deeper fix, if it ever does: merge a saved row onto its seed by the
+  row's own IDENTITY cells rather than by index. Not done - the contiguity
+  check is cheaper and the positional merge is in the shared renderer both
+  books use.
+
+- **PlantBook locks a sublot until its random sample point exists, and lot 1
+  sublot 1 is the one that cannot be locked** (Jake, 2026-09-15: "we don't
+  want people to be able to jump to future sublots... Only Lot 1, sublot 1 is
+  the set up so in theory its always unlocked").
+  A sublot is 1,000 tons (402.03.02 A)) and its sample is taken at a point
+  chosen at random inside that tonnage, so sublot 3 cannot be recorded before
+  sublot 3's material exists. The tool that draws those points is not built,
+  and Jake chose to lock without a key rather than invent one: a locked tab is
+  greyed, still clickable, and says what is missing.
+  **The setup exemption is KYTC's, not ours.** `'Pay Values'!D13`/`G13` widen
+  the AC ladder to 0.7 and rescue an air void or VMA to 100 on that one
+  sublot, gated on the LOT number (`F3=1`) - `pay.mjs` has always reproduced
+  it as `isFirstSublot` - and the MEDL staging's `VI01` record has no storage
+  of its own, reading sublot 1's cells (`addresses.mjs`). Lot 1's first sublot
+  is filed twice, once as production and once as the initial verification.
+  `lot_number` decides it and needed no new machinery; a blank reads as lot 1,
+  because the field is seeded to 1 and locking everything the moment somebody
+  clears a box leaves a technician with no open form and no reason why.
+  **THE BODY IS ALWAYS RENDERED.** A locked tab keeps every input in the
+  document, disabled; the placeholder is a card ABOVE them. Dropping the rows
+  is the obvious way to build a placeholder and it is the entry above from the
+  other end - a missing block shortens the shared list, re-slices every later
+  tab onto somebody else's rows, and loses those measurements from the AMAW.
+  **LOCKED IS NOT THE SAME AS EMPTY.** Three states: open; locked and empty,
+  which gets the card; and locked while CARRYING data, which renders read-only
+  showing its values. The third is not hypothetical - a lot built under the
+  bypass and opened without it lands there, as does any lot saved before this.
+  Which columns arrive pre-filled is asked of the schema's own seeds rather
+  than listed, because a hand-written list rots: the first cut used one and
+  reported every blank sublot as already holding data, since `ac_method` is
+  seeded to Ignition Furnace.
+  **What is never gated is what describes the LOT rather than the sample** -
+  the blend's component identity and the hand-mixed check sample, both on
+  Sublot 1's tab. On lot 2, where sublot 1 is gated like any other, locking
+  them with it would leave that lot no way to state its own blend. **Not**
+  `blend_pct`, which is sliced per tab precisely so each sublot edits its own
+  percentage, and is therefore that sublot's data.
+  **Two ways through.** A reviewer (`can_review`) needs no flag - they receive
+  the lot and build the AMAW from it, and a reviewer who cannot open sublot 3
+  cannot review it. `?sublots=open` opens everything for anyone, banners the
+  page, and stamps `sublots_unlocked` onto every file it makes, because a demo
+  lot with all four sublots filled is otherwise indistinguishable from a real
+  one and these files go to KYTC.
+  **And it is a guardrail, not a boundary** - say so to anyone who asks.
+  Every page here is directly linkable and the lot lives in the browser; this
+  stops an accidental jump, not a determined one. The real control is that a
+  submittal is stamped with whoever was signed in.
+  Harness check `sublotlocks`, watched failing four ways.
+
+- **`Nfr` is shorthand for `minmax(auto, Nfr)`, and that automatic minimum is
+  MIN-CONTENT - so two grids handed the identical template at the identical
+  width still resolve to different track widths.** This is what put every
+  repeating table's headings back off their values on 2026-09-15, 3px to 40px
+  across both books, a week after the 2026-09-13 fix that was supposed to end
+  it. Measured on DesignBook's TSR specimens at 701px: one 408px scroller,
+  header 408px, rows 408px, nothing overflowing, both children carrying
+  `grid-template-columns:.7fr .5fr .5fr 1fr 1fr 1fr .9fr .9fr` - and resolving
+  `head 45.1 41.8 42.4 43.7 43.7 43.7 39.3 39.3` against
+  `row 36.5 26.1 26.1 52.2 52.2 52.1 46.9 47.0`. The header holds its narrow
+  tracks open on a label like "Wt in air (g)" while the row lets the same
+  tracks collapse around "2.451" and spends the surplus on its wide ones.
+  `rowGridTemplate()` rewrites every `Nfr` as `minmax(0,Nfr)` for BOTH
+  callers, so the tracks resolve on the declared proportions alone.
+  **It is not `.rowscroll`, which is where it looks**, and three hours went
+  into proving that: `max-content`, `min-content` and `0` were each tried as
+  the floor of the shared track and all three left every drift exactly where
+  it was. Sharing that track was never the problem - the two children already
+  had the same width. The 2026-09-13 note's "that guarantee comes from SHARING
+  the track, not from what its minimum is" is right about the sharing and
+  wrong about the consequence.
+  **The floor still has to exist, and has to be PIXELS.** Removing the minimum
+  also removes the scroll: with nothing able to exceed `.rowscroll`, the box
+  never scrolls and the columns squeeze instead - which is the opposite of
+  this file's own "a table that cannot fit its columns SCROLLS", and had TSR
+  specimens at 701px with all fourteen columns clipped into 31px boxes holding
+  values that need 44-52px. Every CONTENT-based floor is computed per grid and
+  would reintroduce the divergence above, so `ROW_TRACK_MIN` is a pixel
+  figure. **64px is measured, not picked**: it leaves a 62px input, which
+  clears the widest real value those narrow columns hold (a joint core id
+  "1-1-J1" at 59px, a five-figure Gmb at 52px). At 1500px with a real lot
+  number, zero clipped inputs in either book.
+  General form, and the reason this is worth carrying: **two grids with one
+  template is not one answer.** Any track whose size depends on content
+  resolves per grid, and a header's content is never the row's.
+
+- **A harness must not fabricate a value that OTHER values are derived from.**
+  `fillForm()`'s generic numeric fill is `(hash % 900)/10 + 1`, fine for a
+  weight and impossible for a lot number - it produced 80.8. Every core id is
+  BUILT from the lot number, so one junk value widened six columns and had the
+  viewport sweep reporting `mat_cores`/`joint_cores` `sublot` and `core_id` as
+  clipping at 1500px. They do not: with a real lot number every one of them
+  fits. Blessing those into `baseline/clipping.json` would have recorded a
+  width limit no lot can ever reach and turned the check off for six real
+  columns - "a stale baseline is not neutral, it is a hole", arrived at from
+  the other direction. `fillForm()` pins such fields now (`DERIVED_FROM`).
+  Pairs with the `va` entry above: that one blessed a junk-driven limit with
+  the caveat written down, and this one shows the case where the honest answer
+  is to fix the fill instead. Ask which it is before blessing.
+  Re-blessed the same day, diff read for removals as well as additions: what
+  is in the baseline now is `producer` and `record`, the two this file already
+  records as accepted and unfixable, and the junk-inflated `va` is OUT.
+
+- **Two checks were wrong about the page on 2026-09-15, both in the direction
+  that makes the PAGE look broken, and both worth knowing as a class.**
+  `roundtrip.mjs` built its DOM row counts with `counts[key] = ...`, one
+  assignment per element, so with four blocks sharing a key it kept only the
+  last and reported all twelve sliced tables as "collected twice" when nothing
+  was wrong - written when one key meant one element, never revisited when
+  PR #19 made that false. And `viewports.mjs` compared raw child COUNTS
+  between the header strip and the row, so a deliberately `hidden` column
+  (rendered as an omitted header cell but a `display:none` row cell - a
+  display:none grid item is removed from auto-placement, so both still place
+  the same visible cells into the same tracks) read as "7 headings over 8
+  cells" on a table measured perfectly aligned at 67,138,470,610,818,920,1032.
+  **When a check fails on something that has just been restructured, measure
+  the page before believing the check** - this file already records the same
+  conclusion for the <700px card mode, and it has now happened three times.
+
+- **Contract & Mix lost two boxes on 2026-09-15, both because a value nobody
+  should be typing was being asked for anyway** (Jake, off a real screenshot).
+  **The unit price is not a field.** "unit price is a constant at 50 and
+  really doesn't even need to be shown in here... we don't need anyone editing
+  it." It has been a seeded spec constant since 2026-09-13 - 402.05.02 defines
+  it, all three Lot Pay Adjustment Schedules open `($50.00)(Quantity)`
+  whatever the mix, and the blank AMAW ships `'Pay Values'!F5` hard-coded as
+  50 - so the box's only reachable states were "right, and you could not have
+  known" and "wrong". It is emphatically NOT the contract's bid price, and
+  filling that in put a figure 2.4x too large into every dollar adjustment.
+  Gone from the schema, the intake and `LOT_FIELD_ALIASES`; `lotScalars()`
+  supplies it, the page's pay reads the same definition, and a value already
+  under the mapper's own name still wins so `check_mapper` keeps testing the
+  workbook. `check_intake`'s assertions are INVERTED rather than deleted, plus
+  a fourth: **a constant that reaches nothing is the worse bug of the two**,
+  since every dollar figure is tons x this number and a missing one pays zero
+  while looking fine.
+  **The project items look themselves up** on opening from an approval, rather
+  than waiting on the button. The lot inherits them provisionally and the
+  whole reason a refresh exists is a change order re-numbering an item between
+  approval and production, which is exactly what MEDL refuses the load over -
+  so behind a button the ordinary case was the stale one. Two limits, both
+  deliberate: **not on reopening a saved lot**, because `applyProjectItems()`
+  REPLACES the table and would overwrite a week of corrections (the button is
+  still there for that and for a mid-lot change order), and **not awaited**,
+  because it fetches a KYTC report that is often slow and a lookup must never
+  be the difference between opening a lot and not.
+
+- **Open for Andrew and Tate, from the same round:**
+  **What should fill the Sample id prefix?** `'Pay Values'!B3`, and every
+  `t_smpl.smpl_id` is that prefix with the record name appended (`...VI01`,
+  `...QC01`), plus the `discipline` Filename - so it names every sample MEDL
+  receives. But **both real accepted lots leave it blank**, and DesignBook
+  does not ask for its equivalent at all: it DERIVES one
+  (`${district}${sampleLab}AMD${yy}${seq}`, e.g. `07640AMD260403`). A
+  technician typing a MEDL identifier freehand is the wrong shape either way.
+  Two ways to close it - derive it, which needs KYTC's convention for a LOT
+  sample id, or drop it like the unit price and let it stay blank as it does
+  on every real lot. Not guessed at; `req: false` in the meantime.
+  **The producer/supplier lab id is wired and waiting on two admin actions.**
+  Andrew is building the list (2026-09-15). `loadPlantLabId()` /
+  `applyPlantLabId()` already read `plants.ps_lab_id` and fill the field
+  tinted, keyed on the AMP number the approval carries - so it ties to the
+  plant the approval names, with no further page work. What is needed is
+  applying `supabase/plants_lab_id.sql` (written, never applied) and then
+  seeding it. Nothing changes until both happen and nothing breaks meanwhile:
+  it is deliberately its OWN query, because PostgREST answers a select naming
+  a missing column with a 400 for the WHOLE row, so folding it into the
+  plant-name lookup would take the plant name down with it.
+
+- **Two Claudes on one branch: a textually clean merge hid a semantic conflict
+  twice in one day, and both times a CHECK caught it rather than a person.**
+  Andrew's PR #24 turned Aggregate Blend from an `into: "sublot-1"`
+  sub-section into row TABLES on the tab; the sublot-lock exemption named it
+  as a sub-section, git merged both sides without a murmur, and the exemption
+  silently stopped covering anything. Then PR #26 folded `blend` into
+  `blend_pct` and the replacement exemption named a key that no longer
+  existed. `check_page_plantbook.mjs` failed on both, because the exemption
+  lists are asserted to name things that really exist.
+  **So: when you add a list of names that points at the other person's
+  structures, assert that every entry resolves.** A name that matches nothing
+  is the quietest failure this codebase has, and a merge is where it is
+  created. (We also both fixed the same exemption independently within an
+  hour; Andrew's is the one that stands, since his restructure needed a
+  column-level exemption so `blend_pct`'s own `pct` stays locked.)
+  **And run the browser harness before pushing a layout or schema change.**
+  Andrew has no Node on that machine and asked in every commit message for
+  someone to; the four module checks were green through all of it while the
+  harness was 25 red. `node scripts/amaw/harness/run.mjs` with `HARNESS_LIBS`
+  pointed at a `node_modules` carrying pdf-lib, xlsx and fflate - 339 passing
+  as of 2026-09-15.
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
