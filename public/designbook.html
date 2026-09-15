@@ -3143,16 +3143,14 @@ const PB_SECTIONS = (() => {
     ["A", "B", "C", "D"].map((suffix) => ({ sublot, core_id: suffix })));
   const JOINT_CORE_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
     ["J1", "J2"].map((suffix) => ({ sublot, core_id: suffix })));
-  // Six blank slots — AGGREGATE.count, the blend's own fixed component count
-  // (Superpave rows 3..8) — nothing to pre-fill, unlike a core's lettered id.
-  // `component` is the identity anchor - see BLEND_IDENTITY_SPEC's own note
-  // on why a blend row needs one now that it never used to.
-  const BLEND_SEED = [1, 2, 3, 4, 5, 6].map((component) => ({ component: String(component) }));
   // 24 = 6 components x 4 sublots, same "identity cell always painted, never
   // dropped, never compacted" shape MAT_CORE_SEED already relies on - see
-  // BLEND_PCT_SPEC below for why this table has to be fixed, not growable.
+  // AGG_BLEND_SPEC below for why this table has to be fixed, not growable.
+  // `component` (1-6, the same value repeated once per sublot group) is the
+  // second identity anchor, alongside `sublot` - see AGG_BLEND_SPEC's own
+  // note on why a row needs one now that producer/AGP/type/BOD live here too.
   const BLEND_PCT_SEED = ["1", "2", "3", "4"].flatMap((sublot) =>
-    [0, 1, 2, 3, 4, 5].map(() => ({ sublot })));
+    [1, 2, 3, 4, 5, 6].map((component) => ({ sublot, component: String(component) })));
 
   // ---------------------------------------------------------------------
   //  Sublot 1-4 tabs — one shared table, sliced four ways
@@ -3419,72 +3417,74 @@ const PB_SECTIONS = (() => {
   };
 
   // ---------------------------------------------------------------------
-  //  Aggregate Blend — split across the four Sublot tabs (Andrew, 2026-09-15)
+  //  Aggregate Blend — one table, on every Sublot tab (Andrew, 2026-09-15b)
   // ---------------------------------------------------------------------
   //
-  //  "Agg structure table needs to be present in every sublot tab, not just
-  //  sublot 1... doesn't need to show other sublots['] columns." And: "each
-  //  tab edits its own percentage, because that's how techs have been filling
-  //  out the previous AMAW to date." Two tables now, not one:
+  //  Combines what used to be two tables (BLEND_IDENTITY_SPEC, Sublot-1-only,
+  //  and BLEND_PCT_SPEC's own narrower mirror) into one, present on all four
+  //  tabs: "the aggregate table [should be] present in each sublot tab
+  //  containing individual Gsb and design %s, but... the last column
+  //  represented in each sublot tab [should] show that specific sublot's
+  //  blend %s". So: component / producer / AGP / type & size / BOD sp. gr. /
+  //  Design % are the SAME six values on every tab (edited once, on Sublot 1 -
+  //  Andrew's standing call, 2026-09-14: one canonical edit point beats four
+  //  that could disagree), and the last column, Sublot %, is THIS tab's own.
   //
-  //  BLEND_IDENTITY_SPEC — producer / AGP / type & size / BOD, unchanged from
-  //  the section this replaces, still typed on Sublot 1 ONLY (Andrew's
-  //  standing call, 2026-09-14: AGP sometimes has no source but the producer
-  //  name, so one canonical edit point beats four that could disagree). The
-  //  one real change: FIXED, not growable. `Superpave` rows 3..8 are six real
-  //  slots whether or not a lot uses all of them (AGGREGATE.count), so this
-  //  now matches mat_cores/joint_cores' own "always six/four/two, identity
-  //  cell always painted, never dropped or compacted" shape instead of the
-  //  old add/remove UI - which is what makes BLEND_PCT_SPEC below safe: it
-  //  depends on POSITION i meaning "the same component" on both tables, and a
-  //  growable list can reorder or shrink that position out from under it the
-  //  moment a row is removed. `check_sections.mjs` (E)'s own row-key rule
-  //  already treats a fixed, position-keyed table as the safe default; this
-  //  was the one place blend still disagreed with it.
+  //  `aggBlendColumns(editable)` returns the shared column list, differing
+  //  only in `readonly`/`req` on the five identity+design columns: Sublot 1's
+  //  copy gets `editable: true` (typed, sourced against `aggregates`/
+  //  `aggregate_types`), Sublots 2-4 get `editable: false` (painted by
+  //  paintBlendMirrors(), same "read-only mirror" pattern `producer`/
+  //  `type_size` already used before this merge). `pct` ("Sublot %") is
+  //  ALWAYS editable - it is the one column that is genuinely this tab's own.
   //
-  //  BLEND_PCT_SPEC — one table, 24 rows (6 components x 4 sublots, same
-  //  MAT_CORE_SEED shape), sliced six-per-tab via sixOf4() so each Sublot tab
-  //  edits only ITS OWN percentage. `producer`/`type_size` are READ-ONLY
-  //  mirrors (painted from BLEND_IDENTITY_SPEC's live rows by
-  //  paintBlendMirrors()) so a technician on Sublot 3 can still see WHICH
-  //  component they are typing a percentage for without visiting Sublot 1 -
-  //  deliberately not the full four-column identity (AGP/BOD stay
-  //  Sublot-1-only) to keep this table as narrow as the rest of this
-  //  session's pairing work. `agp`/`bod` are still one click away on Sublot
-  //  1's own table if needed.
+  //  `design_pct` ("Design %") is new: the approved design's own blend % for
+  //  this component (`lot.values.design.aggregate[].pct_blend`, intake.mjs),
+  //  read-only on every tab, seeded once and never touched by editing a
+  //  sublot's own %. It is a comparison figure only - not a workbook cell,
+  //  see LOT_TABLE_ROUTES.blend_pct's `drop` entry for it.
   //
-  //  THE DATA MODEL MAPPER.MJS SEES DOES NOT CHANGE - `QC0n.rows.blend[i].pct`
-  //  is exactly what it always fanned pct_N out to; only WHERE the page reads
-  //  that percentage from changed (mapper.mjs's own fan-out, not its read
-  //  side). `blend_gsb` (the computed one-row, four-column storage the VMA
-  //  math already reads) is untouched too - see buildSublotTabSections()
-  //  below for where it now lives, HIDDEN, since its value has always had a
-  //  visible home in the per-tab "Combined Gsb" readout.
-  // FOUND VERIFYING THIS IN A REAL BROWSER, 2026-09-15: `fixed: true` alone
-  // was not enough. collectForm() drops a row only when EVERY cell in it is
-  // null - which relies on an identity cell that is ALWAYS painted, the same
-  // trick MAT_CORE_SEED's `core_id` already leans on. BLEND_PCT_SPEC has one
-  // (`sublot`), so it never shrinks; BLEND_IDENTITY_SPEC did NOT (producer/
-  // agp/type_size/bod are all genuinely optional), so an unused slot DID drop
-  // out of `blend` while its six-per-sublot BLEND_PCT_SPEC rows stayed put -
-  // and the moment a blank slot sat in the MIDDLE rather than at the end,
-  // position i on the two tables stopped meaning the same component. `component`
-  // below is that missing identity cell - the fix is one more always-painted
-  // column, not a rethink of the position-matching design.
-  const BLEND_IDENTITY_SPEC = {
-    key: "blend", heading: "Blend components", banded: true, fixed: true,
-    seed: BLEND_SEED,
-    // Five tracks now (component + four columns) - still no trailing `auto`
-    // for a remove button: `fixed: true` means rowHTML() never renders one.
-    grid: ".3fr 1.9fr .75fr 1.15fr .5fr",
-    columns: [
+  //  ONE TABLE, ONE ROW-LIST KEY (`blend_pct`, unchanged - a rename would
+  //  ripple through LOT_TABLE_ROUTES, every check_*.mjs fixture and
+  //  docs/amaw-map.md for no behavioural gain). What used to be a SEPARATE
+  //  `blend` list (identity only, six rows) no longer exists as its own
+  //  table: Sublot 1's own six `blend_pct` rows (`sublot === "1"`) ARE the
+  //  identity now, and mapper.mjs's `lotRecords()` derives the old `blend`
+  //  shape from exactly that slice before running LOT_TABLE_ROUTES.blend and
+  //  the custom pct fan-out - both unchanged from before this merge. A lot
+  //  saved before this change still carries a genuine `rows.blend` and that
+  //  derivation is skipped in favour of it.
+  //
+  //  FIXED, not growable, still for the reason BLEND_IDENTITY_SPEC used to
+  //  give: `Superpave` rows 3..8 are six real slots whether or not a lot uses
+  //  all of them (AGGREGATE.count), matching mat_cores/joint_cores' own
+  //  "always six/four/two, identity cell always painted, never dropped or
+  //  compacted" shape. `sublot` was already an always-painted identity anchor
+  //  (BLEND_PCT_SEED); `component` still has to be too, for the same reason
+  //  discovered verifying this in a real browser 2026-09-15: collectForm()
+  //  drops a row only when EVERY cell in it is null, and producer/agp/
+  //  type_size/bod are all genuinely optional, so a blank component in the
+  //  MIDDLE of Sublot 1's six would silently compact the rest upward and
+  //  desync `component`'s own numbering from row position - `component`
+  //  itself is what stops that, being the one cell always painted regardless.
+  function aggBlendColumns(editable) {
+    return [
+      // `hidden: true` - a real, always-collected cell (rowHTML()'s own
+      // note), just not a printed column: the tab a row is on already says
+      // which sublot it belongs to. It is not decorative -
+      // paintBlendMirrors(), computeBlendGsb() and mapper.mjs's fan-out all
+      // GROUP blend_pct's 24 rows by this cell's VALUE first, never by raw
+      // DOM position, the same "group by a real identity value" rule
+      // mat_cores/sublot_bsg already use.
+      { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true, hidden: true },
       { key: "component", label: "#", type: "text", mono: true, readonly: true },
       // AGP and AMP are different registries, and a RAP row needs the second
       // one — an AGP number is an aggregate producer, an AMP number is an
       // asphalt plant, and RAP is millings, so its "producer" is the plant
       // they came off. `alt` swaps the list and the label per row, detected
       // by Type & size (never by Producer).
-      { key: "producer", label: "Producer", type: "text", req: true, source: "aggregates",
+      { key: "producer", label: "Producer", type: "text", req: editable, readonly: !editable,
+        source: "aggregates",
         // The workbook stores the CODE (Superpave!N, "AGP027501"), not the
         // name, so the code has to reach the payload — unlike a legacy
         // MixPack import, where `_agp` rides on the row and is deliberately
@@ -3506,32 +3506,44 @@ const PB_SECTIONS = (() => {
       // Filled from the chosen producer, and editable — a retired producer or
       // an older spelling that the table lacks is a WARNING and is KEPT,
       // never blanked (CLAUDE.md's provisional-values rule applied to lists).
-      { key: "agp", label: "AGP / AMP", type: "text", req: true, mono: true },
-      { key: "type_size", label: "Type & size", type: "text", req: true,
+      { key: "agp", label: "AGP / AMP", type: "text", req: editable, mono: true, readonly: !editable },
+      { key: "type_size", label: "Type & size", type: "text", req: editable, readonly: !editable,
         source: "aggregate_types" },
       // Superpave!Q. KYTC's own wording on the sheet.
-      { key: "bod", label: "BOD sp. gr.", type: "number", req: true, mono: true },
-    ],
-  };
-  const BLEND_PCT_SPEC = {
-    key: "blend_pct", heading: "This sublot's % blend", banded: true, fixed: true,
-    seed: BLEND_PCT_SEED,
-    grid: ".5fr 1.6fr 1.1fr .5fr",
-    columns: [
-      { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true },
-      // Mirrors, not a second edit point - see the section note above.
-      { key: "producer", label: "Producer", type: "text", readonly: true },
-      { key: "type_size", label: "Type & size", type: "text", readonly: true },
-      { key: "pct", label: "% blend", type: "number", req: true, mono: true },
-    ],
-  };
+      { key: "bod", label: "BOD sp. gr.", type: "number", req: editable, mono: true, readonly: !editable },
+      // The design's own blend % for this component - reference only, never
+      // typed and never overwritten by editing "Sublot %" below.
+      { key: "design_pct", label: "Design %", type: "number", mono: true, readonly: true },
+      { key: "pct", label: "Sublot %", type: "number", req: true, mono: true },
+    ];
+  }
+  function aggBlendSpec(n) {
+    return {
+      ...sliceSpec({
+        key: "blend_pct", heading: "Aggregate Blend", banded: true, fixed: true,
+        seed: BLEND_PCT_SEED,
+        // Seven tracks - component, producer, AGP, type & size, BOD, Design %,
+        // Sublot %.
+        grid: ".3fr 1.7fr .7fr 1.05fr .5fr .55fr .55fr",
+        columns: aggBlendColumns(n === 1),
+      }, sixOf4(n)),
+      // The stat lives IN the row-group's own navy banner (rowHeadingHTML())
+      // rather than as a separate readout field above it - Andrew, 2026-09-15:
+      // "wrap the Gsb value into the agg structure box instead of having it
+      // live all by itself in its own box... obvious and standout, but not
+      // taking up its own box." Painted by the same `show('blend_gsb_${n}',
+      // ...)` call paintLotReadouts() already made when this was a `fields`
+      // readout - only the markup it targets moved.
+      stat: { label: "Combined Gsb", out: `blend_gsb_${n}` },
+    };
+  }
   // Superpave row 9, R9/S9/T9/U9. Fixed at one row because there is exactly
   // one combined Gsb per sublot; readonly because it is computed from the
   // blend percentages and the BODs, and a typed combined Gsb that disagrees
   // with its own blend is a reviewer's nightmare. Rendered HIDDEN
   // (buildSublotTabSections() below) - its value has always had a visible
   // home in the per-tab "Combined Gsb" readout (now the stat beside
-  // BLEND_PCT_SPEC's own banner), so showing this table too would just say
+  // AGG_BLEND_SPEC's own banner), so showing this table too would just say
   // the same four numbers a second time.
   const BLEND_GSB_SPEC = {
     key: "blend_gsb", heading: "Combined Gsb, by sublot", hidden: true,
@@ -3555,29 +3567,14 @@ const PB_SECTIONS = (() => {
     const out = [];
     for (let n = 1; n <= 4; n++) {
       const rows = [];
-      // Aggregate Blend, moved to the TOP of every tab (Andrew, 2026-09-15:
-      // "relocate agg table(s) to the top of each sublot tab") - `into`
-      // children render AFTER a section's own body (renderForm() appends
-      // them: `${sectionBodyHTML(s)} ${child}`), which is what stopped the
-      // old standalone "blend" `into: "sublot-1"` section from ever sitting
-      // above the ticket table. Folding it into this function's own `rows`
-      // is what actually moves it - it is no longer an `into` section at all.
-      // Identity only on Sublot 1 (see BLEND_IDENTITY_SPEC's own note); every
-      // tab gets its own slice of the percentage table right after it, so
-      // Sublot 1 reads identity-then-its-own-%, same shape every other tab
-      // shows minus the identity rows they don't own.
-      if (n === 1) rows.push(BLEND_IDENTITY_SPEC);
-      rows.push({
-        ...sliceSpec(BLEND_PCT_SPEC, sixOf4(n)),
-        // The stat lives IN the row-group's own navy banner (rowHeadingHTML())
-        // rather than as a separate readout field above it - Andrew,
-        // 2026-09-15: "wrap the Gsb value into the agg structure box instead
-        // of having it live all by itself in its own box... obvious and
-        // standout, but not taking up its own box." Painted by the same
-        // `show('blend_gsb_${n}', ...)` call paintLotReadouts() already made
-        // when this was a `fields` readout - only the markup it targets moved.
-        stat: { label: "Combined Gsb", out: `blend_gsb_${n}` },
-      });
+      // Aggregate Blend, at the TOP of every tab (Andrew, 2026-09-15: "relocate
+      // agg table(s) to the top of each sublot tab") - `into` children render
+      // AFTER a section's own body (renderForm() appends them:
+      // `${sectionBodyHTML(s)} ${child}`), which is what stopped the old
+      // standalone "blend" `into: "sublot-1"` section from ever sitting above
+      // the ticket table. Folding it into this function's own `rows` is what
+      // actually moves it - it is no longer an `into` section at all.
+      rows.push(aggBlendSpec(n));
       rows.push(
         sliceSpec(SUBLOT_TICKETS_SPEC, oneOf4(n)),
         sliceSpec(SUBLOT_BSG_SPEC, twoOf4(n)),
@@ -3616,9 +3613,9 @@ const PB_SECTIONS = (() => {
   //  still collects it, so a save/reload round-trip does not lose it - it is
   //  just never focusable. That is what makes rendering it FOUR TIMES safe:
   //  a value that can never be edited can never diverge between its four
-  //  copies, unlike Producer/Type/AGP/BOD on the Blend question still open
-  //  for Andrew (see NEXT_STEPS.md) - those would need the same "one canonical
-  //  edit point, N read-only mirrors" answer, or a genuinely new one.
+  //  copies - the same "one canonical edit point, N read-only mirrors"
+  //  answer Aggregate Blend's own Producer/Type/AGP/BOD columns settled on,
+  //  above.
   //
   //  CHART, ADDED 2026-09-15 (Andrew, Part B Option 1 of the sublot-tab
   //  mockup — "beside the table", not below it). `drawChart()`
@@ -4633,14 +4630,19 @@ function rowSpec(key) {
 // not in the list is injected as its own selected option and marked, so
 // nothing a workbook, the mix lookup or a saved design supplied is dropped
 // by a list that does not know it yet.
-function selectHTML(cls, attrs, options, value) {
+// `disabled` (2026-09-15b): a native `<select>` has no `readonly` attribute,
+// only `disabled` - and `replaceRefControl()` already carries a `disabled`
+// state across a control's upgrade/rebuild (`nu.disabled = el.disabled`), so
+// this is the established mechanism for "this sourced control is not
+// editable", just not previously wired to a schema `readonly` flag.
+function selectHTML(cls, attrs, options, value, disabled) {
   const v = value == null ? "" : String(value);
   const found = options.some((o) => o.value === v);
   const opts = ['<option value="">— select —</option>']
     .concat(options.map((o) =>
       `<option value="${esc(o.value)}"${o.value === v ? " selected" : ""}>${esc(o.label)}</option>`));
   if (v && !found) opts.push(`<option value="${esc(v)}" selected data-offlist="1">${esc(v + CONFIG.REFERENCE.OFF_LIST_SUFFIX)}</option>`);
-  return `<select class="${cls}" ${attrs}>${opts.join("")}</select>`;
+  return `<select class="${cls}" ${attrs}${disabled ? " disabled" : ""}>${opts.join("")}</select>`;
 }
 
 // A field or column with `source` draws its options from state.ref. A short
@@ -4650,20 +4652,29 @@ function selectHTML(cls, attrs, options, value) {
 // upgrades it in place once the data lands. A value that only matches a
 // list entry loosely (case, spacing, an alias such as a terminal's name)
 // selects the canonical entry - the KYTC spelling wins, visibly.
-function refControlHTML(def, cls, attrs, value) {
+//
+// `disabled` (2026-09-15b, AGG_BLEND_SPEC's mirrored producer/type & size on
+// Sublots 2-4): a `.box[readonly]` plain input is not enough here - this
+// function never looked at `def.readonly` at all, for either the <select>
+// or the combobox <input> path, so a readonly SOURCED column rendered fully
+// editable regardless. `disabled` on both (`.box:disabled` already has its
+// own CSS) is what actually blocks it, and the delegated focusin/input
+// handlers below skip `comboOpen()` for a disabled element too - found
+// verifying this merge in a real browser, not guessed at.
+function refControlHTML(def, cls, attrs, value, disabled) {
   const R = CONFIG.REFERENCE, list = state.ref[def.source] || [];
   let v = value == null ? "" : String(value);
   const hit = refMatch(def.source, v);
   if (list.length && list.length <= R.SELECT_MAX) {
     if (hit) v = hit.value;
-    return selectHTML(cls, `data-source="${def.source}" ${attrs}`, list, v);
+    return selectHTML(cls, `data-source="${def.source}" ${attrs}`, list, v, disabled);
   }
   // A long list gets the searchable popup (comboOpen), not a native
   // <datalist> - see the comment above the combobox block for why. The
   // element stays a plain <input> carrying the same attributes it always
   // did, so collectForm() and everything downstream is unaffected.
   const comboAttrs = list.length ? ` role="combobox" aria-autocomplete="list" aria-expanded="false"` : "";
-  return `<input type="text" class="${cls}" data-source="${def.source}" ${attrs}${comboAttrs} autocomplete="off" value="${esc(v)}">`;
+  return `<input type="text" class="${cls}" data-source="${def.source}" ${attrs}${comboAttrs}${disabled ? " disabled" : ""} autocomplete="off" value="${esc(v)}">`;
 }
 
 function inputFor(f, value, src) {
@@ -4768,10 +4779,13 @@ function rowHTML(spec, values, idx) {
     // Condition is the first to use it, and it matters there: the ratio is
     // averaged by that value, so it must come from a list rather than be
     // typed ("Wet" would silently land in the dry set).
-    const ctrl = c.source ? refControlHTML(c, cls, attrs, v)
+    // `c.readonly` becomes `disabled` for the source/select branches (see
+    // refControlHTML()'s own note) and stays the `readonly` attribute for a
+    // plain input - two different HTML mechanisms for the same schema flag.
+    const ctrl = c.source ? refControlHTML(c, cls, attrs, v, c.readonly)
       : c.type === "select"
         ? selectHTML(cls, attrs, (c.options || []).map((o) =>
-            (typeof o === "string" ? { value: o, label: o } : o)), v)
+            (typeof o === "string" ? { value: o, label: o } : o)), v, c.readonly)
         : `<input type="text"${ro} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
     // `num` is what lets a phone pack three figures onto one line instead of
     // giving each its own. A number column holds a figure - four or five
@@ -4784,7 +4798,19 @@ function rowHTML(spec, values, idx) {
     // sublot) in the DOM - still a real input, still collected - just not
     // shown.
     const chipCls = spec.chips ? (c.chipHide ? " chip chiphide" : " chip") : "";
-    return `<div class="cell${c.type === "number" ? " num" : ""}${chipCls}"><label>${c.label}</label>${ctrl}</div>`;
+    // `c.hidden` (2026-09-15b: AGG_BLEND_SPEC's own `sublot` column) - the
+    // same "still a real input, still collected, just not shown" idea as
+    // `chipHide`, for a column that isn't in chip mode. `sublot` is load-
+    // bearing routing data (paintBlendMirrors()/computeBlendGsb()/mapper.mjs
+    // all GROUP blend_pct's rows by this cell's VALUE, never by raw DOM
+    // position - see aggBlendColumns()'s own note), just not something the
+    // Aggregate Blend table needs to print a column for, since the tab
+    // itself already says which sublot. `display:none` removes it from CSS
+    // Grid's auto-placement entirely, so it does not consume a track -
+    // `spec.grid` only needs one per VISIBLE column (check_sections.mjs (D)
+    // knows to skip a hidden column counting tracks).
+    const hideStyle = c.hidden ? ' style="display:none"' : "";
+    return `<div class="cell${c.type === "number" ? " num" : ""}${chipCls}"${hideStyle}><label>${c.label}</label>${ctrl}</div>`;
   }).join("");
   // Fixed tables (e.g. the Hamburg pass-count grid) have no remove button.
   // Chip mode lays out with CSS flex (.rowitem.chips), not this inline grid
@@ -4802,7 +4828,12 @@ function rowHTML(spec, values, idx) {
 // header is dropped and each row goes back to carrying its own labels, which
 // is the only layout that works at that width.
 function rowHeadHTML(spec) {
-  const cells = spec.columns.map((c0) => `<div>${effectiveColDef(c0, {}).label}</div>`).join("");
+  // A `hidden` column (rowHTML()'s own note) gets no header cell either -
+  // same reason: display:none removes it from CSS Grid's auto-placement, so
+  // header and row still line up column-for-column across only the visible
+  // ones.
+  const cells = spec.columns.filter((c0) => !c0.hidden)
+    .map((c0) => `<div>${effectiveColDef(c0, {}).label}</div>`).join("");
   // The trailing cell stands over the row's remove button. It has to be the
   // BUTTON'S WIDTH and not empty: the spec's last track is `auto`, so a
   // zero-width spacer hands 26px back to the fr tracks in the header that the
@@ -8356,7 +8387,13 @@ function wireForm() {
   // refreshReferenceControls) arrives already wired. Kept separate from the
   // input handler above so the two concerns stay readable.
   $("sections").addEventListener("focusin", (e) => {
-    if (e.target.dataset && e.target.dataset.source) comboOpen(e.target, true);
+    // 2026-09-15b: a readonly/disabled reference control (AGG_BLEND_SPEC's
+    // mirrored producer/type & size on Sublots 2-4) can still receive focus -
+    // `readonly` only blocks typing, not focus or a click - so without this
+    // guard the popup would open and a selection from it would silently
+    // overwrite a mirror the technician is not supposed to edit directly.
+    if (e.target.dataset && e.target.dataset.source && !e.target.readOnly && !e.target.disabled)
+      comboOpen(e.target, true);
     else comboClose();
   });
   $("sections").addEventListener("focusout", (e) => {
@@ -8367,7 +8404,8 @@ function wireForm() {
   });
   $("sections").addEventListener("keydown", comboKeydown);
   $("sections").addEventListener("input", (e) => {
-    if (e.target.dataset && e.target.dataset.source) comboOpen(e.target, false);
+    if (e.target.dataset && e.target.dataset.source && !e.target.readOnly && !e.target.disabled)
+      comboOpen(e.target, false);
   });
 
   // Highlight what came from the workbook so it reads as "check me".
@@ -13958,10 +13996,15 @@ const LOT_TABLE_ROUTES = {
   project_items: { by: 'lot', into: 'rows@project_items', passthrough: true,
     cols: { project: 'project', line: 'line', quantity: 'quantity', unit: 'unit' },
     drop: { description: 'screen-only: INPUTS.projectItems is A..D = project/line/qty/unit' } },
-  // 2026-09-15: `blend` is identity only now (producer/AGP/type & size/BOD) -
-  // the percentage moved to its own per-sublot table, `blend_pct`, below.
-  // `pct_1..pct_4` used to live here and are gone from the schema, not just
-  // dropped from this mapping - see sections.mjs's BLEND_IDENTITY_SPEC.
+  // `blend` is identity only (producer/AGP/type & size/BOD) - the percentage
+  // lives on `blend_pct` below. 2026-09-15b: the page no longer collects a
+  // separate `blend` list at all (it folded producer/AGP/type & size/BOD
+  // into `blend_pct` itself, one merged "Aggregate Blend" table per sublot
+  // tab) - `lotRecords()` derives this route's input from `blend_pct`'s own
+  // Sublot 1 rows before this table runs, so the route itself, and
+  // everything downstream of it (amawCells()'s `rows.aggregate` read), is
+  // unchanged. A lot saved before that merge still carries a genuine
+  // `rows.blend` and takes that path unmodified.
   blend: { by: 'lot', into: 'rows@aggregate', blend: true,
     cols: { producer: 'producer', agp: 'agp_number', type_size: 'type_size', bod: 'bod' },
     drop: { component: 'identity anchor only (keeps collectForm() from dropping a blank slot out of position) - never written' } },
@@ -13970,12 +14013,19 @@ const LOT_TABLE_ROUTES = {
   // not by the generic per-block routing above, because it needs to GROUP by
   // its own `sublot` cell first and then match POSITION within that group to
   // `blend`'s own row order - one column mapping cannot express that join.
-  // `producer`/`type_size` are read-only mirrors (sections.mjs) and carry no
-  // information the workbook needs a second time.
+  // `producer`/`agp`/`type_size`/`bod`/`design_pct` are read-only mirrors or
+  // reference-only figures (sections.mjs) and carry no information the
+  // workbook needs a second time - `producer`/`agp`/`type_size`/`bod` are
+  // what the `blend` route above already reads, off this same table's own
+  // Sublot 1 rows.
   blend_pct: { by: 'lot', into: null,
     drop: { sublot: 'groups the fan-out below, not written anywhere',
-            producer: 'read-only mirror of blend[i].producer',
-            type_size: 'read-only mirror of blend[i].type_size',
+            component: 'identity anchor only (keeps collectForm() from dropping a blank slot out of position) - never written',
+            producer: 'same figure the blend route above reads off Sublot 1\'s own rows',
+            agp: 'same figure the blend route above reads off Sublot 1\'s own rows',
+            type_size: 'same figure the blend route above reads off Sublot 1\'s own rows',
+            bod: 'same figure the blend route above reads off Sublot 1\'s own rows',
+            design_pct: 'the approved design\'s own blend % - reference only, not a workbook cell',
             pct: 'fans out per sublot, see the custom fan-out below' } },
   blend_gsb: { by: 'lot', into: null,
     drop: { gsb_1: 'Superpave R9:U9, a formula over the blend', gsb_2: '', gsb_3: '', gsb_4: '' } },
@@ -14022,7 +14072,27 @@ function hasMeasurement(row, route) {
  * @returns {{records: object, unmapped: string[]}}
  */
 function lotRecords(values, rows, existing) {
-  const src = rows || {};
+  const src = { ...(rows || {}) };
+  // 2026-09-15b: the page merged what used to be two row-lists (`blend`,
+  // identity only, six rows; `blend_pct`, this component's % per sublot)
+  // into one - producer/AGP/type & size/BOD now live INSIDE `blend_pct`
+  // itself, mirrored across all four sublots' own copies, edited only on
+  // Sublot 1. So there is no longer a separate `src.blend` for the `blend`
+  // route (LOT_TABLE_ROUTES.blend, -> rows@aggregate) or the custom pct
+  // fan-out below to read - derive it here, once, from Sublot 1's own six
+  // `blend_pct` rows (`sublot === "1"`), so both keep working unmodified. A
+  // lot saved before this merge still carries a genuine `rows.blend` and
+  // that takes precedence, unchanged.
+  if (!Array.isArray(src.blend) || !src.blend.length) {
+    const pct1 = Array.isArray(src.blend_pct)
+      ? src.blend_pct.filter((r) => sublotIndex(r.sublot) === 1) : [];
+    if (pct1.length) {
+      src.blend = pct1.map((r) => ({
+        component: r.component, producer: r.producer, agp: r.agp,
+        type_size: r.type_size, bod: r.bod,
+      }));
+    }
+  }
   const out = {};
   const unmapped = [];
   // Start from whatever is already in the mapper's own vocabulary. A lot read
@@ -14138,17 +14208,17 @@ function lotRecords(values, rows, existing) {
   //    Each component keeps its position, which is what INPUTS.blend's
   //    `first + i` already assumes.
   //
-  //    2026-09-15: the percentage no longer lives ON blendRows (pct_1..
-  //    pct_4 are gone from the schema - sections.mjs's BLEND_IDENTITY_SPEC).
-  //    It is its own table, `blend_pct`, 24 rows (six components x four
-  //    sublots) each carrying its OWN `sublot` cell - the same "group by a
-  //    real identity value, never by raw array position" rule mat_cores/
-  //    sublot_bsg already use, not a new one. GROUP by that cell first, THEN
-  //    match POSITION within the group to blendRows' own order - safe only
-  //    because both tables are fixed now (BLEND_IDENTITY_SPEC, BLEND_PCT_SPEC
-  //    in sections.mjs), so neither can reorder or drop a MIDDLE slot out
-  //    from under the other; see BLEND_IDENTITY_SPEC's own comment for why
-  //    that stopped being true the moment blend was still growable.
+  //    The percentage does not live on blendRows - it is its own table,
+  //    `blend_pct`, 24 rows (six components x four sublots) each carrying
+  //    its OWN `sublot` cell - the same "group by a real identity value,
+  //    never by raw array position" rule mat_cores/sublot_bsg already use,
+  //    not a new one. GROUP by that cell first, THEN match POSITION within
+  //    the group to blendRows' own order - safe only because both are fixed
+  //    (sections.mjs's `blend_pct` and, whether real or derived above,
+  //    `blendRows`), so neither can reorder or drop a MIDDLE slot out from
+  //    under the other. `blendRows` here is `src.blend` - real for a lot
+  //    saved before the 2026-09-15b merge, derived from `blend_pct`'s own
+  //    Sublot 1 rows for one saved after it (see the top of this function).
   const blendRows = src.blend;
   const blendPctRows = src.blend_pct;
   if (Array.isArray(blendRows) && blendRows.length && Array.isArray(blendPctRows)) {
@@ -16833,11 +16903,12 @@ const PB_LOT = (() => {
     const agg = Array.isArray(rows.aggregate) ? rows.aggregate : [];
     // DesignBook's own Aggregate Structure table, verbatim - producer / type &
     // size / mat code / % blend / Gsb, the same five columns `CONFIG.SECTIONS`
-    // renders on that book. Carried alongside `blend` below rather than instead
-    // of it: `blend` is reshaped for the AMAW's own columns (no mat_code, `gsb`
-    // renamed `bod`, one percentage per sublot) and is the plant's working
-    // data; this is what was APPROVED, read-only, for the Lot step's mirror of
-    // the design. Two different jobs, so two different shapes of the same rows.
+    // renders on that book. Carried alongside `blend_pct` below rather than
+    // instead of it: `blend_pct` is reshaped for the AMAW's own columns (no
+    // mat_code, `gsb` renamed `bod`, one percentage per sublot) and is the
+    // plant's working data; this is what was APPROVED, read-only, for the Lot
+    // step's mirror of the design. Two different jobs, so two different shapes
+    // of the same rows.
     const aggregateStructure = agg.map((r) => ({
       producer: str(r.producer) || null,
       type_size: str(r.type_size) || null,
@@ -16845,71 +16916,68 @@ const PB_LOT = (() => {
       pct_blend: num(r.pct_blend),
       gsb: num(r.gsb),
     }));
-    // sections.mjs's `blend` columns exactly: producer / agp / type_size / bod.
-    // 2026-09-15: the four pct_N columns that used to live on THIS row moved to
-    // their own per-sublot table, `blend_pct` (BLEND_PCT_SPEC) - identity is
-    // seeded here once, the design's percentage is seeded into all four
-    // sublots' OWN copies below, and whoever edits a sublot's percentage on
-    // its own tab overwrites just that one, same intent as before ("a plant
-    // that adjusts its blend mid-lot is representable"), just typed where a
-    // technician actually types it now.
-    const blend = agg.map((r) => {
-      const row = {
-        producer: str(r.producer) || null,
-        // NO AGP NUMBER. The approval does not carry one: the legacy importer
-        // resolves the producer by KYTC's own AGP/AMP number and rides it on
-        // the row as `_agp`, which CLAUDE.md records is deliberately not a
-        // schema column and never reaches the payload. sections.mjs makes it a
-        // real column here because the loader reads it, so it has to be
-        // resolved from the producer NAME against `aggregates` (or `plants`
-        // for a RAP row) on load, or typed. Same lesson as the TSR thickness,
-        // from the other side: the key we needed was dropped at the boundary,
-        // so we carry the label and say the key is owed.
-        agp: null,
-        type_size: str(r.type_size) || null,
-        bod: num(r.gsb),
-      };
-      // Not a schema column - `alt`/isRapRow() re-derives it from Type & size
-      // at render time. Carried on the report only, so the caller can say
-      // "row 6 is the RAP" without re-implementing the test.
-      row._rap = isRapType(r.type_size);
-      return row;
-    });
-    // BLEND_PCT_SPEC's own shape: one row per component PER SUBLOT, grouped by
-    // its own `sublot` cell (the same value-based join mapper.mjs's fan-out and
-    // the page's paintBlendMirrors() both use, never raw array position across
-    // sublots). `producer`/`type_size` mirror `blend[i]` here too, same as the
-    // page paints live - a lot reopened from this envelope shows the right
-    // component beside each percentage before any recompute() has even run.
+    // sections.mjs's `blend_pct` columns: component / producer / agp /
+    // type_size / bod / design_pct / pct - 2026-09-15b, folded from what used
+    // to be two lists (a six-row `blend` identity table plus this one) into
+    // one, present on every sublot tab. One row per component PER SUBLOT (24
+    // total), grouped by its own `sublot` cell (the same value-based join
+    // mapper.mjs's fan-out and the page's paintBlendMirrors() both use, never
+    // raw array position across sublots) and, within a sublot's own six, kept
+    // in POSITION by `component` (1-6) - the identity anchor a blank
+    // producer/agp/type_size/bod would otherwise let collectForm() drop out of
+    // place, same reason MAT_CORE_SEED's `core_id` is always painted.
+    //
+    // Producer/AGP/type_size/BOD are the SAME six values on every sublot -
+    // Sublot 1 is the one place they are typed (one canonical edit point beats
+    // four that could disagree), Sublots 2-4 mirror them read-only
+    // (paintBlendMirrors()) - so they are seeded identically into all 24 rows
+    // here, exactly as the old six-row `blend` list was. `design_pct` and
+    // `pct` both start at the design's own blend % for this component, but
+    // only `pct` is ever edited afterwards: `design_pct` is a separate,
+    // never-touched copy kept for comparison once a sublot's own % has moved
+    // away from what was designed.
     const blend_pct = [];
     for (let s = 1; s <= 4; s++) {
-      agg.forEach((r) => {
+      agg.forEach((r, i) => {
         blend_pct.push({
           sublot: String(s),
+          component: String(i + 1),
           producer: str(r.producer) || null,
+          // NO AGP NUMBER. The approval does not carry one: the legacy importer
+          // resolves the producer by KYTC's own AGP/AMP number and rides it on
+          // the row as `_agp`, which CLAUDE.md records is deliberately not a
+          // schema column and never reaches the payload. sections.mjs makes it
+          // a real column here because the loader reads it, so it has to be
+          // resolved from the producer NAME against `aggregates` (or `plants`
+          // for a RAP row) on load, or typed. Same lesson as the TSR thickness,
+          // from the other side: the key we needed was dropped at the
+          // boundary, so we carry the label and say the key is owed.
+          agp: null,
           type_size: str(r.type_size) || null,
+          bod: num(r.gsb),
+          design_pct: num(r.pct_blend),
           pct: num(r.pct_blend),
+          // Not a schema column - `alt`/isRapRow() re-derives it from Type &
+          // size at render time. Carried on the report only, so the caller can
+          // say "component 6 is the RAP" without re-implementing the test.
+          _rap: isRapType(r.type_size),
         });
       });
     }
-    if (blend.length) {
-      inherited.push({ key: 'blend', value: blend, from: 'rows.aggregate',
-                       to: `${AGGREGATE.sheet}!${AGGREGATE.cols.producerCode}${AGGREGATE.first}:${AGGREGATE.cols.bod}${AGGREGATE.first + AGGREGATE.count - 1}`,
-                       note: 'identity only - see blend_pct for the percentage, seeded into all four sublots' });
-      inherited.push({ key: 'blend_pct', value: blend_pct, from: 'rows.aggregate[].pct_blend',
-                       to: `${AGGREGATE.sheet}!${AGGREGATE.cols.pct}${AGGREGATE.first}:${AGGREGATE.cols.pct}${AGGREGATE.first + AGGREGATE.count - 1} x4 sublots`,
-                       note: `percentages seeded into all four sublot columns ${AGGREGATE.pctCols.join('/')}` });
-      sources.blend = `${sourceLabel(a)} · rows.aggregate`;
-      sources.blend_pct = sources.blend;
-      if (blend.length > AGGREGATE.count)
+    if (agg.length) {
+      inherited.push({ key: 'blend_pct', value: blend_pct, from: 'rows.aggregate',
+                       to: `${AGGREGATE.sheet}!${AGGREGATE.cols.producerCode}${AGGREGATE.first}:${AGGREGATE.cols.bod}${AGGREGATE.first + AGGREGATE.count - 1}, ${AGGREGATE.cols.pct}${AGGREGATE.first}:${AGGREGATE.cols.pct}${AGGREGATE.first + AGGREGATE.count - 1} x4 sublots`,
+                       note: `identity seeded once, mirrored across all four sublots; percentages seeded into all four sublot columns ${AGGREGATE.pctCols.join('/')} as each sublot's own starting %, alongside a separate never-edited Design % copy` });
+      sources.blend_pct = `${sourceLabel(a)} · rows.aggregate`;
+      if (agg.length > AGGREGATE.count)
         warnings.push({ code: 'blend-too-long',
-          message: `The design has ${blend.length} aggregate components; the AMAW's blend block holds ${AGGREGATE.count}.` });
-      needsTyping('blend[].agp',
+          message: `The design has ${agg.length} aggregate components; the AMAW's blend block holds ${AGGREGATE.count}.` });
+      needsTyping('blend_pct[].agp',
         `${AGGREGATE.sheet}!${AGGREGATE.cols.producerCode}${AGGREGATE.first}:${AGGREGATE.cols.producerCode}${AGGREGATE.first + AGGREGATE.count - 1}`,
         'The approval carries producer NAMES, not AGP/AMP numbers - DesignBook drops the code at the payload boundary. Resolve each name against `aggregates` (or `plants` for a RAP row) on load, or have the technician pick.',
         ['medl-load']);
     } else {
-      wasMissing('blend', 'The approval carries no aggregate structure.', ['medl-load']);
+      wasMissing('blend_pct', 'The approval carries no aggregate structure.', ['medl-load']);
     }
 
     const combinedGsb = num(fp['const:fp_gsb']);
@@ -17157,10 +17225,9 @@ const PB_LOT = (() => {
       min_vma: minVma,
       volumetrics: achieved,
       combined_gsb: combinedGsb,
-      blend,
       blend_pct,
       // The design's own Aggregate Structure table, unreshaped - see
-      // `aggregateStructure` above. Read-only reference; `lot.rows.blend`
+      // `aggregateStructure` above. Read-only reference; `lot.rows.blend_pct`
       // above is the plant's working copy of the same components.
       aggregate: aggregateStructure,
       jmf_gradation: jmf,
@@ -17170,7 +17237,6 @@ const PB_LOT = (() => {
     // and sections.mjs seeds the four fixed sublot rows itself. What IS seeded
     // is the blend, which is the design's, not the lot's.
     lot.rows = {
-      blend,
       blend_pct,
       ...(blendGsb ? { blend_gsb: blendGsb } : {}),
       project_items: projectItems,
@@ -17576,30 +17642,33 @@ function putCell(row, col, value, dp) {
   el.value = value == null ? "" : (typeof value === "number" ? fmt(value, dp) : String(value));
   return el;
 }
-/* ---------- Blend identity mirrors, painted onto each sublot's own % table
+/* ---------- Blend identity mirrors, painted onto each sublot's own copy of
+ * the Aggregate Blend table
  *
- * BLEND_PCT_SPEC (sections.mjs, 2026-09-15) carries read-only `producer`/
- * `type_size` cells so a technician on Sublot 3 can see WHICH component
- * they are typing a percentage for without visiting Sublot 1, where the
- * real identity table (`blend`) lives. Matched by GROUPING blend_pct's 24
- * rows by their own `sublot` cell first, then by POSITION within that
- * group - the same rule mapper.mjs's rewritten fan-out uses, and safe for
- * the same reason: both tables are `fixed: true` now, so neither can
- * reorder or drop a middle slot out from under the other (see
- * BLEND_IDENTITY_SPEC's own comment for why that was not true when blend
- * was still growable).
+ * 2026-09-15b: producer/AGP/type & size/BOD now live INSIDE `blend_pct`
+ * itself (aggBlendColumns(), sections.mjs) rather than on a separate `blend`
+ * table - Sublot 1's own six rows (`sublot === "1"`) are the one place they
+ * are typed, Sublots 2-4 read-only-mirror them so a technician on Sublot 3
+ * can still see WHICH component they are typing a percentage for without
+ * visiting Sublot 1. Matched by GROUPING blend_pct's 24 rows by their own
+ * `sublot` cell first, then by POSITION within that group - the same rule
+ * mapper.mjs's rewritten fan-out uses, and safe for the same reason: the
+ * table is `fixed: true`, so a group can neither reorder nor drop a middle
+ * slot out from under another (see aggBlendColumns()'s own comment).
  */
 function paintBlendMirrors() {
   if (!isPlantBook()) return;
-  const identity = rowsOfList("blend");
-  if (!identity.length) return;
   const pctRows = rowsOfList("blend_pct");
-  for (let s = 1; s <= 4; s++) {
+  const source = pctRows.filter((r) => sublotIndexOf(cellValue(r, "sublot")) === 1);
+  if (!source.length) return;
+  for (let s = 2; s <= 4; s++) {
     const mine = pctRows.filter((r) => sublotIndexOf(cellValue(r, "sublot")) === s);
     mine.forEach((r, i) => {
-      const c = identity[i];
+      const c = source[i];
       putCell(r, "producer", c ? cellValue(c, "producer") : null);
+      putCell(r, "agp", c ? cellValue(c, "agp") : null);
       putCell(r, "type_size", c ? cellValue(c, "type_size") : null);
+      putCell(r, "bod", c ? cellValue(c, "bod") : null);
     });
   }
 }
@@ -17622,24 +17691,22 @@ function paintBlendMirrors() {
  * to 100 the workbook's Gsb is off too, so this does not try to be
  * "smarter" than the sheet it is previewing.
  *
- * 2026-09-15: the percentage moved off `blend` (BLEND_IDENTITY_SPEC has no
- * pct_N columns any more) onto its own per-sublot table, `blend_pct` - read
- * that one for pct, grouped and position-matched to `blend`'s own rows the
- * same way paintBlendMirrors() and mapper.mjs's fan-out both do. `bod`
- * still comes from `blend` itself, unchanged - it is lot-level.
+ * 2026-09-15b: both `pct` and `bod` are read straight off a sublot's OWN
+ * `blend_pct` rows now - `bod` is a read-only mirror there for Sublots 2-4
+ * (paintBlendMirrors(), which must run first; recompute() already calls it
+ * immediately before this), so there is no longer a separate `blend` table
+ * to cross-reference against.
  */
 function computeBlendGsb() {
   if (!isPlantBook()) return;
-  const rows = rowsOfList("blend");
   const pctRows = rowsOfList("blend_pct");
   const gsbRow = rowsOfList("blend_gsb")[0] || null;
-  if (!gsbRow || !rows.length) return;
+  if (!gsbRow || !pctRows.length) return;
   for (let n = 1; n <= 4; n++) {
     const mine = pctRows.filter((r) => sublotIndexOf(cellValue(r, "sublot")) === n);
     let sumTerms = 0, any = false;
-    rows.forEach((r, i) => {
-      const pctRow = mine[i];
-      const pct = pctRow ? num(cellValue(pctRow, "pct")) : null;
+    mine.forEach((r) => {
+      const pct = num(cellValue(r, "pct"));
       const bod = num(cellValue(r, "bod"));
       if (pct == null || bod == null || bod <= 0) return;
       sumTerms += pct / bod;
