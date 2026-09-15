@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-15T14:30:38.558Z",
+  "generatedAt": "2026-09-15T14:51:40.905Z",
   "books": {
     "DesignBook": {
       "360": [
@@ -73,9 +73,7 @@
       "390": [
         "producer"
       ],
-      "560": [
-        "producer"
-      ],
+      "560": [],
       "700": [
         "producer"
       ],
@@ -92,8 +90,12 @@
       "1000": [
         "producer"
       ],
-      "1099": [],
-      "1100": [],
+      "1099": [
+        "producer"
+      ],
+      "1100": [
+        "producer"
+      ],
       "1240": [
         "producer"
       ],
@@ -103,9 +105,15 @@
       "1244": [
         "producer"
       ],
-      "1366": [],
-      "1440": [],
-      "1500": []
+      "1366": [
+        "producer"
+      ],
+      "1440": [
+        "producer"
+      ],
+      "1500": [
+        "producer"
+      ]
     }
   },
   "page": "public/designbook.html"

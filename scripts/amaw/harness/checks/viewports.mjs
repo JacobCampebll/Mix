@@ -102,7 +102,21 @@ export async function run({ browser, results, books, bless }) {
               // viewport is: the breakpoint is the stylesheet's business.
               if (!head.getClientRects().length) return;
               const L = (el) => Math.round(el.getBoundingClientRect().left);
-              const hs = Array.from(head.children).map(L), rs = Array.from(row.children).map(L);
+              /* A `hidden` column (2026-09-15, AGG_BLEND_SPEC's own `sublot`
+               * on the per-sublot tabs) is handled two different ways on
+               * purpose: rowHeadHTML() leaves the header cell out entirely
+               * while rowHTML() keeps the row cell and gives it
+               * `display:none`. That is not an inconsistency - a display:none
+               * grid item is removed from auto-placement, so both children
+               * still place the same VISIBLE cells into the same tracks, and
+               * measured at 1500px they do: 67,138,470,610,818,920,1032 on
+               * each. Comparing raw child counts reported "7 headings over 8
+               * cells" on a table that is perfectly aligned - the check being
+               * wrong rather than the page, the same way it was for the <700px
+               * card mode. Compare what is actually laid out. */
+              const shown = (el) => getComputedStyle(el).display !== "none";
+              const hs = Array.from(head.children).filter(shown).map(L),
+                    rs = Array.from(row.children).filter(shown).map(L);
               let worst = 0;
               for (let k = 0; k < Math.min(hs.length, rs.length); k++)
                 worst = Math.max(worst, Math.abs(hs[k] - rs[k]));
