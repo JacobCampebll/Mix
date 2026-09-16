@@ -677,7 +677,7 @@ function propertyLine(p, result, esc) {
   else if (blank(value)) note = 'no result yet';
   else if (delta != null && Math.abs(delta) > 1e-9) note = `${delta < 0 ? 'costs' : 'adds'} ${trim(Math.abs(delta))}% of the lot`;
   else note = 'no effect';
-  return `<span class="payx-l">${esc(p.label)}<span class="payx-cell mono">${esc(p.cell)}</span></span>`
+  return `<span class="payx-l">${esc(p.label)}</span>`
     + `<span class="payx-v">${payBadge(value, esc)}</span>`
     + `<span class="payx-w mono">${esc(`×${weight}%`)}</span>`
     + `<span class="payx-c mono">${contribution == null ? '<span class="prsub">—</span>' : esc(trim(contribution))}</span>`
@@ -699,7 +699,7 @@ function finalLines(result, ctx, esc, open) {
   if (isNum(final) && final > 100) {
     body += eqHTML(esc, 'capped', `${trim(result.finalPctCapped)} - Calculations!A72 caps at 100 and the sheet prints "***Final Pay should be made at 100% Maximum"; J23/J24 multiply by the UNCAPPED figure`, 'Calculations!A72');
   }
-  const line1 = `<span class="payx-l">Final pay value<span class="payx-cell mono">'Pay Values'!J21</span></span>`
+  const line1 = `<span class="payx-l">Final pay value</span>`
     + `<span class="payx-v">${payBadge(final, esc)}</span>`
     + `<span class="payx-w mono">${esc(`×${Object.values(result.weights || {}).reduce((a, b) => a + (b || 0), 0)}%`)}</span>`
     + `<span class="payx-c mono"></span><span class="payx-n">${esc(isNum(final) ? 'the five contributions, added' : 'no value - open for why')}</span>`;
@@ -712,7 +712,7 @@ function finalLines(result, ctx, esc, open) {
                 : 'no final pay value, so no adjustment', "'Pay Values'!J23")
     + (wedge > 0 ? eqHTML(esc, 'wedge', `${fx(wedge, 2)} tons of pavement wedge come off the top - wedge is paid at its own rate`, "'Pay Values'!J20") : '');
   out.push(detailsHTML('tons', open, 'payx-prop total',
-    `<span class="payx-l">Tonnage adjustment<span class="payx-cell mono">'Pay Values'!J23</span></span>`
+    `<span class="payx-l">Tonnage adjustment</span>`
     + `<span class="payx-v mono">${esc(fmtTons(tons))}</span><span class="payx-w mono"></span><span class="payx-c mono"></span>`
     + `<span class="payx-n">${esc(isNum(tons) ? `(final - 100) × ${fx(net, 2)} pay tons ÷ 100` : 'no value yet')}</span>`, tonsBody));
 
@@ -720,7 +720,7 @@ function finalLines(result, ctx, esc, open) {
     isNum(money) ? `${sg(tons, 2)} tons × ${fmtMoney(ctx.unitPrice, { signed: false })} = ${fmtMoney(money)}` : 'no tonnage adjustment, so no dollar figure', "'Pay Values'!J24")
     + eqHTML(esc, 'unit price', `${fmtMoney(ctx.unitPrice, { signed: false })} a ton is the spec's defined unit price for the Lot Pay Adjustment (402.05.02), the same for every mix - not the contract's bid price`, "'Pay Values'!F5");
   out.push(detailsHTML('money', open, 'payx-prop total hero',
-    `<span class="payx-l">Pay adjustment<span class="payx-cell mono">'Pay Values'!J24</span></span>`
+    `<span class="payx-l">Pay adjustment</span>`
     + `<span class="payx-v mono"><strong>${esc(fmtMoney(money))}</strong></span><span class="payx-w mono"></span><span class="payx-c mono"></span>`
     + `<span class="payx-n">${esc(isNum(money) ? `tons × ${fmtMoney(ctx.unitPrice, { signed: false })}` : 'no value yet')}</span>`, moneyBody));
   return out.join('');
