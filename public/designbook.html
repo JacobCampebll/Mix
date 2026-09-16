@@ -18259,6 +18259,185 @@ const PB_LOT = (() => {
     });
   }
 
+  // ---------------------------------------------------------------------
+  // Lot n -> lot n+1
+  // ---------------------------------------------------------------------
+  /* A finished lot is a strictly RICHER starting point than the approval it was
+   * opened from: it carries the same design block and, on top of it, everything
+   * a technician has since corrected — the two lab ids, the compaction option
+   * the proposal lookup found, a Project Items table refreshed after a change
+   * order. So "start the next lot" takes the previous lot rather than asking
+   * for the approval a second time, and the lot number is DERIVED instead of
+   * typed. That kills the setup-allowance hazard too: lot 8 can never come out
+   * numbered 1, and `'Pay Values'!F3 = 1` is what widens the AC ladder to 0.7
+   * and rescues an air void or VMA to 100 on sublot 1.
+   *
+   * CARRY THE FRAME, CLEAR THE RECORD, and the polarity is what makes it safe:
+   * every field starts NULL and is carried only if it is demonstrably part of
+   * the frame. A measurement that slipped through would let somebody submit lot
+   * 8 holding lot 7's numbers with nothing on screen saying so — the quiet
+   * wrongness this codebase keeps recording — whereas a frame value wrongly
+   * cleared only makes a technician retype something. Default-clear fails in
+   * the harmless direction, so a field added to the schema later is cleared
+   * until somebody decides otherwise.
+   *
+   * WHAT THE FRAME IS, IS ASKED OF THE SCHEMA rather than listed here, for the
+   * reason `sections.mjs` gives about the sublot-lock exemptions: a hand-written
+   * list rots, and two of them rotted on two separate merges in one day. A
+   * scalar is frame when its section is the `lot` step or draws INTO it
+   * (Contract & Mix, Binder, the two design mirrors); it is a record when it
+   * sits on a sublot, a gradation tab or a Department verification — which is
+   * exactly where `handmix` lives, and the hand-mixed check sample IS this
+   * lot's own measurement even though the sublot LOCK treats it as lot-level.
+   * Those two questions look identical and are not: the lock asks "is this
+   * gated by which sublot's sample exists"; this asks "was this measured on
+   * this lot's material".
+   *
+   * Row tables are the other half, and there the two questions DO coincide, so
+   * `PB_SECTIONS.LOT_LEVEL_ROW_TABLES` and `PB_SECTIONS.LOT_LEVEL_ROW_COLUMNS` are reused as-is rather
+   * than copied — `check_page_plantbook.mjs` already asserts every entry in
+   * them names something real, so they cannot drift without failing loudly.
+   */
+
+  // The two fields the host-section rule gets wrong, each for its own reason.
+  // Anything else on the `lot` step carries.
+  const ROLL_FORWARD_EXCEPTIONS = {
+    // Derived, not carried — the whole point of this door.
+    lot_number: 'incremented',
+    // Tons of pavement wedge placed in THIS lot ('Pay Values'!J20). It reads as
+    // a contract fact because it sits on Contract & Mix, and it is a quantity
+    // this lot produced.
+    lot_wedge_tons: 'this lot\'s own placed quantity',
+  };
+
+  /** Which scalar field keys survive into the next lot, derived from the
+   *  schema's own section layout. Exported so the checker can assert against
+   *  the same derivation the code uses rather than a copy of its answer. */
+  function frameFields() {
+    const keep = new Set();
+    for (const s of PB_SECTIONS.SECTIONS) {
+      const host = s.into || s.id;
+      if (host === 'lot') for (const f of s.fields || []) if (f.key) keep.add(f.key);
+      // A sieve section's READONLY column is the JMF target the design
+      // published, not anything anyone weighed — `jmf_s19` and its twelve
+      // siblings. The measured column beside it is grams and must go.
+      for (const sv of s.sieves || [])
+        for (const c of s.columns || []) if (c.readonly && c.key) keep.add(`${c.key}_${sv.key}`);
+    }
+    for (const k of Object.keys(ROLL_FORWARD_EXCEPTIONS)) keep.delete(k);
+    return keep;
+  }
+
+  /**
+   * Open the next lot on the same design, from the previous lot's own file.
+   *
+   * @param {object} prev   a lot envelope — the `.json` working copy, or the
+   *                        `lot` block out of a lot PDF. Both doors already
+   *                        hand `openLotEnvelope()` the same shape.
+   * @param {object} [opts] `lotNumber` to override the derived one.
+   * @returns {{ok, lot, report}}  `report.carried` / `report.cleared` name what
+   *                        moved and what did not, so the page can say it.
+   */
+  function rollForwardLot(prev, opts = {}) {
+    let from;
+    try { from = normaliseLot(prev); }
+    catch (err) { return { ok: false, lot: null, report: null, error: err.message }; }
+
+    const prevNo = Number(from.lot_number);
+    if (!Number.isFinite(prevNo) || prevNo < 1) {
+      return { ok: false, lot: null, report: null,
+        error: `That lot is numbered "${from.lot_number}", so there is no next lot to derive from it.` };
+    }
+    const lotNumber = opts.lotNumber != null ? Number(opts.lotNumber) : prevNo + 1;
+
+    const lot = blankLot({
+      contract_id: from.contract_id, amp_number: from.amp_number,
+      mix_id: from.mix_id, lot_number: lotNumber,
+    }, { mix_signature: from.mix_signature, plant_name: from.plant_name });
+
+    /* ---- scalars: every schema field, null unless it is frame ---- */
+    const frame = frameFields();
+    const prevValues = from.values || {};
+    const carried = [], cleared = [];
+    lot.values = {};
+    for (const k of schema().fields) {
+      const keep = frame.has(k) && prevValues[k] != null && prevValues[k] !== '';
+      lot.values[k] = keep ? prevValues[k] : null;
+      (keep ? carried : cleared).push(k);
+    }
+    lot.values.lot_number = lotNumber;
+    // The design block travels whole - the approval, its verification state as
+    // it was CHECKED rather than re-derived, the JMF figures the pay schedule
+    // is measured against, the blend. Re-verifying here would need the approval
+    // PDF, which is not in front of us; printing what the lot was opened under
+    // is the honest answer, and the same one `openLotEnvelope()` already gives.
+    if (prevValues.design) lot.values.design = prevValues.design;
+
+    /* ---- rows: only what describes the lot ---- */
+    const prevRows = from.rows || {};
+    const rowCols = (key) => PB_SECTIONS.LOT_LEVEL_ROW_COLUMNS
+      .filter((p) => p.startsWith(`${key}.`)).map((p) => p.slice(key.length + 1));
+    const lotHostedTables = new Set();
+    for (const s of PB_SECTIONS.SECTIONS) {
+      if ((s.into || s.id) !== 'lot') continue;
+      const rs = Array.isArray(s.rows) ? s.rows : s.rows ? [s.rows] : [];
+      for (const r of rs) lotHostedTables.add(r.key);
+    }
+
+    lot.rows = {};
+    const tables = [];
+    for (const [key, list] of schema().rows) {
+      const rows = Array.isArray(prevRows[key]) ? prevRows[key] : [];
+      if (lotHostedTables.has(key) || PB_SECTIONS.LOT_LEVEL_ROW_TABLES.includes(key)) {
+        if (rows.length) { lot.rows[key] = rows.map((r) => ({ ...r })); tables.push({ key, kept: 'whole' }); }
+        continue;
+      }
+      const keepCols = rowCols(key);
+      if (!keepCols.length) { tables.push({ key, kept: 'none' }); continue; }
+      // A table that is lot-level in SOME of its columns: keep those, drop the
+      // rest. `blend_pct` is the only one - its component identity describes the
+      // blend this design runs, while `pct` is what that sublot actually ran.
+      // The next lot starts on the design's own percentage again, so `pct` is
+      // re-seeded from `design_pct` rather than carried or blanked: a blend
+      // column with no number in it is not a starting point.
+      if (!rows.length) { tables.push({ key, kept: 'none' }); continue; }
+      lot.rows[key] = rows.map((r) => {
+        const out = {};
+        for (const c of keepCols) if (c in r) out[c] = r[c];
+        if (list.has('pct') && out.design_pct != null) out.pct = out.design_pct;
+        return out;
+      });
+      tables.push({ key, kept: keepCols.join('+') + (list.has('pct') ? '+pct(reset)' : '') });
+    }
+
+    /* ---- provenance and history ---- */
+    const src = from.extracted_from || {};
+    lot.extracted_from = {};
+    for (const k of Object.keys(src)) if (lot.values[k] != null) lot.extracted_from[k] = src[k];
+
+    lot.status = 'Open';
+    lot.history = [{
+      action: 'Opened from the previous lot',
+      from_lot: prevNo,
+      at: opts.now || null,
+      sm_id: opts.sm_id || null,
+      name: opts.name || null,
+      note: `Lot ${lotNumber} started from lot ${prevNo} of the same design. `
+          + 'The contract, plant, mix, approval, blend and project items carried over; '
+          + 'every measurement was cleared.',
+    }];
+
+    return {
+      ok: true,
+      lot,
+      report: {
+        fromLot: prevNo, toLot: lotNumber,
+        carried: carried.sort(), cleared: cleared.sort(), tables,
+        exceptions: ROLL_FORWARD_EXCEPTIONS,
+      },
+    };
+  }
+
   // CONVERSION: the module ended with
   //   export default { approvalChecks, lotFromApproval, verifyRequest, readVerifyResponse, notChecked };
   // A default export has no name to return, and PB_LOT itself already carries
@@ -18277,6 +18456,7 @@ const PB_LOT = (() => {
     ACCEPTANCE_METHODS, acceptanceMethodFor, LOT_TONS, ADJUSTMENT_UNIT_PRICE,
     effectiveMixOf, approvalChecks, submitterOf,
     verifyRequest, readVerifyResponse, notChecked, lotFromApproval,
+    rollForwardLot, frameFields, ROLL_FORWARD_EXCEPTIONS,
   };
 })();
 /* ===== END PLANTBOOK LOT ===== */
@@ -19167,13 +19347,14 @@ function lotStatusHTML() {
       <button class="stagebtn hidden" id="lotSubmittalBtn">Download submittal PDF</button>
       <button class="stagebtn" id="lotPdfBtn">Download lot PDF</button>
       <button class="stagebtn ghost" id="lotFileBtn">Download working copy (.json)</button>
+      <button class="stagebtn ghost" id="nextLotBtn">Start the next lot</button>
       <div class="handoffnote">This is how you save. Nothing about this lot is
         kept on the site &mdash; the file is the only copy, and it carries every
         value inside it. Download the <strong>lot PDF</strong> at any point to
         keep your work; upload it on the way back in to return to exactly this
         point. The <strong>.json</strong> holds the same lot and is the same
         door &mdash; take it if you would rather have the raw record.
-        <span id="medlNote"></span></div>
+        <span id="medlNote"></span><span id="nextLotNote"></span></div>
     </div>
     <div class="refstatus" id="refStatus"></div>
     <div class="auditlog" id="auditlog"></div>`;
@@ -19208,6 +19389,23 @@ function renderLotStage() {
   // where the workbook went rather than leaving its absence to be noticed.
   const amaw = $("amawBtn");
   if (amaw) amaw.classList.toggle("hidden", !state.canReview);
+  // Lot n -> lot n+1. Offered from the lot you are holding rather than as a
+  // second door on the upload card, because THIS is where a technician is
+  // when a lot ends - and because intent has to be unambiguous: opening lot
+  // 7's file must still REOPEN lot 7 (to correct it), never silently start
+  // lot 8 on top of it. A button you press is that intent; a file you drop
+  // is not.
+  const nl = $("nextLotBtn"), nn = $("nextLotNote");
+  const canNext = !!state.lot && Number.isFinite(Number(state.lot.lot_number));
+  if (nl) {
+    nl.classList.toggle("hidden", !canNext);
+    if (canNext) nl.textContent = `Start lot ${Number(state.lot.lot_number) + 1}`;
+  }
+  if (nn) nn.innerHTML = canNext
+    ? ` <strong>Start lot ${Number(state.lot.lot_number) + 1}</strong> opens the next lot on this
+        same design: the contract, plant, mix, approval, blend and project items
+        carry over and every measurement is cleared. Save this one first.`
+    : "";
   const medl = $("medlNote");
   if (medl) medl.innerHTML = state.canReview
     ? " You can also build the <strong>AMAW for MEDL</strong> from this lot."
@@ -19477,6 +19675,53 @@ function downloadLotFile() {
   msg($("saveMsg"), `${name} downloaded. Open it from the Portal to come back to exactly this point.`, "ok");
 }
 
+/* Lot n -> lot n+1, from the lot in front of you.
+ *
+ * The frame is taken from the form AS IT STANDS (lotSnapshot), not from what
+ * was last saved: a technician who has just corrected the P/S lab id or
+ * refreshed Project Items after a change order should carry that correction
+ * forward, and making them save first to get it would be a trap rather than a
+ * rule.
+ *
+ * It CONFIRMS, because this replaces what is on screen and nothing about a
+ * lot is kept on the site - an unsaved lot 7 is gone. The note under the
+ * button says to save first; the dialog is the second chance, and it names
+ * the lot being left rather than asking "are you sure".
+ *
+ * PB_LOT.rollForwardLot does the work and openLotEnvelope loads the answer,
+ * so this function decides nothing about what carries. That is deliberate:
+ * the carry/clear rule is checkable in Node against the schema, and a page
+ * that re-implemented any of it would be a second opinion nobody checks.
+ */
+function startNextLot() {
+  if (!state.lot) { msg($("saveMsg"), "There is no lot open.", "error"); return; }
+  const current = lotSnapshot();
+  const next = Number(current.lot_number) + 1;
+  if (!window.confirm(
+      `Start lot ${next} on ${current.mix_id}?\n\n`
+      + `Lot ${current.lot_number} closes here. Nothing about it is kept on this site, so if you `
+      + `have not downloaded its lot PDF or .json, it is gone.\n\n`
+      + `The contract, plant, mix, approval, blend and project items carry over to lot ${next}. `
+      + `Every measurement is cleared.`)) return;
+
+  const r = PB_LOT.rollForwardLot(current, {
+    sm_id: state.tech ? state.tech.sm_id : null,
+    name: state.tech ? `${state.tech.first_name} ${state.tech.last_name}` : null,
+    now: new Date().toISOString(),
+  });
+  if (!r.ok) { msg($("saveMsg"), r.error || "Couldn't start the next lot.", "error"); return; }
+
+  // A frozen submittal belongs to the lot that was open a second ago. Under
+  // this one it would offer itself for download and rebuild as that other
+  // lot - right file, wrong lot. openLotEnvelope clears it for exactly this,
+  // and it is named here because the reason is the same one.
+  openLotEnvelope(r.lot, `lot ${r.report.fromLot}`, {
+    line: `Lot ${r.report.toLot} is open, started from lot ${r.report.fromLot} on ${r.lot.mix_id}. `
+        + `${r.report.carried.length} values carried over; every measurement was cleared.`,
+    audit: `Lot ${r.report.toLot} started from lot ${r.report.fromLot}`,
+  });
+}
+
 // The lot as a PDF, and this is the SAVE. Same rule DesignBook's review PDF
 // follows, and the same argument: nothing about this lot is kept on the site,
 // so a file is the only copy, and a file a person can read is worth more than
@@ -19607,7 +19852,7 @@ function openLotFile(text, label) { return openLotEnvelope(JSON.parse(text), lab
 // so they must land in the same place. Two readers would be two answers to
 // "what did I just open", and the second one would be wrong the first time
 // somebody added a field.
-function openLotEnvelope(raw, label) {
+function openLotEnvelope(raw, label, opening) {
   const lot = PB_LOT.normaliseLot(raw);
   // A different lot is a different document. A frozen submittal left over
   // from the lot that was open a minute ago would offer itself for download
@@ -19632,11 +19877,15 @@ function openLotEnvelope(raw, label) {
   enterForm();
   const d = lotDesign();
   const v = d && d.approval ? d.approval.verification : null;
+  // `opening` lets the lot-to-lot door say what it did without becoming a
+  // SECOND loader: the wording differs, the loading must not. Two readers
+  // would be two answers to "what did I just open", and the second one would
+  // be wrong the first time somebody added a field.
   msg($("saveMsg"),
-      `Reopened lot ${lot.lot_number} on ${lot.mix_id} from ${label}.` +
+      (opening ? opening.line : `Reopened lot ${lot.lot_number} on ${lot.mix_id} from ${label}.`) +
       (v ? ` The approval it was opened under was ${v.state}.` : ""),
       v && PB_LOT.isVerified(v) ? "ok" : "warn");
-  audit(`Lot reopened from ${label} - ${state.tech ? state.tech.sm_id : ""}`);
+  audit(`${opening ? opening.audit : `Lot reopened from ${label}`} - ${state.tech ? state.tech.sm_id : ""}`);
 }
 /* ---------- the upload card, in each book's words ----------
  *
@@ -21207,6 +21456,7 @@ document.addEventListener("click", (e) => {
   if (e.target.id === "amawBtn") downloadAmaw();
   if (e.target.id === "lotFileBtn") downloadLotFile();
   if (e.target.id === "lotPdfBtn") downloadLotPdf();
+  if (e.target.id === "nextLotBtn") startNextLot();
   if (e.target.id === "lotSubmittalBtn") downloadLotSubmittal();
   // closest(), not e.target.id: both lookup buttons carry a .wide-only span,
   // so a click that lands on the word "contract" or "project" targets the

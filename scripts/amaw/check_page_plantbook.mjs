@@ -1141,6 +1141,51 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
   note(`${clockHits - before} wall-clock timestamps normalised across those pairs `
      + '(lotFromApproval stamps its history entry with new Date(); the two copies run ms apart)');
 
+  // rollForwardLot - the lot-to-lot door. Swept over a lot that has been
+  // POISONED in every non-frame cell, because the property that matters is a
+  // negative one: the two copies must agree about what they REFUSE to carry,
+  // not merely about what they carry. A frame-only case would pass even if
+  // one copy leaked every measurement.
+  const frameKeys = M.frameFields();
+  const poisoned = (lotNo) => {
+    const lot = M.blankLot({ contract_id: '262120', amp_number: 'AMP070301',
+                             mix_id: '00260467', lot_number: lotNo }, {});
+    lot.values = {};
+    for (const k of MOD_SECTIONS.PLANTBOOK_SECTIONS.flatMap((sec) => [
+      ...(sec.fields || []).map((f) => f.key),
+      ...(sec.sieves || []).flatMap((sv) => (sec.columns || [{ key: null }])
+        .map((c) => (c.key ? `${c.key}_${sv.key}` : sv.key))),
+    ]).filter(Boolean)) lot.values[k] = frameKeys.has(k) ? `FRAME_${k}` : '__MEASURED__';
+    lot.values.lot_number = lotNo;
+    lot.values.design = { jmf_ac: 5.9, approval: { verification: { state: 'verified' } } };
+    lot.rows = {};
+    for (const sec of MOD_SECTIONS.PLANTBOOK_SECTIONS) {
+      const rs = Array.isArray(sec.rows) ? sec.rows : sec.rows ? [sec.rows] : [];
+      for (const r of rs) lot.rows[r.key] = [0, 1].map(() => {
+        const row = {};
+        for (const c of r.columns || []) row[c.key] = '__MEASURED__';
+        if ((r.columns || []).some((c) => c.key === 'design_pct')) row.design_pct = 30;
+        return row;
+      });
+    }
+    lot.extracted_from = { lot_ps_lab: 'plants.ps_lab_id', lot_gse: 'x' };
+    lot.status = 'Submitted';
+    lot.history = [{ action: 'Submitted to KYTC' }];
+    return lot;
+  };
+  const rfCases = [];
+  for (const n of [1, 3, 7])
+    for (const opts of [undefined, {}, { lotNumber: 12 }, { sm_id: 'jcampbell', name: 'J', now: '2026-09-16T00:00:00.000Z' }])
+      rfCases.push([poisoned(n), opts]);
+  for (const bad of [null, undefined, {}, { format: 'not-a-lot' }, { ...poisoned(1), lot_number: 0 }, { ...poisoned(1), lot_number: 'x' }])
+    rfCases.push([bad, undefined]);
+  sweep(`rollForwardLot() over ${rfCases.length} poisoned lots and refusals`,
+        P.rollForwardLot, M.rollForwardLot, rfCases);
+  sweep('frameFields() agrees on which scalars are frame',
+        () => [...P.frameFields()].sort(), () => [...M.frameFields()].sort(), [[]]);
+  sweep('ROLL_FORWARD_EXCEPTIONS matches', () => P.ROLL_FORWARD_EXCEPTIONS,
+        () => M.ROLL_FORWARD_EXCEPTIONS, [[]]);
+
   const responses = [
     [{ status: 200, body: { valid: true, mix_id: '00260467', approval_no: '#467PA', pa: true, approved_by: 'a', submitted_by: 'b', issued_at: '2026-09-11T00:00:00.000Z' } }],
     [{ status: 200, body: { valid: false, error: 'the design changed after approval' } }],
