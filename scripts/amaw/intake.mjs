@@ -70,10 +70,10 @@
 // them; the third the workbook derives for itself and we carry only as a
 // cross-check. Do not "simplify" by treating all three the same.
 
-import { blankLot } from './storage.mjs';
+import { blankLot, normaliseLot } from './storage.mjs';
 import { LOT, AGGREGATE, SUBLOT, VERIFY as AVERIFY, GRADATION, CORES, PAY, CALC } from './addresses.mjs';
 import { vmaMinimumFor, airVoidTargetFor } from './pay.mjs';
-import PLANTBOOK_SECTIONS from './sections.mjs';
+import PLANTBOOK_SECTIONS, { LOT_LEVEL_ROW_TABLES, LOT_LEVEL_ROW_COLUMNS } from './sections.mjs';
 
 // ---------------------------------------------------------------------
 // The schema's own key list
@@ -1273,4 +1273,185 @@ function gradationJmf(values) {
   });
 }
 
-export default { approvalChecks, lotFromApproval, verifyRequest, readVerifyResponse, notChecked };
+
+// ---------------------------------------------------------------------
+// Lot n -> lot n+1
+// ---------------------------------------------------------------------
+/* A finished lot is a strictly RICHER starting point than the approval it was
+ * opened from: it carries the same design block and, on top of it, everything
+ * a technician has since corrected — the two lab ids, the compaction option
+ * the proposal lookup found, a Project Items table refreshed after a change
+ * order. So "start the next lot" takes the previous lot rather than asking
+ * for the approval a second time, and the lot number is DERIVED instead of
+ * typed. That kills the setup-allowance hazard too: lot 8 can never come out
+ * numbered 1, and `'Pay Values'!F3 = 1` is what widens the AC ladder to 0.7
+ * and rescues an air void or VMA to 100 on sublot 1.
+ *
+ * CARRY THE FRAME, CLEAR THE RECORD, and the polarity is what makes it safe:
+ * every field starts NULL and is carried only if it is demonstrably part of
+ * the frame. A measurement that slipped through would let somebody submit lot
+ * 8 holding lot 7's numbers with nothing on screen saying so — the quiet
+ * wrongness this codebase keeps recording — whereas a frame value wrongly
+ * cleared only makes a technician retype something. Default-clear fails in
+ * the harmless direction, so a field added to the schema later is cleared
+ * until somebody decides otherwise.
+ *
+ * WHAT THE FRAME IS, IS ASKED OF THE SCHEMA rather than listed here, for the
+ * reason `sections.mjs` gives about the sublot-lock exemptions: a hand-written
+ * list rots, and two of them rotted on two separate merges in one day. A
+ * scalar is frame when its section is the `lot` step or draws INTO it
+ * (Contract & Mix, Binder, the two design mirrors); it is a record when it
+ * sits on a sublot, a gradation tab or a Department verification — which is
+ * exactly where `handmix` lives, and the hand-mixed check sample IS this
+ * lot's own measurement even though the sublot LOCK treats it as lot-level.
+ * Those two questions look identical and are not: the lock asks "is this
+ * gated by which sublot's sample exists"; this asks "was this measured on
+ * this lot's material".
+ *
+ * Row tables are the other half, and there the two questions DO coincide, so
+ * `LOT_LEVEL_ROW_TABLES` and `LOT_LEVEL_ROW_COLUMNS` are reused as-is rather
+ * than copied — `check_page_plantbook.mjs` already asserts every entry in
+ * them names something real, so they cannot drift without failing loudly.
+ */
+
+// The two fields the host-section rule gets wrong, each for its own reason.
+// Anything else on the `lot` step carries.
+export const ROLL_FORWARD_EXCEPTIONS = {
+  // Derived, not carried — the whole point of this door.
+  lot_number: 'incremented',
+  // Tons of pavement wedge placed in THIS lot ('Pay Values'!J20). It reads as
+  // a contract fact because it sits on Contract & Mix, and it is a quantity
+  // this lot produced.
+  lot_wedge_tons: 'this lot\'s own placed quantity',
+};
+
+/** Which scalar field keys survive into the next lot, derived from the
+ *  schema's own section layout. Exported so the checker can assert against
+ *  the same derivation the code uses rather than a copy of its answer. */
+export function frameFields() {
+  const keep = new Set();
+  for (const s of PLANTBOOK_SECTIONS) {
+    const host = s.into || s.id;
+    if (host === 'lot') for (const f of s.fields || []) if (f.key) keep.add(f.key);
+    // A sieve section's READONLY column is the JMF target the design
+    // published, not anything anyone weighed — `jmf_s19` and its twelve
+    // siblings. The measured column beside it is grams and must go.
+    for (const sv of s.sieves || [])
+      for (const c of s.columns || []) if (c.readonly && c.key) keep.add(`${c.key}_${sv.key}`);
+  }
+  for (const k of Object.keys(ROLL_FORWARD_EXCEPTIONS)) keep.delete(k);
+  return keep;
+}
+
+/**
+ * Open the next lot on the same design, from the previous lot's own file.
+ *
+ * @param {object} prev   a lot envelope — the `.json` working copy, or the
+ *                        `lot` block out of a lot PDF. Both doors already
+ *                        hand `openLotEnvelope()` the same shape.
+ * @param {object} [opts] `lotNumber` to override the derived one.
+ * @returns {{ok, lot, report}}  `report.carried` / `report.cleared` name what
+ *                        moved and what did not, so the page can say it.
+ */
+export function rollForwardLot(prev, opts = {}) {
+  let from;
+  try { from = normaliseLot(prev); }
+  catch (err) { return { ok: false, lot: null, report: null, error: err.message }; }
+
+  const prevNo = Number(from.lot_number);
+  if (!Number.isFinite(prevNo) || prevNo < 1) {
+    return { ok: false, lot: null, report: null,
+      error: `That lot is numbered "${from.lot_number}", so there is no next lot to derive from it.` };
+  }
+  const lotNumber = opts.lotNumber != null ? Number(opts.lotNumber) : prevNo + 1;
+
+  const lot = blankLot({
+    contract_id: from.contract_id, amp_number: from.amp_number,
+    mix_id: from.mix_id, lot_number: lotNumber,
+  }, { mix_signature: from.mix_signature, plant_name: from.plant_name });
+
+  /* ---- scalars: every schema field, null unless it is frame ---- */
+  const frame = frameFields();
+  const prevValues = from.values || {};
+  const carried = [], cleared = [];
+  lot.values = {};
+  for (const k of SCHEMA.fields) {
+    const keep = frame.has(k) && prevValues[k] != null && prevValues[k] !== '';
+    lot.values[k] = keep ? prevValues[k] : null;
+    (keep ? carried : cleared).push(k);
+  }
+  lot.values.lot_number = lotNumber;
+  // The design block travels whole - the approval, its verification state as
+  // it was CHECKED rather than re-derived, the JMF figures the pay schedule
+  // is measured against, the blend. Re-verifying here would need the approval
+  // PDF, which is not in front of us; printing what the lot was opened under
+  // is the honest answer, and the same one `openLotEnvelope()` already gives.
+  if (prevValues.design) lot.values.design = prevValues.design;
+
+  /* ---- rows: only what describes the lot ---- */
+  const prevRows = from.rows || {};
+  const rowCols = (key) => LOT_LEVEL_ROW_COLUMNS
+    .filter((p) => p.startsWith(`${key}.`)).map((p) => p.slice(key.length + 1));
+  const lotHostedTables = new Set();
+  for (const s of PLANTBOOK_SECTIONS) {
+    if ((s.into || s.id) !== 'lot') continue;
+    const rs = Array.isArray(s.rows) ? s.rows : s.rows ? [s.rows] : [];
+    for (const r of rs) lotHostedTables.add(r.key);
+  }
+
+  lot.rows = {};
+  const tables = [];
+  for (const [key, list] of SCHEMA.rows) {
+    const rows = Array.isArray(prevRows[key]) ? prevRows[key] : [];
+    if (lotHostedTables.has(key) || LOT_LEVEL_ROW_TABLES.includes(key)) {
+      if (rows.length) { lot.rows[key] = rows.map((r) => ({ ...r })); tables.push({ key, kept: 'whole' }); }
+      continue;
+    }
+    const keepCols = rowCols(key);
+    if (!keepCols.length) { tables.push({ key, kept: 'none' }); continue; }
+    // A table that is lot-level in SOME of its columns: keep those, drop the
+    // rest. `blend_pct` is the only one - its component identity describes the
+    // blend this design runs, while `pct` is what that sublot actually ran.
+    // The next lot starts on the design's own percentage again, so `pct` is
+    // re-seeded from `design_pct` rather than carried or blanked: a blend
+    // column with no number in it is not a starting point.
+    if (!rows.length) { tables.push({ key, kept: 'none' }); continue; }
+    lot.rows[key] = rows.map((r) => {
+      const out = {};
+      for (const c of keepCols) if (c in r) out[c] = r[c];
+      if (list.has('pct') && out.design_pct != null) out.pct = out.design_pct;
+      return out;
+    });
+    tables.push({ key, kept: keepCols.join('+') + (list.has('pct') ? '+pct(reset)' : '') });
+  }
+
+  /* ---- provenance and history ---- */
+  const src = from.extracted_from || {};
+  lot.extracted_from = {};
+  for (const k of Object.keys(src)) if (lot.values[k] != null) lot.extracted_from[k] = src[k];
+
+  lot.status = 'Open';
+  lot.history = [{
+    action: 'Opened from the previous lot',
+    from_lot: prevNo,
+    at: opts.now || null,
+    sm_id: opts.sm_id || null,
+    name: opts.name || null,
+    note: `Lot ${lotNumber} started from lot ${prevNo} of the same design. `
+        + 'The contract, plant, mix, approval, blend and project items carried over; '
+        + 'every measurement was cleared.',
+  }];
+
+  return {
+    ok: true,
+    lot,
+    report: {
+      fromLot: prevNo, toLot: lotNumber,
+      carried: carried.sort(), cleared: cleared.sort(), tables,
+      exceptions: ROLL_FORWARD_EXCEPTIONS,
+    },
+  };
+}
+
+export default { approvalChecks, lotFromApproval, rollForwardLot, frameFields,
+                 verifyRequest, readVerifyResponse, notChecked };
