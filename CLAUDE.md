@@ -3365,6 +3365,35 @@ read-only, so a write test goes through `apply_migration` and ends in
   against the code, not only the prose. The signed figures (`-6.25 tons`)
   keep the ASCII hyphen, deliberately - the copy-into-an-email rule stands.
 
+- **There is a demo film, and it is the real page clicked rather than a
+  mock-up** (Jake, 2026-09-15: "Can you make a demo video to show this site
+  off to people?"). `scripts/demo/` drives a browser through
+  `public/designbook.html` and records one continuous 2:56 take: a contractor
+  imports the real #467PA MixPack, submits, a KYTC reviewer opens that
+  submittal and approves it, and a PlantBook lot is opened from the approval
+  and paid. `node scripts/demo/demo.mjs` rebuilds it; the 18 MB `.webm` is
+  not committed.
+  **Filming it is a test, which is most of why it is worth keeping.** The
+  film does not narrate a flow, it performs one, so anything that does not
+  actually work stops the recording - and the run proved the whole chain end
+  to end, including that the page REFUSES a reviewer approving their own
+  submission (`canApprove` is `can_review` AND NOT `iSubmitted`), which is
+  why the film needs two identities and one page navigating between them
+  rather than one stubbed technician.
+  **The three offline stand-ins are named rather than left to be
+  discovered**, because a demo that quietly fakes a step is a claim about the
+  product: Supabase is stubbed (the harness rewrite already does this),
+  `sign-approval` is intercepted so the REAL `netlify/lib/canonical.mjs` does
+  the numbering under a demo key that is emphatically not the production one,
+  and `kytc-items` cannot reach transportation.ky.gov from here - so its red
+  "Couldn't read the contract's items" note is CLEARED rather than filmed or
+  filled with invented KYTC data.
+  Two facts for whoever runs it next. `HARNESS_LIBS` must point at a
+  `node_modules` carrying pdf-lib, xlsx and fflate, same as the browser
+  harness. And **Playwright's bundled ffmpeg is a stripped build** -
+  libvpx/WebM only, no MP4 or x264 - so the output is `.webm` and converting
+  it needs an ffmpeg from somewhere else.
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
