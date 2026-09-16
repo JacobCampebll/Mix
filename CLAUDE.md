@@ -3394,6 +3394,87 @@ read-only, so a write test goes through `apply_migration` and ends in
   libvpx/WebM only, no MP4 or x264 - so the output is `.webm` and converting
   it needs an ffmpeg from somewhere else.
 
+- **A lot opens the NEXT lot from its own file, and the rule that makes it
+  safe is "carry the frame, clear the record"** (Jake, 2026-09-16, choosing
+  route 1 of the three below). PlantBook's front door was the approval PDF and
+  nothing else, so the page saw the same file eleven times over a 44,000-ton
+  line item and could not tell the first lot from the eighth - the lot number
+  was typed, and `lot_number` is seeded to 1.
+  **A finished lot is a strictly RICHER starting point than the approval it
+  came from**: it carries the same design block plus everything a technician
+  has since corrected - the two lab ids, the compaction option `kytc-notes`
+  found on the proposal, a Project Items table refreshed after a change order.
+  So `PB_LOT.rollForwardLot()` takes the previous lot and `Start lot n+1` sits
+  on the Submit step, next to the saves, where a technician actually is when a
+  lot ends.
+  **THE POLARITY IS THE WHOLE DESIGN. Every field starts NULL and is carried
+  only if it is demonstrably frame**, never the other way round. A measurement
+  that slipped through would let somebody submit lot 8 holding lot 7's
+  numbers with nothing on screen saying so; a frame value wrongly cleared only
+  makes a technician retype it. Default-clear fails in the harmless direction,
+  so a field added to `sections.mjs` next year is cleared until somebody
+  decides otherwise.
+  **What the frame IS, is asked of the schema rather than listed** - the rule
+  `sections.mjs` already states about the sublot-lock exemptions, two of which
+  rotted on two separate merges in one day. A scalar is frame when its section
+  is the `lot` step or draws `into` it; it is a record on a sublot, a
+  gradation tab or a Department verification. That derives 18 `lot_*` scalars
+  and the 13 `jmf_*` sieve targets (a sieve section's READONLY column is the
+  design's published target, not anything anyone weighed) with exactly **two
+  named exceptions**: `lot_number`, which is incremented, and
+  `lot_wedge_tons`, which reads as a contract fact because it sits on Contract
+  & Mix and is a quantity THIS lot placed.
+  **`handmix` is the trap, and it is why the lock lists could not simply be
+  reused for the scalars.** The hand-mixed check sample sets the lot's Gse and
+  is lot-level to the sublot LOCK - it must not be gated by which sublot's
+  sample exists - but it is emphatically this lot's own MEASUREMENT. Two
+  questions that look identical and are not: the lock asks "is this gated by
+  which sublot's sample exists", the roll-forward asks "was this measured on
+  this lot's material". For ROW TABLES the two questions do coincide, so
+  `LOT_LEVEL_ROW_TABLES` and `LOT_LEVEL_ROW_COLUMNS` are reused as-is rather
+  than copied - `check_page_plantbook.mjs` already asserts every entry in them
+  names something real.
+  `blend_pct.pct` is re-seeded from `design_pct` rather than carried or
+  blanked: the next lot starts on the design's own percentage again, and a
+  blend column with no number in it is not a starting point.
+  **`check_rollforward.mjs` asserts the negative one by ENUMERATING FROM THE
+  SCHEMA, not from a list** - every scalar and every row column the derivation
+  does not call frame is stuffed with a sentinel, the lot is rolled, and the
+  whole envelope is searched for that sentinel. A measurement table added next
+  year is covered the day it is added, without anyone remembering that file
+  exists. 40 assertions; watched failing both ways (letting `handmix` count as
+  frame, and carrying `mat_cores` whole). `check_page_plantbook.mjs` sweeps
+  the page's copy over **poisoned** lots for the same reason: the two copies
+  must agree about what they REFUSE to carry, and a frame-only case would pass
+  even if one of them leaked every measurement.
+  **Two hazards close for free.** Lot 8 can never come out numbered 1, so the
+  `'Pay Values'!F3 = 1` setup allowance - which widens the AC ladder to 0.7
+  and rescues an air void or VMA to 100 on sublot 1 - stops being one
+  untouched seeded field away; and sublot 1 correctly locks on lot 2+.
+  **One loader, still.** `openLotEnvelope()` gained an optional wording
+  argument rather than a second path, because two readers would be two answers
+  to "what did I just open" and the second would be wrong the first time
+  somebody added a field. And the door is a BUTTON rather than a second file
+  input: opening lot 7's PDF must still REOPEN lot 7 to correct it, never
+  silently start lot 8 on top of it. A button you press is that intent; a file
+  you drop is not.
+  **Two checks of mine were wrong about the page before the page was**, both
+  in the direction that makes it look broken, which this file now records for
+  the fourth time. A hand-written exclusion list flagged `sublot_verified` as
+  a leak when it is a schema seed; and comparing raw values flagged
+  `ac_method` because "Ignition Furnace" is seeded on EVERY lot, so it matched
+  by collision rather than by carrying. The painted identities SHOULD differ
+  from lot 1 - `sublot: "2-1"`, `core_id: "2-1-A"` are built from the new lot
+  number, and that they changed is proof the roll worked. The assertion that
+  survived is the sentinel one against real data: none of lot 1's measured
+  values appear in lot 2, minus anything the schema seeds.
+  **Still open, and Tate's**: what the lot number resets on - per contract,
+  per line item, or per design. `addresses.mjs` comments `F3` as "1, 2, ...
+  within the contract"; `storage.mjs`'s identity (contract + plant + mix_id +
+  lot_number) assumes per design. They disagree, no real file can tell them
+  apart, and this door inherits whichever is right because it only ever adds
+  one to what it was given.
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
