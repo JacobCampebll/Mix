@@ -40,8 +40,9 @@ import * as shapes from "./checks/shapes.mjs";
 import * as bookswitch from "./checks/bookswitch.mjs";
 import * as compaction from "./checks/compaction.mjs";
 import * as sublotlocks from "./checks/sublotlocks.mjs";
+import * as nextlot from "./checks/nextlot.mjs";
 
-const CHECKS = [ids, steps, shapes, roundtrip, viewports, bookswitch, compaction, sublotlocks];
+const CHECKS = [ids, steps, shapes, roundtrip, viewports, bookswitch, compaction, sublotlocks, nextlot];
 
 async function main() {
   const argv = process.argv.slice(2);
