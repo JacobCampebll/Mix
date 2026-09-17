@@ -2573,6 +2573,32 @@ TBD — cite the governing spec section when encoding a limit in code.
   values. The check is generic (any sourced field whose matched row carries
   `flagged_mismatch: true`), not special-cased to this one table.
 
+- **Aggregate Blend's sublot tables silently wrapped back to the first
+  aggregates whenever a design had fewer than six components** (found
+  2026-09-17, Andrew, off a screenshot: sublot 2's table showing rows
+  labelled 2,3,4,5,1,2). The AMAW's blend block is a fixed 6-slot table per
+  sublot (`AGGREGATE.count`), and every renderer/mapper downstream slices
+  the flat 24-row `blend_pct` array assuming a fixed 6-per-sublot stride
+  (`sixOf4()` in `designbook.html`, `AGGREGATE.count` in `mapper.mjs`) -
+  but `intake.mjs`'s seeding loop (and its byte-identical mirror in
+  `designbook.html`) ran `agg.forEach`, so a 5-component design seeded only
+  5 rows per sublot block. With that shorter stride, sublot 2's 6-row slice
+  spilled into sublot 3's rows, sublot 3's into sublot 4's, and so on -
+  which on screen read as the table "starting over with the first few
+  aggregates" because a spilled-in row from the NEXT sublot at the SAME
+  component position carries identical producer/type/BOD (every sublot's
+  identity columns are seeded identically per component,
+  `paintBlendMirrors()`). **Same class of bug this file already warns
+  about with MAT_CORE_SEED - "the slots exist whether or not anyone [fills
+  them], so they are seeded the same way"** - the fix loops to
+  `AGGREGATE.count` now, not `agg.length`, so a design with fewer than six
+  components gets its real rows plus genuinely blank ones, never someone
+  else's data. `component` (1-6) is still always painted as the identity
+  anchor even on a blank slot, same reason `MAT_CORE_SEED`'s `core_id`
+  always is. Also repairs `mapper.mjs`'s AMAW output for the same reason -
+  its own comment already assumed "`blend_pct`, 24 rows (six components x
+  four sublots)", which the buggy seed was quietly not providing.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by

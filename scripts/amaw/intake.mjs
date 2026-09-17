@@ -882,13 +882,28 @@ export function lotFromApproval(payload, opts = {}) {
   // component, but only `pct` is ever edited afterwards: `design_pct` is a
   // separate, never-touched copy kept for comparison once a sublot's own %
   // has moved away from what was designed.
+  //
+  // FIXED 2026-09-17 (Andrew): this loop used to run `agg.forEach`, so a
+  // design with fewer than AGGREGATE.count (6) components seeded fewer than
+  // six rows for that sublot's block. Every renderer/mapper downstream
+  // assumes a fixed 6-per-sublot stride (sixOf4() in designbook.html,
+  // AGGREGATE.count in mapper.mjs) - with a short block, sublot 2's slice
+  // spilled into sublot 3's rows, sublot 3's into sublot 4's, and so on,
+  // which on screen looked like the table "wrapping back to the first few
+  // aggregates". Same bug MAT_CORE_SEED already avoids by always seeding
+  // exactly four core slots per sublot regardless of how many are actually
+  // cored - "the id is printed, the [rest] is blank". Loop to
+  // AGGREGATE.count now, not agg.length; a slot beyond the design's real
+  // component count gets its component NUMBER (the identity anchor) and
+  // nothing else.
   const blend_pct = [];
   for (let s = 1; s <= 4; s++) {
-    agg.forEach((r, i) => {
+    for (let i = 0; i < AGGREGATE.count; i++) {
+      const r = agg[i] || null;
       blend_pct.push({
         sublot: String(s),
         component: String(i + 1),
-        producer: str(r.producer) || null,
+        producer: r ? (str(r.producer) || null) : null,
         // NO AGP NUMBER. The approval does not carry one: the legacy importer
         // resolves the producer by KYTC's own AGP/AMP number and rides it on
         // the row as `_agp`, which CLAUDE.md records is deliberately not a
@@ -899,16 +914,16 @@ export function lotFromApproval(payload, opts = {}) {
         // from the other side: the key we needed was dropped at the
         // boundary, so we carry the label and say the key is owed.
         agp: null,
-        type_size: str(r.type_size) || null,
-        bod: num(r.gsb),
-        design_pct: num(r.pct_blend),
-        pct: num(r.pct_blend),
+        type_size: r ? (str(r.type_size) || null) : null,
+        bod: r ? num(r.gsb) : null,
+        design_pct: r ? num(r.pct_blend) : null,
+        pct: r ? num(r.pct_blend) : null,
         // Not a schema column - `alt`/isRapRow() re-derives it from Type &
         // size at render time. Carried on the report only, so the caller can
         // say "component 6 is the RAP" without re-implementing the test.
-        _rap: isRapType(r.type_size),
+        _rap: r ? isRapType(r.type_size) : false,
       });
-    });
+    }
   }
   if (agg.length) {
     inherited.push({ key: 'blend_pct', value: blend_pct, from: 'rows.aggregate',
