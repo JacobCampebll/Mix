@@ -1217,7 +1217,7 @@ export const PLANTBOOK_SECTIONS = [
     layout: "ledger",
     // Printed under the band, once. The wash is the provisional-value
     // tint this project already uses; the rule is what a blank box became.
-    legend: "Shaded values are read from the approval. A blue rule is yours to fill.",
+    legend: "Shaded values are read from the approval. Gold is still to fill in; blue is done.",
     cites: ["jmf", "accept402"],
     // A button in the section head, the same shape Contract Information's
     // contract lookup has. `key` is what the page dispatches on; the schema

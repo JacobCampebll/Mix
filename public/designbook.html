@@ -569,6 +569,24 @@
      chain on the third rule matches the base inset-edge rule's specificity
      exactly; one link shorter and the 2px bar stays. */
   .section[data-layout="ledger"] .box:not(.prefilled):not(.autofilled):not([readonly]):not(:disabled){border-bottom-color:var(--accent);}
+  /* Still to fill: GOLD, and a wash so it reads at a glance down the column
+     (Jake, 2026-09-17 - "yellow until they put the information in there...
+     so they know if they missed anything"). Blue means done; gold means
+     outstanding. Deliberately `.req` only: wedge tons and the two lab ids are
+     optional, and a person has not "missed" one of those by leaving it empty.
+     `.unfilled` is toggled by recompute()'s own required-field sweep, because
+     CSS cannot ask whether a <select> is empty - :placeholder-shown is for
+     inputs with placeholders and there is no equivalent for a select.
+     The :not() chain matches the rule above exactly so it wins on order. */
+  .section[data-layout="ledger"] .box.req.unfilled:not(.prefilled):not(.autofilled):not([readonly]):not(:disabled){
+       border-bottom-color:var(--gold); border-bottom-width:2px;
+       background-color:var(--flag-soft); border-radius:4px 4px 0 0; padding-left:8px; padding-right:8px;}
+  /* And the caret's room back. This rule is (0,9,0) against select.box's
+     (0,2,1), so its padding-right:8px would win and the caret would be drawn
+     straight over the text - the .rowitem .box trap CLAUDE.md records, hit
+     again. Checked in a browser, not reasoned about. */
+  .section[data-layout="ledger"] select.box.req.unfilled:not(.prefilled):not(.autofilled):not([readonly]):not(:disabled){
+       padding-right:22px;}
   .section[data-layout="ledger"] .box.prefilled,
   .section[data-layout="ledger"] .box.autofilled{background-color:var(--accent-soft); padding-left:8px; padding-right:8px; border-radius:4px;}
   .section[data-layout="ledger"] .box.prefilled:not(.critfail):not([readonly]):not(:disabled),
@@ -980,10 +998,25 @@
   .payallow{display:block; font-size:11px; color:var(--flag); margin-top:3px;}
   /* Layer 3: one line of working - name | expression | cell. Sub-lines (a
      specimen, a bowl) hang off a rule under their average. */
-  .payx-eq{display:grid; grid-template-columns:140px minmax(0,1fr) auto; gap:0 12px; align-items:baseline; padding:4px 0; font-size:12.5px;}
+  .payx-eq{display:grid; grid-template-columns:140px minmax(0,1fr); gap:0 12px; align-items:baseline; padding:4px 0; font-size:12.5px;}
   .payx-eq .k{font-size:11px; color:var(--muted);}
   .payx-eq .e{color:var(--ink); font-size:12.5px; overflow-wrap:anywhere;}
-  .payx-eq .c{font-size:10px; color:var(--muted); background:var(--wash); border-radius:4px; padding:1px 6px; white-space:nowrap;}
+  /* The workbook address used to be a third column and is now the row's
+     `title` (Jake, 2026-09-17). Two tracks, not three - an `auto` track with
+     nothing in it still takes the gap. */
+  /* A line measured on a real control is a link back to it. Only those get
+     the affordance: an average or a deviation is computed from the lines
+     above it and has nowhere to send you. */
+  .payx-eq.payx-goto{cursor:pointer; border-radius:6px; margin:0 -8px; padding-left:8px; padding-right:26px; position:relative;}
+  .payx-eq.payx-goto:hover,
+  .payx-eq.payx-goto:focus-visible{background:var(--accent-soft); outline:none;}
+  .payx-eq.payx-goto:hover .k,
+  .payx-eq.payx-goto:focus-visible .k{color:var(--accent);}
+  .payx-eq.payx-goto::after{content:"\2192"; position:absolute; right:9px; top:50%; transform:translateY(-50%);
+       font-size:12px; color:var(--accent); opacity:0; transition:opacity .12s;}
+  .payx-eq.payx-goto:hover::after,
+  .payx-eq.payx-goto:focus-visible::after{opacity:1;}
+  .payx-eq.payx-goto.sub{margin-left:12px;}
   .payx-eq.sub{margin-left:12px; padding-left:12px; border-left:2px solid var(--line);}
   .payx-eq.roll{margin-top:10px; padding:8px 12px; background:var(--accent-soft); border-radius:8px;}
   .payx-eq.roll .k{color:var(--accent); font-weight:600;}
@@ -4177,7 +4210,7 @@ const verifySpecimenOf4 = (n) =>
       layout: "ledger",
       // Printed under the band, once. The wash is the provisional-value
       // tint this project already uses; the rule is what a blank box became.
-      legend: "Shaded values are read from the approval. A blue rule is yours to fill.",
+      legend: "Shaded values are read from the approval. Gold is still to fill in; blue is done.",
       cites: ["jmf", "accept402"],
       // A button in the section head, the same shape Contract Information's
       // contract lookup has. `key` is what the page dispatches on; the schema
@@ -7730,7 +7763,15 @@ function recompute() {
     if (id === "status") return;
     const reqs = sec.querySelectorAll(".req");
     let filled = 0;
-    reqs.forEach((el) => { if (String(el.value || "").trim()) filled++; });
+    // `.unfilled` is set here rather than in a pass of its own, because this
+    // loop already reads every required control's value on every recompute.
+    // It is set page-wide and styled only by the LEDGER block, so nothing
+    // else changes appearance - see "yours to fill" there.
+    reqs.forEach((el) => {
+      const has = !!String(el.value || "").trim();
+      if (has) filled++;
+      el.classList.toggle("unfilled", !has);
+    });
     // A hidden section (Polish on a Type D mix) is not part of the design, so
     // it is not part of the denominator either - otherwise such a mix would
     // read as permanently incomplete.
@@ -12990,48 +13031,56 @@ function detailsHTML(key, open, cls, summary, body) {
 }
 
 // One line of working: a name, the expression, and the cell it lives in.
-function eqHTML(esc, name, expr, cell, cls = '') {
-  return `<div class="payx-eq${cls ? ' ' + cls : ''}"><span class="k">${esc(name)}</span>`
-    + `<span class="e mono">${esc(expr)}</span>`
-    + (cell ? `<span class="c mono">${esc(cell)}</span>` : '') + `</div>`;
+const src = (n, table, row) =>
+  (Number.isFinite(Number(n)) && table && row !== '' && row != null) ? `sublot-${n}|${table}|${row}` : '';
+
+function eqHTML(esc, name, expr, cell, cls = '', goto = '') {
+  const cl = 'payx-eq' + (cls ? ' ' + cls : '') + (goto ? ' payx-goto' : '');
+  return `<div class="${cl}"${cell ? ` title="${esc(cell)}"` : ''}`
+    + (goto ? ` data-goto="${esc(goto)}" role="button" tabindex="0"` : '') + '>'
+    + `<span class="k">${esc(name)}</span>`
+    + `<span class="e mono">${esc(expr)}</span></div>`;
 }
 
 // ---- layer 3: the figures behind one sublot's measured value ---------------
 
-function gmbFigures(esc, t) {
+function gmbFigures(esc, t, n) {
   if (!t) return '';
   const lines = [eqHTML(esc, 'Gmb', `${fx(t.gmb, 3)} - bulk specific gravity, the average of the specimens`, 'Superpave G, Average row')];
   (t.specimens || []).forEach((s, k) => {
     lines.push(eqHTML(esc, `specimen ${k + 1}`,
       `${fx(s.air, 1)} g in air ÷ (${fx(s.ssd, 1)} SSD − ${fx(s.water, 1)} in water = ${fx(s.volume, 1)}) = ${fx(s.bsg, 3)}`,
-      'Superpave F, G', 'sub'));
+      'Superpave F, G', 'sub', src(n, 'sublot_bsg', k)));
   });
   return lines.join('');
 }
-function gmmFigures(esc, t) {
+function gmmFigures(esc, t, n) {
   if (!t) return '';
   const lines = [eqHTML(esc, 'Gmm', `${fx(t.gmm, 3)} - maximum specific gravity (Rice), the average of the bowls`, 'Superpave row 42')];
   (t.dets || []).forEach((d, k) => {
     lines.push(eqHTML(esc, `bowl ${k + 1}`,
       `${fx(d.mix, 1)} g mix ÷ (${fx(d.mix, 1)} + ${fx(d.calibration, 1)} calibration − ${fx(d.finalWeight, 1)} final + ${fx(d.absorbedWater ?? 0, 1)} absorbed) = ${fx(d.msg, 3)}`,
-      'Superpave row 41', 'sub'));
+      'Superpave row 41', 'sub', src(n, 'sublot_msg', k)));
   });
   return lines.join('');
 }
-function acFigures(esc, t, hm, s) {
+function acFigures(esc, t, hm, s, n) {
   if (!t) return '';
   const out = [];
   if (hm) {
-    out.push(eqHTML(esc, 'Gse', `${fx(hm.gse, 3)} - effective aggregate gravity, from the hand-mixed check sample`, 'Superpave!J8'));
+    // The hand-mixed check sample is the LOT's, and it lives on Sublot 1's tab.
+    out.push(eqHTML(esc, 'Gse', `${fx(hm.gse, 3)} - effective aggregate gravity, from the hand-mixed check sample`,
+      'Superpave!J8', '', src(1, 'handmix_msg', 0)));
     out.push(eqHTML(esc, '', `(100 − ${fx(hm.binderPct, 2)} hand-mixed %AC) ÷ (100 ÷ ${fx(hm.gmm, 3)} hand-mixed Gmm - ${fx(hm.binderPct, 2)} ÷ 1.03) = ${fx(hm.gse, 3)}`, '', 'sub'));
   }
-  out.push(gmmFigures(esc, t));
+  out.push(gmmFigures(esc, t, n));
   out.push(eqHTML(esc, 'back-calculated %AC',
     `1.03 × (${fx(t.gse, 3)} − ${fx(t.gmm, 3)}) ÷ (${fx(t.gmm, 3)} × (${fx(t.gse, 3)} − 1.03)) × 100 = ${fx(t.backCalc, 2)}`, 'Gradation!D34'));
   if (t.moisture && isNum(t.moisture.pct)) {
     const m = t.moisture;
     out.push(eqHTML(esc, 'moisture',
-      `((${fx(m.before, 1)} − ${fx(m.pan, 1)}) − (${fx(m.after, 1)} − ${fx(m.pan, 1)})) ÷ (${fx(m.before, 1)} − ${fx(m.pan, 1)}) × 100 = ${fx(m.pct, 2)}%`, 'Superpave G48'));
+      `((${fx(m.before, 1)} − ${fx(m.pan, 1)}) − (${fx(m.after, 1)} − ${fx(m.pan, 1)})) ÷ (${fx(m.before, 1)} − ${fx(m.pan, 1)}) × 100 = ${fx(m.pct, 2)}%`,
+      'Superpave G48', '', src(n, 'sublot_moisture', 0)));
     out.push(eqHTML(esc, '%AC', `${fx(t.backCalc, 2)} − ${fx(m.pct, 2)} = ${fx(t.binderPct, 2)}`, "Gradation!D33 → Superpave!B14"));
   } else {
     out.push(eqHTML(esc, '%AC', `${fx(t.binderPct, 2)} - no moisture entered, so nothing is taken off`, 'Superpave!B14'));
@@ -13039,22 +13088,27 @@ function acFigures(esc, t, hm, s) {
   out.push(eqHTML(esc, 'deviation', `${fx(t.binderPct, 2)} − ${fx(s.jmfAC, 2)} JMF = ${sg(isNum(t.binderPct) && isNum(s.jmfAC) ? t.binderPct - s.jmfAC : null, 2)}`, "'Pay Values'!C13"));
   return out.join('');
 }
-function avFigures(esc, t) {
+function avFigures(esc, t, n) {
   if (!t) return '';
-  return gmbFigures(esc, t) + gmmFigures(esc, t)
+  return gmbFigures(esc, t, n) + gmmFigures(esc, t, n)
     + eqHTML(esc, 'air voids', `(${fx(t.gmm, 3)} − ${fx(t.gmb, 3)}) ÷ ${fx(t.gmm, 3)} × 100 = ${fx(t.va, 2)}%`, "Superpave J → 'Pay Values'!F13");
 }
-function vmaFigures(esc, t, s) {
+function vmaFigures(esc, t, s, n) {
   if (!t) return '';
-  return gmbFigures(esc, t)
+  return gmbFigures(esc, t, n)
     + eqHTML(esc, '%AC', `${fx(t.binderPct, 2)} - back-calculated, see the % AC line`, 'Superpave!B14')
     + eqHTML(esc, 'Gsb', `${fx(t.gsb, 3)} - combined aggregate gravity for this sublot, from the blend`, 'Superpave R9:U9')
     + eqHTML(esc, 'VMA', `100 − ${fx(t.gmb, 3)} × (100 − ${fx(t.binderPct, 2)}) ÷ ${fx(t.gsb, 3)} = ${fx(t.vma, 2)}%`, "Superpave M → 'Pay Values'!I13")
     + eqHTML(esc, 'deviation', `${fx(t.vma, 2)} − ${fx(s.minVMA, 2)} minimum = ${sg(isNum(t.vma) && isNum(s.minVMA) ? t.vma - s.minVMA : null, 2)}`, "'Pay Values'!J13");
 }
-function coreFigures(esc, c) {
+function coreFigures(esc, c, n, table, id) {
   if (!c) return '';
-  return eqHTML(esc, 'BSG', `${fx(c.air, 1)} g in air ÷ (${fx(c.ssd, 1)} SSD − ${fx(c.water, 1)} in water) = ${fx(c.bsg, 3)}`, 'Cores G', 'sub')
+  // A core is found by its ID, never by its position: the trace carries only
+  // the cores that HAVE a % solid, in table order, so index k here is not
+  // index k in the table the moment one core was labelled and never measured
+  // (which is exactly what lot 1 of the two real AMAWs does).
+  const to = id ? src(n, table, '#' + id) : '';
+  return eqHTML(esc, 'BSG', `${fx(c.air, 1)} g in air ÷ (${fx(c.ssd, 1)} SSD − ${fx(c.water, 1)} in water) = ${fx(c.bsg, 3)}`, 'Cores G', 'sub', to)
     + eqHTML(esc, 'density', `${fx(c.bsg, 3)} × 62.4 = ${fx(c.density, 1)} pcf`, 'Cores H', 'sub')
     + eqHTML(esc, '% solid', `${fx(c.density, 1)} ÷ (${fx(c.msg, 3)} sublot Gmm × 62.4) × 100 = ${fx(c.pctSolid, 2)}%`, 'Cores I', 'sub');
 }
@@ -13097,15 +13151,15 @@ function volumetricWhy(p, result, ctx, esc, open) {
     if (p.key === 'ac') {
       measured = isNum(r.dev) ? `${fx(inp.ac, 2)}% (JMF ${fx(inp.jmfAC, 2)}, dev ${sg(r.dev, 2)})` : '—';
       rounded = isNum(r.rounded) ? `|dev| ${fx(r.rounded, 1)}` : '—';
-      figures = acFigures(esc, t, trace.handmix, inp);
+      figures = acFigures(esc, t, trace.handmix, inp, i + 1);
     } else if (p.key === 'av') {
       measured = isNum(inp.av) ? `${fx(inp.av, 2)}%` : '—';
       rounded = isNum(r.rounded) ? fx(r.rounded, 1) : '—';
-      figures = avFigures(esc, t);
+      figures = avFigures(esc, t, i + 1);
     } else {
       measured = isNum(r.dev) ? `${fx(inp.vma, 2)}% (min ${fx(inp.minVMA, 2)}, dev ${sg(r.dev, 2)})` : '—';
       rounded = isNum(r.rounded) ? sg(r.rounded, 1) : '—';
-      figures = vmaFigures(esc, t, inp);
+      figures = vmaFigures(esc, t, inp, i + 1);
     }
     const cells = [esc(`Sublot ${i + 1}`), `<span class="mono">${esc(measured)}</span>`, `<span class="mono">${esc(rounded)}</span>`,
                    bandText(esc, r, p.key), payBadge(r.pay, esc)];
@@ -13159,8 +13213,11 @@ function densityWhy(p, result, ctx, esc, open) {
         : (c.note || 'no band matched → MCL');
       const tc = t[k] || null;
       const id = tc && tc.id ? tc.id : `core ${k + 1}`;
-      return eqHTML(esc, id, `${tc ? fx(tc.pctSolid, 2) : fx(c.rounded, 1)}% solid → rounded ${fx(c.rounded, 1)} → ${band} = ${isMCL(c.pay) ? c.pay : trim(c.pay)}`, `Calculations row ${label === 'lane' ? '22' : '56'}`)
-        + coreFigures(esc, tc);
+      const table = label === 'lane' ? 'mat_cores' : 'joint_cores';
+      const to = tc && tc.id ? src(i + 1, table, '#' + tc.id) : '';
+      return eqHTML(esc, id, `${tc ? fx(tc.pctSolid, 2) : fx(c.rounded, 1)}% solid → rounded ${fx(c.rounded, 1)} → ${band} = ${isMCL(c.pay) ? c.pay : trim(c.pay)}`,
+        `Calculations row ${label === 'lane' ? '22' : '56'}`, '', to)
+        + coreFigures(esc, tc, i + 1, table, tc && tc.id);
     }).join('');
     rows.push(detailsHTML(`core.${p.key}.${i}`, open, 'payx-sub', subGrid(esc, cells), body));
   });
@@ -19712,6 +19769,49 @@ function downloadLotFile() {
   msg($("saveMsg"), `${name} downloaded. Open it from the Portal to come back to exactly this point.`, "ok");
 }
 
+/* From a figure on Lot Pay to the box it was measured in.
+ *
+ * Jake, 2026-09-17: "where it says gmb then specimen 1 or 2, they can click on
+ * it and boom it takes them down to that specific area in the lot pages".
+ *
+ * The target is "<section>|<row table>|<row>" and is built by payview.mjs, so
+ * the readout decides what is reachable and this only has to find it. <row> is
+ * an INDEX into that section's own slice of the table, or `#<value>` to match
+ * an identity cell - cores use the second form because the trace carries only
+ * the cores that have a % solid, so its index is not the table's the moment a
+ * core was labelled and never measured.
+ *
+ * jumpTo() does the rest, and it has to: `.focus()` inside a display:none step
+ * does nothing and reports nothing, so the step must be switched to FIRST -
+ * which go() handles, along with the one-page case where there is no switch at
+ * all and a smooth scroll to wait out instead.
+ */
+function gotoLotSource(spec) {
+  const [sectionId, table, which] = String(spec || "").split("|");
+  const sec = $(sectionId);
+  if (!sec) return;
+  const list = table ? sec.querySelector(`[data-rowlist="${table}"]`) : null;
+  let row = null;
+  if (list) {
+    const rows = Array.from(list.children);
+    if (String(which).startsWith("#")) {
+      const id = which.slice(1);
+      row = rows.find((r) => Array.from(r.querySelectorAll("[data-col]"))
+        .some((el) => String(el.value || "").trim() === id)) || null;
+    } else {
+      row = rows[Number(which)] || null;
+    }
+  }
+  // The first control a person can actually type in. A locked sublot's are all
+  // disabled, so this comes back null and the step still opens and flashes -
+  // which is the honest outcome: the figure is there, the box is not yours yet.
+  const el = row
+    ? row.querySelector("input:not([readonly]):not(:disabled), select:not([readonly]):not(:disabled)")
+    : null;
+  jumpTo(sectionId, false, el);
+  if (row) { row.classList.add("flash"); setTimeout(() => row.classList.remove("flash"), 1200); }
+}
+
 /* Lot n -> lot n+1, from the lot in front of you.
  *
  * The frame is taken from the form AS IT STANDS (lotSnapshot), not from what
@@ -21481,6 +21581,15 @@ $("bookDesign").addEventListener("click", () => switchBook("designbook"));
 $("bookPlant").addEventListener("click", () => switchBook("plantbook"));
 $("portalLink").addEventListener("click", toPortal);
 $("signOutLink").addEventListener("click", async () => { await sb.auth.signOut(); toLogin(); });
+document.addEventListener("keydown", (e) => {
+  // The working lines carry role="button" and tabindex="0", so they owe the
+  // keyboard what a button gives: Enter and Space.
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const jump = e.target && e.target.closest ? e.target.closest("[data-goto]") : null;
+  if (!jump) return;
+  e.preventDefault();
+  gotoLotSource(jump.dataset.goto);
+});
 document.addEventListener("click", (e) => {
   if (!e.target) return;
   if (e.target.id === "pdfBtn") downloadReviewPDF();
@@ -21491,6 +21600,9 @@ document.addEventListener("click", (e) => {
   if (e.target.id === "lotFileBtn") downloadLotFile();
   if (e.target.id === "lotPdfBtn") downloadLotPdf();
   if (e.target.id === "nextLotBtn") startNextLot();
+  // A Lot Pay working line, clicked: go to the control it was measured on.
+  const jump = e.target.closest ? e.target.closest("[data-goto]") : null;
+  if (jump) { gotoLotSource(jump.dataset.goto); return; }
   if (e.target.id === "lotSubmittalBtn") downloadLotSubmittal();
   // closest(), not e.target.id: both lookup buttons carry a .wide-only span,
   // so a click that lands on the word "contract" or "project" targets the
