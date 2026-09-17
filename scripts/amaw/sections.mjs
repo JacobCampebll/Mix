@@ -832,8 +832,9 @@ const JOINT_CORES_SPEC = {
 //  Andrew's standing call, 2026-09-14: one canonical edit point beats four
 //  that could disagree), and the last column, Sublot %, is THIS tab's own.
 //
-//  `aggBlendColumns(editable)` returns the shared column list, differing
-//  only in `readonly`/`req` on the five identity+design columns: Sublot 1's
+//  `aggBlendColumns(editable, n)` returns the shared column list, differing
+//  only in `readonly`/`req` on the five identity+design columns (`editable`)
+//  and the "Sublot % " heading's own number (`n`): Sublot 1's
 //  copy gets `editable: true` (typed, sourced against `aggregates`/
 //  `aggregate_types`), Sublots 2-4 get `editable: false` (painted by
 //  paintBlendMirrors(), designbook.html, same "read-only mirror" pattern
@@ -870,7 +871,7 @@ const JOINT_CORES_SPEC = {
 //  MIDDLE of Sublot 1's six would silently compact the rest upward and
 //  desync `component`'s own numbering from row position - `component`
 //  itself is what stops that, being the one cell always painted regardless.
-function aggBlendColumns(editable) {
+function aggBlendColumns(editable, n) {
   return [
     // `hidden: true` - a real, always-collected cell (rowHTML()'s own note),
     // just not a printed column: the tab a row is on already says which
@@ -916,7 +917,15 @@ function aggBlendColumns(editable) {
     // The design's own blend % for this component - reference only, never
     // typed and never overwritten by editing "Sublot %" below.
     { key: "design_pct", label: "Design %", type: "number", mono: true, readonly: true },
-    { key: "pct", label: "Sublot %", type: "number", req: true, mono: true },
+    // The sublot number is in the heading, not just "Sublot %" - Andrew,
+    // 2026-09-17: four tabs share this same column key, and a reviewer
+    // moving between them reads "Sublot %" on every one with nothing
+    // saying which sublot it is (the tab chrome is the only place that
+    // does). `n` is undefined when this is called without a tab context
+    // (there isn't one today, but aggBlendColumns() is a shared builder,
+    // not tab-specific), so it falls back to the bare label rather than
+    // printing "Sublot undefined %".
+    { key: "pct", label: n ? `Sublot ${n} %` : "Sublot %", type: "number", req: true, mono: true },
   ];
 }
 function aggBlendSpec(n) {
@@ -927,7 +936,7 @@ function aggBlendSpec(n) {
       // Seven tracks - component, producer, AGP, type & size, BOD, Design %,
       // Sublot %.
       grid: ".3fr 1.7fr .7fr 1.05fr .5fr .55fr .55fr",
-      columns: aggBlendColumns(n === 1),
+      columns: aggBlendColumns(n === 1, n),
     }, sixOf4(n)),
     // The stat lives IN the row-group's own navy banner (rowHeadingHTML(),
     // designbook.html) rather than as a separate readout field above it -
