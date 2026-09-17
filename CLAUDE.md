@@ -3741,6 +3741,35 @@ commit where possible.
   reference tables never had the `revoke all ... grant select` step run on
   them. The new lab tables do, so they match `plants` rather than those.)
 
+- **PlantBook's front door crashed on ANY file that was not a `.pdf` or
+  `.json`, and it took a real AMAW to find it** (2026-09-17, Andrew: Jake
+  sent a test AMAW to preview the interface, dropped it on "Start a lot",
+  got "Cannot read properties of null (reading 'max')"). `handleFile()` is
+  ONE function shared by both books' upload dropzones, and its two early
+  checks only recognize `.pdf` (an approval, on PlantBook) and `.json` (a
+  saved lot, PlantBook only) - anything else fell through, unconditionally,
+  into DesignBook's legacy MixPack importer. That importer's very first row
+  table lookup is `rowSpec("aggregate")`, which resolves against
+  `activeSections()` - on PlantBook that is `PLANTBOOK_SECTIONS`, which has
+  no section named `"aggregate"` (PlantBook's equivalent is `blend_pct`, a
+  different key) - so the lookup returned `null` and the next line's
+  `spec.max` threw. Same shape as the `supabase`/`sb` gotcha's cousin: not a
+  silent failure this time, but still a generic function assuming one book's
+  schema with nothing checking which book is active first.
+  **The AMAW itself was never going to work here anyway, crash or not** -
+  PlantBook does not read a completed AMAW as input under any circumstance;
+  its only two doors are a DesignBook approval and its own saved `.json`.
+  Jake's file was the right instinct (a real example to preview against) on
+  the wrong door.
+  Fixed with a guard right after the `.json` branch: `isPlantBook()` with
+  neither a pdf nor a json refuses cleanly ("PlantBook opens a KYTC approval
+  PDF or a saved lot (.json)...") rather than falling into DesignBook's
+  importer at all. Worth remembering as a class: a shared handler with an
+  early-exit per recognized case and a silent fall-through for everything
+  else is a trap the MOMENT one of the branches is book-specific - the fix
+  is a book-specific handler's fall-through refusing explicitly, not just
+  recognizing more cases.
+
 
 - **A sublot's gradation is four columns now - grams, this sublot's % passing,
   the JMF target, and the deviation - and the schema's two columns are no

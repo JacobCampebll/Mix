@@ -8923,6 +8923,23 @@ async function handleFile(file) {
     catch (err) { msg($("uploadMsg"), err.message || "That is not a PlantBook lot file.", "error"); }
     return;
   }
+  // FOUND 2026-09-17 (Andrew, off a real AMAW Jake sent to test with): the
+  // legacy-workbook reader below is DesignBook's own MixPack importer, and
+  // it has no PlantBook awareness at all - rowSpec("aggregate") resolves
+  // against activeSections(), which on PlantBook is PLANTBOOK_SECTIONS, and
+  // that schema has no "aggregate" row table (its equivalent is blend_pct,
+  // a different key). Without this guard, ANY non-pdf/non-json drop on
+  // PlantBook's front door - an AMAW, an unrelated spreadsheet, a genuine
+  // legacy MixPack meant for the other book - fell through to that reader
+  // and crashed on `spec.max` with `spec` null, a raw JS error rather than
+  // a stated refusal. PlantBook only ever opens an approval or its own
+  // saved lot; there is no third thing for it to try.
+  if (isPlantBook()) {
+    msg($("uploadMsg"),
+      `PlantBook opens a KYTC approval PDF or a saved lot (.json) - "${file.name}" is neither, so there's nothing to read it as.`,
+      "error");
+    return;
+  }
   try {
     const wb = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
     // state.ref goes in so the aggregate rows' AGG. PROD. NO. can be resolved
