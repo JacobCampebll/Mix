@@ -10,27 +10,54 @@ before anything was written to Supabase.
 `supabase/producer_supplier_labs.sql` cleanly** — one code, one AMP number,
 that AMP number is a real row in `plants`. **All 80 KYTC district/CO/crew
 codes (`LU#####` / `DL#####`) went into `supabase/kytc_district_labs.sql`.**
-Everything below was left OUT of the seed rather than guessed at. Nothing
-here blocks PlantBook — it just means these specific plants/companies have
-no producer/supplier lab option in the dropdown yet.
+**A second pass 2026-09-17b resolved the 8 duplicate-AMP codes (section 1)
+too, adding 17 more rows** — 109 total now. Everything else below was left
+OUT of the seed rather than guessed at. Nothing here blocks PlantBook — it
+just means these specific plants/companies have no producer/supplier lab
+option in the dropdown yet.
 
-## 1. Duplicate lab codes for one AMP (8) — which is current?
+**Same pass, `lab_name`'s job changed.** It no longer holds the export's
+raw "Company - AMPxxxxxx" string; it's `plants.name` itself, kept in sync
+by a trigger (`trg_sync_producer_supplier_lab_name` / `trg_cascade_
+plant_name_to_labs` in `supabase/producer_supplier_labs.sql`) rather than
+the `producer_supplier_labs_view` join this doc originally described - see
+that file's second appended section for why. `company_name` is dropped.
+The original raw export strings for the 92 rows below are preserved only
+in this document and the source spreadsheet, not in a live column.
 
-Both/all codes were left out entirely (neither guessed as "the" one) until
-you say which is current. If one is simply retired, say so and the other
-seeds cleanly; if a plant genuinely has two active lab codes, the table
-already supports more than one row per AMP.
+## 1. Duplicate lab codes for one AMP (8) — RESOLVED 2026-09-17b
 
-| AMP | Codes on file |
+Andrew: "I already gave you the attached excel file, but let's do another
+pass to make sure nothing is missing between plants table and producer
+supplier lab IDs" — off noticing Allen/Berea (`AMP070301`) missing. Re-read
+the export in full (still just `LAB_ID`/`LAB_NM`, no status/date/active
+column to settle a tie mechanically) and resolved by comparing each code's
+company against `plants.name` — the same test that produced the 7 rows
+flagged in section 5. All 17 codes are now seeded.
+
+**6 of the 8 AMPs had no real conflict at all** — both (or all three) codes
+agree with `plants`, so all of them are inserted, neither/none flagged:
+
+| AMP | Codes inserted |
 |---|---|
-| `AMP020101` (Scotty's Contracting @ Greenville) | `C384` "Road Builders Paving & Const", `C298` "Scotty's Contracting" |
 | `AMP020304` (J H Rudolph @ St Croix Indiana) | `C169`, `C786` — both "J. H. Rudolph & Co." |
 | `AMP040311` (Scotty's Contracting @ Upton "Rocky") | `C240`, `C171` — both "Scotty's Contracting" |
-| `AMP050312` (Asphalt Supply Co @ Sellersburg, IN) | `C798` "Asphalt Supply Company", `C800` "Hall Contracting" |
 | `AMP070301` (The Allen Company @ Berea) | `C199`, `C518` — both "The Allen Company" |
 | `AMP080302` (L-G Materials @ Mount Vernon) | `C215`, `C222`, `C785` — all "L-G Materials" |
 | `AMP100301` (Hinkle Contracting @ Cave Run Stone) | `C245`, `C250` — both "Hinkle Contracting Corp." |
 | `AMP110204` (Hinkle Contracting @ Middlesboro) | `C218`, `C219` — both "Hinkle Contracting Corp." |
+
+If a plant genuinely runs two lab codes at once, both rows are already
+there for a technician to pick between — nothing forces a single answer.
+
+**The other 2 were never actually a tie** — one code already matches
+`plants`, the other doesn't, so both are inserted and the mismatched one
+is flagged exactly like section 5's 7 rows:
+
+| AMP | Clean (matches `plants`) | Flagged (`flagged_mismatch`) |
+|---|---|---|
+| `AMP020101` (Scotty's Contracting @ Greenville) | `C298` "Scotty's Contracting" | `C384` "Road Builders Paving & Const" |
+| `AMP050312` (Asphalt Supply Co @ Sellersburg, IN) | `C798` "Asphalt Supply Company" | `C800` "Hall Contracting" |
 
 ## 2. Excel AMP numbers not in `plants` (26) — typo, or already retired?
 

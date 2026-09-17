@@ -3770,7 +3770,6 @@ commit where possible.
   is a book-specific handler's fall-through refusing explicitly, not just
   recognizing more cases.
 
-
 - **A sublot's gradation is four columns now - grams, this sublot's % passing,
   the JMF target, and the deviation - and the schema's two columns are no
   longer the table's** (Jake, 2026-09-17: "make a third column so the one
@@ -3824,6 +3823,46 @@ commit where possible.
   recomputed from the DOM by a second reader.
   Measured at 1440/1000/701/390: zero clipped inputs and zero page overflow
   at every width, so the two extra columns cost nothing even on a phone.
+
+- **`producer_supplier_labs.lab_name` is `plants.name` now, trigger-
+  maintained rather than joined, and `producer_supplier_labs_view` is
+  gone** (2026-09-17b, Andrew: "make the producer supplier labs table
+  simpler, with lab id, amp number, lab name column (with plant location
+  and without AMP number redundancy)"). This REVERSES the 2026-09-17
+  decision two entries up ("a live join, never a stored copy") - not
+  because that reasoning was wrong, but because the same guarantee (can't
+  drift from `plants.name`) is available a second way: `trg_sync_
+  producer_supplier_lab_name` sets it on insert or `amp_number` change,
+  `trg_cascade_plant_name_to_labs` re-syncs every row tied to an AMP
+  whenever `plants.name` is corrected (the Gaddie Shamrock LLC fix would
+  have cascaded automatically had it landed after this). A trigger is a
+  DIFFERENT tradeoff than a view, not a strictly better one - more moving
+  parts (two functions, two triggers, `get_advisors` flagged both for a
+  mutable `search_path` and needed `set search_path = public, pg_temp`
+  added to each) bought for a base table that reads "Company @ Site"
+  directly in Studio's Table Editor with no view to remember exists.
+  `company_name` is dropped - fully superseded once `lab_name` became the
+  plant's own name rather than the export's raw label. The page's
+  `CONFIG.REFERENCE.TABLES.producer_supplier_labs` (both copies) points at
+  the bare table again; `label` is a plain `${lab_id} — ${lab_name} —
+  ${amp_number}` with no `plant_name`/`company_name` fallback branch to
+  choose between, because there is only one name column left.
+  **Same pass resolved all 8 duplicate-AMP rows left out of the original
+  seed** (`docs/plantbook-lab-id-reconciliation.md` section 1 - Andrew,
+  off noticing Allen/Berea missing: "let's do another pass to make sure
+  nothing is missing between plants table an[d] producer supplier lab
+  IDs"). Comparing each code's ORIGINAL export company against
+  `plants.name` - the exact test that produced the 7 `flagged_mismatch`
+  rows already on file - turned out to settle 6 of the 8 AMPs outright
+  (both/all codes agree with `plants`, so neither is flagged) and revealed
+  the other 2 were never really a tie: one code already matched `plants`,
+  the other didn't. All 17 codes are inserted; 2 more rows join the
+  original 7 under `flagged_mismatch` (9 total), the rest clean. General
+  lesson worth carrying: **a "duplicate, can't tell which is right" case
+  is worth re-testing against whatever you've already decided is gospel**
+  before accepting it as unresolvable - the same `plants`-is-gospel
+  comparison that flagged 7 rows the first time silently answered most of
+  a second, harder-looking question too.
 
 - **The sublot gradation table is 356px wide now, down from ~590, and the
   chart took every pixel of it** (Jake, 2026-09-17: "lets make the width of
