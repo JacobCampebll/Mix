@@ -8019,7 +8019,22 @@ function recompute() {
   const rollUp = true;
 
   const missing = outstanding.filter((o) => o.kind !== "warn"), warns = outstanding.filter((o) => o.kind === "warn");
-  const all = missing.concat(warns);
+  // The rail reads start-to-finish in tab order (Andrew, 2026-09-17: a
+  // step 1 warning showing up after every step's "missing" count, because
+  // this used to be missing.concat(warns) - every "missing" item first,
+  // regardless of step, then every "warn" item after). `stepIndexOf` is
+  // the one place that gets resolved now; `stepNo()` below reads the same
+  // index rather than re-deriving it, so the sort order and the printed
+  // step label can never disagree. `.slice()` before `.sort()` because
+  // Array#sort mutates in place and `outstanding` is read elsewhere by
+  // reference this same tick (the completeness meter above, for one).
+  const vis = visibleSteps();
+  const stepIndexOf = (id) => {
+    const sec = secs.find((x) => x.dataset.section === hostSectionId(id));
+    const n = sec ? vis.indexOf(sec) : -1;
+    return n < 0 ? Infinity : n;   // no step (e.g. a hidden section) sorts last
+  };
+  const all = outstanding.slice().sort((a, b) => stepIndexOf(a.id) - stepIndexOf(b.id));
   const items = rollUp ? all : all.filter((o) => hostSectionId(o.id) === hereId);
   const mine = { missing: items.filter((o) => o.kind !== "warn").length,
                  warns: items.filter((o) => o.kind === "warn").length };
@@ -8028,10 +8043,8 @@ function recompute() {
   // page it names a place the reader cannot go - the same reason the rail
   // keeps its labels on a phone rather than showing bare numerals.
   const stepNo = (id) => {
-    const sec = secs.find((x) => x.dataset.section === hostSectionId(id));
-    const vis = visibleSteps();
-    const n = sec ? vis.indexOf(sec) + 1 : 0;
-    return n ? `step ${n}` : "";
+    const n = stepIndexOf(id);
+    return Number.isFinite(n) ? `step ${n + 1}` : "";
   };
   const item = (o, i) =>
     `<div class="vitem${o.kind === "warn" ? " warn" : ""}" data-idx="${i}"><span class="flag${o.kind === "warn" ? " warn" : ""}"></span>
