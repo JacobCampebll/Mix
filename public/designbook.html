@@ -835,11 +835,47 @@
      phone is a zoom fix, not taste (iOS zooms the page in on any focused
      input under 16px) - and everything here still sits inside its own
      scroller, the one thing on this page allowed to be wider than the form. */
+  /* NARROWED AGAIN 2026-09-17 (Jake: "lets make the width of these a lot more
+     narrow so I can see the graph way better"). One flat 112px for every
+     non-first column was right when they were all INPUTS; the four-column
+     rebuild earlier the same day added two COMPUTED columns that hold at most
+     "100%" or "-0.6" and gave each of them the width of a five-digit weight
+     box. A readout is not an input: it has no border, no padding of its own
+     and nothing to type into, so it is sized to its widest real value
+     (`fmt()` at CONFIG.DP: "100.0%" is six characters) rather than to a
+     typing target. The three widths are per-KIND now, which the four-column
+     plan already makes possible - `.gcalc` marks a computed cell and
+     `th.calc` its heading, so no `:nth-child` arithmetic is involved and
+     adding a column cannot silently re-point them.
+     Everything this frees goes to the chart: `.gradwrap.wide`'s second track
+     is `minmax(280px,1fr)`, so the table's track shrinking IS the chart
+     growing, with no second number to keep in step.
+     The input floor drops with the column - 64px still clears a five-digit
+     cumulative weight ("1876" is 30px at 12.5px mono, plus 16px padding and
+     2px border) and every % passing this table can produce. Measured rather
+     than picked, and re-measured at 1440/1000/701/390 for clipping. */
   .gradwrap.wide table.sievetable{width:auto; table-layout:fixed;}
-  .gradwrap.wide table.sievetable th, .gradwrap.wide table.sievetable td{white-space:nowrap;}
-  .gradwrap.wide table.sievetable th:first-child, .gradwrap.wide table.sievetable td:first-child{width:76px;}
-  .gradwrap.wide table.sievetable th:not(:first-child), .gradwrap.wide table.sievetable td:not(:first-child){width:112px;}
-  .gradwrap.wide table.sievetable input{min-width:76px;}
+  /* THE HEADING WRAPS, THE VALUES DO NOT - and that is what actually made
+     the table narrow. `nowrap` on the `th` too meant "Grams retained" alone
+     held its column at 106px whatever `width` said, and `table-layout:fixed`
+     with `width:auto` then spread the surplus over every other column, so
+     the 60px computed columns rendered at 84. The widths below are only
+     obeyed once the headings can break. KYTC's own sheet does the same thing
+     - its header cells read "Grams" / "Retained" on two lines (rows 8/9) -
+     so this is the workbook's layout rather than an abbreviation nobody
+     asked for. A VALUE still never wraps: a wrapped figure is unreadable. */
+  .gradwrap.wide table.sievetable th{white-space:normal; line-height:1.25;}
+  .gradwrap.wide table.sievetable td{white-space:nowrap;}
+  /* No per-cell width rules here any more - see the <colgroup> sievesHTML()
+     emits. Chrome ignored these outright under `table-layout:fixed`, which is
+     why the computed columns rendered at the same width as a weight box
+     however small the rule said. `min-width` on the input still matters: it
+     is the floor a 64px column would otherwise squeeze past. */
+  .gradwrap.wide table.sievetable input{min-width:0;}
+  /* The cells lose their side padding with the columns; a readout keeps a
+     little on the right so its digits do not touch the next column's box. */
+  .gradwrap.wide table.sievetable th, .gradwrap.wide table.sievetable td{padding-left:5px; padding-right:5px;}
+  .gradwrap.wide table.sievetable td.gcalc{padding-right:6px;}
   table.sievetable th.target{color:var(--accent);}
   table.sievetable th.dept{color:var(--flag);}
   table.sievetable{width:100%; border-collapse:collapse;}
@@ -5533,6 +5569,19 @@ function sievesHTML(section) {
     ? footRow("Pan", "pan", false, "What fell through the finest sieve. Used to check the column adds up.")
       + footRow("Total", "total", true, "Total sample mass - every percentage on this column is computed against it.")
     : "";
+  // THE WIDTHS LIVE IN A <colgroup>, NOT ON THE CELLS (2026-09-17). CSS fixed
+  // table layout takes its column widths from <col> elements FIRST and only
+  // falls back to the first row's cells - and Chrome was ignoring the cell
+  // rules here outright: setting the computed columns to 20px moved nothing,
+  // every non-first column rendering at exactly (table - 64) / 4. Declaring
+  // them on <col> is the canonical place and it is obeyed. It also keeps the
+  // one-plan property: a column's width is decided beside its heading and its
+  // cells rather than by a `:not(:first-child)` rule that silently re-points
+  // the moment a column is added.
+  const COLW = { weight: 84, pct: 62, diff: 62, value: 84 };
+  const cols_ = `<colgroup><col style="width:64px">`
+    + plan.map((p) => `<col style="width:${COLW[p.kind] || 84}px">`).join("")
+    + `</colgroup>`;
   const head = plan.map((p) => {
     const { col } = p;
     const cls = [
@@ -5564,6 +5613,7 @@ function sievesHTML(section) {
   return `<div class="gradwrap${wide ? " wide" : ""}">
       <div class="sievescroll">
       <table class="sievetable">
+        ${wide ? cols_ : ""}
         <thead><tr><th>Sieve</th>${head}</tr></thead>
         <tbody>${rows}${foot}</tbody>
       </table>

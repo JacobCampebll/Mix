@@ -3824,3 +3824,42 @@ commit where possible.
   recomputed from the DOM by a second reader.
   Measured at 1440/1000/701/390: zero clipped inputs and zero page overflow
   at every width, so the two extra columns cost nothing even on a phone.
+
+- **The sublot gradation table is 356px wide now, down from ~590, and the
+  chart took every pixel of it** (Jake, 2026-09-17: "lets make the width of
+  these a lot more narrow so I can see the graph way better"). Two things
+  were making it wide, and only one of them was the obvious one.
+  **The cell-level `width` rules under `table-layout:fixed` DID NOTHING, and
+  that is the finding worth carrying.** `.gradwrap.wide table.sievetable
+  th:not(:first-child){width:112px}` had been there since the split, and the
+  four-column rebuild earlier the same day added
+  `th.calc/td.gcalc{width:60px}` after it - correct specificity, correct
+  source order, and Chrome ignored it outright. Proved rather than assumed:
+  setting the computed columns to **20px** moved nothing, every non-first
+  column still rendering at exactly `(table - 64) / 4`. The same two rules in
+  an isolated fixture resolve to 60px, so it is not the cascade.
+  **`<colgroup>` is where fixed layout actually reads column widths** - the
+  CSS table model takes them from `<col>` elements FIRST and only falls back
+  to the first row's cells. `sievesHTML()` emits one `<col>` per physical
+  column from the same PLAN that builds the header and the rows, so a
+  column's width is declared beside its heading and its cells and cannot
+  drift the way a `:nth-child`/`:not()` rule does when a column is added.
+  Widths obeyed exactly the moment it went in: 64 / 84 / 62 / 84 / 62.
+  **The second cause was `white-space:nowrap` on the HEADING.** "Grams
+  retained" alone held its column at 106px whatever any width said, and the
+  surplus then spread over every other column - so even a correct width rule
+  would have been overridden by the heading. Headings wrap now and VALUES
+  still never do; a wrapped figure is unreadable, and KYTC's own sheet reads
+  "Grams" / "Retained" on two lines (rows 8/9), so this is the workbook's
+  own layout rather than an abbreviation nobody asked for.
+  **The chart grows by exactly what the table gives up**, with no second
+  number to keep in step: `.gradwrap.wide` is
+  `grid-template-columns:auto minmax(280px,1fr)`, so the table's track
+  shrinking IS the chart's track growing. 646px -> 712px at a 1500 window,
+  586 -> 652 at 1440.
+  Measured at 1500/1440/1244/1000/901/701/390: zero clipped inputs, zero
+  clipped readouts and zero page overflow at every width, and the harness's
+  clipping baseline needed no re-blessing.
+  **DesignBook is untouched again by construction** - the `<colgroup>` is
+  emitted only for `wide` (a section with more than one physical column), so
+  its single fluid `width:100%` gradation table is exactly as it was.
