@@ -145,6 +145,36 @@ export const PLANTBOOK_REFERENCE_TABLES = {
     label: (r) => `${r.type_name} — SM ${r.sitemanager_code}`,
     aliases: (r) => [r.sitemanager_code],
   },
+  // supabase/producer_supplier_labs.sql, 2026-09-17. The value saved is the
+  // lab id itself (what 'Pay Values'!I6 wants), not the company name - same
+  // pattern as binder_terminals saving the LAP number. Unlike every other
+  // REFERENCE.TABLES entry, this one is NOT read-all: its RLS policy scopes
+  // rows to the signed-in technician's own company (via
+  // technician_effective_plant_access), so state.ref.producer_supplier_labs
+  // already IS "this person's own company's labs" with no client-side
+  // filtering needed - see applyPlantLabId(), which further narrows to this
+  // lot's own AMP for the auto-fill.
+  producer_supplier_labs: {
+    table: "producer_supplier_labs", select: "lab_id, amp_number, company_name, lab_name", orderBy: "company_name",
+    noun: "producer/supplier labs",
+    value: (r) => r.lab_id,
+    label: (r) => `${r.lab_id} — ${r.company_name}`,
+    aliases: (r) => [],
+  },
+  // supabase/kytc_district_labs.sql, 2026-09-17. Read-all, unlike the entry
+  // above - a KYTC lab section isn't tied to one company. Defaults to the
+  // LU code (confirmed on DesignBook's MixPack, Chart Data!AV2:AV14) with
+  // the DL code carried as an alias so a lot already typed with one still
+  // resolves without a mismatch warning. See the LU-vs-DL open question in
+  // that file's header and in CLAUDE.md before trusting this default for
+  // the AMAW specifically.
+  kytc_district_labs: {
+    table: "kytc_district_labs", select: "lab_name, lu_lab_id, dl_lab_id", orderBy: "lab_name",
+    noun: "KYTC labs",
+    value: (r) => r.lu_lab_id || r.dl_lab_id,
+    label: (r) => `${r.lab_name} — ${r.lu_lab_id || r.dl_lab_id}`,
+    aliases: (r) => [r.dl_lab_id],
+  },
 };
 
 // Every reference table a `source` may name once the block above is spliced
@@ -1350,8 +1380,12 @@ export const PLANTBOOK_SECTIONS = [
       // with the derivation.
       { key: "lot_joint_density", label: "Joint density", type: "select", req: true,
         options: [{ value: "1", label: "Yes" }, { value: "2", label: "No" }] },
-      { key: "lot_kytc_lab", label: "KYTC lab id", type: "text", req: false, mono: true },
-      { key: "lot_ps_lab",   label: "Producer/supplier lab id", type: "text", req: false, mono: true },
+      // supabase/kytc_district_labs.sql / producer_supplier_labs.sql,
+      // 2026-09-17 - dropdowns now, not free text.
+      { key: "lot_kytc_lab", label: "KYTC lab id", type: "text", req: false, mono: true,
+        source: "kytc_district_labs" },
+      { key: "lot_ps_lab",   label: "Producer/supplier lab id", type: "text", req: false, mono: true,
+        source: "producer_supplier_labs" },
       // Pay Values!B3. The sample id prefix each block's name is appended to
       // ("…VI01", "…QC01"). BOTH completed lots leave it blank, so their
       // t_smpl.smpl_id is empty and nothing would load — KYTC evidently

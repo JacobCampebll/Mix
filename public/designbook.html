@@ -3113,6 +3113,36 @@ const PB_SECTIONS = (() => {
       label: (r) => `${r.type_name} — SM ${r.sitemanager_code}`,
       aliases: (r) => [r.sitemanager_code],
     },
+    // supabase/producer_supplier_labs.sql, 2026-09-17. The value saved is the
+    // lab id itself (what 'Pay Values'!I6 wants), not the company name - same
+    // pattern as binder_terminals saving the LAP number. Unlike every other
+    // REFERENCE.TABLES entry, this one is NOT read-all: its RLS policy scopes
+    // rows to the signed-in technician's own company (via
+    // technician_effective_plant_access), so state.ref.producer_supplier_labs
+    // already IS "this person's own company's labs" with no client-side
+    // filtering needed - see applyPlantLabId(), which further narrows to this
+    // lot's own AMP for the auto-fill.
+    producer_supplier_labs: {
+      table: "producer_supplier_labs", select: "lab_id, amp_number, company_name, lab_name", orderBy: "company_name",
+      noun: "producer/supplier labs",
+      value: (r) => r.lab_id,
+      label: (r) => `${r.lab_id} — ${r.company_name}`,
+      aliases: (r) => [],
+    },
+    // supabase/kytc_district_labs.sql, 2026-09-17. Read-all, unlike the entry
+    // above - a KYTC lab section isn't tied to one company. Defaults to the
+    // LU code (confirmed on DesignBook's MixPack, Chart Data!AV2:AV14) with
+    // the DL code carried as an alias so a lot already typed with one still
+    // resolves without a mismatch warning. See the LU-vs-DL open question in
+    // that file's header and in CLAUDE.md before trusting this default for
+    // the AMAW specifically.
+    kytc_district_labs: {
+      table: "kytc_district_labs", select: "lab_name, lu_lab_id, dl_lab_id", orderBy: "lab_name",
+      noun: "KYTC labs",
+      value: (r) => r.lu_lab_id || r.dl_lab_id,
+      label: (r) => `${r.lab_name} — ${r.lu_lab_id || r.dl_lab_id}`,
+      aliases: (r) => [r.dl_lab_id],
+    },
   };
 
   // Every reference table a `source` may name once the block above is spliced
@@ -4310,8 +4340,16 @@ const verifySpecimenOf4 = (n) =>
         // with the derivation.
         { key: "lot_joint_density", label: "Joint density", type: "select", req: true,
           options: [{ value: "1", label: "Yes" }, { value: "2", label: "No" }] },
-        { key: "lot_kytc_lab", label: "KYTC lab id", type: "text", req: false, mono: true },
-        { key: "lot_ps_lab",   label: "Producer/supplier lab id", type: "text", req: false, mono: true },
+        // supabase/kytc_district_labs.sql / producer_supplier_labs.sql,
+        // 2026-09-17 - dropdowns now, not free text. See the reconciliation
+        // in docs/plantbook-lab-id-reconciliation.md for what a blank
+        // dropdown here means (no clean single lab code on file yet, or the
+        // technician's own company has none seeded) and CLAUDE.md for the
+        // still-open LU-vs-DL question on the KYTC side.
+        { key: "lot_kytc_lab", label: "KYTC lab id", type: "text", req: false, mono: true,
+          source: "kytc_district_labs" },
+        { key: "lot_ps_lab",   label: "Producer/supplier lab id", type: "text", req: false, mono: true,
+          source: "producer_supplier_labs" },
         // Pay Values!B3. The sample id prefix each block's name is appended to
         // ("…VI01", "…QC01"). BOTH completed lots leave it blank, so their
         // t_smpl.smpl_id is empty and nothing would load — KYTC evidently
@@ -4773,7 +4811,6 @@ const state = {
   dirty: false,      // edits since the last review PDF was downloaded
   history: [],      // append-only trail carried in the review PDF (no design_events any more)
   plantName: null,   // resolved from the plants table; travels in the review PDF
-  plantLabId: null,  // plants.ps_lab_id - PlantBook's 'Pay Values'!I6, null until Andrew applies the column
   approval: null,    // { approval_no, code, issued_at, approved_by, submitted_by } once KYTC signs it
   signedDesign: null,// the design exactly as the approval signature covers it
   submitted: null,   // the payload EXACTLY as sent to KYTC - the submittal PDF
@@ -20365,6 +20402,7 @@ function refreshReferenceControls() {
   });
   applyAutofills();
   resolveProducersLate();
+  applyPlantLabId();   // producer_supplier_labs may have landed just now
   // Every polish-resistant fact is read off aggregate_types, and the grid is
   // built before the lists arrive - so without this the whole matrix stays in
   // its "type not on the list" fallback, asking for answers it already has.
@@ -21273,45 +21311,41 @@ async function loadPlantName() {
     // stays recoverable either way.
     if (data && data.name) { state.plantName = data.name; $("outPlant").textContent = $("outPlant").title = `${data.name} — ${amp}`; }
   } catch (_) { /* leave the bare AMP number */ }
-  await loadPlantLabId(amp);
 }
 
-// The plant's producer/supplier lab (supabase/plants_lab_id.sql), for
-// PlantBook's 'Pay Values'!I6. Jake, 2026-09-13: the lab belongs to the
-// plant, the approval names the plant, so nobody should be typing it.
+// Fill the lot's P/S lab id from producer_supplier_labs (supabase/
+// producer_supplier_labs.sql), for PlantBook's 'Pay Values'!I6. Jake,
+// 2026-09-13: the lab belongs to the plant, the approval names the plant,
+// so nobody should be typing it.
 //
-// Its OWN query, deliberately, and not another column on the select above or
-// on CONFIG.REFERENCE.TABLES.plants: `ps_lab_id` is a column Andrew has still
-// to apply, and PostgREST answers a select naming a column that does not
-// exist with a 400 for the WHOLE row. Folded into either of those, a
-// not-yet-applied migration would take the plant NAME down with it here, and
-// the whole RAP producer list down with it there - a much worse failure than
-// the empty field this degrades to.
-async function loadPlantLabId(amp) {
-  try {
-    const { data, error } = await sb.from("plants").select("ps_lab_id").eq("amp_number", amp).maybeSingle();
-    if (error) return;                                   // column not applied yet
-    if (data && data.ps_lab_id) state.plantLabId = String(data.ps_lab_id);
-  } catch (_) { /* leave it for the technician to type */ }
-  applyPlantLabId();
-}
-
-// Fill the lot's P/S lab id from the plant, on the same terms as every other
-// provisional value on this page: only into a blank or into what this filled
-// before, tinted, and with a title saying where it came from. Called after
-// the lookup lands AND from renderForm(), because the two race - a lot opened
-// from a file renders long after boot, and boot's lookup lands long before
-// anybody has switched to PlantBook.
+// Reads state.ref.producer_supplier_labs rather than its own query -
+// unlike the superseded plants.ps_lab_id column, this table's RLS already
+// scopes the list to the signed-in technician's own company (see the
+// comment on that file), so whatever loadReferenceData() loaded IS the
+// candidate set; no second lookup needed. Only auto-fills when exactly one
+// row matches this lot's AMP - a company with more than one code on file
+// for the same plant (docs/plantbook-lab-id-reconciliation.md's 8
+// duplicates) leaves the field blank rather than guessing, and the
+// technician still has the whole dropdown - scoped to their own company by
+// the same RLS policy - to pick from.
+//
+// Called after the reference lists land AND from renderForm(), because the
+// two race - a lot opened from a file renders long after boot, and boot's
+// lookup lands long before anybody has switched to PlantBook.
 function applyPlantLabId() {
-  if (!state.plantLabId || !isPlantBook()) return;
+  if (!isPlantBook() || !state.job || !state.job.plant) return;
+  const list = state.ref.producer_supplier_labs || [];
+  const matches = list.filter((e) => e.row && e.row.amp_number === state.job.plant);
+  if (matches.length !== 1) return;
   const el = document.querySelector('[data-field="lot_ps_lab"]');
   if (!el || el.disabled) return;
   if (String(el.value || "").trim() && el.dataset.autofilled !== "1") return;   // theirs
-  if (el.value === state.plantLabId) return;
-  el.value = state.plantLabId;
+  const v = matches[0].value;
+  if (el.value === v) return;
+  el.value = v;
   el.dataset.autofilled = "1";
   el.classList.add("autofilled");
-  el.title = `Producer/supplier lab recorded for ${state.plantName || state.job.plant} in the plants table`;
+  el.title = `Producer/supplier lab recorded for ${state.plantName || state.job.plant} in producer_supplier_labs`;
 }
 
 async function boot(session) {
