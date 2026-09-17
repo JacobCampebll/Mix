@@ -97,16 +97,24 @@ already have a later "SETTLED" or "CORRECTED" entry closing it out.
   Side effect: the MixPack template's `Chart Data!AV2:AV14` list, called
   "untrusted" for disagreeing with the one real data point, doesn't
   disagree — confirmed via a second independent source.
-  **New, narrower thing this surfaced, not resolved**: neither real Class 2
-  file's sample id uses `AMD` as the middle token — District 1's is `JWH`,
-  District 2's is `GSM`, both reading as the approver's own initials
-  (`jharmon3` / `gmarr` on the Approver line). `AMD` is confirmed correct
-  for Central Office (both real AMAW lots show it) and is still what the
-  code writes for districts too, since DesignBook has no field to build a
-  reviewer's monogram from. Worth asking tomorrow: do district approvals
-  really use the reviewer's initials instead of `AMD`, or do these two
-  files just predate a standard? A wrong guess here is the same class of
-  risk as a wrong district code, so it's flagged rather than coded around.
+  **The middle-token question is answered, but deliberately not
+  implemented — it's bigger than a missing field.** Andrew confirmed the
+  monogram theory (District 1's `JWH` / District 2's `GSM` are the
+  approver's own initials, not `AMD`) — but also that he and Tate have
+  discussed having **Central Office do all approvals, Class 2 included**,
+  once DesignBook/PlantBook are fully built out, since it would be simpler
+  than the current split. If that happens, Class 2 district review — and
+  the monogram it would need — disappears rather than getting solved:
+  every design becomes a `CENTRAL_OFFICE` one, and tonight's freshly-built
+  `DISTRICTS` table stops being reached at all.
+  So `AMD` stays the literal for every reviewer for now, not because the
+  monogram theory is in doubt, but because building a `technicians` schema
+  change (no middle-name field exists today) for Class 2's own identity
+  convention would be premature while whether Class 2 stays a separate
+  review path is itself still an open call. **This is genuinely the
+  agenda item for tomorrow**, more than a technical question: does Class 2
+  district review stay as-is, or does Central Office end up reviewing
+  everything?
 
 ### Needs Andrew (reference data / KYTC-internal knowledge)
 - **LU vs DL code**: every KYTC district/section lab has two codes on file
@@ -172,8 +180,10 @@ oriented rather than re-deriving it from `git log`:
 ## 5. Suggested order
 
 Housekeeping (§1) is a 30-second decision either of you can make solo. §2's
-"Resolved tonight" item needs nothing from tomorrow except maybe five
-minutes on its one new sub-question (the `AMD`-vs-initials token) if either
-of you already knows the answer. The four Tate items and two remaining
-Andrew items (§2) are the actual agenda for being in the same room. §3 is
+"Resolved tonight" item is done in code for the workflow as it exists
+today, but it opened onto the bigger question — worth putting early on
+tomorrow's agenda, since the answer (does Central Office end up approving
+everything, or does the Class 2/district split stay) could make part of
+tonight's work moot rather than just needing a follow-up field. The four
+Tate items and two remaining Andrew items (§2) round out the agenda. §3 is
 context to carry into any of those conversations, not a decision itself.

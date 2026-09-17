@@ -3982,3 +3982,28 @@ commit where possible.
   further from files alone - a wrong middle token is the same class of risk
   CLAUDE.md already warns about for a guessed MEDL identifier, even though
   the district/lab half of this fix is no longer a guess.
+
+- **The JWH/GSM monogram theory is confirmed (Andrew, 2026-09-17) - and
+  deliberately still not implemented, because the question behind it is
+  bigger than one field.** Asked where a district approver's 3-letter
+  monogram should come from (`technicians` has no middle name, and
+  `approved_by`'s sm_id drops the middle initial the monogram keeps - so
+  there's no data source to derive it from today). Andrew's answer: "Tate
+  and I have discussed potentially, once DesignBook and PlantBook are fully
+  built out, having CO Materials do approvals for all classes of mix
+  designs, since it will be much easier and streamlined than the current
+  process."
+  **If that happens, Class 2 district review - and the monogram it would
+  need - goes away, not just gets solved.** Every district-approved design
+  becomes a Central Office one, `CONFIG.MIXPACK.CENTRAL_OFFICE` (already
+  built tonight) is what every design uses, and `CONFIG.MIXPACK.DISTRICTS`
+  (also built tonight, all twelve districts, confirmed against two real
+  files) stops being reachable rather than needing a monogram field added
+  to it. Worth knowing this before spending effort on a `technicians`
+  schema change for a data point the workflow might retire.
+  **So, deliberately unresolved and left as "AMD" for every reviewer,
+  district or Central Office**: not because the monogram theory is in
+  doubt (it's confirmed), but because building infrastructure for Class 2's
+  own identity convention is premature while whether Class 2 stays a
+  separate review path at all is still an open direction call between
+  Andrew and Tate, not a data-sourcing problem to be solved in code.
