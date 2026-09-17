@@ -81,36 +81,34 @@ already have a later "SETTLED" or "CORRECTED" entry closing it out.
   file on hand settles it. This affects the new roll-forward feature
   (2026-09-16, "Start lot n+1") and the sublot-1 setup allowance.
 
+### Resolved tonight (was the oldest open item in this file)
+- **District 01-12 lab codes — done, all twelve, for both classes.**
+  `CONFIG.MIXPACK.DISTRICTS["07"]` (`LU00642`) turned out to be Central
+  Office's code, not district 07's; Andrew confirmed the real rule (Central
+  Office reviews every Class 3/4 statewide, districts review their own
+  Class 2), which explained why #467PA (a Class 3) read as "district 07's
+  lab." Andrew then pulled two real approved **Class 2** MixPacks straight
+  off the district repository (District 1's `01210JWH260077.xlsm`,
+  District 2's `02210GSM260366.xlsm`) and read them directly with
+  openpyxl — both confirm `Design Data!H12` = that district's own
+  `LU0N210` code and `AADTT Class` = 2 on the nose. `CONFIG.MIXPACK.
+  CENTRAL_OFFICE` (Class 3/4, every district) and a fully populated
+  `CONFIG.MIXPACK.DISTRICTS` (Class 2, all twelve) are both in code now.
+  Side effect: the MixPack template's `Chart Data!AV2:AV14` list, called
+  "untrusted" for disagreeing with the one real data point, doesn't
+  disagree — confirmed via a second independent source.
+  **New, narrower thing this surfaced, not resolved**: neither real Class 2
+  file's sample id uses `AMD` as the middle token — District 1's is `JWH`,
+  District 2's is `GSM`, both reading as the approver's own initials
+  (`jharmon3` / `gmarr` on the Approver line). `AMD` is confirmed correct
+  for Central Office (both real AMAW lots show it) and is still what the
+  code writes for districts too, since DesignBook has no field to build a
+  reviewer's monogram from. Worth asking tomorrow: do district approvals
+  really use the reviewer's initials instead of `AMD`, or do these two
+  files just predate a standard? A wrong guess here is the same class of
+  risk as a wrong district code, so it's flagged rather than coded around.
+
 ### Needs Andrew (reference data / KYTC-internal knowledge)
-- **District 01-12 lab codes — RESOLVED for Class 3/4, still open for
-  Class 2.** The oldest open item in this file. Checking `kytc_district_labs`
-  against `CONFIG.MIXPACK.DISTRICTS` (2026-09-17 evening) found that the
-  "district 07" entry (`LU00642`) was never a district code — it's
-  `CO Materials - Asphalt Mixtures Section`, Central Office. Andrew
-  confirmed the same evening: Central Office (mostly Andrew/Tate) approves
-  every Class 3/4 design statewide regardless of district; district
-  personnel approve Class 2 in their own district. That's exactly why the
-  one real file on hand (#467PA, a Class 3) read as "district 07's lab" —
-  Central Office reviewed it, Boonesboro's district was incidental.
-  **Implemented the same evening**: `CONFIG.MIXPACK.CENTRAL_OFFICE` (new)
-  is used for Class 3/4 regardless of district; `CONFIG.MIXPACK.DISTRICTS`
-  is now Class 2's table and is **empty** — a Class 2 design derives no
-  sample id or lab yet, for any district including 07. That's an honest
-  regression from "silently wrong" to "correctly blank," not a loss: a
-  Class 2 design at Boonesboro used to get Central Office's code, which was
-  never actually right for it.
-  **Still open**: Class 2's own per-district code. `kytc_district_labs`
-  gives a clean guess — every district's own Materials Section code ends in
-  `210` (`D-07 Materials Section` = `LU07210`, etc.) — but nobody has
-  checked it against a real Class 2-reviewed file, and CLAUDE.md's own rule
-  is that a guessed MEDL identifier is worse than a blank one. Worth asking
-  tomorrow: does anyone have a Class 2 AMAW or MixPack on hand to check the
-  `210` guess against, or does it need a district contact instead?
-  Also resolved as a side effect: the MixPack template's `Chart Data!
-  AV2:AV14` list, called "untrusted" for disagreeing with the one real data
-  point — it doesn't disagree, `kytc_district_labs` confirms the same
-  `LU01210`...`LU12210` series through a second independent source
-  (SiteManager's real `t_qualf_lab` export).
 - **LU vs DL code**: every KYTC district/section lab has two codes on file
   (`LU#####` and `DL#####`). Nothing confirms which one the AMAW's
   `'Pay Values'!I5` wants — both real completed AMAWs leave I5 blank. The
@@ -164,14 +162,18 @@ oriented rather than re-deriving it from `git log`:
   measured them.
 - The gradation table on PlantBook got a `<colgroup>` and narrowed
   considerably, giving the 0.45-power chart more room.
-- District 01-12 lab codes, Class 3/4 half: `CONFIG.MIXPACK.CENTRAL_OFFICE`
-  now covers every district for a Class 3/4 design; `DISTRICTS` is Class
-  2's table and is empty pending a real Class 2 file. See §2 above.
+- **District 01-12 lab codes, fully closed for both classes**: `CONFIG.
+  MIXPACK.CENTRAL_OFFICE` covers Class 3/4 statewide; `DISTRICTS` now has
+  all twelve districts' own codes, confirmed against two real Class 2
+  MixPacks Andrew pulled from the district repository (§2 above has the
+  detail, including the one new question it raised about the sample id's
+  middle token).
 
 ## 5. Suggested order
 
-Housekeeping (§1) is a 30-second decision either of you can make solo.
-Everything in §2 needs both of you (or Tate) in the room, which is
-presumably the point of tomorrow — §2's four Tate items and three Andrew
-items are the actual agenda. §3 is context to carry into any of those
-conversations, not a decision itself.
+Housekeeping (§1) is a 30-second decision either of you can make solo. §2's
+"Resolved tonight" item needs nothing from tomorrow except maybe five
+minutes on its one new sub-question (the `AMD`-vs-initials token) if either
+of you already knows the answer. The four Tate items and two remaining
+Andrew items (§2) are the actual agenda for being in the same room. §3 is
+context to carry into any of those conversations, not a decision itself.

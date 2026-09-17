@@ -3952,3 +3952,33 @@ commit where possible.
   `<script>` tag, no SyntaxError) via a local static server + browser tools -
   no Node on this machine, same verification the design-mirrors branch used
   2026-09-14.
+
+- **All 12 districts, same evening: Andrew pulled two real approved Class 2
+  MixPacks off the district production repository** (District 1's
+  `01210JWH260077.xlsm`, McCracken County; District 2's `02210GSM260366.xlsm`,
+  Webster County) **and the `...210` guess above checked out exactly.** Read
+  directly with openpyxl rather than trusted off the filename: both show
+  `Design Data!H20` (AADTT Class) = 2, and `!H12` (the LAB field) is
+  `LU01210` / `LU02210` - each district's own "Materials Section" code from
+  `kytc_district_labs`, not Central Office's. `!C10` (the sample id) is
+  `01210JWH260077` / `02210GSM260366`, which decomposes cleanly as district +
+  `210` + the rest - confirming `sampleLab` too. `CONFIG.MIXPACK.DISTRICTS`
+  now carries all twelve districts (`{ lab: "LU0N210", sampleLab: "210" }`),
+  01 and 02 confirmed directly against these two files, 03-12 carried on the
+  same unbroken pattern in `kytc_district_labs` (every district's Materials
+  Section code is `LU0N210`, no exceptions in that table).
+  **One thing this did NOT settle, and it stays unresolved rather than
+  guessed: the sample id's middle token isn't "AMD" in either file - it's
+  `JWH` and `GSM`.** Both read as the approver's own initials
+  (`Design Data!S82` = `jharmon3` / `gmarr`; JWH/GSM plausibly the same
+  people's monogram with a middle initial the sm_id drops). `AMD` is still
+  what the code writes for every district, because it's confirmed correct
+  for Central Office (both real AMAW lots on file show it) and there is no
+  field anywhere in DesignBook that captures a reviewer's 3-letter monogram
+  to write instead. Two live theories, neither chosen: district reviewers
+  have their own convention DesignBook doesn't yet model, or these two
+  files predate any standard and `AMD` would be accepted regardless. Worth
+  asking Tate or district materials staff directly rather than inferring
+  further from files alone - a wrong middle token is the same class of risk
+  CLAUDE.md already warns about for a guessed MEDL identifier, even though
+  the district/lab half of this fix is no longer a guess.

@@ -1933,25 +1933,51 @@ const CONFIG = {
     // Asphalt Mixtures Testing Section) regardless of the plant's district;
     // Class 2 is reviewed by the plant's own district instead - confirmed
     // 2026-09-17 (Andrew). The sample id is district + the REVIEWER's lab
-    // code + "AMD" + letting year + 4-digit sequence (07640AMD260467), and
-    // the lab unit is the LU number.
+    // code + a middle token + letting year + 4-digit sequence
+    // (07640AMD260467), and the lab unit is the LU number.
     //
-    // The one real approved file on hand (#467PA, CL3 ASPH SURF,
-    // Boonesboro/district 07) matches CENTRAL_OFFICE exactly - what used to
-    // be read as "district 07's own lab" (LU00642) was actually Central
+    // CENTRAL_OFFICE matches the one real Central Office file on hand
+    // (#467PA, CL3 ASPH SURF, Boonesboro/district 07) exactly - what used
+    // to be read as "district 07's own lab" (LU00642) was actually Central
     // Office's, confirmed 2026-09-17 against the live kytc_district_labs
     // table (LU00642 = "CO Materials - Asphalt Mixtures Section"; "D-07
-    // Materials Section" is a different code, LU07210). DISTRICTS is Class
-    // 2's table now and has no confirmed row: every district's own
-    // Materials Section code ends in "210" (LU01210...LU12210), which is a
-    // plausible sampleLab guess for Class 2, but nobody has checked it
-    // against a real Class 2 file, and a guessed MEDL identifier is worse
-    // than a blank one - so it stays empty rather than filled in from that
-    // shape alone. An unknown/unconfirmed district leaves both blank and
-    // the report says so - MEDL will refuse a file with no sample id,
-    // which is the right failure.
+    // Materials Section" is a different code, LU07210).
+    //
+    // DISTRICTS is Class 2's table and every row is now confirmed against a
+    // real approved Class 2 MixPack, not just kytc_district_labs' shape:
+    // district 01's own file (01210JWH260077.xlsm, McCracken County) has
+    // `Design Data!H12` = LU01210 and `!C10` = 01210JWH260077; district 02's
+    // (02210GSM260366.xlsm, Webster County) has H12 = LU02210 and C10 =
+    // 02210GSM260366 - both read directly with openpyxl 2026-09-17, both
+    // AADTT Class 2 (H20). Every district's own Materials Section code ends
+    // in "210" (LU01210...LU12210, kytc_district_labs) with no exceptions,
+    // so the same pair is used for 03-12 though only 01/02 have a real file
+    // behind them yet.
+    //
+    // ONE THING THOSE TWO FILES RAISE AND THIS DOES NOT RESOLVE: the sample
+    // id's middle token isn't "AMD" in either - it's JWH and GSM, which read
+    // as the approver's own initials (jharmon3 / gmarr, sm_id-style, each
+    // missing a middle initial the monogram keeps). AMD is confirmed correct
+    // for Central Office (both real AMAW lots show it), so it stays the
+    // literal here too rather than guessing at a monogram DesignBook has no
+    // field to build - whether district review is actually supposed to use
+    // the reviewer's initials, or these two just predate any standard, is
+    // open. See CLAUDE.md.
     CENTRAL_OFFICE: { lab: "LU00642", sampleLab: "640" },
-    DISTRICTS: {},
+    DISTRICTS: {
+      "01": { lab: "LU01210", sampleLab: "210" },
+      "02": { lab: "LU02210", sampleLab: "210" },
+      "03": { lab: "LU03210", sampleLab: "210" },
+      "04": { lab: "LU04210", sampleLab: "210" },
+      "05": { lab: "LU05210", sampleLab: "210" },
+      "06": { lab: "LU06210", sampleLab: "210" },
+      "07": { lab: "LU07210", sampleLab: "210" },
+      "08": { lab: "LU08210", sampleLab: "210" },
+      "09": { lab: "LU09210", sampleLab: "210" },
+      "10": { lab: "LU10210", sampleLab: "210" },
+      "11": { lab: "LU11210", sampleLab: "210" },
+      "12": { lab: "LU12210", sampleLab: "210" },
+    },
     // Chart Data is the workbook's input layer for the header. Design Data's
     // C18 / Q14 / Q16 / H18 / H20 / O8 / R10 / C20 are all formulas over these.
     CHART: {
