@@ -3653,3 +3653,31 @@ read-only, so a write test goes through `apply_migration` and ends in
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
 end of a section rather than restructuring, and keep edits to one section per
 commit where possible.
+
+- **The lab-id tables are NOT applied live, so both lab fields on Contract &
+  Mix are dead on the deployed site right now** (checked 2026-09-17 against
+  the live project, after merging Andrew's six lab-id commits). The page
+  queries three relations - `producer_supplier_labs`, `kytc_district_labs`
+  and `producer_supplier_labs_view` - and **not one of them exists**: a
+  search of `information_schema.tables` across every schema for anything
+  matching `lab` returns only Postgres's own `pg_seclabel` catalogue rows.
+  The DDL is written and committed (`supabase/producer_supplier_labs.sql`,
+  `supabase/kytc_district_labs.sql`, and the view), it has simply never been
+  run. **Applying and seeding it is Andrew's admin action** - the same rule
+  as every other reference table, and the seed carries real company names.
+  **It degrades rather than breaking, and that is by design rather than by
+  luck.** `loadReferenceData()` is `Promise.allSettled` per table, so the
+  three failures are isolated: each sets `state.ref[key] = []`, is named in
+  `state.ref.error` on the Status step, and `refControlHTML()` falls through
+  its `list.length &&` guard to the plain `<input type="text">` - so the two
+  fields are free text instead of dropdowns and nothing else on the page
+  loses its list. `applyPlantLabId()` simply fills nothing.
+  Worth carrying as a class, because this is the second time the two halves
+  of one change have shipped apart: **a page change and a migration are one
+  change, and only one half of it is in git.** A checker cannot catch this -
+  `check_page_plantbook.mjs` calls those `label`/`value` functions with
+  FIXTURE rows in a Node vm, which is exactly why they must not reach into
+  `state`, and it is equally why 197 green assertions say nothing about
+  whether the relation exists. The only proof is querying the live project.
+  Same shape as the Netlify environment variables: set per site, not carried
+  by a merge, failing closed and quietly.
