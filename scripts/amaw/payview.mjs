@@ -479,48 +479,71 @@ function detailsHTML(key, open, cls, summary, body) {
 }
 
 // One line of working: a name, the expression, and the cell it lives in.
-function eqHTML(esc, name, expr, cell, cls = '') {
-  return `<div class="payx-eq${cls ? ' ' + cls : ''}"><span class="k">${esc(name)}</span>`
-    + `<span class="e mono">${esc(expr)}</span>`
-    + (cell ? `<span class="c mono">${esc(cell)}</span>` : '') + `</div>`;
+/* One line of working.
+ *
+ * `cell` is the workbook address this line corresponds to. It used to print as
+ * a third column and no longer does (Jake, 2026-09-17: "lets get rid of the
+ * grey letters that say superpave f and g or what not") - it rides in the
+ * row's `title` instead. Same move, and the same reasoning, as the `.srcnote`
+ * line that became a prefilled input's tooltip: the detail is worth keeping
+ * and is not worth a column.
+ *
+ * `goto` is the form control this line was MEASURED on, as
+ * "<section>|<row table>|<row>", where <row> is either an index within that
+ * section's own slice of the table or `#<identity>` to match a cell's value.
+ * Only lines that HAVE an input get one - an average, a deviation or a lot
+ * roll-up is computed from the lines above it and has nowhere to send you.
+ */
+const src = (n, table, row) =>
+  (Number.isFinite(Number(n)) && table && row !== '' && row != null) ? `sublot-${n}|${table}|${row}` : '';
+
+function eqHTML(esc, name, expr, cell, cls = '', goto = '') {
+  const cl = 'payx-eq' + (cls ? ' ' + cls : '') + (goto ? ' payx-goto' : '');
+  return `<div class="${cl}"${cell ? ` title="${esc(cell)}"` : ''}`
+    + (goto ? ` data-goto="${esc(goto)}" role="button" tabindex="0"` : '') + '>'
+    + `<span class="k">${esc(name)}</span>`
+    + `<span class="e mono">${esc(expr)}</span></div>`;
 }
 
 // ---- layer 3: the figures behind one sublot's measured value ---------------
 
-function gmbFigures(esc, t) {
+function gmbFigures(esc, t, n) {
   if (!t) return '';
   const lines = [eqHTML(esc, 'Gmb', `${fx(t.gmb, 3)} - bulk specific gravity, the average of the specimens`, 'Superpave G, Average row')];
   (t.specimens || []).forEach((s, k) => {
     lines.push(eqHTML(esc, `specimen ${k + 1}`,
       `${fx(s.air, 1)} g in air ÷ (${fx(s.ssd, 1)} SSD − ${fx(s.water, 1)} in water = ${fx(s.volume, 1)}) = ${fx(s.bsg, 3)}`,
-      'Superpave F, G', 'sub'));
+      'Superpave F, G', 'sub', src(n, 'sublot_bsg', k)));
   });
   return lines.join('');
 }
-function gmmFigures(esc, t) {
+function gmmFigures(esc, t, n) {
   if (!t) return '';
   const lines = [eqHTML(esc, 'Gmm', `${fx(t.gmm, 3)} - maximum specific gravity (Rice), the average of the bowls`, 'Superpave row 42')];
   (t.dets || []).forEach((d, k) => {
     lines.push(eqHTML(esc, `bowl ${k + 1}`,
       `${fx(d.mix, 1)} g mix ÷ (${fx(d.mix, 1)} + ${fx(d.calibration, 1)} calibration − ${fx(d.finalWeight, 1)} final + ${fx(d.absorbedWater ?? 0, 1)} absorbed) = ${fx(d.msg, 3)}`,
-      'Superpave row 41', 'sub'));
+      'Superpave row 41', 'sub', src(n, 'sublot_msg', k)));
   });
   return lines.join('');
 }
-function acFigures(esc, t, hm, s) {
+function acFigures(esc, t, hm, s, n) {
   if (!t) return '';
   const out = [];
   if (hm) {
-    out.push(eqHTML(esc, 'Gse', `${fx(hm.gse, 3)} - effective aggregate gravity, from the hand-mixed check sample`, 'Superpave!J8'));
+    // The hand-mixed check sample is the LOT's, and it lives on Sublot 1's tab.
+    out.push(eqHTML(esc, 'Gse', `${fx(hm.gse, 3)} - effective aggregate gravity, from the hand-mixed check sample`,
+      'Superpave!J8', '', src(1, 'handmix_msg', 0)));
     out.push(eqHTML(esc, '', `(100 − ${fx(hm.binderPct, 2)} hand-mixed %AC) ÷ (100 ÷ ${fx(hm.gmm, 3)} hand-mixed Gmm - ${fx(hm.binderPct, 2)} ÷ 1.03) = ${fx(hm.gse, 3)}`, '', 'sub'));
   }
-  out.push(gmmFigures(esc, t));
+  out.push(gmmFigures(esc, t, n));
   out.push(eqHTML(esc, 'back-calculated %AC',
     `1.03 × (${fx(t.gse, 3)} − ${fx(t.gmm, 3)}) ÷ (${fx(t.gmm, 3)} × (${fx(t.gse, 3)} − 1.03)) × 100 = ${fx(t.backCalc, 2)}`, 'Gradation!D34'));
   if (t.moisture && isNum(t.moisture.pct)) {
     const m = t.moisture;
     out.push(eqHTML(esc, 'moisture',
-      `((${fx(m.before, 1)} − ${fx(m.pan, 1)}) − (${fx(m.after, 1)} − ${fx(m.pan, 1)})) ÷ (${fx(m.before, 1)} − ${fx(m.pan, 1)}) × 100 = ${fx(m.pct, 2)}%`, 'Superpave G48'));
+      `((${fx(m.before, 1)} − ${fx(m.pan, 1)}) − (${fx(m.after, 1)} − ${fx(m.pan, 1)})) ÷ (${fx(m.before, 1)} − ${fx(m.pan, 1)}) × 100 = ${fx(m.pct, 2)}%`,
+      'Superpave G48', '', src(n, 'sublot_moisture', 0)));
     out.push(eqHTML(esc, '%AC', `${fx(t.backCalc, 2)} − ${fx(m.pct, 2)} = ${fx(t.binderPct, 2)}`, "Gradation!D33 → Superpave!B14"));
   } else {
     out.push(eqHTML(esc, '%AC', `${fx(t.binderPct, 2)} - no moisture entered, so nothing is taken off`, 'Superpave!B14'));
@@ -528,22 +551,27 @@ function acFigures(esc, t, hm, s) {
   out.push(eqHTML(esc, 'deviation', `${fx(t.binderPct, 2)} − ${fx(s.jmfAC, 2)} JMF = ${sg(isNum(t.binderPct) && isNum(s.jmfAC) ? t.binderPct - s.jmfAC : null, 2)}`, "'Pay Values'!C13"));
   return out.join('');
 }
-function avFigures(esc, t) {
+function avFigures(esc, t, n) {
   if (!t) return '';
-  return gmbFigures(esc, t) + gmmFigures(esc, t)
+  return gmbFigures(esc, t, n) + gmmFigures(esc, t, n)
     + eqHTML(esc, 'air voids', `(${fx(t.gmm, 3)} − ${fx(t.gmb, 3)}) ÷ ${fx(t.gmm, 3)} × 100 = ${fx(t.va, 2)}%`, "Superpave J → 'Pay Values'!F13");
 }
-function vmaFigures(esc, t, s) {
+function vmaFigures(esc, t, s, n) {
   if (!t) return '';
-  return gmbFigures(esc, t)
+  return gmbFigures(esc, t, n)
     + eqHTML(esc, '%AC', `${fx(t.binderPct, 2)} - back-calculated, see the % AC line`, 'Superpave!B14')
     + eqHTML(esc, 'Gsb', `${fx(t.gsb, 3)} - combined aggregate gravity for this sublot, from the blend`, 'Superpave R9:U9')
     + eqHTML(esc, 'VMA', `100 − ${fx(t.gmb, 3)} × (100 − ${fx(t.binderPct, 2)}) ÷ ${fx(t.gsb, 3)} = ${fx(t.vma, 2)}%`, "Superpave M → 'Pay Values'!I13")
     + eqHTML(esc, 'deviation', `${fx(t.vma, 2)} − ${fx(s.minVMA, 2)} minimum = ${sg(isNum(t.vma) && isNum(s.minVMA) ? t.vma - s.minVMA : null, 2)}`, "'Pay Values'!J13");
 }
-function coreFigures(esc, c) {
+function coreFigures(esc, c, n, table, id) {
   if (!c) return '';
-  return eqHTML(esc, 'BSG', `${fx(c.air, 1)} g in air ÷ (${fx(c.ssd, 1)} SSD − ${fx(c.water, 1)} in water) = ${fx(c.bsg, 3)}`, 'Cores G', 'sub')
+  // A core is found by its ID, never by its position: the trace carries only
+  // the cores that HAVE a % solid, in table order, so index k here is not
+  // index k in the table the moment one core was labelled and never measured
+  // (which is exactly what lot 1 of the two real AMAWs does).
+  const to = id ? src(n, table, '#' + id) : '';
+  return eqHTML(esc, 'BSG', `${fx(c.air, 1)} g in air ÷ (${fx(c.ssd, 1)} SSD − ${fx(c.water, 1)} in water) = ${fx(c.bsg, 3)}`, 'Cores G', 'sub', to)
     + eqHTML(esc, 'density', `${fx(c.bsg, 3)} × 62.4 = ${fx(c.density, 1)} pcf`, 'Cores H', 'sub')
     + eqHTML(esc, '% solid', `${fx(c.density, 1)} ÷ (${fx(c.msg, 3)} sublot Gmm × 62.4) × 100 = ${fx(c.pctSolid, 2)}%`, 'Cores I', 'sub');
 }
@@ -586,15 +614,15 @@ function volumetricWhy(p, result, ctx, esc, open) {
     if (p.key === 'ac') {
       measured = isNum(r.dev) ? `${fx(inp.ac, 2)}% (JMF ${fx(inp.jmfAC, 2)}, dev ${sg(r.dev, 2)})` : '—';
       rounded = isNum(r.rounded) ? `|dev| ${fx(r.rounded, 1)}` : '—';
-      figures = acFigures(esc, t, trace.handmix, inp);
+      figures = acFigures(esc, t, trace.handmix, inp, i + 1);
     } else if (p.key === 'av') {
       measured = isNum(inp.av) ? `${fx(inp.av, 2)}%` : '—';
       rounded = isNum(r.rounded) ? fx(r.rounded, 1) : '—';
-      figures = avFigures(esc, t);
+      figures = avFigures(esc, t, i + 1);
     } else {
       measured = isNum(r.dev) ? `${fx(inp.vma, 2)}% (min ${fx(inp.minVMA, 2)}, dev ${sg(r.dev, 2)})` : '—';
       rounded = isNum(r.rounded) ? sg(r.rounded, 1) : '—';
-      figures = vmaFigures(esc, t, inp);
+      figures = vmaFigures(esc, t, inp, i + 1);
     }
     const cells = [esc(`Sublot ${i + 1}`), `<span class="mono">${esc(measured)}</span>`, `<span class="mono">${esc(rounded)}</span>`,
                    bandText(esc, r, p.key), payBadge(r.pay, esc)];
@@ -648,8 +676,11 @@ function densityWhy(p, result, ctx, esc, open) {
         : (c.note || 'no band matched → MCL');
       const tc = t[k] || null;
       const id = tc && tc.id ? tc.id : `core ${k + 1}`;
-      return eqHTML(esc, id, `${tc ? fx(tc.pctSolid, 2) : fx(c.rounded, 1)}% solid → rounded ${fx(c.rounded, 1)} → ${band} = ${isMCL(c.pay) ? c.pay : trim(c.pay)}`, `Calculations row ${label === 'lane' ? '22' : '56'}`)
-        + coreFigures(esc, tc);
+      const table = label === 'lane' ? 'mat_cores' : 'joint_cores';
+      const to = tc && tc.id ? src(i + 1, table, '#' + tc.id) : '';
+      return eqHTML(esc, id, `${tc ? fx(tc.pctSolid, 2) : fx(c.rounded, 1)}% solid → rounded ${fx(c.rounded, 1)} → ${band} = ${isMCL(c.pay) ? c.pay : trim(c.pay)}`,
+        `Calculations row ${label === 'lane' ? '22' : '56'}`, '', to)
+        + coreFigures(esc, tc, i + 1, table, tc && tc.id);
     }).join('');
     rows.push(detailsHTML(`core.${p.key}.${i}`, open, 'payx-sub', subGrid(esc, cells), body));
   });
