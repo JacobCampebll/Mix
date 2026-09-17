@@ -3681,3 +3681,32 @@ commit where possible.
   whether the relation exists. The only proof is querying the live project.
   Same shape as the Netlify environment variables: set per site, not carried
   by a merge, failing closed and quietly.
+
+- **CORRECTION to the entry above, same day: the lab-id tables WERE applied,
+  and were live the whole time the note above says they weren't.** Andrew
+  applied and seeded all three relations himself, live, before that note was
+  written - `producer_supplier_labs` (92 rows), `kytc_district_labs` (80
+  rows) and `producer_supplier_labs_view` all exist in `public` on the
+  project this file calls "the live project," confirmed twice: once
+  immediately after seeding (row counts, an RLS-scoping test distinguishing
+  a Hinkle technician's 10 visible rows from Central Office's 92, `get_
+  advisors` clean) and again 2026-09-17 by re-running the other note's own
+  check (`select table_schema, table_name, table_type from information_
+  schema.tables where table_name ilike '%lab%'` - all three come back). The
+  deployed site was fetched directly the same day and confirmed serving code
+  that reads `flagged_mismatch` off these tables.
+  So the other check was not lying about what it found, and this is not "the
+  page was fine, the check was buggy" (the pattern this file has now recorded
+  three times for THIS project's own harness) - it is simpler and stranger:
+  **two sessions querying "the live project" got two different answers,
+  which means they were not looking at the same project.** Nothing here
+  proves which one is wrong, or whether there are now genuinely two Supabase
+  projects in play where CLAUDE.md's "Supabase is shared, same project, same
+  tables" has always assumed exactly one. That is worth Andrew and Jake
+  settling directly rather than a third session guessing - which Supabase
+  project each of your Claude sessions' `list_projects` actually returns is
+  the one question that would answer it outright.
+  Until that is settled, do not trust "I queried the live project and found
+  X" from either side of this repo at face value - requery it yourself
+  before acting on it, the same discipline this file already asks for the
+  Netlify environment variables and the deploy branch.
