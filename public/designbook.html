@@ -1929,12 +1929,29 @@ const CONFIG = {
     STAGING: ["discipline", "t_smpl", "t_cont_smpl", "t_rmks_dtl", "t_smpl_tst", "t_smpl_tstr",
               "t_tst_rslt_hdr", "t_tst_rslt_dtl", "t_superpave", "t_bit_conc_mixblnd"],
     FIRST_DATA_ROW: { discipline: 2, default: 8 },
-    // District -> lab. The sample id is district + lab code + "AMD" + letting
-    // year + 4-digit sequence (07640AMD260467), and the lab unit is the LU
-    // number. Only District 07's pair has been read off a real file; an
-    // unknown district leaves both blank and the report says so - MEDL will
-    // refuse a file with no sample id, which is the right failure.
-    DISTRICTS: { "07": { lab: "LU00642", sampleLab: "640" } },
+    // Class 3/4 designs are reviewed by KYTC Central Office Materials (the
+    // Asphalt Mixtures Testing Section) regardless of the plant's district;
+    // Class 2 is reviewed by the plant's own district instead - confirmed
+    // 2026-09-17 (Andrew). The sample id is district + the REVIEWER's lab
+    // code + "AMD" + letting year + 4-digit sequence (07640AMD260467), and
+    // the lab unit is the LU number.
+    //
+    // The one real approved file on hand (#467PA, CL3 ASPH SURF,
+    // Boonesboro/district 07) matches CENTRAL_OFFICE exactly - what used to
+    // be read as "district 07's own lab" (LU00642) was actually Central
+    // Office's, confirmed 2026-09-17 against the live kytc_district_labs
+    // table (LU00642 = "CO Materials - Asphalt Mixtures Section"; "D-07
+    // Materials Section" is a different code, LU07210). DISTRICTS is Class
+    // 2's table now and has no confirmed row: every district's own
+    // Materials Section code ends in "210" (LU01210...LU12210), which is a
+    // plausible sampleLab guess for Class 2, but nobody has checked it
+    // against a real Class 2 file, and a guessed MEDL identifier is worse
+    // than a blank one - so it stays empty rather than filled in from that
+    // shape alone. An unknown/unconfirmed district leaves both blank and
+    // the report says so - MEDL will refuse a file with no sample id,
+    // which is the right failure.
+    CENTRAL_OFFICE: { lab: "LU00642", sampleLab: "640" },
+    DISTRICTS: {},
     // Chart Data is the workbook's input layer for the header. Design Data's
     // C18 / Q14 / Q16 / H18 / H20 / O8 / R10 / C20 are all formulas over these.
     CHART: {
@@ -11261,9 +11278,16 @@ function mixpackCells(payload, tpl, ref) {
   const submitted = last(CONFIG.SUBMIT.ACTION.submitted);
   const amp = mpStr(job.plant);
   const district = /^AMP(\d{2})/i.exec(amp) ? /^AMP(\d{2})/i.exec(amp)[1] : null;
-  const dist = district && X.DISTRICTS[district];
+  // Class 3/4 route through Central Office regardless of district; Class 2
+  // routes through the plant's own district, which has no confirmed lab
+  // code yet (CONFIG.MIXPACK.DISTRICTS). DesignBook's own field is the
+  // authority for class - same reasoning the AADTT-class read below states.
+  const reviewClass = mpNum(v.aadtt_class);
+  const dist = (reviewClass === 3 || reviewClass === 4) ? X.CENTRAL_OFFICE : (district && X.DISTRICTS[district]);
   if (!district) need("District", "the plant's AMP number is missing, and the district is its first two digits");
-  else if (!dist) need("Lab unit and sample id", `no lab code recorded for district ${district} (CONFIG.MIXPACK.DISTRICTS)`);
+  else if (!dist) need("Lab unit and sample id", reviewClass == null
+    ? `AADTT Class is missing, so it's unknown whether this routes to Central Office or district ${district}`
+    : `no lab code recorded for district ${district}'s Class ${reviewClass} review (CONFIG.MIXPACK.DISTRICTS)`);
 
   if (appr && appr.mix_id) {
     dd(DD.MIX_ID, mpStr(appr.mix_id));
@@ -19833,11 +19857,13 @@ async function verifyApproval(payload) {
  * a form that lets somebody retype it is a form that lets somebody break the
  * join to the design.
  *
- * NULL FOR ELEVEN DISTRICTS, and that is the honest answer rather than a
- * guess. `CONFIG.MIXPACK.DISTRICTS` carries district 07 alone - the statewide
- * hole CLAUDE.md records - so a plant anywhere else derives nothing and D7
- * stays as empty as it is today, with generate.mjs still naming it. Closing
- * that closes it for both books at once.
+ * ROUTES THROUGH CENTRAL OFFICE FOR CLASS 3/4, THE DISTRICT FOR CLASS 2 -
+ * same rule mixpackCells() uses, confirmed 2026-09-17 (Andrew). Class 2 has
+ * no confirmed district code (`CONFIG.MIXPACK.DISTRICTS` is empty - a
+ * guessed MEDL identifier is worse than a blank one), so a Class 2 lot
+ * derives nothing yet regardless of district, honestly, and generate.mjs
+ * still names the gap. A Class 3/4 lot resolves for every district, since
+ * Central Office doesn't vary by where the plant sits.
  */
 function approvalSampleId(lot) {
   const d = lot && lot.values && lot.values.design;
@@ -19845,7 +19871,10 @@ function approvalSampleId(lot) {
   const mixId = a && a.mix_id ? String(a.mix_id).trim() : "";
   const amp = lot && lot.amp_number ? String(lot.amp_number).trim() : "";
   const district = /^AMP(\d{2})/.exec(amp) ? /^AMP(\d{2})/.exec(amp)[1] : "";
-  const dist = district && CONFIG.MIXPACK.DISTRICTS[district];
+  const reviewClass = d && d.aadtt_class != null ? Number(d.aadtt_class) : null;
+  const dist = (reviewClass === 3 || reviewClass === 4)
+    ? CONFIG.MIXPACK.CENTRAL_OFFICE
+    : (district && CONFIG.MIXPACK.DISTRICTS[district]);
   if (!dist || !/^\d{8}$/.test(mixId)) return null;
   // Same read as mixpackCells(): the eight-digit mix id is 00 + yy + seq.
   return `${district}${dist.sampleLab}AMD${mixId.slice(2, 4)}${mixId.slice(-4)}`;

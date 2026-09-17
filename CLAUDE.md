@@ -3902,3 +3902,53 @@ commit where possible.
   **DesignBook is untouched again by construction** - the `<colgroup>` is
   emitted only for `wide` (a section with more than one physical column), so
   its single fluid `width:100%` gradation table is exactly as it was.
+
+- **`CONFIG.MIXPACK.DISTRICTS`'s "district 07" entry was never a district
+  code - it was Central Office's, and the fix is a Class 3/4-vs-Class-2
+  branch rather than a 12-row table.** Closes the oldest open item in this
+  file, and reopens a narrower one in its place. Andrew, 2026-09-17: "CO
+  Materials Asphalt Mixtures Testing Section is responsible for approving
+  all Class 3 and Class 4 mix designs from all jobs in districts across the
+  state... The district personnel are responsible for approving the Class 2
+  mix designs from jobs in their respective districts."
+  **Checked against the live `kytc_district_labs` table the same evening,
+  and it confirmed both halves of that.** `LU00642` - the value this file
+  had called "district 07's lab" since the note was first written, off the
+  one real approved file on hand (#467PA, CL3 ASPH SURF, Boonesboro/
+  district 07) - is `CO Materials - Asphalt Mixtures Section` in that
+  table. Not a district code at all. `D-07 Materials Section` is a
+  different code, `LU07210`. So the "one real data point" this file spent
+  months treating as district 07's own was Central Office's the entire
+  time, and #467PA being Class 3 is exactly why it read that way - Central
+  Office is who actually reviewed it, regardless of Boonesboro sitting in
+  district 07. That also settles the MixPack template's `Chart Data!
+  AV2:AV14` list, called "untrusted" at the top of this file because it
+  disagreed with that one point: it doesn't disagree.
+  `LU01210`...`LU12210`, one entry per district, is the same "Materials
+  Section" series `kytc_district_labs` carries too - confirmed independently
+  through a second real source (SiteManager's own `t_qualf_lab` export)
+  rather than trusted off the template alone.
+  **`CONFIG.MIXPACK.CENTRAL_OFFICE` is new** (`{ lab: "LU00642", sampleLab:
+  "640" }`) and is what both `mixpackCells()` and PlantBook's
+  `approvalSampleId()` use whenever the design's own `aadtt_class` is 3 or
+  4, regardless of the plant's district - DesignBook's own field is the
+  authority for class, same rule the AADTT-class prefill already follows a
+  few lines below in `mixpackCells()`. **`DISTRICTS` is Class 2's table now,
+  and it is EMPTY, deliberately.** Every district's own Materials Section
+  code ends in `210` (`LU01210`...`LU12210`), which is a plausible guess for
+  Class 2's `sampleLab`, but nobody has checked it against a real Class 2
+  file, and this project's standing rule is that a guessed MEDL identifier
+  is worse than a blank one. So a Class 2 design honestly derives nothing
+  yet, for any district including 07 - which is a real behavior change: a
+  Class 2 design at Boonesboro used to silently get Central Office's code
+  (wrong, but present), and now correctly gets neither, with `need()` saying
+  why. **A worse silent answer became an honest gap**, which is the
+  direction this class of fix should always go.
+  Not yet in code, and worth a real Class 2 file before it is: whether
+  Class 2's `sampleLab` really is each district's own `210` suffix, or
+  something else entirely. `docs/session-prep-2026-09-18.md` carries this
+  as the sharpened open question for the next in-person session.
+  Verified the page's inline script still parses (`new Function()` over the
+  `<script>` tag, no SyntaxError) via a local static server + browser tools -
+  no Node on this machine, same verification the design-mirrors branch used
+  2026-09-14.

@@ -82,32 +82,35 @@ already have a later "SETTLED" or "CORRECTED" entry closing it out.
   (2026-09-16, "Start lot n+1") and the sublot-1 setup allowance.
 
 ### Needs Andrew (reference data / KYTC-internal knowledge)
-- **District 01-12 lab codes** — the oldest open item in this file, and
-  checking it against `kytc_district_labs` (2026-09-17 evening) sharpened
-  the question rather than closing it. That table has no district-number
-  column (it's keyed by `lab_name`, e.g. "D-07 Materials Section"), but it
-  does have a clean `D-01`...`D-12 Materials Section` row per district
-  (`LU01210`...`LU12210`) — and that series **exactly matches** the MixPack
-  template's `Chart Data!AV2:AV14` list CLAUDE.md called "untrusted,"
-  confirmed now via a second, independent source (SiteManager's real
-  `t_qualf_lab` export). That part of the old note is resolved: the
-  template list is real.
-  **But the "one real data point" `CONFIG.MIXPACK.DISTRICTS["07"] = "LU00642"`
-  turns out to be `CO Materials - Asphalt Mixtures Section` in this table —
-  Central Office, not District 07** (`D-07 Materials Section` is a
-  different code, `LU07210`). That confirms CLAUDE.md's half-suspicion that
-  design approval routes through Central Office regardless of the plant's
-  district, rather than `DISTRICTS` genuinely needing 12 different codes.
-  The sample-id component (`sampleLab: "640"`) reinforces this: it's not in
-  the table at all except as `Central Office Materials → DL00640`, a third
-  distinct Central Office entry — again Central Office, not any district.
-  **So the real question for tomorrow isn't "what are districts 01-12's
-  codes" any more — it's "does every MixPack use the Central Office code
-  regardless of plant district, or was #467PA's district-07 file an
-  exception?"** If it's always Central Office, this is a one-line fix
-  (drop the per-district framing entirely) rather than an 11-row one. Andrew
-  or Tate would know; I don't have a second real file from another district
-  to check it against.
+- **District 01-12 lab codes — RESOLVED for Class 3/4, still open for
+  Class 2.** The oldest open item in this file. Checking `kytc_district_labs`
+  against `CONFIG.MIXPACK.DISTRICTS` (2026-09-17 evening) found that the
+  "district 07" entry (`LU00642`) was never a district code — it's
+  `CO Materials - Asphalt Mixtures Section`, Central Office. Andrew
+  confirmed the same evening: Central Office (mostly Andrew/Tate) approves
+  every Class 3/4 design statewide regardless of district; district
+  personnel approve Class 2 in their own district. That's exactly why the
+  one real file on hand (#467PA, a Class 3) read as "district 07's lab" —
+  Central Office reviewed it, Boonesboro's district was incidental.
+  **Implemented the same evening**: `CONFIG.MIXPACK.CENTRAL_OFFICE` (new)
+  is used for Class 3/4 regardless of district; `CONFIG.MIXPACK.DISTRICTS`
+  is now Class 2's table and is **empty** — a Class 2 design derives no
+  sample id or lab yet, for any district including 07. That's an honest
+  regression from "silently wrong" to "correctly blank," not a loss: a
+  Class 2 design at Boonesboro used to get Central Office's code, which was
+  never actually right for it.
+  **Still open**: Class 2's own per-district code. `kytc_district_labs`
+  gives a clean guess — every district's own Materials Section code ends in
+  `210` (`D-07 Materials Section` = `LU07210`, etc.) — but nobody has
+  checked it against a real Class 2-reviewed file, and CLAUDE.md's own rule
+  is that a guessed MEDL identifier is worse than a blank one. Worth asking
+  tomorrow: does anyone have a Class 2 AMAW or MixPack on hand to check the
+  `210` guess against, or does it need a district contact instead?
+  Also resolved as a side effect: the MixPack template's `Chart Data!
+  AV2:AV14` list, called "untrusted" for disagreeing with the one real data
+  point — it doesn't disagree, `kytc_district_labs` confirms the same
+  `LU01210`...`LU12210` series through a second independent source
+  (SiteManager's real `t_qualf_lab` export).
 - **LU vs DL code**: every KYTC district/section lab has two codes on file
   (`LU#####` and `DL#####`). Nothing confirms which one the AMAW's
   `'Pay Values'!I5` wants — both real completed AMAWs leave I5 blank. The
@@ -159,6 +162,11 @@ oriented rather than re-deriving it from `git log`:
 - Contract & Mix required fields go gold until filled, blue once done; Lot
   Pay's working-math lines are now clickable and jump to the control that
   measured them.
+- The gradation table on PlantBook got a `<colgroup>` and narrowed
+  considerably, giving the 0.45-power chart more room.
+- District 01-12 lab codes, Class 3/4 half: `CONFIG.MIXPACK.CENTRAL_OFFICE`
+  now covers every district for a Class 3/4 design; `DISTRICTS` is Class
+  2's table and is empty pending a real Class 2 file. See §2 above.
 
 ## 5. Suggested order
 
