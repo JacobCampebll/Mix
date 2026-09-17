@@ -118,7 +118,38 @@ read as a bug later.
 `AMP080306`, `AMP080402`, `AMP090304`, `AMP100101`, `AMP110202`, `AMP110203`,
 `AMP110301`, `AMP110304`, `AMP110307`, `AMP110501`, `AMP110502`, `AMP120307`.
 
-## 5. Still open: LU vs DL for the AMAW's KYTC Lab ID
+## 5. Company mismatches surfaced by joining against `plants` (7) — wrong AMP, or the plant changed hands?
+
+Added 2026-09-17 when the dropdown's display name was switched to read
+`plants.name` (via the new `producer_supplier_labs_view`) instead of the
+export's own `company_name`. That join surfaced these 7 of the 92 "clean"
+rows where the export's company and the plant's current operator are
+genuinely different companies — not spelling variants (`Scotty's` vs
+`Scottys`, `J. H. Rudolph` vs `J H Rudolph`, and `HCC` for `Hinkle
+Contracting Corp.` all filtered out as noise, not listed here). Each of
+these 92 rows already passed the "AMP matches a live plant" check, so this
+is a second, sharper kind of mismatch: right AMP, wrong company. Left in
+the seed rather than pulled — could be a stale AMP in the export (plant
+changed operators since SiteManager's record was last touched), or the
+export is simply right and `plants` is the stale one. Either way it's a
+real question, not a guess to make silently.
+
+| Lab id | AMP | Export says | `plants` says |
+|---|---|---|---|
+| `C513` | `AMP010201` | Purchase Asphalt LLC | Central Paving Co. @ Paducah |
+| `C278` | `AMP020303` | Owensboro Paving | Hinkle Contracting @ Owensboro (Drum) |
+| `C226` | `AMP040301` | Irving Materials Inc. | E & B Paving @ Corydon Indiana |
+| `C262` | `AMP050303` | H. G. Mays Corp | Frankfort Materials @ Frankfort |
+| `C268` | `AMP050304` | Sellersburg Stone (Gohman) | E & B Paving @ Sellersburg Indiana |
+| `C802` | `AMP050313` | Windham Paving | Hall Contracting @ Charlestown, IN |
+| `C180` | `AMP060304` | Hinkle Contracting | Ohio Valley Asphalt @ Carrollton |
+
+If any of these should be corrected, the fix is a one-line `update
+producer_supplier_labs set amp_number = '...' where lab_id = '...'` (or
+`update plants set name = '...' where amp_number = '...'`, if `plants` is
+the one that's stale) — nothing structural.
+
+## 6. Still open: LU vs DL for the AMAW's KYTC Lab ID
 
 See the header comment in `supabase/kytc_district_labs.sql` and the CLAUDE.md
 entry logged the same day. Every KYTC district/section lab has both an
