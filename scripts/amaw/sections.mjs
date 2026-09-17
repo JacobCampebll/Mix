@@ -1420,10 +1420,20 @@ export const PLANTBOOK_SECTIONS = [
       { key: "lot_joint_density", label: "Joint density", type: "select", req: true,
         options: [{ value: "1", label: "Yes" }, { value: "2", label: "No" }] },
       // supabase/kytc_district_labs.sql / producer_supplier_labs.sql,
-      // 2026-09-17 - dropdowns now, not free text.
-      { key: "lot_kytc_lab", label: "KYTC lab id", type: "text", req: false, mono: true,
+      // 2026-09-17 - dropdowns now, not free text. Marked required
+      // 2026-09-17b (Andrew: "remove 'optional'") so an empty box shows
+      // gold and counts in "field(s) missing", same treatment as Density
+      // Option - this does NOT block Submit (renderLotStage()'s advance
+      // button is gated only on the stage ladder, never on required-field
+      // count), so a plant with no clean lab code seeded yet
+      // (docs/plantbook-lab-id-reconciliation.md) is a permanent but
+      // harmless reminder, not a dead end. A typed-but-unselected value
+      // ("The allen" with nothing chosen) is separately flagged by the
+      // generic off-list warning every [data-source] field already gets
+      // - recompute() runs on every keystroke, so this needs no new check.
+      { key: "lot_kytc_lab", label: "KYTC lab id", type: "text", req: true, mono: true,
         source: "kytc_district_labs" },
-      { key: "lot_ps_lab",   label: "Producer/supplier lab id", type: "text", req: false, mono: true,
+      { key: "lot_ps_lab",   label: "Producer/supplier lab id", type: "text", req: true, mono: true,
         source: "producer_supplier_labs" },
       // Pay Values!B3. The sample id prefix each block's name is appended to
       // ("…VI01", "…QC01"). BOTH completed lots leave it blank, so their
