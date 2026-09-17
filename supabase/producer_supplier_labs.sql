@@ -282,3 +282,109 @@ select l.lab_id, l.amp_number, l.company_name, l.lab_name,
        l.flagged_mismatch, l.flag_note
   from producer_supplier_labs l
   left join plants p on p.amp_number = l.amp_number;
+
+-- ---------------------------------------------------------------------
+-- SUPERSEDES THE VIEW ABOVE, 2026-09-17b (Andrew: "make the producer
+-- supplier labs table simpler, with lab id, amp number, lab name column
+-- (with plant location and without AMP number redundancy)"). The view's
+-- whole reason to exist was avoiding a stored copy of plants.name; a
+-- trigger is the same guarantee (lab_name can never silently drift) by a
+-- different mechanism, traded for a table that reads "Company @ Site"
+-- directly in Studio with no view to remember. `company_name` is dropped
+-- - it was fully superseded once lab_name became the plant's own name
+-- rather than the export's raw label.
+--
+-- lab_name's CONTENT changes here too: it used to be the export's raw
+-- "Company - AMPxxxxxx" string (kept for audit); it becomes plants.name
+-- verbatim, so the audit trail for the original 92 rows now lives only in
+-- docs/plantbook-lab-id-reconciliation.md and the original export, not in
+-- this column.
+-- ---------------------------------------------------------------------
+
+create or replace function sync_producer_supplier_lab_name()
+returns trigger language plpgsql
+set search_path = public, pg_temp as $$
+begin
+  select name into new.lab_name from plants where amp_number = new.amp_number;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_sync_producer_supplier_lab_name on producer_supplier_labs;
+create trigger trg_sync_producer_supplier_lab_name
+  before insert or update of amp_number on producer_supplier_labs
+  for each row execute function sync_producer_supplier_lab_name();
+
+-- If a plant's name is corrected later (the Gaddie Shamrock LLC fix, for
+-- instance), every lab row tied to that AMP updates with it - the same
+-- "one row, every page" rule this project already applies to `plants`
+-- itself, now automated rather than manual.
+create or replace function cascade_plant_name_to_labs()
+returns trigger language plpgsql
+set search_path = public, pg_temp as $$
+begin
+  if new.name is distinct from old.name then
+    update producer_supplier_labs set lab_name = new.name where amp_number = new.amp_number;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_cascade_plant_name_to_labs on plants;
+create trigger trg_cascade_plant_name_to_labs
+  after update of name on plants
+  for each row execute function cascade_plant_name_to_labs();
+
+-- Backfill the 92 existing rows, then drop what the trigger and the
+-- dropped view made redundant.
+update producer_supplier_labs l
+   set lab_name = p.name
+  from plants p
+ where p.amp_number = l.amp_number;
+
+drop view if exists producer_supplier_labs_view;
+alter table producer_supplier_labs drop column if exists company_name;
+
+comment on column producer_supplier_labs.lab_name is
+  'plants.name for this row''s amp_number, kept in sync by '
+  'trg_sync_producer_supplier_lab_name / trg_cascade_plant_name_to_labs - '
+  'never hand-edit this column, it will be overwritten on the next sync.';
+
+-- ---------------------------------------------------------------------
+-- The 8 duplicate-AMP rows left out of the original seed (section 1 of
+-- the reconciliation doc). Comparing each code's ORIGINAL export company
+-- (recorded here, not in the table - company_name is gone) against
+-- plants.name - the same test that produced the 7 rows flagged above -
+-- resolves 6 of the 8 AMPs cleanly: both codes agree with plants, so
+-- neither is flagged. The other 2 turn out not to be a true tie at all:
+-- one code already matches plants, the other doesn't.
+--   AMP020101: plants says "Scottys Contracting" - C298 matches, clean;
+--              C384 was "Road Builders Paving & Const" - flagged.
+--   AMP050312: plants says "Asphalt Supply Co" - C798 matches, clean;
+--              C800 was "Hall Contracting" - flagged.
+-- lab_name is left null in the VALUES below - the insert trigger fills it
+-- from plants.name before the row is written.
+-- ---------------------------------------------------------------------
+
+insert into producer_supplier_labs (lab_id, amp_number, lab_name, flagged_mismatch, flag_note) values
+  ('C384', 'AMP020101', null, true,  'company_name was "Road Builders Paving & Const", plants has this AMP as Scotty''s Contracting - see docs/plantbook-lab-id-reconciliation.md section 1 (2026-09-17b)'),
+  ('C298', 'AMP020101', null, false, null),
+  ('C169', 'AMP020304', null, false, null),
+  ('C786', 'AMP020304', null, false, null),
+  ('C240', 'AMP040311', null, false, null),
+  ('C171', 'AMP040311', null, false, null),
+  ('C798', 'AMP050312', null, false, null),
+  ('C800', 'AMP050312', null, true,  'company_name was "Hall Contracting", plants has this AMP as Asphalt Supply Co - see docs/plantbook-lab-id-reconciliation.md section 1 (2026-09-17b)'),
+  ('C199', 'AMP070301', null, false, null),
+  ('C518', 'AMP070301', null, false, null),
+  ('C215', 'AMP080302', null, false, null),
+  ('C222', 'AMP080302', null, false, null),
+  ('C785', 'AMP080302', null, false, null),
+  ('C245', 'AMP100301', null, false, null),
+  ('C250', 'AMP100301', null, false, null),
+  ('C218', 'AMP110204', null, false, null),
+  ('C219', 'AMP110204', null, false, null)
+on conflict (lab_id) do update set
+  amp_number = excluded.amp_number,
+  flagged_mismatch = excluded.flagged_mismatch,
+  flag_note = excluded.flag_note;
