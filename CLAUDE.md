@@ -3654,43 +3654,90 @@ Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
 end of a section rather than restructuring, and keep edits to one section per
 commit where possible.
 
-- **CORRECTION, same day, and the wrong note is worth keeping visible: the
-  lab-id tables ARE applied. The note that stood here for a few hours said in
-  bold that none of them existed, and it was checked against the WRONG
-  DATABASE.** `mcp__Supabase` in that session was connected to a different
-  account's project (`allen-qc`, `knaeexnlyfjgpowihcel`); the app's project is
-  `iwysxhcmvhkcjxmjarkd`, the one `CONFIG.SUPABASE_URL` names. Every table
-  looked missing there because **none of this project's tables are there** -
-  `aggregates` and `plants` are equally absent from it. The note even ended
-  with the sentence "the only proof is querying the live project", written
-  without checking WHICH project answered.
-  **What the live project actually says**, probed through PostgREST with the
-  anon key the page already ships: `producer_supplier_labs`,
-  `kytc_district_labs` and `producer_supplier_labs_view` all return
-  **`42501 permission denied for table producer_supplier_labs`**. A relation
-  that does not exist returns something completely different -
-  **`PGRST205 Could not find the table 'public.<name>' in the schema cache`** -
-  which is what a made-up name returns on the same project in the same second.
-  So the relations exist, and Postgres is refusing `anon` the SELECT
-  privilege, which is a statement about grants rather than about existence.
-  **Keep that pair of error codes.** It is the cheapest way to tell "never
-  applied" from "applied and not readable by this role", and reading one as
-  the other is what produced a false accusation about somebody else's work in
-  this file.
-  **The grant posture is `plants`', which is the right one.** `plants` answers
-  `anon` with the same 42501, and it has been seeded and working for a
-  fortnight - the app reads as an AUTHENTICATED technician, never as `anon`.
-  (Note it is tighter than the four original reference tables, where the
-  `revoke all ... grant select` step was never run: `aggregates` answers `anon`
-  with an empty array, meaning the grant is there and only RLS is holding the
-  rows back. The new tables never grant it at all. That is better, and it is
-  the posture `plants.sql` documents.)
-  **What is still NOT established from here**, stated rather than glossed:
-  whether the two tables are SEEDED, and whether a signed-in technician's
-  `producer_supplier_labs` RLS actually returns their own company's rows.
-  Both need a real session, which a `curl` with the anon key cannot produce.
-  The earlier note's one sound half stands and is worth keeping: a page change
-  and a migration are one change, only one half of it is in git, and no
-  checker can see the other half - `check_page_plantbook.mjs` calls those
-  `label`/`value` functions with FIXTURE rows in a Node vm, so 197 green
-  assertions say nothing about the database either way.
+- **The lab-id tables are NOT applied live, so both lab fields on Contract &
+  Mix are dead on the deployed site right now** (checked 2026-09-17 against
+  the live project, after merging Andrew's six lab-id commits). The page
+  queries three relations - `producer_supplier_labs`, `kytc_district_labs`
+  and `producer_supplier_labs_view` - and **not one of them exists**: a
+  search of `information_schema.tables` across every schema for anything
+  matching `lab` returns only Postgres's own `pg_seclabel` catalogue rows.
+  The DDL is written and committed (`supabase/producer_supplier_labs.sql`,
+  `supabase/kytc_district_labs.sql`, and the view), it has simply never been
+  run. **Applying and seeding it is Andrew's admin action** - the same rule
+  as every other reference table, and the seed carries real company names.
+  **It degrades rather than breaking, and that is by design rather than by
+  luck.** `loadReferenceData()` is `Promise.allSettled` per table, so the
+  three failures are isolated: each sets `state.ref[key] = []`, is named in
+  `state.ref.error` on the Status step, and `refControlHTML()` falls through
+  its `list.length &&` guard to the plain `<input type="text">` - so the two
+  fields are free text instead of dropdowns and nothing else on the page
+  loses its list. `applyPlantLabId()` simply fills nothing.
+  Worth carrying as a class, because this is the second time the two halves
+  of one change have shipped apart: **a page change and a migration are one
+  change, and only one half of it is in git.** A checker cannot catch this -
+  `check_page_plantbook.mjs` calls those `label`/`value` functions with
+  FIXTURE rows in a Node vm, which is exactly why they must not reach into
+  `state`, and it is equally why 197 green assertions say nothing about
+  whether the relation exists. The only proof is querying the live project.
+  Same shape as the Netlify environment variables: set per site, not carried
+  by a merge, failing closed and quietly.
+
+- **CORRECTION to the entry above, same day: the lab-id tables WERE applied,
+  and were live the whole time the note above says they weren't.** Andrew
+  applied and seeded all three relations himself, live, before that note was
+  written - `producer_supplier_labs` (92 rows), `kytc_district_labs` (80
+  rows) and `producer_supplier_labs_view` all exist in `public` on the
+  project this file calls "the live project," confirmed twice: once
+  immediately after seeding (row counts, an RLS-scoping test distinguishing
+  a Hinkle technician's 10 visible rows from Central Office's 92, `get_
+  advisors` clean) and again 2026-09-17 by re-running the other note's own
+  check (`select table_schema, table_name, table_type from information_
+  schema.tables where table_name ilike '%lab%'` - all three come back). The
+  deployed site was fetched directly the same day and confirmed serving code
+  that reads `flagged_mismatch` off these tables.
+  So the other check was not lying about what it found, and this is not "the
+  page was fine, the check was buggy" (the pattern this file has now recorded
+  three times for THIS project's own harness) - it is simpler and stranger:
+  **two sessions querying "the live project" got two different answers,
+  which means they were not looking at the same project.** Nothing here
+  proves which one is wrong, or whether there are now genuinely two Supabase
+  projects in play where CLAUDE.md's "Supabase is shared, same project, same
+  tables" has always assumed exactly one. That is worth Andrew and Jake
+  settling directly rather than a third session guessing - which Supabase
+  project each of your Claude sessions' `list_projects` actually returns is
+  the one question that would answer it outright.
+  Until that is settled, do not trust "I queried the live project and found
+  X" from either side of this repo at face value - requery it yourself
+  before acting on it, the same discipline this file already asks for the
+  Netlify environment variables and the deploy branch.
+
+- **SETTLED, closing the question the entry above leaves open: the two
+  sessions were querying two different Supabase projects, and here are both
+  refs.** This session's `mcp__Supabase` `list_projects` returns exactly ONE
+  project - **`knaeexnlyfjgpowihcel`, named `allen-qc`** - which is not this
+  app's. The app's is **`iwysxhcmvhkcjxmjarkd`**, the ref in
+  `CONFIG.SUPABASE_URL` in every page. Nothing in this repo is on `allen-qc`:
+  `aggregates` and `plants` are as absent from it as the lab tables are, which
+  is exactly why every probe came back empty and read as "nothing was ever
+  applied". **CLAUDE.md's "Supabase is shared, same project, same tables" is
+  still true of the app** - there is one app project, and the second one is a
+  personal project that happens to be what an MCP connector was pointed at.
+  **So the rule is: check the project REF before believing a database answer,
+  not just that you queried "the live project".** Compare what `list_projects`
+  returns against `CONFIG.SUPABASE_URL`; they are both right there.
+  **And when the MCP is on the wrong project, PostgREST with the anon key the
+  page already ships is the fallback, because it cannot be pointed anywhere
+  else** - it is the same URL and key the browser uses. Two error codes are
+  what make it conclusive, and they are worth keeping:
+  **`PGRST205 Could not find the table 'public.<name>' in the schema cache`**
+  is a relation that does not exist, and **`42501 permission denied for
+  table <name>`** is a relation that exists and is refusing this ROLE. All
+  three lab relations answer `anon` with 42501, as does `plants`, which has
+  been seeded and working for a fortnight - the app reads as an authenticated
+  technician, never as `anon`. Reading one of those codes as the other is what
+  produced a false accusation about somebody else's applied migration.
+  (`aggregates` differs - it answers `anon` with an empty array, the grant
+  present and only RLS holding the rows back, because the four original
+  reference tables never had the `revoke all ... grant select` step run on
+  them. The new lab tables do, so they match `plants` rather than those.)
+

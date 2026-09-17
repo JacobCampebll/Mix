@@ -3825,8 +3825,9 @@ const verifySpecimenOf4 = (n) =>
   //  Andrew's standing call, 2026-09-14: one canonical edit point beats four
   //  that could disagree), and the last column, Sublot %, is THIS tab's own.
   //
-  //  `aggBlendColumns(editable)` returns the shared column list, differing
-  //  only in `readonly`/`req` on the five identity+design columns: Sublot 1's
+  //  `aggBlendColumns(editable, n)` returns the shared column list, differing
+  //  only in `readonly`/`req` on the five identity+design columns (`editable`)
+  //  and the "Sublot % " heading's own number (`n`): Sublot 1's
   //  copy gets `editable: true` (typed, sourced against `aggregates`/
   //  `aggregate_types`), Sublots 2-4 get `editable: false` (painted by
   //  paintBlendMirrors(), same "read-only mirror" pattern `producer`/
@@ -3862,7 +3863,7 @@ const verifySpecimenOf4 = (n) =>
   //  MIDDLE of Sublot 1's six would silently compact the rest upward and
   //  desync `component`'s own numbering from row position - `component`
   //  itself is what stops that, being the one cell always painted regardless.
-  function aggBlendColumns(editable) {
+  function aggBlendColumns(editable, n) {
     return [
       // `hidden: true` - a real, always-collected cell (rowHTML()'s own
       // note), just not a printed column: the tab a row is on already says
@@ -3909,7 +3910,15 @@ const verifySpecimenOf4 = (n) =>
       // The design's own blend % for this component - reference only, never
       // typed and never overwritten by editing "Sublot %" below.
       { key: "design_pct", label: "Design %", type: "number", mono: true, readonly: true },
-      { key: "pct", label: "Sublot %", type: "number", req: true, mono: true },
+      // The sublot number is in the heading, not just "Sublot %" - Andrew,
+      // 2026-09-17: four tabs share this same column key, and a reviewer
+      // moving between them reads "Sublot %" on every one with nothing
+      // saying which sublot it is (the tab chrome is the only place that
+      // does). `n` is undefined when this is called without a tab context
+      // (there isn't one today, but aggBlendColumns() is a shared builder,
+      // not tab-specific), so it falls back to the bare label rather than
+      // printing "Sublot undefined %".
+      { key: "pct", label: n ? `Sublot ${n} %` : "Sublot %", type: "number", req: true, mono: true },
     ];
   }
   function aggBlendSpec(n) {
@@ -3920,7 +3929,7 @@ const verifySpecimenOf4 = (n) =>
         // Seven tracks - component, producer, AGP, type & size, BOD, Design %,
         // Sublot %.
         grid: ".3fr 1.7fr .7fr 1.05fr .5fr .55fr .55fr",
-        columns: aggBlendColumns(n === 1),
+        columns: aggBlendColumns(n === 1, n),
       }, sixOf4(n)),
       // The stat lives IN the row-group's own navy banner (rowHeadingHTML())
       // rather than as a separate readout field above it - Andrew, 2026-09-15:
@@ -4404,14 +4413,20 @@ const verifySpecimenOf4 = (n) =>
         { key: "lot_joint_density", label: "Joint density", type: "select", req: true,
           options: [{ value: "1", label: "Yes" }, { value: "2", label: "No" }] },
         // supabase/kytc_district_labs.sql / producer_supplier_labs.sql,
-        // 2026-09-17 - dropdowns now, not free text. See the reconciliation
-        // in docs/plantbook-lab-id-reconciliation.md for what a blank
-        // dropdown here means (no clean single lab code on file yet, or the
-        // technician's own company has none seeded) and CLAUDE.md for the
-        // still-open LU-vs-DL question on the KYTC side.
-        { key: "lot_kytc_lab", label: "KYTC lab id", type: "text", req: false, mono: true,
+        // 2026-09-17 - dropdowns now, not free text. Marked required
+        // 2026-09-17b (Andrew: "remove 'optional'") so an empty box shows
+        // gold and counts in "field(s) missing", same treatment as Density
+        // Option - this does NOT block Submit (renderLotStage()'s advance
+        // button is gated only on the stage ladder, never on required-field
+        // count), so a plant with no clean lab code seeded yet
+        // (docs/plantbook-lab-id-reconciliation.md) is a permanent but
+        // harmless reminder, not a dead end. A typed-but-unselected value
+        // ("The allen" with nothing chosen) is separately flagged by the
+        // generic off-list warning every [data-source] field already gets
+        // - recompute() runs on every keystroke, so this needs no new check.
+        { key: "lot_kytc_lab", label: "KYTC lab id", type: "text", req: true, mono: true,
           source: "kytc_district_labs" },
-        { key: "lot_ps_lab",   label: "Producer/supplier lab id", type: "text", req: false, mono: true,
+        { key: "lot_ps_lab",   label: "Producer/supplier lab id", type: "text", req: true, mono: true,
           source: "producer_supplier_labs" },
         // Pay Values!B3. The sample id prefix each block's name is appended to
         // ("…VI01", "…QC01"). BOTH completed lots leave it blank, so their
@@ -8004,7 +8019,22 @@ function recompute() {
   const rollUp = true;
 
   const missing = outstanding.filter((o) => o.kind !== "warn"), warns = outstanding.filter((o) => o.kind === "warn");
-  const all = missing.concat(warns);
+  // The rail reads start-to-finish in tab order (Andrew, 2026-09-17: a
+  // step 1 warning showing up after every step's "missing" count, because
+  // this used to be missing.concat(warns) - every "missing" item first,
+  // regardless of step, then every "warn" item after). `stepIndexOf` is
+  // the one place that gets resolved now; `stepNo()` below reads the same
+  // index rather than re-deriving it, so the sort order and the printed
+  // step label can never disagree. `.slice()` before `.sort()` because
+  // Array#sort mutates in place and `outstanding` is read elsewhere by
+  // reference this same tick (the completeness meter above, for one).
+  const vis = visibleSteps();
+  const stepIndexOf = (id) => {
+    const sec = secs.find((x) => x.dataset.section === hostSectionId(id));
+    const n = sec ? vis.indexOf(sec) : -1;
+    return n < 0 ? Infinity : n;   // no step (e.g. a hidden section) sorts last
+  };
+  const all = outstanding.slice().sort((a, b) => stepIndexOf(a.id) - stepIndexOf(b.id));
   const items = rollUp ? all : all.filter((o) => hostSectionId(o.id) === hereId);
   const mine = { missing: items.filter((o) => o.kind !== "warn").length,
                  warns: items.filter((o) => o.kind === "warn").length };
@@ -8013,10 +8043,8 @@ function recompute() {
   // page it names a place the reader cannot go - the same reason the rail
   // keeps its labels on a phone rather than showing bare numerals.
   const stepNo = (id) => {
-    const sec = secs.find((x) => x.dataset.section === hostSectionId(id));
-    const vis = visibleSteps();
-    const n = sec ? vis.indexOf(sec) + 1 : 0;
-    return n ? `step ${n}` : "";
+    const n = stepIndexOf(id);
+    return Number.isFinite(n) ? `step ${n + 1}` : "";
   };
   const item = (o, i) =>
     `<div class="vitem${o.kind === "warn" ? " warn" : ""}" data-idx="${i}"><span class="flag${o.kind === "warn" ? " warn" : ""}"></span>
