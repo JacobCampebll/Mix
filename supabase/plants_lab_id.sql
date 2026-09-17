@@ -1,5 +1,13 @@
 -- plants.ps_lab_id — the producer/supplier lab that tests a plant's output.
 --
+-- SUPERSEDED 2026-09-17, NEVER APPLIED — do not run this file. The real
+-- KYTC export (`PlantBook Lab IDs.xlsx`) showed this column's assumption
+-- (one clean lab id per plant) was wrong: some AMP numbers carry two or
+-- three lab codes, some lab codes carry no AMP at all. See
+-- supabase/producer_supplier_labs.sql (the replacement) and
+-- docs/plantbook-lab-id-reconciliation.md for the full reconciliation.
+-- Left here, unapplied, as the historical record of the first attempt.
+--
 -- Why this exists (Jake, 2026-09-13): "The producer lab id should be
 -- somewhere in supabase, given the approval is tied to this plant this should
 -- be in there somewhere and auto populated."

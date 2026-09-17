@@ -2497,6 +2497,51 @@ TBD — cite the governing spec section when encoding a limit in code.
   citation chips on PlantBook render as real `<a>` links with a `#page=`
   anchor, none muted. The dashed non-linking `span.cite` path stays in the
   stylesheet for the next unverified cite; it currently renders nothing.
+
+- **The KYTC/producer-supplier lab id database landed 2026-09-17 (Andrew),
+  closing the "Open for Jake"/"Open for Andrew" lab-id items above with two
+  new Supabase tables rather than the single `plants.ps_lab_id` column
+  those notes assumed.** Source: `PlantBook Lab IDs.xlsx`, a real 311-row
+  export off SiteManager's `tsm.t_qualf_lab` (confirmed from the file's own
+  `SQL` tab). Reconciled against the live `plants` table before writing
+  anything — full reconciliation in
+  `docs/plantbook-lab-id-reconciliation.md`.
+  **Two tables, not one column, because the real data isn't 1:1.**
+  `supabase/producer_supplier_labs.sql` (92 rows seeded) is one row per
+  contractor lab code, tied to the AMP it tests for — 8 AMPs had 2-3
+  competing codes and 26 codes' AMPs didn't match any live plant, both left
+  OUT of the seed rather than guessed at (see the doc). `supabase/
+  kytc_district_labs.sql` (80 rows seeded) is KYTC's own Central
+  Office/district/design-build-crew labs, read-all like `plants`.
+  `supabase/plants_lab_id.sql` is now marked superseded in its own header,
+  unapplied, kept as historical record.
+  **`producer_supplier_labs` is the first table in this project scoped by
+  RLS rather than read-all** — Jake's ask, a plantbook user should only see
+  their own company's lab codes. It reuses
+  `technician_effective_plant_access` (the AMP-access view, not a new
+  company-name-matching layer — `technicians.company` disagrees with this
+  export's spelling too often to match on: "Hinkle Contracting" vs "Hinkle
+  Contracting Corp."), so a technician's dropdown is exactly the lab codes
+  for plants they can already see.
+  Both fields on PlantBook's Contract & Mix step (`lot_kytc_lab`,
+  `lot_ps_lab`) are dropdowns now, wired through the same
+  `CONFIG.REFERENCE.TABLES` / `source:` mechanism as every other reference
+  field — no new UI plumbing needed. `applyPlantLabId()` (designbook.html)
+  was rewritten to auto-fill the P/S lab from `state.ref.
+  producer_supplier_labs` by AMP match, replacing its old direct query
+  against the never-applied `plants.ps_lab_id` column.
+  **OPEN, DO NOT FORGET: every KYTC district/section lab has TWO codes on
+  file (`LU#####` and `DL#####`, e.g. `D-01 Materials Section` is both
+  `LU01210` and `DL01210`), and nothing proves which one the AMAW's 'Pay
+  Values'!I5 wants** — both real completed AMAWs on file leave I5 blank.
+  The dropdown defaults to `lu_lab_id` (confirmed correct for DesignBook's
+  MixPack, `Chart Data!AV2:AV14`) purely because that's the series already
+  proven elsewhere; the DL code rides along as an alias so a lot already
+  typed with one still resolves. Flip the default in both
+  `CONFIG.REFERENCE.TABLES.kytc_district_labs` (`designbook.html`) and
+  `PLANTBOOK_REFERENCE_TABLES` (`scripts/amaw/sections.mjs`) if it turns out
+  to be DL — check against a real filled-in AMAW's I5, or ask KYTC.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
