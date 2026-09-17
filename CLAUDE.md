@@ -3520,6 +3520,77 @@ read-only, so a write test goes through `apply_migration` and ends in
   apart, and this door inherits whichever is right because it only ever adds
   one to what it was given.
 
+- **Contract & Mix marks what is still OUTSTANDING in gold, and Lot Pay's
+  working lines link back to the box they were measured in** (Jake,
+  2026-09-17). Two separate asks with one idea between them: the page should
+  say where to go next, rather than only what it computed.
+  **GOLD MEANS OUTSTANDING, BLUE MEANS DONE.** The ledger's "yours to fill"
+  rule was blue whether or not anything was in it, so a blank read exactly
+  like a filled one - "lets have it where the boxes that users need to input
+  are yellow until they put the information in there, but turn the blue once
+  its in there so they know if they missed anything". Now a REQUIRED box with
+  nothing in it takes `var(--gold)` and a soft `--flag-soft` wash; the moment
+  it holds anything it is the ordinary blue rule.
+  **`.req` only, deliberately.** Wedge tons and the two lab ids are optional
+  and stay blue when empty: a person has not "missed" one of those, and
+  golding them would make the colour mean "empty" rather than "outstanding",
+  which is the thing worth knowing.
+  **`.unfilled` is toggled in `recompute()`'s existing required-field sweep**,
+  not in a pass of its own - that loop already reads every `.req` control's
+  value on every recompute. It is set page-WIDE and styled only inside the
+  ledger block, so nothing else on either book changed appearance. It has to
+  be a class rather than pure CSS because **there is no `:placeholder-shown`
+  for a `<select>`**, and half these controls are selects.
+  **The `.rowitem .box` cascade trap, hit for the third time and caught by
+  measuring.** The new rule is `(0,9,0)` against `select.box`'s `(0,2,1)`, so
+  its `padding-right:8px` beat the 22px that reserves room for the drawn
+  caret and painted the caret straight over the text. Restated inside the
+  block, per the rule that block's own comment already states. Verified by
+  reading `getComputedStyle().paddingRight` on a gold select rather than by
+  eye: 22px, and the caret is visible in the screenshot.
+  Round-tripped in a browser, an input and a select each: filled -> cleared
+  is gold at 2px with the wash -> refilled is blue at 1px, and an optional one
+  never leaves blue. The legend under the band says so now ("Gold is still to
+  fill in; blue is done") - it used to say "a blue rule is yours to fill",
+  which had become half the story.
+  **Lot Pay's third column is gone and its address rides in `title`** - "lets
+  get rid of the grey letters that say superpave f and g or what not". Same
+  move, and the same reasoning, as the `.srcnote` line that became a prefilled
+  input's tooltip on 2026-09-13: the workbook address is the detail behind the
+  figure and is worth keeping, and is not worth a column of grey chips beside
+  every line. `.payx-eq` is two tracks now rather than three, because an
+  `auto` track with nothing in it still takes its gap.
+  **And a line that was MEASURED on a control links back to it** - "where it
+  says gmb then specimen 1 or 2, they can click on it and boom it takes them
+  down to that specific area in the lot pages". `eqHTML()` takes a `goto` of
+  `"<section>|<row table>|<row>"`, `payview.mjs` decides which lines get one,
+  and `gotoLotSource()` on the page finds the control and hands it to
+  `jumpTo()`. 88 lines are clickable on a filled lot.
+  **Only measured lines get one, and that is the whole rule**: a Gmb average,
+  an air-void figure, a deviation or a lot roll-up is computed from the lines
+  above it and has nowhere to send you. What links is a specimen, a Rice bowl,
+  a moisture pan, the hand-mixed sample and a core.
+  **A core is found by its ID, never its index.** The trace carries only the
+  cores that HAVE a % solid, in table order, so its index stops matching the
+  table's the moment one core is labelled and never measured - which is
+  exactly what lot 1 of the two real AMAWs does. `#<value>` in the target
+  means "match an identity cell", and `src()` builds it.
+  **`jumpTo()` does the navigating, and it has to.** `.focus()` inside a
+  `display:none` step does nothing and reports nothing, so the step has to be
+  switched FIRST - which `go()` already handles, along with the one-page case
+  below 700px where there is no switch at all and a smooth scroll to wait out
+  instead. Re-implementing any of that here would have been a second answer to
+  a question the page already answers.
+  A locked sublot's controls are all disabled, so the lookup comes back null,
+  the step still opens and flashes, and nothing is focused - which is the
+  honest outcome rather than a failure: the figure is there, the box is not
+  yours yet. The rows carry `role="button"` and `tabindex="0"`, so they owe
+  the keyboard Enter and Space, and get them.
+  Verified in a browser across all four target shapes (`sublot_bsg`,
+  `mat_cores` by id, `handmix_msg`, `sublot_moisture`): each lands on the
+  right step with the right control focused holding the right value. Harness
+  354 passing, page checker 197, unchanged by any of this.
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
