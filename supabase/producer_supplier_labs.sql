@@ -204,3 +204,81 @@ on conflict (lab_id) do update set
 --   select p.amp_number, p.name from plants p
 --   left join producer_supplier_labs l on l.amp_number = p.amp_number
 --   where l.lab_id is null order by p.amp_number;
+
+-- ---------------------------------------------------------------------
+-- producer_supplier_labs_view — added 2026-09-17 (Andrew: "reconciled
+-- against the plants table... name that reads exactly like the name
+-- column from plants table"). A plain join, not a stored/denormalized
+-- name column, so plant_name can never drift from plants.name - it always
+-- reads it. security_invoker means both tables' own RLS still applies to
+-- the querying user (same pattern as technician_effective_plant_access in
+-- supabase/effective_plant_access.sql) - this view grants no new
+-- visibility, it only reshapes what was already visible.
+--
+-- CONFIG.REFERENCE.TABLES.producer_supplier_labs (designbook.html) reads
+-- this view rather than the bare table. Joining in SQL rather than inside
+-- the page's `label` function matters for a reason specific to this
+-- codebase: label/value/aliases are called directly with fixture rows by
+-- scripts/amaw/check_page_plantbook.mjs in a Node vm context with no
+-- `state` global, so a cross-table lookup inside the function (e.g.
+-- reaching into state.ref.plants) would throw there. Every entry in
+-- REFERENCE.TABLES stays a pure function of its own row; this view is
+-- what lets producer_supplier_labs keep that property while still
+-- showing the plant name.
+--
+-- Joining this against plants surfaced 7 rows where the export's company
+-- name and the plant's current operator are genuinely different
+-- companies (not spelling variants) — see
+-- docs/plantbook-lab-id-reconciliation.md section 5. Left in pending
+-- Andrew's review; not a reason to drop the view.
+-- ---------------------------------------------------------------------
+
+create or replace view producer_supplier_labs_view
+with (security_invoker = true) as
+select l.lab_id, l.amp_number, l.company_name, l.lab_name, p.name as plant_name
+  from producer_supplier_labs l
+  left join plants p on p.amp_number = l.amp_number;
+
+comment on view producer_supplier_labs_view is
+  'producer_supplier_labs joined to plants.name for display - see the '
+  'CONFIG.REFERENCE.TABLES.producer_supplier_labs comment in designbook.html.';
+
+grant select on producer_supplier_labs_view to authenticated;
+
+-- ---------------------------------------------------------------------
+-- flagged_mismatch / flag_note — added 2026-09-17. Joining against plants
+-- above surfaced 7 rows where the export's company_name and plants.name
+-- disagree for the same amp_number (docs/plantbook-lab-id-
+-- reconciliation.md section 5). Andrew: keep them rather than drop them,
+-- with "an obvious indicator... that they might be old" - though see the
+-- same conversation for why the wording below says "unverified" rather
+-- than "old": H. G. Mays Corp is one of the 7 and is a very active
+-- company, so the flag can only honestly say the AMP mapping is
+-- unconfirmed, not that the row itself is stale.
+-- ---------------------------------------------------------------------
+
+alter table producer_supplier_labs
+  add column if not exists flagged_mismatch boolean not null default false,
+  add column if not exists flag_note text;
+
+comment on column producer_supplier_labs.flagged_mismatch is
+  'True when company_name disagrees with plants.name for this row''s amp_number. Surfaced in the PlantBook dropdown label and as a non-blocking rail warning - see CONFIG.REFERENCE.TABLES.producer_supplier_labs in designbook.html.';
+comment on column producer_supplier_labs.flag_note is
+  'Why this row is flagged - printed nowhere in the UI yet, kept for the next person auditing this table.';
+
+update producer_supplier_labs set
+  flagged_mismatch = true,
+  flag_note = 'company_name disagrees with plants.name for this amp_number - see docs/plantbook-lab-id-reconciliation.md section 5 (2026-09-17)'
+where lab_id in ('C513', 'C278', 'C226', 'C262', 'C268', 'C802', 'C180');
+
+-- CREATE OR REPLACE VIEW can only append columns at the end, not insert
+-- them before an existing one, so flagged_mismatch/flag_note come after
+-- plant_name rather than beside company_name/lab_name where they logically
+-- belong.
+create or replace view producer_supplier_labs_view
+with (security_invoker = true) as
+select l.lab_id, l.amp_number, l.company_name, l.lab_name,
+       p.name as plant_name,
+       l.flagged_mismatch, l.flag_note
+  from producer_supplier_labs l
+  left join plants p on p.amp_number = l.amp_number;

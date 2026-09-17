@@ -154,11 +154,41 @@ export const PLANTBOOK_REFERENCE_TABLES = {
   // already IS "this person's own company's labs" with no client-side
   // filtering needed - see applyPlantLabId(), which further narrows to this
   // lot's own AMP for the auto-fill.
+  //
+  // Reads producer_supplier_labs_view, not the bare table (Andrew,
+  // 2026-09-17: "reconciled against the plants table... name that reads
+  // exactly like the name column from plants table"). The view is a plain
+  // SQL join to plants (security_invoker, so it still honours both
+  // tables' own RLS - same pattern as technician_effective_plant_access),
+  // so plant_name is a LIVE read of plants.name and can never drift from
+  // it. `label` stays a pure function of its own row - like every other
+  // entry here - rather than reaching into state.ref.plants: this table's
+  // label/value/aliases functions are called directly with fixture rows
+  // by check_page_plantbook.mjs in a Node vm context with no `state`
+  // global, so a cross-table lookup inside the function would throw
+  // there. The join belongs in SQL for exactly that reason.
+  // company_name/lab_name stay on the base table, unused for display now,
+  // kept for reconciling the next export refresh (see
+  // docs/plantbook-lab-id-reconciliation.md).
+  //
+  // flagged_mismatch (added 2026-09-17): 7 rows where the export's
+  // company_name disagrees with plants.name for the same amp_number -
+  // kept rather than dropped, since neither side is confirmed wrong (see
+  // the reconciliation doc section 5). The marker in the label makes it
+  // "unverified", not "wrong" or "old" - Andrew: H. G. Mays Corp is one
+  // of the 7 and is very much an active company, so the flag can only
+  // honestly say the AMP mapping is unconfirmed, not that the company or
+  // the lab id itself is stale. recompute()'s reference-list sweep
+  // raises the same fact as a non-blocking rail warning once a lot's
+  // lot_ps_lab actually holds one of these values - see there for why a
+  // flagged VALUE, not just a flagged row sitting unused in the list, is
+  // what triggers it.
   producer_supplier_labs: {
-    table: "producer_supplier_labs", select: "lab_id, amp_number, company_name, lab_name", orderBy: "company_name",
+    table: "producer_supplier_labs_view", select: "lab_id, amp_number, company_name, lab_name, plant_name, flagged_mismatch", orderBy: "company_name",
     noun: "producer/supplier labs",
     value: (r) => r.lab_id,
-    label: (r) => `${r.lab_id} — ${r.company_name}`,
+    label: (r) => `${r.lab_id} — ${r.plant_name ? `${r.plant_name} — ${r.amp_number}` : r.company_name}` +
+                  (r.flagged_mismatch ? " ⚠ unverified — doesn't match plants" : ""),
     aliases: (r) => [],
   },
   // supabase/kytc_district_labs.sql, 2026-09-17. Read-all, unlike the entry

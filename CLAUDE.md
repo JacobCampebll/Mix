@@ -2542,6 +2542,63 @@ TBD — cite the governing spec section when encoding a limit in code.
   `PLANTBOOK_REFERENCE_TABLES` (`scripts/amaw/sections.mjs`) if it turns out
   to be DL — check against a real filled-in AMAW's I5, or ask KYTC.
 
+- **`producer_supplier_labs` now reads through `producer_supplier_labs_view`
+  (a `security_invoker` join to `plants`, added 2026-09-17) rather than the
+  bare table, so the PlantBook dropdown's subtitle reads exactly like
+  `plants.name` — Andrew: "reconciled against the plants table... name
+  that reads exactly like the name column from plants table."** It's a
+  live join, never a stored copy, so it can't drift from `plants.name`.
+  Kept the join in SQL rather than inside `label()`: every
+  `CONFIG.REFERENCE.TABLES` entry's `label`/`value`/`aliases` must stay a
+  pure function of its own row, because `check_page_plantbook.mjs` calls
+  them directly with fixture rows in a Node `vm` context with no `state`
+  global — a cross-table lookup inside one of those functions (reaching
+  into `state.ref.plants`, which was tried first) throws there.
+  **That join immediately surfaced 7 rows where the export's company name
+  and the plant's actual current operator are different companies** — not
+  spelling variants, real disagreements (e.g. `C513` "Purchase Asphalt LLC"
+  sits on `AMP010201`, which `plants` has as "Central Paving Co. @
+  Paducah"). Full list and the cross-referencing done against them in
+  `docs/plantbook-lab-id-reconciliation.md` section 5.
+  **Andrew: H. G. Mays Corp is one of the 7 and is "very much active" in
+  his 14 months at KYTC** — worth remembering as a general caution: a
+  mismatch between two data sources does not mean the older-looking side
+  is wrong or retired. It can just as easily mean the AMP number itself is
+  mistyped in one source. All 7 are flagged (`flagged_mismatch` +
+  `flag_note` columns, kept rather than dropped) with wording that says
+  only "unverified," never "old" or "wrong" — the PlantBook dropdown
+  appends "⚠ unverified — doesn't match plants" to a flagged row's label,
+  and `recompute()`'s reference-list sweep raises the same fact as a
+  non-blocking rail warning if a lot's `lot_ps_lab` ever holds one of these
+  values. The check is generic (any sourced field whose matched row carries
+  `flagged_mismatch: true`), not special-cased to this one table.
+
+- **Aggregate Blend's sublot tables silently wrapped back to the first
+  aggregates whenever a design had fewer than six components** (found
+  2026-09-17, Andrew, off a screenshot: sublot 2's table showing rows
+  labelled 2,3,4,5,1,2). The AMAW's blend block is a fixed 6-slot table per
+  sublot (`AGGREGATE.count`), and every renderer/mapper downstream slices
+  the flat 24-row `blend_pct` array assuming a fixed 6-per-sublot stride
+  (`sixOf4()` in `designbook.html`, `AGGREGATE.count` in `mapper.mjs`) -
+  but `intake.mjs`'s seeding loop (and its byte-identical mirror in
+  `designbook.html`) ran `agg.forEach`, so a 5-component design seeded only
+  5 rows per sublot block. With that shorter stride, sublot 2's 6-row slice
+  spilled into sublot 3's rows, sublot 3's into sublot 4's, and so on -
+  which on screen read as the table "starting over with the first few
+  aggregates" because a spilled-in row from the NEXT sublot at the SAME
+  component position carries identical producer/type/BOD (every sublot's
+  identity columns are seeded identically per component,
+  `paintBlendMirrors()`). **Same class of bug this file already warns
+  about with MAT_CORE_SEED - "the slots exist whether or not anyone [fills
+  them], so they are seeded the same way"** - the fix loops to
+  `AGGREGATE.count` now, not `agg.length`, so a design with fewer than six
+  components gets its real rows plus genuinely blank ones, never someone
+  else's data. `component` (1-6) is still always painted as the identity
+  anchor even on a blank slot, same reason `MAT_CORE_SEED`'s `core_id`
+  always is. Also repairs `mapper.mjs`'s AMAW output for the same reason -
+  its own comment already assumed "`blend_pct`, 24 rows (six components x
+  four sublots)", which the buggy seed was quietly not providing.
+
 ### Technician login & plant access
 
 Login identity and plant-access scoping are two different keys, bridged by
