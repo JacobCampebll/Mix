@@ -850,8 +850,27 @@
      column of its own - six samples already make this the widest table in
      either book and twelve columns would not fit a laptop. Accent-coloured
      because it is DERIVED, the same signal `.prefilled` carries elsewhere. */
-  .gpct{display:block; font-size:10px; line-height:1.2; margin-top:2px;
+  /* 2026-09-17: the computed % passing and the deviation are COLUMNS of
+     their own now (Jake), not a 10px line tucked under the grams. They read
+     as figures a person compares across a row, so they take the table's own
+     size; `.gcalc` is the cell, `.gpct`/`.gdiff` the value inside it.
+     Accent-coloured because they are DERIVED, the same signal `.prefilled`
+     carries elsewhere.
+     THE DEVIATION IS DELIBERATELY NOT COLOURED PASS/FAIL. It was written
+     green-above / red-below for about ten minutes, and that is a verdict
+     this page has not earned: no JMF tolerance band is encoded anywhere
+     here, so neither direction is by itself good or bad, and a green +4 on
+     the #8 would be the page inventing an opinion about a figure it only
+     subtracted - the same rule that keeps payWarnings() the single producer
+     of the rail's pay warnings. The SIGN is the information; the colour
+     stays neutral until somebody encodes 403's actual tolerances. */
+  .gpct{display:block; font-size:12.5px; line-height:1.3;
         color:var(--accent); font-variant-numeric:tabular-nums; text-align:right;}
+  .gdiff{display:block; font-size:12.5px; line-height:1.3; color:var(--muted);
+         font-variant-numeric:tabular-nums; text-align:right;}
+  .gdiff.up,.gdiff.down{color:var(--ink);} .gdiff.even{color:var(--muted);}
+  table.sievetable td.gcalc{background:transparent; padding-right:8px;}
+  table.sievetable th.calc{color:var(--accent);}
   /* Pan and Total: the workbook's own rows 24 and 25, set apart from the
      sieve stack because they are not sieves. */
   table.sievetable tr.gfoot td{background:var(--well);}
@@ -4050,7 +4069,17 @@ const verifySpecimenOf4 = (n) =>
         type: "sieves",
         cites: ["ctrlpts"],
         sieves: AMAW_SIEVES,
-        columns: [jmf, sub],
+        // ORDER IS RAW WEIGHTS, THEN THIS SUBLOT'S % PASSING, THEN THE JMF
+      // TARGET, THEN THE DIFFERENCE (Jake, 2026-09-17: "Make the order the
+      // raw weights first then the lot 1 percent passing then the jmf
+      // percent passing"). A technician works left to right in the order
+      // they actually do it - weigh, read what it came to, compare with the
+      // target - and the deviation is the answer that sequence produces.
+      // sievesHTML() expands a weighed column into TWO physical columns and
+      // appends the difference; this array stays the SCHEMA's two columns.
+      // Note drawGradChart() no longer takes its axis from columns[0] for
+      // exactly this reason - it asks for the target column by name.
+      columns: [sub, jmf],
         weights: true,
       });
     }
@@ -5429,47 +5458,74 @@ function sievesHTML(section) {
   const weights = !!section.weights;
   const isWeighed = (col) => weights && col.key && !col.target;
   const val = (key) => (state.extracted ? (state.extracted.scalars[key] || "") : "");
-  const rows = section.sieves.map((s) => {
-    const cells = cols.map((col) => {
-      if (!isWeighed(col)) {
-        const key = fieldKey(col, s);
-        // PlantBook's Sublot 1-4 tabs (2026-09-14): the JMF target column is
-        // now `readonly` everywhere it appears - see the note on `noChart`
-        // below for why it appears more than once at all. Still a real
-        // `data-field` input (so collectForm() keeps collecting it and a
-        // save/reload round-trip does not lose it) - just not focusable, so
-        // four identical read-only copies can never diverge from each other
-        // the way four independently-editable ones could.
-        if (col.readonly) {
-          return `<td><input type="text" class="mono" data-field="${key}" readonly tabindex="-1"
-                 value="${esc(val(key))}" placeholder="—"></td>`;
-        }
-        const req = col.department ? "" : " req";
-        return `<td><input type="text" inputmode="decimal" class="${req.trim()}" data-field="${key}"
-               data-mm="${s.mm}" value="${esc(val(key))}" placeholder="—"></td>`;
-      }
+
+  // ONE PLAN, USED BY THE HEADER, THE ROWS AND THE FOOT (2026-09-17). A
+  // SCHEMA column is not a physical column any more: a weighed one expands
+  // into the grams a technician types AND the % passing computed from them,
+  // and a section carrying both a weighed column and a target gains a
+  // difference column at the end. Building the three parts from one list is
+  // the point - `<th>` and `<td>` counts that are derived separately are
+  // exactly the drift CLAUDE.md records for the row tables, and a heading
+  // sitting over the wrong column is the worst kind of wrong here too.
+  const plan = [];
+  for (const col of cols) {
+    if (isWeighed(col)) plan.push({ kind: "weight", col }, { kind: "pct", col });
+    else plan.push({ kind: "value", col });
+  }
+  // The deviation only exists where there is something to compare against:
+  // exactly one weighed column and one target. DesignBook's own gradation
+  // has neither, and the QA/IQ columns have no target beside them, so both
+  // render exactly as they did.
+  const target = cols.find((c) => c.target);
+  const weighedCols = cols.filter(isWeighed);
+  if (weighedCols.length === 1 && target)
+    plan.push({ kind: "diff", col: weighedCols[0], target });
+
+  const HEAD = {
+    weight: "Grams retained",
+    pct: "% passing",
+    diff: "Diff vs JMF",
+  };
+  const cellFor = (p, s) => {
+    const { col } = p;
+    if (p.kind === "pct")
+      return `<td class="gcalc"><span class="gpct" data-gpct="${esc(col.key)}_${esc(s.key)}">—</span></td>`;
+    if (p.kind === "diff")
+      return `<td class="gcalc"><span class="gdiff" data-gdiff="${esc(col.key)}_${esc(s.key)}">—</span></td>`;
+    if (p.kind === "weight") {
       const key = `${col.key}_wt_${s.key}`;
-      // The computed percentage sits WITH its weight rather than in a column
-      // of its own: six samples already make this the widest table in either
-      // book, and twelve would make it unreadable on anything but a monitor.
       return `<td><input type="text" inputmode="decimal" class="${col.department ? "" : "req"}"
-             data-field="${key}" data-mm="${s.mm}" value="${esc(val(key))}" placeholder="—">
-             <span class="gpct" data-gpct="${esc(col.key)}_${esc(s.key)}">—</span></td>`;
-    }).join("");
-    return `<tr>
+             data-field="${key}" data-mm="${s.mm}" value="${esc(val(key))}" placeholder="—"></td>`;
+    }
+    const key = fieldKey(col, s);
+    // PlantBook's Sublot 1-4 tabs (2026-09-14): the JMF target column is
+    // `readonly` everywhere it appears. Still a real `data-field` input (so
+    // collectForm() keeps collecting it and a save/reload round-trip does not
+    // lose it) - just not focusable, so four identical read-only copies can
+    // never diverge from each other the way four editable ones could.
+    if (col.readonly) {
+      return `<td><input type="text" class="mono" data-field="${key}" readonly tabindex="-1"
+             value="${esc(val(key))}" placeholder="—"></td>`;
+    }
+    const req = col.department ? "" : " req";
+    return `<td><input type="text" inputmode="decimal" class="${req.trim()}" data-field="${key}"
+           data-mm="${s.mm}" value="${esc(val(key))}" placeholder="—"></td>`;
+  };
+
+  const rows = section.sieves.map((s) => `<tr>
       <td class="sz">${s.label}</td>
-      ${cells}
-    </tr>`;
-  }).join("");
+      ${plan.map((p) => cellFor(p, s)).join("")}
+    </tr>`).join("");
   // The pan and the total are the workbook's own rows 24 and 25. The total is
   // TYPED, not summed - `C = (B/B25)*100` reads it, and the workbook does not
   // add column B up either - so a column of weights with no total computes
-  // nothing at all, which is why it is `req`.
+  // nothing at all, which is why it is `req`. Only the grams column has
+  // either; every other physical column sits the two rows out.
   const footRow = (label, suffix, req, note) => `<tr class="gfoot">
       <td class="sz">${esc(label)}</td>
-      ${cols.map((col) => (isWeighed(col)
+      ${plan.map((p) => (p.kind === "weight"
         ? `<td><input type="text" inputmode="decimal" class="${req ? "req" : ""}"
-             data-field="${esc(col.key)}_wt_${suffix}" value="${esc(val(`${col.key}_wt_${suffix}`))}"
+             data-field="${esc(p.col.key)}_wt_${suffix}" value="${esc(val(`${p.col.key}_wt_${suffix}`))}"
              placeholder="—" title="${esc(note)}"></td>`
         : "<td></td>")).join("")}
     </tr>`;
@@ -5477,11 +5533,24 @@ function sievesHTML(section) {
     ? footRow("Pan", "pan", false, "What fell through the finest sieve. Used to check the column adds up.")
       + footRow("Total", "total", true, "Total sample mass - every percentage on this column is computed against it.")
     : "";
-  const head = cols.map((col) => {
-    const cls = [col.target ? "target" : "", col.department ? "dept" : ""].filter(Boolean).join(" ");
-    return `<th${cls ? ` class="${cls}"` : ""}>${esc(col.label)}</th>`;
+  const head = plan.map((p) => {
+    const { col } = p;
+    const cls = [
+      p.kind === "value" && col.target ? "target" : "",
+      col.department ? "dept" : "",
+      p.kind === "pct" || p.kind === "diff" ? "calc" : "",
+    ].filter(Boolean).join(" ");
+    // The sublot is named by the TAB this section draws into, so the heading
+    // says what the column holds rather than repeating it four times. The
+    // schema's own label rides in the title, and stays what the rail's
+    // warnings quote (`${col.label}: ...` in computeGradation).
+    const text = HEAD[p.kind] || col.label;
+    const title = p.kind === "diff"
+      ? `${col.label} % passing minus the JMF target. Positive is finer than the target.`
+      : (HEAD[p.kind] ? `${col.label} — ${HEAD[p.kind]}` : col.label);
+    return `<th${cls ? ` class="${cls}"` : ""} title="${esc(title)}">${esc(text)}</th>`;
   }).join("");
-  const wide = cols.length > 1;
+  const wide = plan.length > 1;   // PHYSICAL columns, not schema ones
   // 2026-09-15: every `type: "sieves"` section with `weights` gets its own
   // chart now, each in its own div keyed by section id - drawChart() draws
   // into every one of them (allGradationSections()), not just a single
@@ -6165,8 +6234,40 @@ function computeGradation() {
       // through (coerceField() in the legacy importer); this readout had
       // never been taught to read it and printed every sieve to a tenth.
       for (const sv of sec.sieves) {
+        const dp = CONFIG.DP[sv.key] ?? 1;
         const el = document.querySelector(`[data-gpct="${col.key}_${sv.key}"]`);
-        if (el) el.textContent = byKey[sv.key] == null ? "—" : `${fmt(byKey[sv.key], CONFIG.DP[sv.key] ?? 1)}%`;
+        if (el) el.textContent = byKey[sv.key] == null ? "—" : `${fmt(byKey[sv.key], dp)}%`;
+        // THE DEVIATION FROM THE JMF TARGET (Jake, 2026-09-17), painted here
+        // rather than anywhere else for the reason this function's own header
+        // states: there is ONE producer of computed % passing, and the
+        // difference is that number minus a target sitting in the next
+        // column. A second reader that recomputed either half from the DOM is
+        // the drift this file keeps recording.
+        //
+        // The target is read through the same `num()` as everything else, so
+        // the four read-only JMF mirrors resolve to the first one - which is
+        // exactly what makes rendering it four times safe (see sievesHTML).
+        // Both halves must be present: a blank target is not a zero target,
+        // so an untyped JMF prints a dash rather than the whole percentage
+        // dressed up as a deviation.
+        const dEl = document.querySelector(`[data-gdiff="${col.key}_${sv.key}"]`);
+        if (dEl) {
+          const jmf = num(`jmf_${sv.key}`);
+          const lot = byKey[sv.key];
+          if (jmf == null || lot == null) { dEl.textContent = "—"; dEl.className = "gdiff"; }
+          else {
+            // THE SIGN IS DECIDED ON THE ROUNDED FIGURE, NOT THE RAW ONE.
+            // Every sieve but the #200 prints to a whole percent, so a raw
+            // deviation of 0.4 was printing "+0" - a direction the precision
+            // on screen cannot support, and it appeared on three sieves of a
+            // column that was on target. Round first, then ask which way it
+            // went: what prints as zero reads "±0", which says measured and
+            // on target rather than off by an amount too small to show.
+            const d = Number(fmt(lot - jmf, dp));
+            dEl.textContent = `${d > 0 ? "+" : d < 0 ? "−" : "±"}${fmt(Math.abs(d), dp)}`;
+            dEl.className = "gdiff" + (d > 0 ? " up" : d < 0 ? " down" : " even");
+          }
+        }
       }
       for (const w of r.warnings)
         warnings.push({ sectionId: sec.id, sectionLabel: sec.label, text: `${col.label}: ${w}` });
@@ -6213,7 +6314,15 @@ function drawGradChart(sec) {
   // sees, deliberately: one axis for every curve, or two sublots plotted at
   // different scales would look like a difference in the material.
   const series = cols.map(readSeries);
-  const all = series[0];
+  // THE AXIS IS THE TARGET COLUMN, ASKED FOR BY NAME - not `series[0]`
+  // (2026-09-17). It used to be the first column and the comment above said
+  // so; the moment the sublot tabs put the weighed column first so a
+  // technician meets the grams before the target, "first" stopped meaning
+  // "the JMF curve". That would have built the axis and trimFlatCoarseEnd
+  // from a column that is entirely null on a lot nobody has weighed yet.
+  // One axis for every curve is still the rule - this just names which.
+  const axisIdx = Math.max(0, cols.findIndex((c) => c.target));
+  const all = series[axisIdx];
 
   // The mix's control points, resolved before the axis because the trim
   // below is not allowed to cut past one.

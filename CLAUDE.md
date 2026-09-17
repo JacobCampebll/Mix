@@ -3741,3 +3741,57 @@ commit where possible.
   reference tables never had the `revoke all ... grant select` step run on
   them. The new lab tables do, so they match `plants` rather than those.)
 
+
+- **A sublot's gradation is four columns now - grams, this sublot's % passing,
+  the JMF target, and the deviation - and the schema's two columns are no
+  longer the table's** (Jake, 2026-09-17: "make a third column so the one
+  beside the jmf percent passing shows the percent passing of the lot 1
+  gradation... Make the order the raw weights first then the lot 1 percent
+  passing then the jmf percent passing").
+  The computed percentage used to be a 10px line tucked under the grams it
+  came from, and the note that put it there said why: "six samples already
+  make this the widest table in either book, and twelve would make it
+  unreadable". That reasoning was written when ONE table carried all six
+  sublot columns at once. The 2026-09-14 split gave every sublot tab its own
+  table with ONE measured column, so the crowding it was avoiding no longer
+  exists - and a figure a person compares across a row belongs in a column,
+  at the table's own size, not in 10px under something else.
+  **`sievesHTML()` builds ONE PLAN and the header, the rows and the two foot
+  rows all render from it.** A schema column is not a physical column any
+  more: a weighed one expands to grams + % passing, and a section carrying
+  both a weighed column and a `target` appends the deviation. Deriving the
+  `<th>` list and the `<td>` list separately is exactly the drift this file
+  records twice for the row tables, and a heading over the wrong column is
+  the same worst-kind-of-wrong in a `<table>` as it is in a grid. Asserted in
+  a browser rather than by eye: 5 headings, 5 body cells, 5 cells in each
+  foot row.
+  **DesignBook is untouched by construction** - its gradation has no
+  `weights` and no target column, so the plan is one entry per schema column
+  and it renders exactly as before.
+  **The chart's axis is asked for BY NAME now, and that was the trap.**
+  `drawGradChart()` built the axis and `trimFlatCoarseEnd` from `series[0]`,
+  with a comment saying that was "DesignBook's own gradation, or a lot's JMF
+  target". Putting the weighed column first so a technician meets the grams
+  before the target would have silently made the axis the SUBLOT's curve -
+  entirely null on a lot nobody has weighed yet. `cols.findIndex(c => c.target)`
+  is the fix. Worth carrying as a class: **a comment that names what
+  `[0]` happens to be is a dependency on display order, and reordering for
+  readability is exactly what breaks it.**
+  **The deviation is NOT coloured pass/fail, and that is deliberate.** It was
+  written green-above / red-below and reverted the same hour: no JMF
+  tolerance band is encoded anywhere in this page, so neither direction is by
+  itself good or bad, and a green +4 on the #8 would be the page inventing an
+  opinion about a figure it only subtracted - the same rule that keeps
+  `payWarnings()` the single producer of the rail's pay warnings. The sign is
+  the information. Encode 403's real tolerances and it can earn a colour.
+  **The sign is decided on the ROUNDED figure.** Every sieve but the #200
+  prints to a whole percent (`CONFIG.DP`), so testing the raw difference
+  printed "+0" and "−0" on three sieves of a column that was on target -
+  a direction the precision on screen cannot support. Round first, then ask
+  which way it went; what prints as zero reads "±0", which says measured and
+  on target rather than off by an amount too small to show.
+  **`computeGradation()` is still the single producer** - the deviation is
+  painted in the same loop, from `state.gradPassing` and the JMF input, never
+  recomputed from the DOM by a second reader.
+  Measured at 1440/1000/701/390: zero clipped inputs and zero page overflow
+  at every width, so the two extra columns cost nothing even on a phone.

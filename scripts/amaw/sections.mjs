@@ -1057,7 +1057,17 @@ function buildSublotGradationSections() {
       type: "sieves",
       cites: ["ctrlpts"],
       sieves: AMAW_SIEVES,
-      columns: [jmf, sub],
+      // ORDER IS RAW WEIGHTS, THEN THIS SUBLOT'S % PASSING, THEN THE JMF
+      // TARGET, THEN THE DIFFERENCE (Jake, 2026-09-17: "Make the order the
+      // raw weights first then the lot 1 percent passing then the jmf
+      // percent passing"). A technician works left to right in the order
+      // they actually do it - weigh, read what it came to, compare with the
+      // target - and the deviation is the answer that sequence produces.
+      // sievesHTML() expands a weighed column into TWO physical columns and
+      // appends the difference; this array stays the SCHEMA's two columns.
+      // Note drawGradChart() no longer takes its axis from columns[0] for
+      // exactly this reason - it asks for the target column by name.
+      columns: [sub, jmf],
       weights: true,
     });
   }
