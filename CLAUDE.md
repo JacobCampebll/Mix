@@ -4598,3 +4598,87 @@ commit where possible.
   form knows takes no cores. A 0.75 / 1.00 / 1.50 under Option A still owes
   its four mainline cores per sublot, and Option B on any size is the
   proposal's call, not the page's.
+
+- **The DesignBook spec sweep landed as one commit, 2026-09-18 (Jake: "lets
+  do 1-11"): what the 2026 Standard Specifications and Kentucky Methods ask
+  of a mix DESIGN that the page already had the figure for and never said.**
+  All rail warnings, non-blocking, the PlantBook sweep's shape exactly: each
+  a helper beside `designSpecWarnings()` returning `[{ sectionId, text }]`,
+  pooled once in `recompute()`, thresholds in `CONFIG.DESIGN` / `PERF_LIMITS`
+  / `RECLAIMED` / `JMF_STATEMENT` / `REFERENCE_DESIGN` / `ABSORPTION` /
+  `VERIFY_DESIGN_TOL`, six new cites (`mixcomp` p.192, `rap409` p.217,
+  `abs805` p.562, `km421jmf` KM p.368, `km421sub` KM p.372, `km443tol` KM
+  p.473), every page opened in the real book. `computeFourPoint()` now
+  RETURNS its VMA, VFA, Pbe, dust ratio, Gmm and Gse beside the design Pb so
+  the checks read the fit rather than the painted strings. Verified in a
+  browser on the real #467PA MixPack (40 probe assertions, every check
+  driven on and off), and the real approved design raises NONE of them - which
+  is the test that matters.
+  **Item by item, with the thing worth knowing beyond the clause:**
+  **Minimum optimum AC** (403.03.03 C) 2)): 5.3% on a 0.50 surface, 5.6% on a
+  0.38 surface, keyed on the bare size. **Design dust ratio** (403.03.03 C)
+  1)): surface 0.6-1.4, base 0.6-1.6, No. 4 1.0-2.0 - TIGHTER on a surface mix
+  than PlantBook's production range, two clauses and two constants. **VMA
+  minimum**: M 323's table, read from the same `PB_PAY.vmaMinimumFor()` the
+  lot pay uses, so a design under it starts every lot in deduction and the
+  line says so. **%Gmm at Nmax ≤ 98.5**: KYTC's own override of M 323's 98.0,
+  read off the uploaded MixPack's stated figure (the page never computes it).
+  **Performance limits** (403.03.03 C) 5)): Hamburg passes to 12.5 mm are
+  INTERPOLATED off the rut-depth curve per side and averaged, as the footnote
+  says; a side that never reached 12.5 is CENSORED at the last pass count it
+  was measured to (or the pass count at max deformation), so the average is a
+  lower bound - and a lower bound under the limit is "cannot tell", not a
+  failure, so only a definite shortfall warns. KYCT is the specimen average.
+  KM 64-421's own copy of that table (KM p.375) still says 95/95/125 for
+  KYCT; the spec book's 110/110/125 (PG 64-22) and 75 (PG 76-22) govern, and
+  the line says so. **Class substitution** (403.03.03 A)): the design's AADTT
+  Class against the contract line's - lower is never allowed, higher only by
+  one. **Reclaimed materials** (409): RAP over 35% has no binder column; RAS
+  over 3% cold feed; RAP with RAS; any reclaimed in a polish-resistant No. 4
+  (409.03.01). `isRasRow()` finds RAS by Type & size like `isRapRow()`.
+  **Absorption** (805.05.01): a new optional `absorption` column on Aggregate
+  Structure, 3.0% per component or 4.0% blend-weighted when slag is in the
+  blend. **Reference designs** (KM 64-421 §3.9.3): a new optional
+  `reference_design_date` on Contract Information; under a year the form
+  within 5 working days, one to two years a one-point check with two
+  specimens and two Gmm samples, past two years no reference at all. **KM
+  64-443 tolerances** are a static note under Design Values (Gmb ±0.024, Gmm
+  ±0.015, Va ±1.2, VMA ±1.5, TSR within 20 points) - the Department's side,
+  printed so a reviewer knows what verification holds the design to.
+  **THE NO. 200 IS HELD TO A TENTH, NOT THE HALF KM 64-421 §1.2 WRITES, and a
+  real file is the reason.** The KM defines a JMF as "a whole number on all
+  applicable sieves, except the No. 200 sieve, which is specified to the
+  nearest 0.5 percent". The real approved #467PA carries its JMF No. 200 at
+  **6.8** (`Design Data!T28`), and the MixPack formats that cell to a tenth
+  (`CONFIG.DP.s0_075`). Built to the letter, the check fired on every import
+  of a design KYTC approved - the exact thing this file records for `TSR!B38`
+  and the saturation row. `CONFIG.JMF_STATEMENT.NO200_STEP` is 0.1 with the
+  argument beside it; the whole-number rule on the other sieves stands and
+  #467PA passes it. Same lesson, fourth time: **a real approved file outranks
+  the letter of a method.**
+  **The absorption column cost the producer name its width, and the fix was
+  measured rather than blessed.** Adding a track to the aggregate row's grid
+  took its share out of every column evenly, and the 48-character producer
+  name that this file already records as clipping at phone widths started
+  clipping at 1366, 1100 and 1099 too - the harness caught it as `NEW:
+  producer`. Blessing that would have accepted a regression at the commonest
+  laptop width. Six widths were measured under four candidate grids with the
+  longest real producer name and a 21-character type name;
+  `2.2fr 1.1fr .45fr .36fr .4fr .34fr auto` leaves the producer unclipped
+  everywhere it was before and the type unclipped everywhere. **When a column
+  is added to a row table, re-weight the grid and measure; do not let the
+  extra track come out of the longest string.**
+  **Two probe notes for whoever drives DesignBook next.** `HARNESS_LIBS` must
+  carry `xlsx` for the legacy MixPack importer to exist in the rewritten page;
+  `/tmp/pdflibs` had only pdf-lib until today, so every earlier harness run
+  had the importer stripped and its checks skipped - `xlsx@0.18.5` and
+  `fflate` are installed there now. And a `source:` reference field whose
+  list is short renders as a `<select>`, so a probe cannot type an off-list
+  value into it; add an `<option>` first.
+  **Deliberately NOT built, both needing an answer rather than code:** the
+  VFA range and the %Gmm at Nini limit are M 323's, keyed on design ESALs,
+  while KYTC's Classes are AADTT bands - mapping one onto the other is the
+  guess the MixPack's stale Criteria formulas make and this file already warns
+  against copying. Andrew or Tate to say which M 323 column each Class reads.
+  And there is no minimum TSR for an ordinary Superpave mix in 403 - "reported
+  and verified per KM 64-443"; the 80% lives only in 412 for SMA.

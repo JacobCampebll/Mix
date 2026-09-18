@@ -2521,6 +2521,77 @@ const CONFIG = {
   SETUP_AC_ADJUST: { MIN: -0.10, MAX: 0.30 },
   SAMPLE_MIN_TONS: 50,
 
+  /* ---- The DesignBook spec sweep, 2026-09-18 (Jake: "lets do 1-11") ----
+   *
+   * What the spec asks of a DESIGN that the page already had the figure for
+   * and never judged. Same footing as the PlantBook sweep above: rail
+   * warnings, non-blocking, each with its cite, each read by one helper
+   * beside designSpecWarnings(). The Department's approval is still the
+   * Department's; these say what it will be looking at.
+   *
+   * DESIGN.MIN_AC       403.03.03 C) 2), STD p.194 - "Ensure the optimum AC is
+   *                     a minimum of 5.3 percent ... for all 0.5-inch nominal
+   *                     surface mixtures and 5.6 percent ... for all 0.38-inch
+   *                     nominal surface mixtures." Keyed on the bare size.
+   * DESIGN.DUST         403.03.03 C) 1), STD p.194 - the DESIGN dust-to-binder
+   *                     range: surface 0.6-1.4, base 0.6-1.6, No. 4 1.0-2.0.
+   *                     Tighter on a surface mix than PlantBook's production
+   *                     range (CONFIG.DUST_RATIO, 402.03.02 D) 5)) - two
+   *                     clauses, two numbers, deliberately not one constant.
+   * DESIGN.GMM_NMAX_MAX 403.03.03 C) 1) - "Contrary to AASHTO M 323, the
+   *                     relative density at Nmax is ≤ 98.5 percent." KYTC's
+   *                     own override; M 323 says 98.0.
+   * DESIGN.GYRATIONS    the same clause's table - 7 / 65 / 105 for EVERY
+   *                     class in the 2026 book. A constant, not a check.
+   * The VMA minimum by size is NOT restated here: PB_PAY.vmaMinimumFor()
+   * already holds M 323's table (16/15/14/13/12/11) and intake.mjs derives
+   * PlantBook's minimum from it, so Design Values reads the same one.
+   *
+   * PERF_LIMITS         403.03.03 C) 5), STD p.195 - Hamburg passes to a
+   *                     12.5 mm rut (both sides averaged) and the KYCT index,
+   *                     by binder grade and AADTT Class. NOTE KM 64-421's own
+   *                     copy (KM p.375) still says 95/95/125 for KYCT; the spec
+   *                     book governs. 409.03.02 C) applies the same limits to
+   *                     RAP and RAS mixtures.
+   * RECLAIMED           409.03.02 A), STD p.217 - RAP above 35% has no
+   *                     column in the binder table; RAS at most 3% cold feed
+   *                     in 0.38/0.50 surface and all base; RAP and RAS never
+   *                     combined; no reclaimed material in a polish-resistant
+   *                     No. 4. The grade table itself is RAP_BINDER_SPEC.
+   * JMF_STATEMENT       KM 64-421 §1.2, KM p.368 - sieves to a whole percent,
+   *                     the No. 200 to the nearest 0.5, the AC to 0.1. THE
+   *                     NO. 200 IS HELD TO A TENTH HERE, NOT THE HALF the KM
+   *                     writes: the real approved #467PA carries its JMF No.
+   *                     200 at 6.8 (Design Data!T28), the MixPack formats that
+   *                     cell to a tenth (CONFIG.DP.s0_075), and a check that
+   *                     fires on a design KYTC approved teaches people to skim
+   *                     the rail. What it still catches is a No. 200 typed to
+   *                     hundredths, and any other sieve not a whole number.
+   * REFERENCE_DESIGN    KM 64-421 §3.9.3, KM p.372 - the lead times and the
+   *                     age bands a reference design is judged by.
+   * ABSORPTION          805.05.01, STD p.562 - 3.0% per size and type, 4.0%
+   *                     for the combined aggregate when slag is used.
+   * VERIFY_DESIGN_TOL   KM 64-443 §3.2.3, KM p.473 - what the Department's
+   *                     verification holds the design to. Printed under
+   *                     Design Values; nothing on this page can test it.
+   */
+  DESIGN: {
+    MIN_AC: { "0.50": 5.3, "0.38": 5.6 },
+    DUST: { SURF: [0.6, 1.4], BASE: [0.6, 1.6], NO4: [1.0, 2.0] },
+    GMM_NMAX_MAX: 98.5,
+    GYRATIONS: { nini: 7, ndes: 65, nmax: 105 },
+  },
+  PERF_LIMITS: {
+    RUT_MM: 12.5,
+    "PG64-22": { 2: { passes: 7500, kyct: 110 }, 3: { passes: 10000, kyct: 110 }, 4: { passes: 10000, kyct: 125 } },
+    "PG76-22": { ALL: { passes: 20000, kyct: 75 } },
+  },
+  RECLAIMED: { RAP_MAX_PCT: 35, RAS_MAX_COLD_FEED_PCT: 3 },
+  JMF_STATEMENT: { SIEVE_STEP: 1, NO200_STEP: 0.1, AC_STEP: 0.1 },
+  REFERENCE_DESIGN: { NEW_LEAD_DAYS: 14, REFERENCE_LEAD_WORKING_DAYS: 5, ONE_POINT_AFTER_YEARS: 1, FULL_DESIGN_AFTER_YEARS: 2 },
+  ABSORPTION: { MAX_PCT: 3.0, SLAG_COMBINED_MAX_PCT: 4.0 },
+  VERIFY_DESIGN_TOL: { gmb: 0.024, gmm: 0.015, va: 1.2, vma: 1.5, tsr_points: 20 },
+
   /* ---- The JMF "minor change" envelope — KM 64-421 §4.4 (KM PDF p.377) ----
    *
    * How far a NEW JMF may sit from the one the Department reported as
@@ -2637,6 +2708,21 @@ const CONFIG = {
                     what: "mix design performance limits - Hamburg passes and KYCT index" },
       km450:      { doc: "KM",  page: 504, label: "KM 64-450",
                     what: "determination of cracking resistance (KYCT)" },
+      // ---- The DesignBook spec sweep, 2026-09-18 (Jake: "lets do 1-11") ----
+      // Every page below was opened in the real book; the physical page and
+      // the section footer are recorded together, per the method above.
+      mixcomp:    { doc: "STD", page: 192, footer: "403-3", label: "KYTC 403.03.03 A)",
+                    what: "mixture composition - a substitute may be no more than one AADTT class higher than the bid item, and the same aggregate and binder sources are kept through the project" },
+      rap409:     { doc: "STD", page: 217, footer: "409-1", label: "KYTC 409.03.02",
+                    what: "reclaimed materials - the virgin binder grade by RAP percentage, RAS capped at 3% cold feed, no RAP with RAS, and no reclaimed material in a polish-resistant No. 4" },
+      abs805:     { doc: "STD", page: 562, footer: "805-4", label: "KYTC 805.05.01",
+                    what: "aggregate absorption - no more than 3.0% for each size and type, or 4.0% for the combined aggregate when blast-furnace slag is used" },
+      km421jmf:   { doc: "KM",  page: 368, label: "KM 64-421 §1.2",
+                    what: "how a JMF is stated - a whole percent on every sieve except the No. 200, which is to the nearest 0.5, and the AC to the nearest 0.1" },
+      km421sub:   { doc: "KM",  page: 372, label: "KM 64-421 §3.9.3",
+                    what: "submitting the design - a new design 14 calendar days before work starts; a reference design within 5 working days if its source is under a year old, with a one-point check between one and two years, and a complete design past two" },
+      km443tol:   { doc: "KM",  page: 473, label: "KM 64-443 §3.2.3",
+                    what: "how the Department verifies a design - within Gmb ±0.024, Gmm ±0.015, air voids ±1.2, VMA ±1.5 and TSR within 20 points of the Contractor's figures" },
     },
   },
 
@@ -2877,12 +2963,20 @@ const CONFIG = {
     {
       id: "contract", label: "Contract Information", step: "Contract",
       tag: "from the KYTC proposal, or typed", type: "grid", lookup: true,
-      cites: ["km421", "jmf"],
+      cites: ["km421", "jmf", "mixcomp", "km421sub"],
       fields: [
         { key: "county",          label: "County",          type: "text",   req: true },
         { key: "total_tons",      label: "Tonnage",         type: "number", req: true, mono: true },
         { key: "submittal_type",  label: "Submittal type",  type: "select", req: true,
           options: ["New Mix Design", "Reference Mix Design"] },
+        // KM 64-421 §3.9.3 judges a REFERENCE design by the age of the design
+        // it references: under a year, the form alone within 5 working days
+        // of the start of work; one to two years, a one-point check at the
+        // optimum AC with two specimens and two Gmm samples; past two years
+        // it cannot be referenced and a complete design is owed. The page
+        // says which applies (referenceDesignWarnings()). Optional, because a
+        // new design has nothing to reference. No MixPack cell holds it.
+        { key: "reference_design_date", label: "Referenced design date", type: "date", req: false, mono: true },
         // The mix designation, split in two. The Portal's contract/mix lookup
         // prefills both (MIX_PREFILL splits "0.38B" for it) and a legacy
         // MixPack fills them from Design Data!O8, but these fields are the
@@ -2950,7 +3044,7 @@ const CONFIG = {
     },
     {
       id: "aggregate", label: "Aggregate Structure", step: "Aggregates",
-      cites: ["agg805"],
+      cites: ["agg805", "abs805", "rap409"],
       tag: "dropdowns from Supabase reference / legacy MixPack", type: "rows",
       rows: {
         key: "aggregate", max: 6, addLabel: "+ add aggregate component (up to 6)",
@@ -2960,7 +3054,14 @@ const CONFIG = {
         // rather than being roughly equal. Still all fr units: gridWeights()
         // reads this same string for the review PDF and falls back to equal
         // columns if it finds a track it cannot parse.
-        grid: "2fr 1.3fr .5fr .38fr .42fr auto",
+        // Re-weighted 2026-09-18 when Abs. (%) joined the row: the extra track
+        // came out of the producer's share and its 48-character name clipped
+        // at 1366, 1100 and 1099 (harness). Measured at 1500/1366/1244/1100/
+        // 1099/1000 with the longest real name and a 21-character type: this
+        // split leaves the producer unclipped everywhere it was before and the
+        // type unclipped at every width. Adding the column cost the producer
+        // nothing; taking it evenly would have.
+        grid: "2.2fr 1.1fr .45fr .36fr .4fr .34fr auto",
         columns: [
           // AGP and AMP are different registries: an AGP number is an
           // aggregate producer, an AMP number is an asphalt plant. For every
@@ -2975,12 +3076,18 @@ const CONFIG = {
           { key: "mat_code",  label: "Mat. code",    type: "text",   req: true, mono: true },
           { key: "pct_blend", label: "% blend",      type: "number", req: true, mono: true },
           { key: "gsb",       label: "Gsb",          type: "number", req: true, mono: true },
+          // 805.05.01 (STD p.562): water absorption no more than 3.0% for
+          // each size and type, or 4.0% for the combined aggregate when
+          // blast-furnace slag is used. Optional - the MixPack has no cell for
+          // it and a legacy import leaves it blank - and judged by
+          // absorptionWarnings() when it is filled.
+          { key: "absorption", label: "Abs. (%)",     type: "number", req: false, mono: true },
         ],
       },
     },
     {
       id: "gradation", label: "Gradation", step: "Gradation", tag: "% passing by sieve · 0.45 power chart", type: "sieves",
-      cites: ["ctrlpts", "jmftol"],
+      cites: ["ctrlpts", "jmftol", "km421jmf"],
       // `key` is explicit (fraction labels don't survive a slug), `mm` drives
       // the 0.45 power chart x-position. Full KYTC set, 2" → #200; the target
       // band will trim to the mix's nominal max size in a later pass.
@@ -3058,7 +3165,13 @@ const CONFIG = {
     {
       id: "design-values", label: "Design Values", step: "Design Values",
       tag: "computed from Four Points", type: "computed",
-      cites: ["volumetric", "optimumac"],
+      cites: ["volumetric", "optimumac", "km443tol"],
+      // KM 64-443 §3.2.3 (KM p.473). The Department's side, not the
+      // contractor's - nothing on this page can test it - but a reviewer
+      // reading these figures is about to hold them to exactly this. Static
+      // text rather than CONFIG.VERIFY_DESIGN_TOL, because CONFIG.SECTIONS is
+      // built inside the same literal and cannot read a sibling.
+      note: "Read-only — derived from the Four Points inputs above. The Department verifies a design against its own one-point check within Gmb ±0.024, Gmm ±0.015, air voids ±1.2, VMA ±1.5 and TSR within 20 points (KM 64-443 §3.2.3); outside those it investigates under 113.07.",
       // `wb` names the CONFIG.LEGACY.DESIGN_VALUES entry this output is the
       // same quantity as, so the workbook's figure and the one fit from the
       // four points print on one line. `row` is the line's own name, for the
@@ -7122,7 +7235,304 @@ function computeFourPoint() {
 
   drawFpChart(pbs, vas, vaFit, vaTgt, designPb);
   return { designPb, supLo: loX, supHi: hiX,
-           extrapolated: designPb != null && (designPb < loX || designPb > hiX) };
+           extrapolated: designPb != null && (designPb < loX || designPb > hiX),
+           // The rest of the fit, for designSpecWarnings() - read from here
+           // rather than back off the painted cells, which are strings.
+           vma: vmaD, vfa: vfaD, pbe, dust, gmm: gmmD, gse };
+}
+
+/* ===== DESIGN-SIDE SPEC CHECKS (2026-09-18) =====
+ *
+ * The DesignBook counterpart of productionSpecWarnings(): eleven things the
+ * 2026 Standard Specifications and Kentucky Methods ask of a mix DESIGN that
+ * this page already had the figure for and never said (Jake: "lets do 1-11").
+ * Each helper reads a value the page has already computed or a person has
+ * already typed, judges it against CONFIG.DESIGN / PERF_LIMITS / RECLAIMED /
+ * JMF_STATEMENT / REFERENCE_DESIGN / ABSORPTION, and returns
+ * `[{ sectionId, text }]` for recompute() to pool - `outstanding` keeps its
+ * single producer. None computes a design figure of its own: the Four Points
+ * fit is computeFourPoint()'s and is read off its return value, never back
+ * off the painted cells.
+ *
+ * All WARNINGS, none blocking, same footing as Polish and Consensus: the
+ * design is complete, it just would not be approved as it stands - and the
+ * approval is the Department's call, so the page says what it will look at
+ * rather than refusing to submit.
+ */
+
+/** SURF / BASE / NO4 / null for the design on screen. The Portal's mix item
+ *  carries the course; a design built from scratch does not, and there the
+ *  size decides the way KYTC's own bid items do - 0.38 and 0.50 are the
+ *  surface sizes, 0.75 / 1.00 / 1.50 base and binder. */
+function designSize() {
+  const m = effectiveMix();
+  return String((m && m.nominal_size) || "").toUpperCase().replace(/\s+/g, "").replace(/[A-Z]$/, "");
+}
+function designCourse() {
+  const size = designSize();
+  if (size === "NO.4") return "NO4";
+  const layer = String((state.mix && state.mix.layer) || "").toUpperCase();
+  if (layer.startsWith("SURF")) return "SURF";
+  if (layer.startsWith("BASE") || layer.startsWith("BIND")) return "BASE";
+  if (size === "0.38" || size === "0.50") return "SURF";
+  if (size === "0.75" || size === "1.00" || size === "1.50") return "BASE";
+  return null;
+}
+
+/** 1. 403.03.03 C) 2) - the minimum optimum AC on a surface mixture. */
+function minAcWarnings(fp) {
+  if (!fp || fp.designPb == null || designCourse() !== "SURF") return [];
+  const min = CONFIG.DESIGN.MIN_AC[designSize()];
+  if (min == null || fp.designPb >= min - 1e-9) return [];
+  return [{ sectionId: "design-values",
+    text: `Design Pb ${fmt(fp.designPb, 1)}% is under the ${fmt(min, 1)}% minimum KYTC 403.03.03 C) 2) sets for a `
+      + `${designSize()}-inch nominal surface mixture ("Ensure the optimum AC is a minimum of ... percent by weight of the `
+      + `total mixture"). The Engineer may assign an AC at another air-void level, but not below this floor.` }];
+}
+
+/** 2. 403.03.03 C) 1) - the DESIGN dust-to-binder range for this course. */
+function designDustWarnings(fp) {
+  if (!fp || !Number.isFinite(fp.dust)) return [];
+  const course = designCourse();
+  const range = course ? CONFIG.DESIGN.DUST[course] : null;
+  if (!range) return [];
+  const [lo, hi] = range;
+  if (fp.dust >= lo - 1e-9 && fp.dust <= hi + 1e-9) return [];
+  const name = course === "NO4" ? "a No. 4" : course === "SURF" ? "a surface" : "a base";
+  return [{ sectionId: "design-values",
+    text: `Dust / Pbe of ${fmt(fp.dust, 1)} is outside the ${lo}–${hi} KYTC 403.03.03 C) 1) requires of ${name} `
+      + `mixture's design ("The Department will require a dust-to-binder ratio range of 0.6 to 1.4 for surface `
+      + `mixtures, 0.6 to 1.6 for base mixtures, and 1.0 to 2.0 for all No. 4 mixtures"). Note the production `
+      + `range PlantBook checks a lot against (402.03.02 D) 5)) is wider on a surface mix; this is the design's.` }];
+}
+
+/** 3. AASHTO M 323's VMA minimum by size, which 403.03.03 C) 1) adopts - the
+ *  same table PB_PAY.vmaMinimumFor() pays a lot against. */
+function designVmaWarnings(fp) {
+  if (!fp || !Number.isFinite(fp.vma)) return [];
+  const mt = PB_LOT.mixTypeFor(designSize());
+  const min = mt ? PB_PAY.vmaMinimumFor(mt.code) : null;
+  if (min == null || fp.vma >= min - 1e-9) return [];
+  return [{ sectionId: "design-values",
+    text: `VMA at design ${fmt(fp.vma, 1)}% is under the ${min}% minimum AASHTO M 323 sets for a ${designSize()} mix, `
+      + `which KYTC 403.03.03 C) 1) adopts ("conforming to AASHTO M 323"). It is also the minimum every lot's VMA pay `
+      + `is measured against, so a design that starts under it starts every lot in deduction.` }];
+}
+
+/** 4. 403.03.03 C) 1) - %Gmm at Nmax, KYTC's own 98.5 ("Contrary to AASHTO
+ *  M 323"). The figure is the uploaded MixPack's, in the stated-only panel. */
+function gmmNmaxWarnings() {
+  const wb = (state.legacy && Array.isArray(state.legacy.designValues)) ? state.legacy.designValues : [];
+  const d = wb.find((x) => x && x.status === "found" && x.label === "%Gmm @ Nmax");
+  const v = d ? num(d.value) : null;
+  if (v == null || v <= CONFIG.DESIGN.GMM_NMAX_MAX + 1e-9) return [];
+  return [{ sectionId: "design-values",
+    text: `%Gmm at Nmax is ${fmt(v, 1)}% in the uploaded MixPack, over the ${CONFIG.DESIGN.GMM_NMAX_MAX}% KYTC 403.03.03 C) 1) `
+      + `allows ("Contrary to AASHTO M 323, the relative density at Nmax is ≤ 98.5 percent"). DesignBook does not `
+      + `recompute this figure; it is the workbook's own, stated in the panel beside Design Values.` }];
+}
+
+/** 5. 403.03.03 C) 5) - the performance limits by binder grade and Class.
+ *  Hamburg passes to a 12.5 mm rut are read off the rut-depth curve, each side
+ *  interpolated where it crosses 12.5 and the two averaged, as the footnote
+ *  says. A side that never reached 12.5 is CENSORED at the last pass count it
+ *  was measured to (or the pass count at its max deformation), so the average
+ *  is a lower bound - and a lower bound under the limit is "cannot tell", not
+ *  a failure, which is why only a definite shortfall warns. */
+function hamburgPassesTo(rutMm) {
+  const rows = rowsOfList("hamburg_curve").map(rowValuesOf)
+    .map((r) => ({ passes: num(r.passes), left: num(r.left), right: num(r.right) }))
+    .filter((r) => r.passes != null).sort((a, b) => a.passes - b.passes);
+  const side = (key, maxdef, passmax) => {
+    const pts = rows.filter((r) => r[key] != null);
+    let prev = { passes: 0, rut: 0 };
+    for (const r of pts) {
+      const rut = r[key];
+      if (rut >= rutMm) {
+        const span = rut - prev.rut;
+        const at = span > 0 ? prev.passes + (r.passes - prev.passes) * ((rutMm - prev.rut) / span) : r.passes;
+        return { passes: at, censored: false };
+      }
+      prev = { passes: r.passes, rut };
+    }
+    // never reached 12.5 on the curve: the test ran at least this far
+    const ranTo = Math.max(pts.length ? pts[pts.length - 1].passes : 0,
+                           (maxdef != null && maxdef < rutMm && passmax != null) ? passmax : 0);
+    return ranTo > 0 ? { passes: ranTo, censored: true } : null;
+  };
+  const L = side("left", num(fieldValue("hamburg_left_maxdef")), num(fieldValue("hamburg_left_passmax")));
+  const R = side("right", num(fieldValue("hamburg_right_maxdef")), num(fieldValue("hamburg_right_passmax")));
+  if (!L || !R) return null;
+  return { passes: (L.passes + R.passes) / 2, censored: L.censored || R.censored, left: L, right: R };
+}
+function performanceWarnings() {
+  const grade = binderGradeKey(effectiveBinderGrade());
+  const table = CONFIG.PERF_LIMITS[grade];
+  if (!table) return [];
+  const cls = Number(fieldValue("aadtt_class"));
+  const lim = table.ALL || table[cls];
+  if (!lim) return [];
+  const out = [];
+  const h = hamburgPassesTo(CONFIG.PERF_LIMITS.RUT_MM);
+  if (h && !h.censored && h.passes < lim.passes) {
+    out.push({ sectionId: "performance",
+      text: `Hamburg passes to a ${CONFIG.PERF_LIMITS.RUT_MM} mm rut: ${fmt(h.passes, 0)} averaged over both sides `
+        + `(left ${fmt(h.left.passes, 0)}, right ${fmt(h.right.passes, 0)}), under the ${lim.passes.toLocaleString()} `
+        + `KYTC 403.03.03 C) 5) requires of a ${grade.replace(/^PG/, "PG ")} ${table.ALL ? "" : `Class ${cls} `}mixture `
+        + `("Mixture rutting resistance shall meet the above number of passes for a critical rut depth of ½ inch").` });
+  }
+  const ct = rowsOfList("ct").map(rowValuesOf).map((r) => num(r.index)).filter((v) => v != null);
+  if (ct.length) {
+    const avg = ct.reduce((a, b) => a + b, 0) / ct.length;
+    if (avg < lim.kyct) {
+      out.push({ sectionId: "performance",
+        text: `KYCT index averages ${fmt(avg, 0)} over ${ct.length} specimen${ct.length === 1 ? "" : "s"}, under the `
+          + `${lim.kyct} minimum KYTC 403.03.03 C) 5) sets for a ${grade.replace(/^PG/, "PG ")} `
+          + `${table.ALL ? "" : `Class ${cls} `}mixture (KM 64-450). KM 64-421's own table still prints the older `
+          + `95/95/125; the 2026 Standard Specifications govern.` });
+    }
+  }
+  return out;
+}
+
+/** 6. 403.03.03 A) - the design's Class against the contract line's. A
+ *  substitute may be "no more than one AADTT class higher than the specified
+ *  asphalt mixture", and never lower. The contract's Class is the Portal's
+ *  mix item; a design built from scratch has none and this stays quiet. */
+function classSubstitutionWarnings() {
+  const bid = state.mix && state.mix.mix_class != null ? Number(state.mix.mix_class) : null;
+  const design = Number(fieldValue("aadtt_class"));
+  if (!bid || !design || bid === design) return [];
+  if (design < bid) {
+    return [{ sectionId: "contract",
+      text: `AADTT Class ${design} is LOWER than the contract line's Class ${bid} (${state.mix.signature || "the bid item"}). `
+        + `KYTC 403.03.03 A) allows a substitute of a higher class only - "no more than one AADTT class higher than the `
+        + `specified asphalt mixture" - never a lower one.` }];
+  }
+  if (design > bid + 1) {
+    return [{ sectionId: "contract",
+      text: `AADTT Class ${design} is more than one class above the contract line's Class ${bid} `
+        + `(${state.mix.signature || "the bid item"}). KYTC 403.03.03 A): "provide a mixture of no more than one AADTT `
+        + `class higher than the specified asphalt mixture".` }];
+  }
+  return [];
+}
+
+/** 7. 409.03.02 - reclaimed materials beyond the binder-grade table the RAP
+ *  note already applies. RAS is millings' cousin and is found the same way,
+ *  by Type & size. */
+function isRasRow(values) {
+  return /shingle|(^|\s)ras\b/i.test(String((values && values.type_size) || ""));
+}
+function reclaimedWarnings() {
+  const rows = rowsOfList("aggregate").map(rowValuesOf);
+  const sum = (test) => rows.filter(test).reduce((a, r) => a + (num(r.pct_blend) || 0), 0);
+  const rap = sum(isRapRow), ras = sum(isRasRow);
+  if (!rap && !ras) return [];
+  const R = CONFIG.RECLAIMED;
+  const out = [];
+  if (rap > R.RAP_MAX_PCT + 1e-9) out.push(`RAP at ${fmt(rap, 1)}% is over 35% - 409.03.02 A)'s virgin-binder table has no column above 31-35%, so no grade is permitted with it`);
+  if (ras > R.RAS_MAX_COLD_FEED_PCT + 1e-9) out.push(`RAS at ${fmt(ras, 1)}% is over the 3% cold-feed cap 409.03.02 A) sets for 0.50 and 0.38 surface mixtures and all base mixtures, "regardless of PG Binder Grade"`);
+  if (rap > 0 && ras > 0) out.push(`the blend carries both RAP and RAS - "Combinations of RAP and RAS will not be permitted" (409.03.02 A))`);
+  const polishNo4 = designCourse() === "NO4" && /^[AB]$/i.test(String(fieldValue("mix_type") || ""));
+  if (polishNo4) out.push(`this is a polish-resistant No. 4 and it carries reclaimed material - 409.03.01: "Do not use reclaimed materials in open-graded friction courses, stone-matrix asphalt (SMA) or polish resistant No. 4 (4.75mm) mixtures"`);
+  if (!out.length) return [];
+  return [{ sectionId: "aggregate", text: `Reclaimed materials (KYTC 409): ${out.join("; ")}. A RAP or RAS mixture also has to meet the `
+    + `403.03.03 C) 5) performance limits like any other (409.03.02 C)).` }];
+}
+
+/** 8. KM 64-421 §1.2 - how a JMF is stated: a whole percent on every sieve
+ *  except the No. 200. The KM says the No. 200 is to the nearest 0.5; the
+ *  real approved #467PA carries 6.8 and the MixPack formats the cell to a
+ *  tenth, so a tenth is what is checked (CONFIG.JMF_STATEMENT and its
+ *  comment). The chart and the AMAW both read this column as the JMF, so a
+ *  94.3 on the #8 is not a precision KYTC will record. */
+function jmfStatementWarnings() {
+  const sec = CONFIG.SECTIONS.find((s) => s.id === "gradation");
+  if (!sec) return [];
+  const J = CONFIG.JMF_STATEMENT;
+  const off = [];
+  for (const sv of sec.sieves || []) {
+    const v = num(fieldValue(sv.key));
+    if (v == null) continue;
+    const step = sv.key === "s0_075" ? J.NO200_STEP : J.SIEVE_STEP;
+    const k = v / step;
+    if (Math.abs(k - Math.round(k)) > 1e-6) off.push(`${sv.label} (${v})`);
+  }
+  if (!off.length) return [];
+  return [{ sectionId: "gradation",
+    text: `JMF gradation not stated the way KM 64-421 §1.2 defines a JMF - "a whole number on all applicable sieves, `
+      + `except the No. 200 sieve" - on: ${off.join(", ")}. The No. 200 is checked to a tenth here (the KM says 0.5, `
+      + `but KYTC approved #467PA at 6.8 and the MixPack carries the cell to a tenth); the AC is to the nearest 0.1. `
+      + `Round the target, not the test result that produced it.` }];
+}
+
+/** 9. KM 64-421 §3.9.3 - what a reference design owes, by the age of the
+ *  design it references. A new design is 14 calendar days' notice and no
+ *  more, which is said in the field's caption rather than on the rail. */
+function referenceDesignWarnings() {
+  const kind = String(fieldValue("submittal_type") || "");
+  if (!/reference/i.test(kind)) return [];
+  const R = CONFIG.REFERENCE_DESIGN;
+  const raw = fieldValue("reference_design_date");
+  const d = raw ? new Date(raw) : null;
+  if (!d || Number.isNaN(d.getTime())) {
+    return [{ sectionId: "contract",
+      text: `A Reference Mix Design needs the referenced design's date: KM 64-421 §3.9.3 decides from it whether the form `
+        + `alone will do (under a year old, within ${R.REFERENCE_LEAD_WORKING_DAYS} working days of the start of work), a `
+        + `one-point check is owed (one to two years), or the design is too old to reference at all (past two years).` }];
+  }
+  const years = (Date.now() - d.getTime()) / (365.25 * 86400 * 1000);
+  if (years > R.FULL_DESIGN_AFTER_YEARS) {
+    return [{ sectionId: "contract",
+      text: `The referenced design is ${years.toFixed(1)} years old. KM 64-421 §3.9.3.4: past two years it cannot be `
+        + `referenced - "provide a complete mix design" on the Asphalt-Mixture-Design Results form, with two specimens `
+        + `compacted to Ndes and two Gmm samples at the optimum AC, at least ${R.NEW_LEAD_DAYS} calendar days before work starts. `
+        + `Change Submittal type to New Mix Design.` }];
+  }
+  if (years > R.ONE_POINT_AFTER_YEARS) {
+    return [{ sectionId: "contract",
+      text: `The referenced design is ${years.toFixed(1)} years old. KM 64-421 §3.9.3.3: between one and two years a reference `
+        + `needs a one-point check at the optimum AC, submitted with two specimens compacted to Ndes and two Gmm samples.` }];
+  }
+  return [];
+}
+
+/** 11. 805.05.01 - aggregate absorption, per size and type, or combined when
+ *  slag is in the blend. Read off the new Abs. (%) column; blank is silent. */
+function absorptionWarnings() {
+  const rows = rowsOfList("aggregate").map(rowValuesOf)
+    .map((r) => ({ ...r, abs: num(r.absorption), pct: num(r.pct_blend) }))
+    .filter((r) => r.abs != null);
+  if (!rows.length) return [];
+  const A = CONFIG.ABSORPTION;
+  const slag = rowsOfList("aggregate").map(rowValuesOf).some((r) => /slag/i.test(String(r.type_size || "")));
+  if (slag) {
+    const w = rows.filter((r) => r.pct != null);
+    const tot = w.reduce((a, r) => a + r.pct, 0);
+    if (!tot) return [];
+    const comb = w.reduce((a, r) => a + r.pct * r.abs, 0) / tot;
+    if (comb <= A.SLAG_COMBINED_MAX_PCT + 1e-9) return [];
+    return [{ sectionId: "aggregate",
+      text: `Combined aggregate absorption ${fmt(comb, 2)}% (blend-weighted over the components with a figure) is over the `
+        + `${A.SLAG_COMBINED_MAX_PCT}% KYTC 805.05.01 allows when blast-furnace slag is used.` }];
+  }
+  const over = rows.filter((r) => r.abs > A.MAX_PCT + 1e-9);
+  if (!over.length) return [];
+  return [{ sectionId: "aggregate",
+    text: `Aggregate absorption over the ${A.MAX_PCT}% KYTC 805.05.01 allows for each size and type: `
+      + `${over.map((r) => `${r.type_size || "component"} (${fmt(r.abs, 2)}%)`).join(", ")}.` }];
+}
+
+/** Every design-side helper, pooled - recompute() reads this once. Empty on
+ *  PlantBook, whose own list is productionSpecWarnings(). */
+function designSpecWarnings(fp) {
+  if (isPlantBook()) return [];
+  return [
+    ...minAcWarnings(fp), ...designDustWarnings(fp), ...designVmaWarnings(fp), ...gmmNmaxWarnings(),
+    ...performanceWarnings(), ...classSubstitutionWarnings(), ...reclaimedWarnings(),
+    ...jmfStatementWarnings(), ...referenceDesignWarnings(), ...absorptionWarnings(),
+  ];
 }
 
 /* ===== POLISH-RESISTANT AGGREGATE (KYTC 403.03.03 A) =====
@@ -8504,6 +8914,15 @@ function recompute() {
             `(${fp.supLo.toFixed(1)}\u2013${fp.supHi.toFixed(1)}%), so the curve was extrapolated to reach the ` +
             `air-void target rather than interpolated. Run a trial point that brackets the target.` });
   }
+  // The DesignBook spec sweep (2026-09-18) - see designSpecWarnings(). Same
+  // shape and reason as PlantBook's productionSpecWarnings() further down:
+  // helpers return `{ sectionId, text }` and are pooled here, because
+  // `outstanding` has one producer. `fp` is computeFourPoint()'s return,
+  // read here rather than back off the painted cells.
+  designSpecWarnings(fp).forEach(({ sectionId, text }) => {
+    const sec = document.querySelector(`[data-subsection="${sectionId}"],[data-section="${sectionId}"]`);
+    outstanding.push({ id: sectionId, label: sec ? sec.dataset.label : "DesignBook", kind: "warn", text });
+  });
 
   // PlantBook's own three computations, in the same place DesignBook's are
   // and for the same reason: compute first, then count. computeBlendGsb()
