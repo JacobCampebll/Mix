@@ -3775,6 +3775,33 @@ read-only, so a write test goes through `apply_migration` and ends in
   same mixed-bench problem the LAM's flat producer-level table can't
   represent.
 
+- **`producer_supplier_labs` gained a 3rd reconciliation pass, 2026-09-18,
+  and the lesson generalizes to the whole reference-data reconciliation
+  effort above: check the SOURCE export before assuming a live-data pairing
+  is a mistake.** Andrew noticed `AMP070301` (Berea)'s two lab codes
+  (`C199`/`C518`) and, going in, suspected `C518` was misfiled for the
+  Danville plant (`AMP070311`, "The Allen Company @ Danville (Drum)" -
+  correctly in `plants` but with no lab code seeded at all). It wasn't -
+  `docs/plantbook-lab-id-reconciliation.md` section 1 already covers this
+  exact pair: SiteManager's own export genuinely lists both codes under
+  Berea with no status/date/active column to break a tie, so both were
+  seeded on purpose 2026-09-17b, same pattern as five other companies
+  running two lab codes at once. Renaming `C518` to Danville would have
+  broken a real pairing the raw export supports and left the actual gap
+  unfixed.
+  **The real candidate was already sitting in the same doc's section 2:
+  `C198`, tied in the export to `AMP070501`, which matches no live plant.**
+  The doc already speculated `070501` reads as an old number for what's
+  now `AMP070311` - exactly what Andrew was independently suspecting, just
+  pointing at a different code. Inserted `C198` -> `AMP070311` with
+  `flagged_mismatch = true` and a note spelling out the inference, same
+  honesty mechanism as every other unconfirmed row in that table - nobody
+  has actually confirmed the renumbering, only inferred it from `plants`
+  otherwise carrying zero lab coverage for a plant this well-documented
+  elsewhere in the app. `supabase/producer_supplier_labs.sql` and
+  `docs/plantbook-lab-id-reconciliation.md` both updated to match (110
+  rows total now, up from 109).
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
