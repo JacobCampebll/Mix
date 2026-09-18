@@ -92,6 +92,15 @@
        hold a 1px dashed rung against white. */
     --band-fill:rgba(255,195,18,.22);
     --band-edge:#C79400;
+    /* The JMF "minor change" envelope on the same chart (KM 64-421 §4.4) -
+       a red wash drawn OVER the gold control-point band, because it is a
+       tighter limit sitting inside a wider one and the eye has to read the
+       overlap as "both apply here". Derived from --bad rather than being a
+       fifth hue: it is the page's one "out of limit" colour, same token the
+       extrapolated-Pb marker and a failed consensus property use. Kept
+       lighter than --band-fill so the gold still reads underneath it. */
+    --tol-fill:rgba(155,44,44,.10);
+    --tol-edge:#9B2C2C;
     /* The appbar's real height, measured on load and on resize. Every sticky
        offset and scroll-margin on the page is derived from it: the header is
        three rows on a desktop and two on a phone, and hard-coded 132/150px
@@ -2438,6 +2447,49 @@ const CONFIG = {
     "4":    { s9_5: [null, 100], s1_18: [30, 55], s0_075: [6, 13] },
   },
 
+  /* ---- The JMF "minor change" envelope — KM 64-421 §4.4 (KM PDF p.377) ----
+   *
+   * How far a NEW JMF may sit from the one the Department reported as
+   * acceptable before it stops being a "minor change". Inside these, the
+   * Division or DME treat it as an adjustment; outside them, §4.4.2 says
+   * present the revised JMF for evaluation by the end of the first sublot
+   * and before the second begins.
+   *
+   * READ THE SCOPE BEFORE READING THE NUMBERS. §4.4's own heading is
+   * "Adjustment period ('minor changes' for Sand Asphalt, OGFC, and scratch
+   * course)", and the fineness-modulus row is footnoted "Sand Asphalt only"
+   * — so as WRITTEN this table governs three specialty mixtures, not an
+   * ordinary Superpave mix. For a Superpave mix §4.3 says something
+   * different and in one sense stricter: establish the JMF by the end of the
+   * first sublot and "conform to the gradation requirements at all times",
+   * which is the control points above, with 402.03.02 C) adding that after
+   * the first sublot NO change from the approved mix design is permitted
+   * without the Engineer's written approval. There is no ± acceptance band
+   * around a Superpave JMF, and gradation carries no pay weight on one.
+   *
+   * It is drawn on both books' charts all the same (Jake, 2026-09-17), which
+   * is a judgement about usefulness rather than a claim about the spec: it
+   * is the working envelope a plant technologist steers inside, and a curve
+   * that has wandered this far from its JMF is worth seeing wherever the
+   * mixture type. The chip's title and the chart's legend both say whose
+   * rule it is, so nothing on screen presents it as a Superpave limit.
+   *
+   * NO ENTRY FOR 2" OR 1-1/2", AND THAT IS THE SPEC RATHER THAN AN
+   * OMISSION — the table starts at 1". The envelope simply does not extend
+   * coarser than that; it is not widened by analogy from the 1" row, which
+   * would be inventing a limit. Same rule as everywhere else here: a
+   * guessed band is worse than no band.
+   *
+   * Fineness modulus ±0.10 (Sand Asphalt only) is the table's last row and
+   * has no sieve, so it is recorded here and not drawn.
+   */
+  JMF_TOLERANCE: {
+    s25: 4, s19: 4, s12_5: 4, s9_5: 4, s4_75: 4,
+    s2_36: 3, s1_18: 3, s0_6: 3, s0_3: 3,
+    s0_15: 2,
+    s0_075: 1.0,
+  },
+
   /* ---- Spec citations, and how a link lands on the exact page ----
    *
    * Every section that is governed by a published KYTC document names it in
@@ -2497,6 +2549,14 @@ const CONFIG = {
                     what: "TSR by ASTM D 4867, one freeze/thaw cycle" },
       km443:      { doc: "KM",  dest: "km443p1", page: 469, label: "KM 64-443",
                     what: "verifying a contractor's laboratory mix design" },
+      // §4.4's table, drawn as the red envelope on the 0.45 chart. `km421`
+      // above is the same METHOD at its first page; this is the one clause,
+      // and both fall back to `page` because km421's named destination is
+      // one of the five that resolve to nothing. The `what` carries the
+      // scope, because that is what a reader hovering the chip needs -
+      // see CONFIG.JMF_TOLERANCE for the whole argument.
+      jmftol:     { doc: "KM",  page: 377, label: "KM 64-421 §4.4",
+                    what: "how far a new JMF may sit from the approved one before it stops being a “minor change” - written for Sand Asphalt, OGFC and scratch course; a Superpave mix instead conforms to the control points at all times (§4.3) and needs the Engineer's written approval to change at all (402.03.02 C))" },
       perf:       { doc: "STD", page: 195, footer: "403-6", label: "KYTC 403.03.03 C) 5)",
                     what: "mix design performance limits - Hamburg passes and KYCT index" },
       km450:      { doc: "KM",  page: 504, label: "KM 64-450",
@@ -2844,7 +2904,7 @@ const CONFIG = {
     },
     {
       id: "gradation", label: "Gradation", step: "Gradation", tag: "% passing by sieve · 0.45 power chart", type: "sieves",
-      cites: ["ctrlpts"],
+      cites: ["ctrlpts", "jmftol"],
       // `key` is explicit (fraction labels don't survive a slug), `mm` drives
       // the 0.45 power chart x-position. Full KYTC set, 2" → #200; the target
       // band will trim to the mix's nominal max size in a later pass.
@@ -3214,6 +3274,10 @@ const PB_SECTIONS = (() => {
   const DESIGNBOOK_CITE_KEYS = [
     "km421", "jmf", "agg805", "ctrlpts", "consensus", "polish",
     "volumetric", "optimumac", "tsrspec", "km443", "perf", "km450",
+    // KM 64-421 §4.4, the JMF "minor change" envelope. A lot is exactly
+    // where it bites: the sublot chart draws it around the approved JMF the
+    // measured curve is being compared to.
+    "jmftol",
   ];
 
   // ---------------------------------------------------------------------
@@ -4151,7 +4215,7 @@ const verifySpecimenOf4 = (n) =>
         id: `sublot-${n}-gradation`, label: "Gradation", into: `sublot-${n}`, banded: true,
         tag: "cumulative grams retained · % passing computed",
         type: "sieves",
-        cites: ["ctrlpts"],
+        cites: ["ctrlpts", "jmftol"],
         sieves: AMAW_SIEVES,
         // ORDER IS RAW WEIGHTS, THEN THIS SUBLOT'S % PASSING, THEN THE JMF
       // TARGET, THEN THE DIFFERENCE (Jake, 2026-09-17: "Make the order the
@@ -6398,14 +6462,17 @@ function drawGradChart(sec) {
     // A weighed column is plotted from what computeGradation() worked out,
     // never from the input beside it - that input is now GRAMS, and plotting
     // 1410 as a percentage would draw a curve off the top of the chart.
+    // `key` is the SIEVE's own key, carried so the JMF tolerance envelope
+    // below can look its sieve up in CONFIG.JMF_TOLERANCE. It is not the
+    // field key (`${col.key}_${sv.key}`), which is a different string.
     if (col.key && computed[col.key]) {
       const p = computed[col.key][sv.key];
-      return { mm: sv.mm, label: sv.label, p: p == null ? null : p };
+      return { mm: sv.mm, key: sv.key, label: sv.label, p: p == null ? null : p };
     }
     const key = col.key ? `${col.key}_${sv.key}` : sv.key;
     const el = document.querySelector(`[data-field="${key}"]`);
     const v = parseFloat((el && el.value) || "");
-    return { mm: sv.mm, label: sv.label, p: Number.isFinite(v) ? v : null };
+    return { mm: sv.mm, key: sv.key, label: sv.label, p: Number.isFinite(v) ? v : null };
   });
   // The first column is what the axis is built from - DesignBook's own
   // gradation, or a lot's JMF target. It is also the only one trimFlatCoarseEnd
@@ -6475,14 +6542,15 @@ function drawGradChart(sec) {
          enter at least two sieve values</text>`
     : "";
   // A legend only where there is more than one thing to tell apart. A single
-  // curve needs no key, and the caption above the chart already names it.
-  const legend = cols.length > 1
-    ? `<g>${cols.map((c, i) => {
-        const lx = pad.l + 4 + (i % 4) * 104, ly = pad.t + 6 + Math.floor(i / 4) * 11;
-        return `<line x1="${lx}" y1="${ly}" x2="${lx + 12}" y2="${ly}" stroke="${colours[i]}" stroke-width="2"/>` +
-               `<text x="${lx + 16}" y="${ly + 3}" font-size="7.5" fill="var(--muted)">${esc(c.label)}</text>`;
-      }).join("")}</g>`
-    : "";
+  // curve needs no key, and the caption above the chart already names it -
+  // but the SHADED bands are not named anywhere else on the page, so the JMF
+  // tolerance envelope earns an entry even on a one-curve chart. The gold
+  // control-point band does not: it is the same shape on every chart in both
+  // books, it is what the section's `ctrlpts` citation is about, and it has
+  // been unlabelled since it shipped.
+  const legendItems = cols.length > 1
+    ? cols.map((c, i) => ({ kind: "line", stroke: colours[i], label: c.label, title: null }))
+    : [];
 
   // Target gradation band (AASHTO M323 Table 4 control points for this mix's
   // NMAS) — drawn under the plotted line so the design's own gradation reads
@@ -6510,6 +6578,93 @@ function drawGradChart(sec) {
       no control points for NMAS "${esc(nominalSize)}"</text>`;
   }
 
+  // The JMF "minor change" envelope (KM 64-421 §4.4), drawn OVER the gold
+  // control-point band - Jake, 2026-09-17. Two limits of different shapes on
+  // one chart: the gold band is fixed by the mix's NMAS and does not move,
+  // while this one hugs whatever the JMF actually is, so the overlap is where
+  // both bite and the red alone is where only §4.4 does.
+  //
+  // IT IS BUILT ON THE TARGET COLUMN, THE SAME ONE THE AXIS IS, and for the
+  // same reason: on DesignBook that is the design's own gradation (the JMF
+  // being proposed - the envelope says how far the plant may then drift),
+  // and on a lot it is the approved JMF the sublot is measured against.
+  // Reading it off `series[0]` would have drawn it around a sublot's own
+  // weighed curve on PlantBook, which is the curve it is supposed to judge.
+  //
+  // THE ENVELOPE IS CLAMPED TO 0-100, which is arithmetic rather than
+  // cosmetics: a JMF of 100 on the 1" sieve has no +4 above it.
+  //
+  // Sieves the table does not carry (2" and 1-1/2" - see CONFIG.JMF_TOLERANCE)
+  // are simply absent from `env`, so the shape stops at the 1" sieve rather
+  // than being extended by analogy. It needs two sieves to be a polygon, so
+  // a chart trimmed down to one tolerance-bearing sieve draws nothing.
+  const TOL = CONFIG.JMF_TOLERANCE || {};
+  const env = all.filter((p) => p.p != null && keep.has(p.mm) && TOL[p.key] != null)
+    .map((p) => ({
+      mm: p.mm,
+      hi: Math.min(100, p.p + TOL[p.key]),
+      lo: Math.max(0, p.p - TOL[p.key]),
+    }));
+  let tolSvg = "";
+  if (env.length >= 2) {
+    // IT IS HATCHED RATHER THAN WASHED, and that is a fix rather than a
+    // flourish. Two flat translucent fills stacked on white do not read as
+    // two things: red at .15-.22 over the gold band came out as a slightly
+    // darker gold, so the tighter limit was invisible exactly where it
+    // overlapped the wider one - which is the whole area that matters.
+    // Diagonal strokes let the gold show between them, so the overlap reads
+    // as both bands at once and the red alone reads as only §4.4. Checked in
+    // a browser at both opacities before this went in; do not "simplify" it
+    // back to a flat fill.
+    //
+    // The pattern id is keyed on the SECTION, because a lot draws four of
+    // these charts into one document and a shared id would be four elements
+    // answering to one getElementById - the rule the harness already checks.
+    const pid = `tolhatch_${sec.id}`;
+    const poly = (fill) => `<polygon points="${env.map((p) => `${x(p.mm).toFixed(1)},${y(p.hi).toFixed(1)}`).join(" ")} ${
+          [...env].reverse().map((p) => `${x(p.mm).toFixed(1)},${y(p.lo).toFixed(1)}`).join(" ")}"
+         fill="${fill}" stroke="none"/>`;
+    const edge = (side) => `<polyline fill="none" stroke="var(--tol-edge)" stroke-width="0.9"
+        stroke-dasharray="3,2" points="${env.map((p) => `${x(p.mm).toFixed(1)},${y(p[side]).toFixed(1)}`).join(" ")}"/>`;
+    tolSvg =
+      `<defs><pattern id="${esc(pid)}" width="3" height="3" patternUnits="userSpaceOnUse"
+          patternTransform="rotate(45)">
+         <line x1="0" y1="0" x2="0" y2="3" stroke="var(--tol-edge)" stroke-width="0.9" opacity="0.6"/>
+       </pattern></defs>` +
+      poly("var(--tol-fill)") + poly(`url(#${esc(pid)})`) + edge("hi") + edge("lo");
+  }
+
+  // Built here rather than beside `legendItems` above, because whether the
+  // envelope drew at all is only known once `env` has been filtered.
+  if (tolSvg) legendItems.push({
+    kind: "band", label: "JMF ±tol. (KM 64-421 §4.4)",
+    title: CONFIG.SPECS.CITES.jmftol ? CONFIG.SPECS.CITES.jmftol.what : null,
+  });
+  // THE LEGEND MOVED TO THE BOTTOM-RIGHT, and the envelope is why. It used to
+  // run along the top-left in a row of four, which was empty space while the
+  // only thing up there was the curve's flat run of 100s at the coarse end.
+  // The tolerance band fills that corner now - it is widest exactly where the
+  // JMF is pinned at 100 - so the key was sitting on top of the thing it
+  // names. A gradation curve rises monotonically left to right on this axis,
+  // so the area BELOW it on the right is the one region of the plot that is
+  // empty on every chart in both books; entries stack upward from the axis.
+  const legend = legendItems.length
+    ? `<g>${legendItems.map((it, i) => {
+        const lx = W - pad.r - 120;
+        const ly = H - pad.b - 8 - (legendItems.length - 1 - i) * 11;
+        const swatch = it.kind === "band"
+          ? `<rect x="${lx}" y="${ly - 3}" width="12" height="6" fill="var(--tol-fill)"
+               stroke="var(--tol-edge)" stroke-width="0.8" stroke-dasharray="2,1.5"/>` +
+            `<rect x="${lx}" y="${ly - 3}" width="12" height="6" fill="url(#tolhatch_${esc(sec.id)})" stroke="none"/>`
+          : `<line x1="${lx}" y1="${ly}" x2="${lx + 12}" y2="${ly}" stroke="${it.stroke}" stroke-width="2"/>`;
+        // A <title> child is the SVG tooltip, so the scope of §4.4 is one
+        // hover away from the band itself rather than only on the cite chip.
+        const tip = it.title ? `<title>${esc(it.title)}</title>` : "";
+        return `<g>${tip}${swatch}` +
+               `<text x="${lx + 16}" y="${ly + 3}" font-size="7.5" fill="var(--muted)">${esc(it.label)}</text></g>`;
+      }).join("")}</g>`
+    : "";
+
   chart.innerHTML =
     `<svg viewBox="0 0 ${W} ${H}">
       <line x1="${pad.l}" y1="${H - pad.b}" x2="${W - pad.r}" y2="${H - pad.b}" stroke="var(--line)" stroke-width="1"/>
@@ -6518,7 +6673,7 @@ function drawGradChart(sec) {
         `<line x1="${pad.l}" y1="${y(v).toFixed(1)}" x2="${W - pad.r}" y2="${y(v).toFixed(1)}" stroke="var(--line)" stroke-width="0.4"/>
          <text x="${pad.l - 4}" y="${(y(v) + 3).toFixed(1)}" font-size="8" fill="var(--muted)" text-anchor="end">${v}</text>`).join("")}
       <text x="${(pad.l + (W - pad.r)) / 2}" y="${H - 4}" font-size="8" fill="var(--muted)" text-anchor="middle">sieve (0.45 power scale)</text>
-      ${bandSvg}${grid}${line}${dots}${empty}${legend}${bandNote}
+      ${bandSvg}${tolSvg}${grid}${line}${dots}${empty}${legend}${bandNote}
     </svg>`;
 }
 

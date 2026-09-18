@@ -4077,3 +4077,116 @@ commit where possible.
   own identity convention is premature while whether Class 2 stays a
   separate review path at all is still an open direction call between
   Andrew and Tate, not a data-sourcing problem to be solved in code.
+
+- **Searched both books for a gradation band that applies AFTER the JMF is
+  established, and the honest answer for an ordinary Superpave mix is that
+  there isn't one** (Jake asked 2026-09-18; searched the KYTC specs corpus
+  rather than answering from memory). Worth recording because it is a
+  negative result that is easy to re-derive wrongly, and because it settles
+  an open item this file has carried since the deviation column shipped.
+  **KM 64-421 §4.3** (KM PDF **p.376**) is the Superpave rule: "Setup period
+  (for all mixtures except Sand Asphalt, OGFC, and scratch course) ...
+  Establish the JMF by the end of the first sublot of production for each
+  type of mixture produced. **Conform to the gradation requirements at all
+  times** unless permitted otherwise by the Division or DME." "The gradation
+  requirements" is the control points - the gold band already on the chart.
+  **Std Spec 402.03.02 C)** (STD **p.177**, footer `402-2`) says it twice
+  over: "Ensure the JMF gradation does not fall outside of the ranges as
+  listed in AASHTO M 323 for all asphalt mixtures", and - the part that makes
+  a tolerance beside the point - "**After the first sublot no changes from
+  the approved mix designs are permitted without first obtaining written
+  approval from the Engineer.**" Changing the JMF mid-job is a permission
+  question, not a ± question. At most three mix designs per contract, per pay
+  item, per plant.
+  Gradation is monitored (402.03.02 A) lists it beside AC/AV/VMA/density) and
+  tested once per sublot, but note KM 64-426 §4.2.1 (KM p.411) words that as
+  "the Department **recommends, but does not require**" - and gradation
+  carries **no pay weight** on an ordinary mix, which is why
+  `propertyWeights()` has never had one.
+  **Three other JMF-deviation numbers found on the way, none of them a
+  production gradation band**, all worth knowing before someone re-derives
+  them: **AC ≥ ±0.9% deviation from JMF** on a CORE is unsatisfactory work
+  requiring correction regardless of the sublot's QC result (STD p.179,
+  `402-4`; density ≤89.0% or ≥97.5% beside it); **KM 64-112**'s IAS /
+  comparison table (KM p.104) caps the difference between two LABS at 5% on
+  ½" and larger, 4% on ⅜"/#4/#8/#16, 3% on #30/#50/#100, 2.0% on #200 and
+  0.5% on AC - lab-vs-lab, not JMF-vs-production; and **KM 64-411 §4.1.8.9**
+  (KM p.355) caps the design lab's weigh-up adjustment at 1.0% on the #50 and
+  1.5% on the #200.
+  **And the per-sieve deviation-from-JMF PAY ladder does exist - for
+  specialty mixtures only** (STD **p.184**, footer `402-9`, "LOT PAY
+  ADJUSTMENT SCHEDULE FOR SPECIALTY MIXTURES (TEST DEVIATION FROM JMF)"):
+  ⅜"/#4/#8/#16/#30 pay 1.00 at 0-8 down to 0.75 at ≥15, the #200 1.00 at
+  0.0-2.0 down to 0.75 at ≥4.0, and so on per sieve. That is 402.05.01's
+  schedule, which PlantBook does not model.
+  Method note for the next search: the corpus's page numbers are the same
+  physical pages `CONFIG.SPECS.CITES` uses - page 193 comes back carrying the
+  `403-4` footer, which is `ctrlpts` exactly, so it is the same edition.
+
+- **KM 64-421 §4.4's tolerance table is drawn as a red hatched envelope over
+  the gold control-point band, on both books' 0.45 charts** (Jake,
+  2026-09-18, after the search above: "lets add that to the setup gradation
+  as a spec and a shaded red band on top of the yellow band for it").
+  `CONFIG.JMF_TOLERANCE`, cite key `jmftol` (KM PDF **p.377**).
+  1"/¾"/½"/⅜"/#4 ±4, #8/#16/#30/#50 ±3, #100 ±2, #200 ±1.0.
+  **THE SCOPE IS THE THING TO CARRY, because the numbers look more general
+  than they are.** §4.4's own heading is "Adjustment period ('minor changes'
+  for **Sand Asphalt, OGFC, and scratch course**)" and its last row is
+  footnoted "Sand Asphalt only" - so as written it governs three specialty
+  mixtures, and §4.3 (above) is what an ordinary Superpave mix follows.
+  Drawing it on every chart is a judgement about usefulness, made with that
+  known: it is the working envelope a plant technologist steers inside, and a
+  curve that has wandered this far from its JMF is worth seeing whatever the
+  mixture. **Nothing on screen presents it as a Superpave limit** - the cite
+  chip's title and the legend entry's SVG `<title>` both carry the scope in
+  full, and `CONFIG.JMF_TOLERANCE`'s comment carries the argument.
+  **NO ENTRY FOR 2" OR 1-1/2" - the table starts at 1", and the envelope
+  simply stops there** rather than being widened by analogy from the 1" row.
+  Both books' sieve lists carry those two; `check`-able either way, and a
+  guessed band is worse than no band.
+  **It is built on the TARGET column, the same one the axis is**, by the same
+  `cols.findIndex(c => c.target)` the axis fix of 2026-09-17 introduced. On
+  DesignBook that is the design's own gradation (the JMF being proposed, so
+  the envelope says how far the plant may then drift); on a lot it is the
+  approved JMF the sublot is measured against. Reading `series[0]` would have
+  drawn it around the sublot's own weighed curve - the curve it exists to
+  judge. `readSeries()` now carries the SIEVE key (`sv.key`) through so the
+  tolerance can be looked up; that is not the field key.
+  **Clamped to 0-100**, which is arithmetic rather than tidiness: a JMF of 100
+  on the 1" sieve has no +4 above it. Verified in a browser - the envelope's
+  top lands exactly on `y(100)`.
+  **A FLAT RED WASH OVER A FLAT GOLD WASH IS NOT TWO THINGS, it is a darker
+  gold.** Built it at `.15` and again at `.22` and screenshotted both: the
+  tighter limit was invisible precisely where it overlapped the wider one,
+  which is the whole area that matters. It is a **red diagonal hatch** over a
+  `.10` tint now, so the gold shows between the strokes and the overlap reads
+  as both bands at once. The pattern id is keyed on the section
+  (`tolhatch_<sec.id>`), because a lot draws four of these into one document
+  and a shared id would be four elements answering to one `getElementById` -
+  asserted unique in the browser probe. Do not "simplify" it back to a flat
+  fill; that is this entry being reverted, not cleaned up.
+  **The legend moved to the bottom-right of the plot, and the envelope is
+  why.** It ran along the top-left in a row of four, which was empty while the
+  only thing up there was the curve's flat run of 100s; the tolerance band
+  fills that corner now - it is widest exactly where the JMF is pinned at 100
+  - so the key sat on top of the thing it names. A gradation curve rises
+  monotonically left to right on this axis, so below-right is the one region
+  empty on every chart in both books. Entries stack upward from the axis.
+  The legend also renders on a ONE-curve chart now, which it never did:
+  a shaded band is not named anywhere else, where a single curve is named by
+  the caption above the chart. The gold band still gets no entry - it is what
+  the section's `ctrlpts` citation is about and has been unlabelled since it
+  shipped.
+  **THE DEVIATION COLUMN IS STILL NOT COLOURED, and this does not change
+  that.** The 2026-09-17 entry said "encode 403's real tolerances and it can
+  earn a colour"; what the search found is that for a Superpave mix there are
+  none, and what is encoded here is another mixture class's. **Drawing a limit
+  and judging a value against it are different acts** - a band is a reference
+  a person reads, a red number is the page returning a verdict. Same rule that
+  keeps `payWarnings()` the single producer of the rail's pay warnings.
+  **The review PDF does NOT draw this band** - `gradationBlock()` in
+  `buildReviewPDF` still draws the control points alone. That is a stated gap
+  rather than the two-resolvers disagreement this file records elsewhere: the
+  page and the sheet agree about the mix, the sheet simply has no envelope
+  code yet. If it is added, share the tolerance table rather than restating
+  it, the same rule as `trimFlatCoarseEnd` and `niceTicks`.

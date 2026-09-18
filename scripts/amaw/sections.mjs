@@ -116,6 +116,10 @@ export const PLANTBOOK_CITES = {
 export const DESIGNBOOK_CITE_KEYS = [
   "km421", "jmf", "agg805", "ctrlpts", "consensus", "polish",
   "volumetric", "optimumac", "tsrspec", "km443", "perf", "km450",
+  // KM 64-421 §4.4, the JMF "minor change" envelope. A lot is exactly
+  // where it bites: the sublot chart draws it around the approved JMF the
+  // measured curve is being compared to.
+  "jmftol",
 ];
 
 // ---------------------------------------------------------------------
@@ -1060,7 +1064,7 @@ function buildSublotGradationSections() {
       id: `sublot-${n}-gradation`, label: "Gradation", into: `sublot-${n}`, banded: true,
       tag: "cumulative grams retained · % passing computed",
       type: "sieves",
-      cites: ["ctrlpts"],
+      cites: ["ctrlpts", "jmftol"],
       sieves: AMAW_SIEVES,
       // ORDER IS RAW WEIGHTS, THEN THIS SUBLOT'S % PASSING, THEN THE JMF
       // TARGET, THEN THE DIFFERENCE (Jake, 2026-09-17: "Make the order the
