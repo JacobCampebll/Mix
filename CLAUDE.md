@@ -3699,6 +3699,17 @@ read-only, so a write test goes through `apply_migration` and ends in
   applies to the Sample id prefix and the district Class 2 lab codes: a
   guessed identifier is worse than a documented gap. Left open rather than
   guessed at.
+  **Real-world priority, same day (Andrew, 14 months at KYTC): granite has
+  never come through as an actual approved mix design in his experience -
+  only in experimental mixes tested outside the approval pipeline.** Doesn't
+  undo the `aggregates` fix above - the mechanism is correct now either way,
+  and cost nothing to fix - but it says where to spend any further effort:
+  the 4 granite producers are unlikely to matter soon, while the 4 siltstone
+  producers (Vulcan Springfield/Cross Plains/Clarksville/Dickson, TN) are the
+  more plausible ones to actually bite, since Haydon Greensburg siltstone
+  already appears in real approved designs. Left as-is rather than pursued
+  further (no bench-level bit added to the form, no further reconciliation
+  pass) - revisit if a real granite design ever shows up.
 
 ## Conventions for changing this file
 
