@@ -3711,6 +3711,68 @@ read-only, so a write test goes through `apply_migration` and ends in
   further (no bench-level bit added to the form, no further reconciliation
   pass) - revisit if a real granite design ever shows up.
 
+- **A broader `aggregate_types` polish-resistant reconciliation pass opened
+  2026-09-18 (Andrew, after talking to Jake and Tate) - confirmed the
+  existing bench-level mechanism is right, found two more gap classes, and
+  is deliberately PAUSED pending a precise per-lithology rule from Jake and
+  Tate rather than guessed at further.**
+  **Jake: "all Dolomite products are polish resistant, and all Granite
+  products are polish resistant."** Checked against the live data rather
+  than taken at face value, and it holds up as stated, not as a looser
+  paraphrase: all 4 LAM-approved Granite producers are Class A+ with
+  "Restriction: None," and all 13 LAM-approved Dolomite producers are Class
+  A (KY has no Class B or A+ dolomite source at all). **Andrew's own
+  follow-up caught the real nuance before it became a bug: a single
+  producer can have one bench that qualifies and one that doesn't (used in
+  Type D mixes), so "all Dolomite is polish resistant" means "every
+  producer KYTC has approved," not "any material labeled Dolomite from
+  anywhere."** That is exactly what `polish_resistant_sources`
+  `(agp_number, lithology)` plus its free-text `restriction_note` (Haydon
+  Airport Rd. = "Bench B") already models, and exactly why the unclassed
+  "Dolomite #67's" row in `aggregate_types` still means something - an
+  unlisted producer, or a listed one whose bench isn't the qualifying one,
+  reads as unproven rather than silently Class A. **No mechanism change
+  needed here; the design was already right.** What is still missing, and
+  is the actual gap: the form has no bench/ledge field, so a technician's
+  material can't be checked past the producer level - open question #2 in
+  `docs/lam-polish-resistant-sources.md`, unchanged.
+  **The LAM's own structure is genuinely part of the problem, confirmed
+  when asked whether that's fair to say.** It's a 233-page PDF built to be
+  read front-to-back, not queried: one table per Class (A+/A/B),
+  sub-tabled per lithology, `AGP | Producer | Restriction`, where
+  "Restriction" carries wildly inconsistent grain in the same column -
+  "Bench B," "Ledges 6, 7, 8," "High insol ledges only," "None" - with no
+  schema behind any of it. A producer with multiple physical locations (Haydon
+  has three) gets a separate AGP row per location with no cross-reference
+  tying them together as "the same company." And it revises on its own
+  12/22/2025-dated schedule with no changelog, so a reconciliation done
+  today has no way to detect drift at the next revision short of a manual
+  full re-diff.
+  **Two more gap classes found in the same pass, both size-coverage rather
+  than class-value gaps, and both left unfixed pending KYTC confirmation -
+  same "a guessed mat_code is worse than a documented gap" rule as
+  Traprock above.** Checked the standard coarse run (#57/#67/#68/#78/#8/#9M)
+  across every lithology prefix in `aggregate_types`: Limestone and Slag
+  carry the full six; Dolomite is missing #57; Gravel is missing #68;
+  Granite and Siltstone are each missing #57 and #68; Sandstone is missing
+  #57, #67 AND #68; Quartzite is missing #57, #67, #68 AND #78 (only #8 and
+  #9M exist). Whether this reflects real gaps in the original 115-row
+  extraction or genuinely reflects that KYTC/SiteManager never assigned a
+  code for e.g. "Quartzite #67's" because nobody has ever needed one is
+  unconfirmed - not something to guess at from here. Two purely cosmetic
+  issues alongside it, safe to fix whenever: `"Siltsone Sand"` is a typo
+  (functionally harmless - `polishLithologyOf()`'s regex already tolerates
+  it on purpose, per its own comment), and all four Sandstone size rows
+  (`Sandst. #78's` etc.) use a curly apostrophe (U+2019) where every other
+  row in the table uses a straight one.
+  **Deliberately not acted on further this session** - Andrew is taking a
+  short list back to Jake and Tate first: the precise Dolomite/Granite rule
+  as confirmed above (so it's on record rather than re-derived next time),
+  whether the size-coverage gaps are real or reflect materials KYTC has
+  simply never coded, and whether any lithology besides Dolomite has the
+  same mixed-bench problem the LAM's flat producer-level table can't
+  represent.
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
