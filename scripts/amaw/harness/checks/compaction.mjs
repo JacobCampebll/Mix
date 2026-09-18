@@ -59,7 +59,10 @@ const CASES = [
   ["a 0.50 surface mix does too", [A], [{ layer: "SURF", nominal_size: "0.50A" }], "0.50", "A", "A", "1"],
   ["Option B takes no cores at all", [B], SURF, "0.38", "B", "B", "2"],
   ["a base mix takes none under Option A either", [A], BASE, "1.00", "B", "A", "2"],
-  ["a NO.4 surface is a thin lift and takes none", [A], NO4, "NO.4", "A", "A", "2"],
+  // Until 2026-09-18 this wanted Option "A" with joint density "2". Jake:
+  // "no. 4 mixes dont have cores" - none at all - so a No. 4 is Option B
+  // (the no-core option) whatever the route's note says.
+  ["a NO.4 takes no cores at all, so Option B whatever the note says", [A], NO4, "NO.4", "A", "B", "2"],
   ["an Option A note that does not require joint cores", [A_NO_JOINTS], SURF, "0.38", "B", "A", "2"],
   // Until 2026-09-18 this case wanted "" - an unknown COURSE left joint
   // density blank. Jake settled the rule by SIZE that day (0.38 and 0.50 take

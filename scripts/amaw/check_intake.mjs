@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   approvalChecks, lotFromApproval, verifyRequest, readVerifyResponse, notChecked,
-  VERIFICATION, FAILURE, DOC_KIND, isVerified, mixTypeFor, jointDensityFor, esalClassFor,
+  VERIFICATION, FAILURE, DOC_KIND, isVerified, mixTypeFor, jointDensityFor, densityOptionFor, esalClassFor,
   acceptanceMethodFor,
 } from './intake.mjs';
 import { normaliseLot, lotSummary } from './storage.mjs';
@@ -537,6 +537,21 @@ for (const [mix, want, why] of [
   [{ layer: 'SURF', nominal_size: null    }, null, 'an unknown size is not an answer'],
   [null, null, 'no mix at all is not an answer'],
 ]) ok(why, jointDensityFor(mix) === want, jointDensityFor(mix));
+
+// The density option is the CONTRACT's (per route, off the proposal's OPTION
+// note) - except on a No. 4, which takes no cores at all (Jake, 2026-09-18)
+// and so can only be paid under Option B. null everywhere else is the point:
+// a guessed 'A' would put a 40% lane-density weight on a lot the note says
+// takes no cores.
+head('3e. Density option forced only on a No. 4');
+for (const [mix, want, why] of [
+  [{ nominal_size: 'NO.4B' }, 'B', 'a No. 4 takes no cores, so Option B'],
+  [{ layer: 'SURF', nominal_size: 'NO.4A' }, 'B', '...whatever course it is called'],
+  [{ nominal_size: '0.38A' }, null, 'a 0.38 is the proposal\'s to decide'],
+  [{ nominal_size: '1.00D' }, null, 'a 1.00 is the proposal\'s to decide'],
+  [{ nominal_size: '' }, null, 'a blank size decides nothing'],
+  [null, null, 'no mix at all decides nothing'],
+]) ok(why, densityOptionFor(mix) === want, densityOptionFor(mix));
 
 // ESAL Class off the design's Class. The AADTT field wins over the
 // signature's CL prefix because a human confirmed the former on the form.

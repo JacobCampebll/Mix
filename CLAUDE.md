@@ -4538,3 +4538,36 @@ commit where possible.
   Nominal size field is a `<select>` whose values are the bare sizes ("0.75",
   not "0.75B") - a probe that sets a lettered value sets nothing, which is
   what the first run of that probe did.
+
+- **A No. 4 mix takes NO cores - not four mainline and no joint, none - and
+  is therefore an Option B lot whatever the route's note says** (Jake,
+  2026-09-18, correcting the entry above: "no. 4 mixes dont have cores").
+  The spec's own shape for that is 402.03.02 D) 6): "Option B. The Department
+  will not require any cores." So `densityOptionFor(mix)` is new in
+  `intake.mjs` and the page's `PB_LOT`: `'B'` for a No. 4, `null` for every
+  other size - null because the density option is the CONTRACT's, per route,
+  and a guessed 'A' would put a 40% lane-density weight on a lot the note
+  says takes no cores. `jointDensityFor()` is unchanged (a No. 4 was already
+  "no").
+  **Why it has to be forced rather than left to the note.** `propertyWeights()`
+  answers Option A with lane density at 30 or 40%, and the workbook's
+  `Cores!C` reports no density at all for mixture type 14 - so a No. 4 under
+  Option A has a weight it can never fill and no final pay, silently. Three
+  places now say otherwise: the intake SEEDS Option B (tinted, `derive()`)
+  where every other size still `needsTyping`; `applyCompaction()` applies
+  Option B over an Option A note and says so in its line ("a No. 4 mix takes
+  no cores, so Option B applies although the note says Option A"); and
+  `coreCountWarnings()` has no count to be short of on a No. 4 and instead
+  raises exactly one thing - a No. 4 with Density option still on A, with the
+  spec sentence and the fix. Under B it is silent.
+  **The harness `compaction` case for a No. 4 flipped from wanting Option A
+  to wanting Option B**, and says so in its comment; `check_intake` gained
+  section 3e asserting the force on a No. 4 and the null everywhere else;
+  `check_page_plantbook` sweeps the new function like `jointDensityFor()`.
+  Verified in a browser on the test lot switched to No. 4: Option A raises the
+  line, B is silent, the compaction fixture lands on B / No, and a 0.38 under
+  the same fixture is untouched.
+  Still true and worth restating beside this: the No. 4 is the one size the
+  form knows takes no cores. A 0.75 / 1.00 / 1.50 under Option A still owes
+  its four mainline cores per sublot, and Option B on any size is the
+  proposal's call, not the page's.

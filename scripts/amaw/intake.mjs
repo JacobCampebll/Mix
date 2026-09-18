@@ -329,6 +329,21 @@ export function jointDensityFor(mix) {
   return JOINT_DENSITY_SIZES.includes(size) ? '1' : '2';
 }
 
+/** The compaction option a NO. 4 mix is forced onto, or null where the
+ *  Contract decides. Jake, 2026-09-18: "no. 4 mixes dont have cores" - not
+ *  four mainline and no joint, NONE. 2026 Std Spec 402.03.02 D) 6): "Option B.
+ *  The Department will not require any cores." So a lot that can never
+ *  furnish a core can only be paid under Option B: under Option A the
+ *  workbook's Cores!C reports no density for mixture type 14 and lane
+ *  density - 30 to 40% of the pay - stays blank forever. Every other size is
+ *  the proposal's OPTION note's to decide, per route, which is why this
+ *  returns null for them rather than guessing 'A'. */
+export function densityOptionFor(mix) {
+  if (!mix) return null;
+  const size = splitDesignation(mix.nominal_size).size.toUpperCase().replace(/\s+/g, '');
+  return size === 'NO.4' ? 'B' : null;
+}
+
 /** The three acceptance methods `Calculations!H20` offers, and the codes
  *  `H13` turns them into: `IF(H20="Gradation",1,IF(H20="Volumetrics",2,
  *  IF(H20="Visual",3,"")))`. Spelled out because the WORDS are what the
@@ -1121,9 +1136,19 @@ export function lotFromApproval(payload, opts = {}) {
   // MP07606272601, the KY 627 one). So this needs `kytc-lookup` to return
   // the notes with their route qualifier; the lookup returns the proposal
   // header and the mix items and no notes at all today.
-  needsTyping('lot_density_option', cell(CALC.sheet, CALC.densityOption),
-    'Option A or Option B. It is stated in the Contract (Std Spec 402.03.02 D) 6)), as an OPTION A / OPTION B special note in the proposal - and per ROUTE, so a two-route contract can be both. Option B pays no lane density and takes no cores.',
-    ['pay']);
+  // ...except on a No. 4, which takes no cores at all and is therefore paid
+  // under Option B whatever the route's note says - see densityOptionFor().
+  const dopt = densityOptionFor(mix);
+  if (dopt) {
+    derive('lot_density_option', dopt,
+           `${mix.nominal_size || ''}`.trim() + ' is a No. 4 mix, which takes no cores - Option B is the '
+           + 'no-core option and the only one the workbook can pay a No. 4 under',
+           cell(CALC.sheet, CALC.densityOption));
+  } else {
+    needsTyping('lot_density_option', cell(CALC.sheet, CALC.densityOption),
+      'Option A or Option B. It is stated in the Contract (Std Spec 402.03.02 D) 6)), as an OPTION A / OPTION B special note in the proposal - and per ROUTE, so a two-route contract can be both. Option B pays no lane density and takes no cores.',
+      ['pay']);
+  }
 
   // Joint density. Fully settled by the mix, so it is derived rather than
   // asked for - see jointDensityFor() for the spec wording. Left blank with
@@ -1134,6 +1159,7 @@ export function lotFromApproval(payload, opts = {}) {
     derive('lot_joint_density', jd,
            `${mix.nominal_size || ''}`.trim() +
            (jd === '1' ? ' is a 0.38 or 0.50 mix, which takes 4 mainline and 2 joint cores per sublot'
+                       : densityOptionFor(mix) === 'B' ? ' is a No. 4 mix, which takes no cores at all'
                        : ' is not a 0.38 or 0.50 mix, so 4 mainline cores per sublot and no joint cores'),
            cell(CALC.sheet, 'H11'));
   } else {

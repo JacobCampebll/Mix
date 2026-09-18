@@ -1469,8 +1469,10 @@ export const PLANTBOOK_SECTIONS = [
         options: [{ value: "A", label: "Option A" }, { value: "B", label: "Option B — no cores" }] },
       // Derived from the mix by intake.mjs' jointDensityFor(); the
       // nominal SIZE decides (Jake, 2026-09-18): 0.38 and 0.50 take 4
-      // mainline and 2 joint cores per sublot, 0.75 / 1.00 / 1.50 and No. 4
-      // take 4 mainline and none. Still a field rather than a readout, because the proposal's
+      // mainline and 2 joint cores per sublot, 0.75 / 1.00 / 1.50 take 4
+      // mainline and none, and a No. 4 takes no cores at all (Jake, same day:
+      // "no. 4 mixes dont have cores") - so it is paid under Option B, which
+      // densityOptionFor() seeds. Still a field rather than a readout, because the proposal's
       // OPTION note is what finally says so and a lot may have to disagree
       // with the derivation.
       { key: "lot_joint_density", label: "Joint density", type: "select", req: true,

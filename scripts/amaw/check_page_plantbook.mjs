@@ -1042,6 +1042,7 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
              [{ nominal_size: 'NO.4A', layer: 'SURF' }], [{ nominal_size: '1.00A', layer: 'BASE' }],
              [{ layer: 'SURF' }], [{}], [null], [undefined]]);
   sweep('jointDensityFor()', P.jointDensityFor, M.jointDensityFor, mixes);
+  sweep('densityOptionFor()', P.densityOptionFor, M.densityOptionFor, mixes);
   sweep('acceptanceMethodFor()', P.acceptanceMethodFor, M.acceptanceMethodFor, mixes);
   same('ACCEPTANCE_METHODS is identical', P.ACCEPTANCE_METHODS, M.ACCEPTANCE_METHODS);
   sweep('esalClassFor()', P.esalClassFor, M.esalClassFor,
