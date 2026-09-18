@@ -141,6 +141,48 @@ const PROPERTIES = [
 
 const ACCEPTANCE = { 1: 'Gradation acceptance', 2: 'Volumetric acceptance', 3: 'Visual acceptance' };
 
+// ---------------------------------------------------------------------------
+// The 0.90 sublot floor - 2026 Std Spec 402.03.02 (STD PDF p.179, footer
+// 402-4 for H) 1); p.177, footer 402-2 for the setup clause)
+// ---------------------------------------------------------------------------
+//
+//  H) 1) Based on Lab Data: "After the setup period, when the Contractor or
+//  Department determines any individual sublot pay value would be below 0.90
+//  for AC, AV, or VMA in any QC or QA test, adjust as necessary and
+//  immediately perform the tests again. If the second round of tests
+//  determines any individual sublot pay value would have been below 0.90 for
+//  AC, AV, or VMA, CEASE ALL SHIPMENTS to the project..."
+//
+//  This is a stop-work obligation wearing the clothes of a deduction, which
+//  is exactly why it is worth saying: the readout's job is the money, and
+//  everything else on this page treats a low pay value as a finished, correct
+//  answer. It is still kind "warn" - the page does not know whether a second
+//  round was run, and only the second round ceases shipments.
+//
+//  THREE PROPERTIES, NOT FIVE. The clause names AC, AV and VMA; neither
+//  density is in it. Do not widen this to `PROPERTIES`.
+//
+//  AND IT IS PER SUBLOT, NOT PER LOT. `byProperty` holds the lot AVERAGE,
+//  which is what pays; a single sublot at 75 inside a lot averaging 94 is
+//  invisible there and is precisely what this clause is about.
+//
+//  ON THE SCALE THIS FILE USES, "0.90" IS 90. The ladders run 1.05/1.00/
+//  0.95/0.90/0.75 in the spec and 105/100/95/90/75 here.
+//
+//  WHAT ACTUALLY TRIPS IT, worth knowing before assuming it is noisy: the only
+//  numeric value any of the three ladders can produce below 90 is the air-void
+//  75 band (6.1-6.5%, AADTT Class 2 only). Everything else that gets here is
+//  MCL - the sheet's `(1)` footnote rows, which sit BELOW the lowest listed pay
+//  value by construction of the table, so an MCL property is under the floor
+//  too. MCL is already reported as a pay state; this says the other half of
+//  what it means.
+const SUBLOT_PAY_FLOOR = 90;
+const FLOOR_PROPERTIES = [
+  { key: 'ac', label: '% AC' },
+  { key: 'av', label: '% Air voids' },
+  { key: 'vma', label: '% VMA' },
+];
+
 // The flags in force, as a sentence. Everything a technician set on the Pay
 // Values sheet that moved a weight, so the weights in the table below are
 // never a number nobody can account for.
@@ -827,6 +869,40 @@ export function payWarnings(result, ctx = {}) {
       + `uncapped figure, which is what J23/J24 multiply by.`));
   } else if (!isNum(result.finalPct)) {
     out.push(w(h.why));
+  }
+
+  // Any sublot under the 0.90 floor - see SUBLOT_PAY_FLOOR above. Collected
+  // into at most two lines rather than one per (sublot, property), because a
+  // lot that went wrong goes wrong on several at once and twelve rail entries
+  // saying the same thing read as twelve problems.
+  const under = { setup: [], normal: [] };
+  (result.perSublot || []).forEach((s, i) => {
+    // Setup is LOT 1's first sublot, the same gate `isFirstSublot` uses. A
+    // lot with no number reads as lot 1 everywhere else on this page, so it
+    // reads as lot 1 here; that puts sublot 1 in the setup bucket, which
+    // cites the clause that is true of a setup sublot.
+    const isSetup = i === 0 && (result.lotNumber === null || result.lotNumber === 1);
+    FLOOR_PROPERTIES.forEach((p) => {
+      const v = s && s[p.key] ? s[p.key].pay : null;
+      const low = isMCL(v) || (isNum(v) && v < SUBLOT_PAY_FLOOR);
+      if (low) (isSetup ? under.setup : under.normal)
+        .push(`sublot ${i + 1} ${p.label} (${isMCL(v) ? 'MCL' : fmtPct(v)})`);
+    });
+  });
+  if (under.normal.length) {
+    out.push(w(`Below a 0.90 pay value: ${under.normal.join(', ')}. `
+      + `KYTC 402.03.02 H) 1) makes that a re-test obligation rather than only a deduction - `
+      + `adjust and immediately perform the tests again, and if the SECOND round is also below `
+      + `0.90 for AC, AV or VMA, cease all shipments to the project until procedures or mixture `
+      + `composition are acceptable. This page only has the figures in front of it; whether a `
+      + `second round was run is not something it can know.`));
+  }
+  if (under.setup.length) {
+    out.push(w(`Below a 0.90 pay value on the setup sublot: ${under.setup.join(', ')}. `
+      + `H) 1) opens "after the setup period", so the clause that applies here is `
+      + `KYTC 402.03.02 C): the mixture has to be documented at a 0.90 minimum pay value for `
+      + `each of these by the end of the first sublot, and shipments cease until it is. `
+      + `Note the sublot-1 allowance has already been applied to the figures above where it fired.`));
   }
 
   // A property carrying weight with nothing in it - the reason there is no

@@ -608,6 +608,12 @@ export function lotPay({
 
   return {
     weights: w,
+    // Carried so payWarnings() can tell the SETUP sublot from the rest
+    // without a second reader of `lot_number` - 402.03.02 H) 1)'s
+    // cease-shipments rule opens "After the setup period", and setup is
+    // lot 1's first sublot. `isFirstSublot` above is the same fact, but it
+    // is spent inside perSublot and not recoverable from the result.
+    lotNumber: isNum(Number(lotNumber)) ? Number(lotNumber) : null,
     perSublot,
     byProperty,
     laneDetail, jointDetail,

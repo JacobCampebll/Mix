@@ -4190,3 +4190,94 @@ commit where possible.
   page and the sheet agree about the mix, the sheet simply has no envelope
   code yet. If it is added, share the tolerance table rather than restating
   it, the same rule as `trimFlatCoarseEnd` and `niceTicks`.
+
+- **Two spec thresholds the page already had the data for and never said**
+  (Jake, 2026-09-18: "what else can we add?" then "yes do 1-3"). Both are
+  rail warnings computed from figures already on screen; neither needed a new
+  field.
+  **THE 0.90 SUBLOT FLOOR IS A STOP-WORK OBLIGATION WEARING A DEDUCTION'S
+  CLOTHES, which is the whole reason it is worth saying.** 402.03.02 H) 1)
+  (STD **p.179**, footer `402-4`): "After the setup period, when the
+  Contractor or Department determines any individual sublot pay value would be
+  below 0.90 for AC, AV, or VMA in any QC or QA test, adjust as necessary and
+  immediately perform the tests again. If the second round of tests determines
+  any individual sublot pay value would have been below 0.90 ... **cease all
+  shipments to the project**." Everything else on Lot Pay treats a low value as
+  a finished, correct answer - this one is not.
+  **THREE PROPERTIES, NOT FIVE**: the clause names AC, AV and VMA; neither
+  density is in it. `FLOOR_PROPERTIES` in `payview.mjs` is that list and must
+  not be widened to `PROPERTIES`.
+  **AND PER SUBLOT, NOT PER LOT** - `byProperty` holds the lot AVERAGE, so a
+  single sublot at 75 inside a lot averaging 94 is invisible there and is
+  exactly what the clause is about.
+  **What actually trips it, worth knowing before assuming it is noisy:** the
+  only numeric value the three ladders can produce below 90 is the air-void
+  **75** band (6.1-6.5%, AADTT Class 2 only). Everything else is **MCL** - the
+  sheet's `(1)` footnote rows, which sit below the lowest listed pay value by
+  construction, so an MCL property is under the floor too. MCL was already
+  reported as a pay STATE; this says the other half of what it means.
+  **The setup sublot cites a different clause and gets its own line.** H) 1)
+  opens "after the setup period", so lot 1's first sublot is governed by
+  402.03.02 C) (STD **p.177**, `402-2`) instead: the mixture must be documented
+  at a 0.90 minimum by the end of the first sublot, and shipments cease until
+  it is. `lotPay()` now RETURNS `lotNumber` so `payWarnings()` can tell them
+  apart without a second reader of the field - `isFirstSublot` is the same
+  fact but is spent inside `perSublot` and not recoverable from the result.
+  A blank lot number reads as lot 1, as it does everywhere else on this page.
+  Collected into at most TWO lines rather than one per (sublot, property): a
+  lot that went wrong goes wrong on several at once, and twelve rail entries
+  saying one thing read as twelve problems.
+  **MOISTURE OVER 0.25% IS A DRYING PROBLEM, AND THE 0.10% HALF OF THE SAME
+  CLAUSE IS ALREADY OBEYED RATHER THAN ANNOUNCED.** 403.03.03 B) (STD
+  **p.193**, `403-4` - the page `ctrlpts` and `polish` already cite) carries
+  two thresholds doing two jobs: above 0.25% "take corrective action to lower
+  the moisture content", and at 0.10% and above adjust the AC determination.
+  The second is arithmetic the page has done since 2026-09-14 -
+  `Gradation!D33` is `D34 - Superpave!G48`, applied at every value, which is
+  stricter than the spec asks - so announcing it would be telling a technician
+  to do something already done. The first is an action at the PLANT that
+  nothing in the workbook or on this page performs, and that is the one raised.
+  `CONFIG.MOISTURE` holds both; `noteWetMix()` / `wetMixWarnings()` are beside
+  each other so the threshold, the sentence and the citation are read together.
+  **ONE LINE FOR THE WHOLE PLANT, not one per block.** The four sublot blocks
+  and the two Department records weigh the same three pans on two sheets
+  (`Superpave` 45-47, `Super Verify` 37-39), and a technician with a wet mix
+  has it on all of them. The rail item carries the FIRST offending block's tab;
+  the text names every one.
+  **`isNum` is NOT a page global** - it is declared inside the `PLANTBOOK PAY`
+  namespace. Reaching for it from a page-level helper threw a ReferenceError on
+  every recompute and took the whole form down, caught in a browser on the
+  first run. Page-level code uses `num()` or a bare `Number.isFinite`.
+  Verified in a browser both ways round for each: a clean real lot raises
+  neither; lot 3 sublot 2 driven to 6.3% AV raises H) 1); lot 1 sublot 1 raises
+  C); an MCL air void raises it as MCL; three bad sublots make one line; an
+  empty lot is silent; 0.60% moisture raises, 0.20% does not.
+
+- **#2 of that same list was WITHDRAWN before it was built, and the reason is
+  worth more than the check would have been.** It was proposed as "a core
+  outside 402.03.02 H) 2)'s thresholds (AC ≥ ±0.9% from JMF, density ≤89.0%
+  or ≥97.5%) is corrective work and nothing says so". Reading the whole
+  clause rather than the table: **those thresholds govern a DEPARTMENT
+  FIELD-REVIEW core** - "If the Department determines that a portion of
+  in-place material is unsatisfactory, the Department may require that the
+  location be cored" - not the contractor's ordinary acceptance cores on the
+  AMAW. Flagging every acceptance core at 88.7% as corrective work would be
+  the page returning a verdict the spec does not give for that core.
+  The AC half is doubly out: PlantBook has no core AC field at all, because a
+  field-review core is the Department's and never reaches this form.
+  Same lesson this file records for "ESAL Class" and "Hamburg Pass 100 Left
+  Max", one step sideways: **a threshold table is scoped by the sentence above
+  it, and reading the table alone is how you get a confident wrong answer.**
+  Nothing was lost by dropping it - a lane core low enough to leave the pay
+  schedule already comes back MCL and is already shouted.
+
+- **`check_payview.mjs` had been 8 assertions red since 2026-09-17 and nobody
+  saw it, because it needs the two real AMAW lots and those are not
+  committed.** The Lot Pay readout's third column went away that day and each
+  row's workbook address became its `title`; `esc()` writes `'Pay Values'!D17`
+  as `&#39;Pay Values&#39;!D17`, and `toText()` strips tags BEFORE decoding
+  entities, so the addresses were not in the haystack at all. The check was
+  asserting a reverted design rather than catching a loss. `toTitles()` reads
+  them out of the attributes now. **A checker that only runs with uncommitted
+  fixtures is a checker that goes red quietly** - worth knowing beside the
+  clipping-baseline note, which is the same hazard from the other end.

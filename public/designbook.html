@@ -2447,6 +2447,29 @@ const CONFIG = {
     "4":    { s9_5: [null, 100], s1_18: [30, 55], s0_075: [6, 13] },
   },
 
+  /* ---- Moisture in the coated mixture - KYTC 403.03.03 B) (STD PDF p.193,
+   *      footer 403-4, the same page ctrlpts and polish cite) ----
+   *
+   * "Determine the moisture content of the coated mixture according to
+   * AASHTO T 329 each time an asphalt content determination is performed.
+   * When moisture contents are greater than 0.25 percent, take corrective
+   * action to lower the moisture content. When moisture contents are 0.10
+   * percent or greater, adjust the AC determination made on plant-produced
+   * mixture to reflect the actual AC as KM 64-434 directs."
+   *
+   * TWO THRESHOLDS DOING TWO JOBS, and only one of them is a warning.
+   * The 0.10% one is already OBEYED rather than announced: `Gradation!D33`
+   * is `D34 - Superpave!G48`, so the page subtracts the moisture from the
+   * back-calculated %AC at every value, which is stricter than the spec asks
+   * (the spec adjusts from 0.10 up; subtracting 0.04 changes nothing anyone
+   * can see at CONFIG.DP). Announcing it would be telling a technician to do
+   * something the page has already done.
+   * The 0.25% one is a CORRECTIVE ACTION at the plant - drying, not
+   * arithmetic - and nothing in the workbook or on this page does it or says
+   * it is needed. That is the one worth raising.
+   */
+  MOISTURE: { CORRECTIVE_ACTION_PCT: 0.25, AC_ADJUST_PCT: 0.10 },
+
   /* ---- The JMF "minor change" envelope — KM 64-421 §4.4 (KM PDF p.377) ----
    *
    * How far a NEW JMF may sit from the one the Department reported as
@@ -2557,6 +2580,8 @@ const CONFIG = {
       // see CONFIG.JMF_TOLERANCE for the whole argument.
       jmftol:     { doc: "KM",  page: 377, label: "KM 64-421 §4.4",
                     what: "how far a new JMF may sit from the approved one before it stops being a “minor change” - written for Sand Asphalt, OGFC and scratch course; a Superpave mix instead conforms to the control points at all times (§4.3) and needs the Engineer's written approval to change at all (402.03.02 C))" },
+      moisture403:{ doc: "STD", page: 193, footer: "403-4", label: "KYTC 403.03.03 B)",
+                    what: "moisture content of the coated mixture - corrective action above 0.25%, and the AC adjustment at 0.10% the page already applies" },
       perf:       { doc: "STD", page: 195, footer: "403-6", label: "KYTC 403.03.03 C) 5)",
                     what: "mix design performance limits - Hamburg passes and KYCT index" },
       km450:      { doc: "KM",  page: 504, label: "KM 64-450",
@@ -8389,8 +8414,18 @@ function recompute() {
   paintBlendMirrors();
   computeBlendGsb();
   const vol = computeSublotVolumetrics();
-  computeVerification(vol ? vol.gse : null);
+  const ver = computeVerification(vol ? vol.gse : null);
   computeCoreSolids();
+  // Moisture over 403.03.03 B)'s 0.25% - the sublot blocks and the two
+  // Department records pooled into ONE line, because a wet mix is a plant
+  // condition rather than a per-block one. Raised here rather than inside
+  // either compute function for the same reason computeGradation()'s
+  // warnings are: `outstanding` has a single producer.
+  wetMixWarnings([...((vol && vol.wet) || []), ...((ver && ver.wet) || [])])
+    .forEach(({ sectionId, text }) => {
+      const sec = document.querySelector(`[data-section="${sectionId}"]`);
+      outstanding.push({ id: sectionId, label: sec ? sec.dataset.label : "Sublots", kind: "warn", text });
+    });
   const lp = computeLotPay();
   if (lp) {
     const sec = document.querySelector('[data-section="pay"]');
@@ -13066,6 +13101,12 @@ function lotPay({
 
   return {
     weights: w,
+    // Carried so payWarnings() can tell the SETUP sublot from the rest
+    // without a second reader of `lot_number` - 402.03.02 H) 1)'s
+    // cease-shipments rule opens "After the setup period", and setup is
+    // lot 1's first sublot. `isFirstSublot` above is the same fact, but it
+    // is spent inside perSublot and not recoverable from the result.
+    lotNumber: isNum(Number(lotNumber)) ? Number(lotNumber) : null,
     perSublot,
     byProperty,
     laneDetail, jointDetail,
@@ -13224,6 +13265,48 @@ const PROPERTIES = [
 ];
 
 const ACCEPTANCE = { 1: 'Gradation acceptance', 2: 'Volumetric acceptance', 3: 'Visual acceptance' };
+
+// ---------------------------------------------------------------------------
+// The 0.90 sublot floor - 2026 Std Spec 402.03.02 (STD PDF p.179, footer
+// 402-4 for H) 1); p.177, footer 402-2 for the setup clause)
+// ---------------------------------------------------------------------------
+//
+//  H) 1) Based on Lab Data: "After the setup period, when the Contractor or
+//  Department determines any individual sublot pay value would be below 0.90
+//  for AC, AV, or VMA in any QC or QA test, adjust as necessary and
+//  immediately perform the tests again. If the second round of tests
+//  determines any individual sublot pay value would have been below 0.90 for
+//  AC, AV, or VMA, CEASE ALL SHIPMENTS to the project..."
+//
+//  This is a stop-work obligation wearing the clothes of a deduction, which
+//  is exactly why it is worth saying: the readout's job is the money, and
+//  everything else on this page treats a low pay value as a finished, correct
+//  answer. It is still kind "warn" - the page does not know whether a second
+//  round was run, and only the second round ceases shipments.
+//
+//  THREE PROPERTIES, NOT FIVE. The clause names AC, AV and VMA; neither
+//  density is in it. Do not widen this to `PROPERTIES`.
+//
+//  AND IT IS PER SUBLOT, NOT PER LOT. `byProperty` holds the lot AVERAGE,
+//  which is what pays; a single sublot at 75 inside a lot averaging 94 is
+//  invisible there and is precisely what this clause is about.
+//
+//  ON THE SCALE THIS FILE USES, "0.90" IS 90. The ladders run 1.05/1.00/
+//  0.95/0.90/0.75 in the spec and 105/100/95/90/75 here.
+//
+//  WHAT ACTUALLY TRIPS IT, worth knowing before assuming it is noisy: the only
+//  numeric value any of the three ladders can produce below 90 is the air-void
+//  75 band (6.1-6.5%, AADTT Class 2 only). Everything else that gets here is
+//  MCL - the sheet's `(1)` footnote rows, which sit BELOW the lowest listed pay
+//  value by construction of the table, so an MCL property is under the floor
+//  too. MCL is already reported as a pay state; this says the other half of
+//  what it means.
+const SUBLOT_PAY_FLOOR = 90;
+const FLOOR_PROPERTIES = [
+  { key: 'ac', label: '% AC' },
+  { key: 'av', label: '% Air voids' },
+  { key: 'vma', label: '% VMA' },
+];
 
 // The flags in force, as a sentence. Everything a technician set on the Pay
 // Values sheet that moved a weight, so the weights in the table below are
@@ -13896,6 +13979,40 @@ function payWarnings(result, ctx = {}) {
       + `uncapped figure, which is what J23/J24 multiply by.`));
   } else if (!isNum(result.finalPct)) {
     out.push(w(h.why));
+  }
+
+  // Any sublot under the 0.90 floor - see SUBLOT_PAY_FLOOR above. Collected
+  // into at most two lines rather than one per (sublot, property), because a
+  // lot that went wrong goes wrong on several at once and twelve rail entries
+  // saying the same thing read as twelve problems.
+  const under = { setup: [], normal: [] };
+  (result.perSublot || []).forEach((s, i) => {
+    // Setup is LOT 1's first sublot, the same gate `isFirstSublot` uses. A
+    // lot with no number reads as lot 1 everywhere else on this page, so it
+    // reads as lot 1 here; that puts sublot 1 in the setup bucket, which
+    // cites the clause that is true of a setup sublot.
+    const isSetup = i === 0 && (result.lotNumber === null || result.lotNumber === 1);
+    FLOOR_PROPERTIES.forEach((p) => {
+      const v = s && s[p.key] ? s[p.key].pay : null;
+      const low = isMCL(v) || (isNum(v) && v < SUBLOT_PAY_FLOOR);
+      if (low) (isSetup ? under.setup : under.normal)
+        .push(`sublot ${i + 1} ${p.label} (${isMCL(v) ? 'MCL' : fmtPct(v)})`);
+    });
+  });
+  if (under.normal.length) {
+    out.push(w(`Below a 0.90 pay value: ${under.normal.join(', ')}. `
+      + `KYTC 402.03.02 H) 1) makes that a re-test obligation rather than only a deduction - `
+      + `adjust and immediately perform the tests again, and if the SECOND round is also below `
+      + `0.90 for AC, AV or VMA, cease all shipments to the project until procedures or mixture `
+      + `composition are acceptable. This page only has the figures in front of it; whether a `
+      + `second round was run is not something it can know.`));
+  }
+  if (under.setup.length) {
+    out.push(w(`Below a 0.90 pay value on the setup sublot: ${under.setup.join(', ')}. `
+      + `H) 1) opens "after the setup period", so the clause that applies here is `
+      + `KYTC 402.03.02 C): the mixture has to be documented at a 0.90 minimum pay value for `
+      + `each of these by the end of the first sublot, and shipments cease until it is. `
+      + `Note the sublot-1 allowance has already been applied to the figures above where it fired.`));
   }
 
   // A property carrying weight with nothing in it - the reason there is no
@@ -19534,8 +19651,52 @@ function computeBlendGsb() {
       : `100 / sum(% / BOD) over the blend - Superpave R9:U9`;
   }
 }
+/**
+ * Moisture in the coated mixture, against KYTC 403.03.03 B) - see
+ * CONFIG.MOISTURE for the clause and for why only the upper threshold warns.
+ *
+ * ONE COLLECTOR FOR BOTH CALLERS. The sublot blocks and the two Department
+ * verification records weigh the same three pans on two different sheets
+ * (`Superpave` rows 45-47, `Super Verify` rows 37-39), and a technician who
+ * has a wet mix has it on all of them - so the caller pushes and recompute()
+ * raises ONE line naming every block, rather than up to six saying the same
+ * thing about the same plant.
+ *
+ * Above 0.25% is a CORRECTIVE ACTION at the plant, which is why the text says
+ * dry it rather than naming a number to change: nothing on this form fixes it
+ * and nothing in the workbook does either.
+ */
+function noteWetMix(into, moisture, slot, sectionId) {
+  // Number.isFinite rather than isNum(): that predicate is declared INSIDE
+  // the PLANTBOOK PAY namespace and is not a page global. Reaching for it
+  // here threw a ReferenceError on every recompute, caught in a browser.
+  if (!Array.isArray(into) || typeof moisture !== 'number' || !Number.isFinite(moisture)) return;
+  if (moisture <= CONFIG.MOISTURE.CORRECTIVE_ACTION_PCT) return;
+  into.push({ slot, sectionId, moisture });
+}
+
+/**
+ * The one rail line the collector above produces, or none. Kept beside it so
+ * the threshold, the sentence and the citation are read together.
+ */
+function wetMixWarnings(wet) {
+  if (!wet || !wet.length) return [];
+  const lim = CONFIG.MOISTURE.CORRECTIVE_ACTION_PCT;
+  const named = wet.map((x) => `${x.slot} (${fmt(x.moisture, CONFIG.DP.moisture ?? 2)}%)`).join(", ");
+  // The rail sends you to the FIRST offending block's tab; the text names
+  // every one of them, so nothing is hidden behind that choice.
+  const sectionId = wet[0].sectionId;
+  return [{ sectionId, text: `Moisture in the coated mixture is over ${lim}% on: ${named}. `
+    + `KYTC 403.03.03 B) asks for corrective action to lower it at the plant - `
+    + `this is a drying problem rather than an arithmetic one, and nothing on this `
+    + `form or in the AMAW fixes it. The AC adjustment the same clause requires at `
+    + `${CONFIG.MOISTURE.AC_ADJUST_PCT}% and above is already applied: every %AC here is `
+    + `back-calculated and then has its block's moisture subtracted (Gradation!D33).` }];
+}
+
 function computeSublotVolumetrics() {
   if (!isPlantBook()) return null;
+  const wet = [];   // blocks over 403.03.03 B)'s 0.25% - see noteWetMix()
   paintLotIds();
 
   // ---- the lot's hand-mixed sample -> Gse -------------------------------
@@ -19591,6 +19752,7 @@ function computeSublotVolumetrics() {
       pan: num(cellValue(mRow, "wt_pan")),
     }) : null;
     if (mRow) putCell(mRow, "moisture", moisture, CONFIG.DP.moisture ?? 2);
+    noteWetMix(wet, moisture, `sublot ${i + 1}`, `sublot-${i + 1}`);
 
     const gsb = gsbRow ? num(cellValue(gsbRow, `gsb_${sub}`)) : null;
     const v = PB_VOL.sublotVolumetrics({
@@ -19673,7 +19835,7 @@ function computeSublotVolumetrics() {
   // step needs the same one and it is a lot-level figure - recomputing it
   // there would be a second answer to one question, which is the failure
   // mode this file keeps recording.
-  return { sublots: out, gse: hm.gse };
+  return { sublots: out, gse: hm.gse, wet };
 }
 
 /* ---------- the Department's verification, from its own weights ----------
@@ -19696,6 +19858,7 @@ function computeSublotVolumetrics() {
  */
 function computeVerification(gse) {
   if (!isPlantBook()) return null;
+  const wet = [];   // same collector as the sublot side - see noteWetMix()
   const recRows = rowsOfList("verification");
   const bsgRows = rowsOfList("verify_bsg");
   const msgRows = rowsOfList("verify_msg");
@@ -19741,6 +19904,7 @@ function computeVerification(gse) {
       if (mEl) mEl.title = moisture == null
         ? "Needs all three weights - a partial block is left blank here rather than reading as 100%"
         : "((before - pan) - (after - pan)) / (before - pan) x 100 - Super Verify row 39";
+      noteWetMix(wet, moisture, `${name} on sublot ${sub}`, `sublot-${sublotIndexOf(sub) || 1}`);
     }
 
     // Which sublot this record verifies decides the Gsb every VMA and Pbe on
@@ -19785,7 +19949,7 @@ function computeVerification(gse) {
     if (vfa) vfa.title = v.vfa == null ? why : "100 x (VMA - Va) / VMA - Super Verify M";
     out.push(v);
   });
-  return out;
+  return { records: out, wet };
 }
 
 /** "QA01 — Department acceptance" or "QA01" -> "QA01". The five Verification
