@@ -3972,3 +3972,108 @@ commit where possible.
   Option is already on the form and already looked up off the proposal's
   per-route note; what is new is that it is an identity part rather than a
   setting. Whoever wires `createLotStore()` owes it a column.
+
+- **`CONFIG.MIXPACK.DISTRICTS`'s "district 07" entry was never a district
+  code - it was Central Office's, and the fix is a Class 3/4-vs-Class-2
+  branch rather than a 12-row table.** Closes the oldest open item in this
+  file, and reopens a narrower one in its place. Andrew, 2026-09-17: "CO
+  Materials Asphalt Mixtures Testing Section is responsible for approving
+  all Class 3 and Class 4 mix designs from all jobs in districts across the
+  state... The district personnel are responsible for approving the Class 2
+  mix designs from jobs in their respective districts."
+  **Checked against the live `kytc_district_labs` table the same evening,
+  and it confirmed both halves of that.** `LU00642` - the value this file
+  had called "district 07's lab" since the note was first written, off the
+  one real approved file on hand (#467PA, CL3 ASPH SURF, Boonesboro/
+  district 07) - is `CO Materials - Asphalt Mixtures Section` in that
+  table. Not a district code at all. `D-07 Materials Section` is a
+  different code, `LU07210`. So the "one real data point" this file spent
+  months treating as district 07's own was Central Office's the entire
+  time, and #467PA being Class 3 is exactly why it read that way - Central
+  Office is who actually reviewed it, regardless of Boonesboro sitting in
+  district 07. That also settles the MixPack template's `Chart Data!
+  AV2:AV14` list, called "untrusted" at the top of this file because it
+  disagreed with that one point: it doesn't disagree.
+  `LU01210`...`LU12210`, one entry per district, is the same "Materials
+  Section" series `kytc_district_labs` carries too - confirmed independently
+  through a second real source (SiteManager's own `t_qualf_lab` export)
+  rather than trusted off the template alone.
+  **`CONFIG.MIXPACK.CENTRAL_OFFICE` is new** (`{ lab: "LU00642", sampleLab:
+  "640" }`) and is what both `mixpackCells()` and PlantBook's
+  `approvalSampleId()` use whenever the design's own `aadtt_class` is 3 or
+  4, regardless of the plant's district - DesignBook's own field is the
+  authority for class, same rule the AADTT-class prefill already follows a
+  few lines below in `mixpackCells()`. **`DISTRICTS` is Class 2's table now,
+  and it is EMPTY, deliberately.** Every district's own Materials Section
+  code ends in `210` (`LU01210`...`LU12210`), which is a plausible guess for
+  Class 2's `sampleLab`, but nobody has checked it against a real Class 2
+  file, and this project's standing rule is that a guessed MEDL identifier
+  is worse than a blank one. So a Class 2 design honestly derives nothing
+  yet, for any district including 07 - which is a real behavior change: a
+  Class 2 design at Boonesboro used to silently get Central Office's code
+  (wrong, but present), and now correctly gets neither, with `need()` saying
+  why. **A worse silent answer became an honest gap**, which is the
+  direction this class of fix should always go.
+  Not yet in code, and worth a real Class 2 file before it is: whether
+  Class 2's `sampleLab` really is each district's own `210` suffix, or
+  something else entirely. `docs/session-prep-2026-09-18.md` carries this
+  as the sharpened open question for the next in-person session.
+  Verified the page's inline script still parses (`new Function()` over the
+  `<script>` tag, no SyntaxError) via a local static server + browser tools -
+  no Node on this machine, same verification the design-mirrors branch used
+  2026-09-14.
+
+- **All 12 districts, same evening: Andrew pulled two real approved Class 2
+  MixPacks off the district production repository** (District 1's
+  `01210JWH260077.xlsm`, McCracken County; District 2's `02210GSM260366.xlsm`,
+  Webster County) **and the `...210` guess above checked out exactly.** Read
+  directly with openpyxl rather than trusted off the filename: both show
+  `Design Data!H20` (AADTT Class) = 2, and `!H12` (the LAB field) is
+  `LU01210` / `LU02210` - each district's own "Materials Section" code from
+  `kytc_district_labs`, not Central Office's. `!C10` (the sample id) is
+  `01210JWH260077` / `02210GSM260366`, which decomposes cleanly as district +
+  `210` + the rest - confirming `sampleLab` too. `CONFIG.MIXPACK.DISTRICTS`
+  now carries all twelve districts (`{ lab: "LU0N210", sampleLab: "210" }`),
+  01 and 02 confirmed directly against these two files, 03-12 carried on the
+  same unbroken pattern in `kytc_district_labs` (every district's Materials
+  Section code is `LU0N210`, no exceptions in that table).
+  **One thing this did NOT settle, and it stays unresolved rather than
+  guessed: the sample id's middle token isn't "AMD" in either file - it's
+  `JWH` and `GSM`.** Both read as the approver's own initials
+  (`Design Data!S82` = `jharmon3` / `gmarr`; JWH/GSM plausibly the same
+  people's monogram with a middle initial the sm_id drops). `AMD` is still
+  what the code writes for every district, because it's confirmed correct
+  for Central Office (both real AMAW lots on file show it) and there is no
+  field anywhere in DesignBook that captures a reviewer's 3-letter monogram
+  to write instead. Two live theories, neither chosen: district reviewers
+  have their own convention DesignBook doesn't yet model, or these two
+  files predate any standard and `AMD` would be accepted regardless. Worth
+  asking Tate or district materials staff directly rather than inferring
+  further from files alone - a wrong middle token is the same class of risk
+  CLAUDE.md already warns about for a guessed MEDL identifier, even though
+  the district/lab half of this fix is no longer a guess.
+
+- **The JWH/GSM monogram theory is confirmed (Andrew, 2026-09-17) - and
+  deliberately still not implemented, because the question behind it is
+  bigger than one field.** Asked where a district approver's 3-letter
+  monogram should come from (`technicians` has no middle name, and
+  `approved_by`'s sm_id drops the middle initial the monogram keeps - so
+  there's no data source to derive it from today). Andrew's answer: "Tate
+  and I have discussed potentially, once DesignBook and PlantBook are fully
+  built out, having CO Materials do approvals for all classes of mix
+  designs, since it will be much easier and streamlined than the current
+  process."
+  **If that happens, Class 2 district review - and the monogram it would
+  need - goes away, not just gets solved.** Every district-approved design
+  becomes a Central Office one, `CONFIG.MIXPACK.CENTRAL_OFFICE` (already
+  built tonight) is what every design uses, and `CONFIG.MIXPACK.DISTRICTS`
+  (also built tonight, all twelve districts, confirmed against two real
+  files) stops being reachable rather than needing a monogram field added
+  to it. Worth knowing this before spending effort on a `technicians`
+  schema change for a data point the workflow might retire.
+  **So, deliberately unresolved and left as "AMD" for every reviewer,
+  district or Central Office**: not because the monogram theory is in
+  doubt (it's confirmed), but because building infrastructure for Class 2's
+  own identity convention is premature while whether Class 2 stays a
+  separate review path at all is still an open direction call between
+  Andrew and Tate, not a data-sourcing problem to be solved in code.
