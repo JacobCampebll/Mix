@@ -308,18 +308,24 @@ export const JOINT_DENSITY_SIZES = ['0.38', '0.50'];
  *  only"). So the mix settles it, and the approval carries the mix.
  *
  *  Returns '1' / '2' to match the schema's option values, or null when the
- *  course is genuinely unknown — a design built from scratch with no
- *  signature and no Portal lookup has no layer to read, and a guessed answer
- *  there is worth less than an empty field with a reason beside it. Both of
+ *  nominal SIZE is not one the Superpave table knows - a guessed answer
+ *  there is worth less than an empty field with a reason beside it. Since
+ *  2026-09-18 the COURSE no longer gates it: the size alone decides (Jake). Both of
  *  Jake's real lots are CL3 ASPH SURF 0.38A and read H11 = 1.
  */
 export function jointDensityFor(mix) {
   if (!mix) return null;
-  const layer = String(mix.layer == null ? '' : mix.layer).trim().toUpperCase();
-  if (!layer) return null;
-  if (!layer.startsWith('SURF')) return '2';
+  // THE SIZE ALONE DECIDES (Jake, 2026-09-18: "on 0.38 and 0.50 its 4
+  // mainline and 2 joint cores per sub lot but on 0.75, 1.00 and 1.50 its
+  // just four mainline and no joints"). The course used to gate this and
+  // an unknown course left the field blank; KYTC's own rule is by nominal
+  // size, so a mix that reached PlantBook with no signature and no Portal
+  // lookup still gets an answer off the one thing it always carries.
+  // NO.4 stays a "no": a thin lift, outside the note's "at 1 inch (25mm)
+  // or greater". A size the Superpave table has no row for is null, not
+  // "no" - "no" is a real answer that would drop a 15% weight silently.
   const size = splitDesignation(mix.nominal_size).size.toUpperCase().replace(/\s+/g, '');
-  if (!size) return null;
+  if (!size || !mixTypeFor(size)) return null;
   return JOINT_DENSITY_SIZES.includes(size) ? '1' : '2';
 }
 
@@ -1126,13 +1132,13 @@ export function lotFromApproval(payload, opts = {}) {
   const jd = jointDensityFor(mix);
   if (jd) {
     derive('lot_joint_density', jd,
-           `${mix.layer} ${mix.nominal_size || ''}`.trim() +
-           (jd === '1' ? ' is a surface mixture at 1 inch or greater, so joint cores are taken'
-                       : ' is not a surface mixture placed at 1 inch or greater, so no joint cores'),
+           `${mix.nominal_size || ''}`.trim() +
+           (jd === '1' ? ' is a 0.38 or 0.50 mix, which takes 4 mainline and 2 joint cores per sublot'
+                       : ' is not a 0.38 or 0.50 mix, so 4 mainline cores per sublot and no joint cores'),
            cell(CALC.sheet, 'H11'));
   } else {
     needsTyping('lot_joint_density', cell(CALC.sheet, 'H11'),
-      'Joint cores are taken on surface mixtures at 1 inch or greater (0.38 and 0.50), and this approval does not say which course the mix is - it reached PlantBook with no signature and no Portal mix lookup.',
+      'Joint cores are taken on 0.38 and 0.50 mixes (4 mainline and 2 joint per sublot; 0.75, 1.00 and 1.50 take 4 mainline and none), and this approval carries no nominal size the Superpave table has a row for.',
       ['pay']);
   }
   if (!lotNumberGiven)

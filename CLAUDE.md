@@ -4503,3 +4503,36 @@ commit where possible.
   lot carries four weighed cores per sublot, so "short of cores" has to be
   driven by blanking a core's weight, not by feeding the helper a synthetic
   sublot - the counts come off the live tables.
+
+- **Joint cores follow the NOMINAL SIZE alone, and the course no longer gates
+  them** (Jake, 2026-09-18: "the core counts, on 0.38 and 0.50 its 4 mainline
+  and 2 joint cores per sub lot but on 0.75, 1.00 and 1.50 its just four
+  mainline and no joints"). `jointDensityFor()` used to read the mix's LAYER
+  first - a non-surface course was "no", an unknown course was null - and only
+  then the size. KYTC's own rule is by size, so the layer is gone from the
+  derivation in both copies: 0.38 and 0.50 are "1", 0.75 / 1.00 / 1.50 and
+  No. 4 are "2", and a size `mixTypeFor()` has no row for is null - never
+  "no", for the reason this file already gives (a wrong "no" drops a 15%
+  weight silently).
+  **Two consequences worth knowing.** A mix that reached PlantBook with no
+  signature and no Portal lookup now gets an answer off the one thing it
+  always carries, where it used to leave the field blank with a note about the
+  course; `check_intake`'s two cases for that are INVERTED rather than deleted
+  and say so, and the harness `compaction` case "an unknown course leaves
+  joint density BLANK" became "no contract mix item is fine - the size alone
+  decides", with a blank-SIZE case taking over the refusal. And
+  `applyCompaction()` no longer reads the contract's mix item for its layer -
+  Option B and the note's own "joint cores" wording still decide first, then
+  the size.
+  **The core-count line (the sweep entry above) reads the rule off the same
+  `PB_LOT.jointDensityFor()` that seeds the field, not off the field.** It
+  says the rule by size in so many words, and when a person has overridden
+  Joint density to the other answer it says that too and counts by the size -
+  two readers of one rule would be the drift this file keeps recording.
+  Verified in a browser on the test lot with one joint core's weight blanked:
+  0.38 raises "1 of 2 joint", 0.75 with the flag still Yes raises nothing
+  about joints and names the disagreement, 1.00 is silent, 0.50 with the flag
+  at No counts the joint shortage and names the disagreement. Note the
+  Nominal size field is a `<select>` whose values are the bare sizes ("0.75",
+  not "0.75B") - a probe that sets a lettered value sets nothing, which is
+  what the first run of that probe did.

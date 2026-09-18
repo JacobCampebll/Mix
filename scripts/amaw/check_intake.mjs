@@ -515,18 +515,25 @@ for (const [token, code] of [['1.50A', 1], ['1.00', 2], ['0.75B', 3], ['0.50A', 
 ok('an unknown size resolves to nothing rather than to a default',
    mixTypeFor('0.62A') === null && mixTypeFor('') === null);
 
-// Joint density, settled by the mix. The three answers are deliberately
-// distinct: '1' and '2' are both facts, null is "the approval does not say
-// which course this is" - and null must never collapse into '2', which would
-// silently drop a surface lot's joint-density pay to no deduction at all.
+// Joint density, settled by the mix's SIZE (Jake, 2026-09-18: "on 0.38 and
+// 0.50 its 4 mainline and 2 joint cores per sub lot but on 0.75, 1.00 and
+// 1.50 its just four mainline and no joints"). Until that day the COURSE
+// gated it and an unknown course was null; two of the cases below are
+// INVERTED rather than deleted so the file records that it once said the
+// opposite. The three answers are still deliberately distinct: '1' and '2'
+// are both facts, null is "a size the Superpave table has no row for" - and
+// null must never collapse into '2', which would silently drop a 15% weight.
 head('3d. Joint density from the mix');
 for (const [mix, want, why] of [
-  [{ layer: 'SURF', nominal_size: '0.38A' }, '1', 'surface 0.38 takes joint cores'],
-  [{ layer: 'SURF', nominal_size: '0.50B' }, '1', 'surface 0.50 takes joint cores'],
-  [{ layer: 'SURF', nominal_size: 'NO.4B' }, '2', 'a No. 4 surface is a thin lift - under 1 inch, so no joint cores'],
-  [{ layer: 'BASE', nominal_size: '0.75A' }, '2', 'a base mix takes no joint cores'],
-  [{ layer: 'INT',  nominal_size: '0.50A' }, '2', 'an intermediate 0.50 takes no joint cores'],
-  [{ layer: null,   nominal_size: '0.38A' }, null, 'an unknown course is not an answer'],
+  [{ layer: 'SURF', nominal_size: '0.38A' }, '1', 'a 0.38 takes joint cores'],
+  [{ layer: 'SURF', nominal_size: '0.50B' }, '1', 'a 0.50 takes joint cores'],
+  [{ layer: 'SURF', nominal_size: 'NO.4B' }, '2', 'a No. 4 is a thin lift - under 1 inch, so no joint cores'],
+  [{ layer: 'BASE', nominal_size: '0.75A' }, '2', 'a 0.75 takes no joint cores'],
+  [{ layer: 'BASE', nominal_size: '1.00D' }, '2', 'a 1.00 takes no joint cores'],
+  [{ nominal_size: '1.50' },                 '2', 'a 1.50 takes no joint cores'],
+  [{ layer: 'INT',  nominal_size: '0.50A' }, '1', 'INVERTED 2026-09-18: a 0.50 takes joint cores whatever the course says'],
+  [{ layer: null,   nominal_size: '0.38A' }, '1', 'INVERTED 2026-09-18: an unknown course no longer matters - the size decides'],
+  [{ layer: 'SURF', nominal_size: '0.62A' }, null, 'a size the Superpave table has no row for is not an answer'],
   [{ layer: 'SURF', nominal_size: null    }, null, 'an unknown size is not an answer'],
   [null, null, 'no mix at all is not an answer'],
 ]) ok(why, jointDensityFor(mix) === want, jointDensityFor(mix));

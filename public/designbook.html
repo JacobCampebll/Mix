@@ -4694,9 +4694,10 @@ const verifySpecimenOf4 = (n) =>
         // "Acceptance method" reads as a grade.
         { key: "lot_density_option", label: "Density option", type: "select", req: true,
           options: [{ value: "A", label: "Option A" }, { value: "B", label: "Option B — no cores" }] },
-        // Derived from the mix by PB_LOT's jointDensityFor(); surface
-        // mixtures at 1 inch or greater take joint cores and nothing else
-        // does. Still a field rather than a readout, because the proposal's
+        // Derived from the mix by PB_LOT's jointDensityFor(); the
+        // nominal SIZE decides (Jake, 2026-09-18): 0.38 and 0.50 take 4
+        // mainline and 2 joint cores per sublot, 0.75 / 1.00 / 1.50 and No. 4
+        // take 4 mainline and none. Still a field rather than a readout, because the proposal's
         // OPTION note is what finally says so and a lot may have to disagree
         // with the derivation.
         { key: "lot_joint_density", label: "Joint density", type: "select", req: true,
@@ -18191,18 +18192,24 @@ const PB_LOT = (() => {
    *  mix.
    *
    *  Returns '1' / '2' to match the schema's option values, or null when the
-   *  course is genuinely unknown — a design built from scratch with no
-   *  signature and no Portal lookup has no layer to read, and a guessed
-   *  answer there is worth less than an empty field with a reason beside it.
+   *  nominal SIZE is not one the Superpave table knows - a guessed answer
+   *  there is worth less than an empty field with a reason beside it. Since
+   *  2026-09-18 the COURSE no longer gates it: the size alone decides (Jake).
    *  Both of Jake's real lots are CL3 ASPH SURF 0.38A and read H11 = 1.
    */
   function jointDensityFor(mix) {
     if (!mix) return null;
-    const layer = String(mix.layer == null ? '' : mix.layer).trim().toUpperCase();
-    if (!layer) return null;
-    if (!layer.startsWith('SURF')) return '2';
+    // THE SIZE ALONE DECIDES (Jake, 2026-09-18: "on 0.38 and 0.50 its 4
+    // mainline and 2 joint cores per sub lot but on 0.75, 1.00 and 1.50 its
+    // just four mainline and no joints"). The course used to gate this and
+    // an unknown course left the field blank; KYTC's own rule is by nominal
+    // size, so a mix that reached PlantBook with no signature and no Portal
+    // lookup still gets an answer off the one thing it always carries.
+    // NO.4 stays a "no": a thin lift, outside the note's "at 1 inch (25mm)
+    // or greater". A size the Superpave table has no row for is null, not
+    // "no" - "no" is a real answer that would drop a 15% weight silently.
     const size = splitDesignation(mix.nominal_size).size.toUpperCase().replace(/\s+/g, '');
-    if (!size) return null;
+    if (!size || !mixTypeFor(size)) return null;
     return JOINT_DENSITY_SIZES.includes(size) ? '1' : '2';
   }
 
@@ -19011,13 +19018,13 @@ const PB_LOT = (() => {
     const jd = jointDensityFor(mix);
     if (jd) {
       derive('lot_joint_density', jd,
-             `${mix.layer} ${mix.nominal_size || ''}`.trim() +
-             (jd === '1' ? ' is a surface mixture at 1 inch or greater, so joint cores are taken'
-                         : ' is not a surface mixture placed at 1 inch or greater, so no joint cores'),
+             `${mix.nominal_size || ''}`.trim() +
+             (jd === '1' ? ' is a 0.38 or 0.50 mix, which takes 4 mainline and 2 joint cores per sublot'
+                         : ' is not a 0.38 or 0.50 mix, so 4 mainline cores per sublot and no joint cores'),
              cell(CALC.sheet, 'H11'));
     } else {
       needsTyping('lot_joint_density', cell(CALC.sheet, 'H11'),
-        'Joint cores are taken on surface mixtures at 1 inch or greater (0.38 and 0.50), and this approval does not say which course the mix is - it reached PlantBook with no signature and no Portal mix lookup.',
+        'Joint cores are taken on 0.38 and 0.50 mixes (4 mainline and 2 joint per sublot; 0.75, 1.00 and 1.50 take 4 mainline and none), and this approval carries no nominal size the Superpave table has a row for.',
         ['pay']);
     }
     if (!lotNumberGiven)
@@ -19935,15 +19942,24 @@ function mixTempWarnings() {
   return [{ sectionId: `sublot-${first}`, text: text.trim() }];
 }
 
-/** 402.03.02 D) 6), Option A - four mat cores per sublot, two joint cores where
- *  joint density applies. Counted on sublots that have volumetrics (something
- *  was produced to core) and only cores that HAVE a % solid, because that is
- *  what the density pay is computed from - a core labelled and never weighed
- *  is not a density. A sublot cored a day later is simply not there yet. */
+/** 402.03.02 D) 6), Option A - four mat cores per sublot, and two joint cores
+ *  BY NOMINAL SIZE (Jake, 2026-09-18: "on 0.38 and 0.50 its 4 mainline and 2
+ *  joint cores per sub lot but on 0.75, 1.00 and 1.50 its just four mainline
+ *  and no joints"). The size is read through the same PB_LOT.jointDensityFor()
+ *  that seeds the Joint density field, so the two cannot disagree about the
+ *  rule; if a person has overridden the field the line says so rather than
+ *  silently siding with either. Counted on sublots that have volumetrics
+ *  (something was produced to core) and only cores that HAVE a % solid,
+ *  because that is what the density pay is computed from - a core labelled
+ *  and never weighed is not a density. A sublot cored a day later is simply
+ *  not there yet. */
 function coreCountWarnings(vol) {
   if (!vol || !vol.sublots) return [];
   if ((DENSITY_OPTION_CODE[fieldValue("lot_density_option")] || 1) !== 1) return [];
-  const joint = Number(fieldValue("lot_joint_density")) === 1;
+  const bySize = PB_LOT.jointDensityFor({ nominal_size: fieldValue("lot_nominal_size") });
+  const flag = fieldValue("lot_joint_density");
+  const joint = bySize != null ? bySize === "1" : Number(flag) === 1;
+  const disagree = bySize != null && flag && String(flag) !== bySize;
   const lane = coresBySublot("mat_cores"), jc = coresBySublot("joint_cores");
   const { MAT, JOINT } = CONFIG.CORES_PER_SUBLOT;
   const short = [];
@@ -19957,7 +19973,10 @@ function coreCountWarnings(vol) {
   if (!short.length) return [];
   return [{ sectionId: `sublot-${short[0].n}`,
     text: `Cores with a density short of Option A's count - ${short.map((s) => s.text).join("; ")}. `
-      + `KYTC 402.03.02 D) 6): furnish 4 mat cores per sublot${joint ? " and 2 joint cores per sublot on a surface mixture" : ""}. `
+      + `KYTC 402.03.02 D) 6): a 0.38 or 0.50 mix takes 4 mainline and 2 joint cores per sublot; `
+      + `0.75, 1.00 and 1.50 take 4 mainline and no joint cores${joint ? "" : " - this mix is the second kind"}. `
+      + (disagree ? `(Joint density on Contract & Mix is set to ${String(flag) === "1" ? "Yes" : "No"}, which is not what `
+                  + `the size says; the count here follows the size.) ` : "")
       + `Lane density is the lot's heaviest pay weight and a sublot with no cores has none; a sublot `
       + `cored later is simply not weighed yet, so this clears as the weights arrive.` }];
 }
@@ -22510,21 +22529,22 @@ function applyCompaction(notes, mixes) {
 
   // Joint density. Option B has no cores at all, so it is settled by the
   // option alone; under Option A the note's own wording decides whether
-  // joint cores are taken, and then the mix decides whether THIS lot's are.
+  // joint cores are taken, and then the mix's SIZE decides whether THIS
+  // lot's are (Jake, 2026-09-18: 0.38 and 0.50 take them, 0.75 / 1.00 /
+  // 1.50 do not). The course used to be read off the contract's mix item
+  // for this; it is no longer part of the rule.
   let jd = null, why = "";
   if (n.option === "B") { jd = "2"; why = "Option B takes no cores"; }
   else if (!n.joint_cores) { jd = "2"; why = "the note does not require joint cores"; }
   else {
-    const cm = contractMixForLot(mixes);
     const d = lotDesign() || {};
-    const layer = (cm && cm.layer) || d.layer || null;
-    const mix = { layer, nominal_size: fieldValue("lot_nominal_size") || d.nominal_size || "" };
+    const mix = { nominal_size: fieldValue("lot_nominal_size") || d.nominal_size || "" };
     jd = PB_LOT.jointDensityFor(mix);
-    why = layer ? `a ${layer} ${mix.nominal_size} mix under Option A` : "";
+    why = mix.nominal_size ? `a ${mix.nominal_size} mix under Option A` : "";
   }
   if (jd == null) {
-    done.push(`Joint density not set - the proposal requires joint cores for surface mixtures only, `
-            + `and nothing here says which course this mix is placed in`);
+    done.push(`Joint density not set - joint cores follow the mix's nominal size (0.38 and 0.50 take them), `
+            + `and nothing here says what size this mix is`);
   } else {
     const r = prefillLive("lot_joint_density", jd, `${source} \u00b7 ${why || "the compaction note"}`);
     done.push(r === "filled" ? `Joint density set to ${jd === "1" ? "Yes" : "No"}${why ? ` - ${why}` : ""}`

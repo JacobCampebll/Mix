@@ -61,7 +61,12 @@ const CASES = [
   ["a base mix takes none under Option A either", [A], BASE, "1.00", "B", "A", "2"],
   ["a NO.4 surface is a thin lift and takes none", [A], NO4, "NO.4", "A", "A", "2"],
   ["an Option A note that does not require joint cores", [A_NO_JOINTS], SURF, "0.38", "B", "A", "2"],
-  ["an unknown course leaves joint density BLANK, never 'no'", [A], [], "0.38", "B", "A", ""],
+  // Until 2026-09-18 this case wanted "" - an unknown COURSE left joint
+  // density blank. Jake settled the rule by SIZE that day (0.38 and 0.50 take
+  // joint cores, 0.75 / 1.00 / 1.50 do not), so no contract mix item at all is
+  // fine: the size the form already holds answers.
+  ["no contract mix item is fine - the size alone decides", [A], [], "0.38", "B", "A", "1"],
+  ["a blank nominal size leaves joint density BLANK, never 'no'", [A], [], "", "", "A", ""],
   ["two routes fill NOTHING", [A627, B25], SURF, "0.38", "B", "", ""],
   ["no note in the proposal fills nothing", [], SURF, "0.38", "B", "", ""],
 ];
@@ -101,9 +106,9 @@ export async function run({ browser, results }) {
     results.ok(id, BOOK, "two routes are both named in the note line",
                twoRoutes.kind === "warn" && /KY 627/.test(twoRoutes.text || "") && /US 25/.test(twoRoutes.text || ""),
                twoRoutes.text || "(no note)");
-    const unknown = got[CASES.findIndex((c) => c[0].startsWith("an unknown course"))];
-    results.ok(id, BOOK, "an unknown course says why joint density is blank",
-               /course/i.test(unknown.text || ""), unknown.text || "(no note)");
+    const unknown = got[CASES.findIndex((c) => c[0].startsWith("a blank nominal size"))];
+    results.ok(id, BOOK, "a blank nominal size says why joint density is blank",
+               /size/i.test(unknown.text || ""), unknown.text || "(no note)");
     return true;
   });
 
