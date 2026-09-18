@@ -1218,6 +1218,15 @@ export function lotFromApproval(payload, opts = {}) {
     // cores under Option A ("for surface mixtures only"), so it is carried
     // rather than re-parsed at each use.
     layer: mix && mix.layer ? str(mix.layer) : null,
+    // The binder the design was approved WITH, carried so the lot can say
+    // when its own differs. 402.03.02 C) (STD p.177): a change of binder
+    // supplier during production is noted on the AMAW with the new supplier
+    // and source code - the page raises exactly that when
+    // `lot_binder_terminal` stops matching this (binderSupplierWarnings()).
+    // The lot's OWN binder fields are seeded from the same two values a few
+    // lines up; this is the reference they are later compared against.
+    binder_terminal: str(v.binder_terminal) || null,
+    binder_grade: str(v.binder_grade) || (mix ? mix.binder_grade : null) || null,
     // The contract's letting date, carried for one reason: kytc-lookup will
     // not answer without it, and the Lot step's compaction lookup needs that
     // function to find the proposal (it is the only source of the proposal's

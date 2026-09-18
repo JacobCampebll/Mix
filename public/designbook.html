@@ -2470,6 +2470,57 @@ const CONFIG = {
    */
   MOISTURE: { CORRECTIVE_ACTION_PCT: 0.25, AC_ADJUST_PCT: 0.10 },
 
+  /* ---- The second spec sweep, 2026-09-18 (Jake: "do 1-8 as one commit") ----
+   *
+   * Seven production thresholds PlantBook already had the data for and never
+   * said. All rail WARNINGS, none blocking, same footing as Polish / Consensus
+   * / the 0.90 floor: the figures are the figures, what the Department does
+   * about them is the Department's. Each has its cite in CONFIG.SPECS.CITES
+   * (via PLANTBOOK_CITES) and its helper beside dustRatioWarnings() further
+   * down, so the threshold, the sentence and the citation read together.
+   *
+   * DUST_RATIO   402.03.02 D) 5), STD p.178. The PRODUCTION range - "make
+   *              immediate corrections... if still outside cease production".
+   *              1.0-2.0 on a No. 4 mix, 0.6-1.6 on everything else. The
+   *              workbook's own Superpave!O14 bands at 0.6-1.6 whatever the
+   *              mix, which is why volumetrics returns the raw quotient too.
+   *              (The DESIGN criterion is different again - 403.03.03 C) 1)
+   *              has surface at 0.6-1.4 - and is DesignBook's business.)
+   * MIX_TEMPS    401.03.01, STD p.173 - "Asphalt Mixtures at Plant (Measured
+   *              in Truck)", degrees F, by binder grade and HMA/WMA. Only the
+   *              two grades the table lists; any other grade gets no verdict.
+   *              The form has no HMA/WMA switch, so a reading under the HMA
+   *              floor but at or above the WMA floor is raised as "fine only
+   *              if this is a warm mix" rather than as a fault.
+   * CORES_PER_SUBLOT  402.03.02 D) 6), STD p.178, Option A: "furnish 4 cores
+   *              per sublot" on the mat and "2 cores per sublot" at the joint
+   *              for surface mixtures.
+   * VERIFY_TOLERANCE  402.03.03 A), STD p.180 - a Department QA/IQ result
+   *              against the Contractor's on the sublot it verifies. Inside:
+   *              the Contractor's values pay. Outside: the Department retests
+   *              the retained samples and ITS results pay. AV/VMA have two
+   *              figures, same equipment vs different, and the form does not
+   *              know which - so 1.0-1.5 is raised softly and >1.5 hard.
+   * SETUP_AC_ADJUST   402.03.02 C), STD p.177 - "adjust the AC up to -0.10
+   *              percent to + 0.3 percent provided all other properties stay
+   *              within their specified acceptance limits". A delta on the
+   *              form (`lot_setup_ac_adjust`), folded into the JMF %AC every
+   *              sublot is paid against - see effectiveJmfAc().
+   * SAMPLE_MIN_TONS   402.03.02 B), STD p.177 - "do not take any quality
+   *              control samples before the production of 50 tons" at the
+   *              start of a production day. Read off the ticket's own
+   *              "Tons today before sample" column.
+   */
+  DUST_RATIO: { STANDARD: [0.6, 1.6], NO4: [1.0, 2.0] },
+  MIX_TEMPS: {
+    "PG64-22": { hma: [250, 330], wma: [230, 330] },
+    "PG76-22": { hma: [310, 350], wma: [250, 350] },
+  },
+  CORES_PER_SUBLOT: { MAT: 4, JOINT: 2 },
+  VERIFY_TOLERANCE: { AC: 0.5, AV_VMA_SAME: 1.0, AV_VMA_DIFF: 1.5 },
+  SETUP_AC_ADJUST: { MIN: -0.10, MAX: 0.30 },
+  SAMPLE_MIN_TONS: 50,
+
   /* ---- The JMF "minor change" envelope — KM 64-421 §4.4 (KM PDF p.377) ----
    *
    * How far a NEW JMF may sit from the one the Department reported as
@@ -3291,6 +3342,34 @@ const PB_SECTIONS = (() => {
       label: "KYTC 402.05.02",
       what: "the Lot Pay Adjustment — the three schedules are on PDF 185 (402-10), 186 (402-11) and 188 (402-13)",
     },
+    // ---- Added 2026-09-18 with the second spec sweep (Jake: "do 1-8 as one
+    // commit"). Every page below was opened and read in the real 2026 book, and
+    // the footer recorded beside it, per the method at the top of this table.
+    dust402: {
+      doc: "STD", page: 178, footer: "402-3",
+      label: "KYTC 402.03.02 D) 5)",
+      what: "the dust-to-binder ratio in production — 0.6 to 1.6, or 1.0 to 2.0 on a No. 4 mix; outside it make immediate corrections, and if it is still outside cease production",
+    },
+    verify402: {
+      doc: "STD", page: 180, footer: "402-5",
+      label: "KYTC 402.03.03 A)",
+      what: "Department verification — a QA/IQ result against the sublot it verifies: AC ±0.5, AV and VMA ±1.0 on the same equipment or ±1.5 on different; outside those the Department retests the retained samples and ITS results compute the lot pay",
+    },
+    temp401: {
+      doc: "STD", page: 173, footer: "401-6",
+      label: "KYTC 401.03.01",
+      what: "mixing and laying temperatures — asphalt mixture at the plant, measured in the truck: PG 64-22 HMA 250–330 °F, PG 76-22 HMA 310–350; a WMA may run to 230 / 250 at the floor",
+    },
+    sample402: {
+      doc: "STD", page: 177, footer: "402-2",
+      label: "KYTC 402.03.02 B)",
+      what: "sampling — one sample per sublot from the truck bed at the plant, and no quality control sample before 50 tons at the start of a production day",
+    },
+    setup402: {
+      doc: "STD", page: 177, footer: "402-2",
+      label: "KYTC 402.03.02 C)",
+      what: "the setup period — the first sublot; adjust the AC from −0.10 to +0.3 of the JMF while establishing it, and after the first sublot make no change to the approved design without the Engineer's written approval",
+    },
   };
 
   // DesignBook cite keys this schema reuses. The checker resolves a `cites`
@@ -3802,7 +3881,7 @@ const verifySpecimenOf4 = (n) =>
   // the section(s) wrapping them changed.
   const SUBLOT_TICKETS_SPEC = {
     key: "sublot_tickets", heading: "Sublot ticket", banded: true, fixed: true,
-    grid: ".7fr 1fr .8fr .9fr .9fr .8fr 1fr 1fr 1.1fr 1.5fr",
+    grid: ".7fr 1fr .8fr .9fr .9fr .9fr .8fr 1fr 1fr 1.1fr 1.5fr",
     seed: TICKET_SEED,
     columns: [
       { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
@@ -3822,6 +3901,14 @@ const verifySpecimenOf4 = (n) =>
       // 4955 -> 5390 -> 6693 -> 7530. The label says so, because a
       // technician reading "Tons" will type the sublot's own.
       { key: "tons_cum", label: "Tons (cum.)", type: "number", req: true, mono: true },
+      // 402.03.02 B): "At the beginning of each production day, do not take
+      // any quality control samples before the production of 50 tons." What
+      // this sublot's sample was taken behind TODAY - not the cumulative figure
+      // above, which counts the whole lot and says nothing about the day. On no
+      // cell: MEDL never receives it and LOT_TABLE_ROUTES drops it by name; the
+      // page raises the 50-ton rule off it (sampleTimingWarnings()). Optional,
+      // because both real lots were sampled with nobody writing this down.
+      { key: "tons_before", label: "Tons today before sample", type: "number", req: false, mono: true },
       // On the sheet and on the printed page, but NOT in the staging
       // field map — MEDL never receives it. Kept because the Department
       // reads it, and optional because nothing downstream needs it.
@@ -4188,7 +4275,7 @@ const verifySpecimenOf4 = (n) =>
         id: `sublot-${n}`, label: `Sublot ${n}`, step: `Sublot ${n}`,
         tag: `AMAW · QC0${n} — this sublot's blend %, ticket, BSG/MSG, gradation weights and cores`,
         type: "rows",
-        cites: ["accept402", "volumetric", "density402", "agg805"],
+        cites: ["accept402", "volumetric", "density402", "dust402", "temp401", "sample402", "agg805"],
         rows,
       });
     }
@@ -4399,7 +4486,7 @@ const verifySpecimenOf4 = (n) =>
         id: `sublot-${n}-verify`, label: "Department Verification", into: `sublot-${n}`, banded: true,
         tag: "AMAW · Super Verify — QA01 / IQ01, this sublot's slot",
         type: "grid",
-        cites: ["accept402", "km443"],
+        cites: ["accept402", "verify402", "km443"],
         rows: [
           sliceSpec(VERIFY_IDENTITY_SPEC, verifyRowOf4(n)),
           sliceSpec(VERIFY_BSG_SPEC, verifySpecimenOf4(n)),
@@ -4711,7 +4798,7 @@ const verifySpecimenOf4 = (n) =>
       id: "binder", label: "Binder", into: "lot", banded: true,
       tag: "AMAW · Pay Values B46/C46 — dropdowns from Supabase reference",
       type: "grid",
-      cites: ["accept402"],
+      cites: ["accept402", "setup402"],
       fields: [
         { key: "lot_binder_terminal", label: "Binder producer", type: "text", req: true,
           source: "binder_terminals" },
@@ -4722,6 +4809,18 @@ const verifySpecimenOf4 = (n) =>
         // additive is itself optional (`lot_additive` above), so a dosage rate
         // with nothing to dose is meaningless rather than missing.
         { key: "lot_additive_dosage", label: "Additive dosage rate (%)", type: "number",
+          req: false, mono: true },
+        // 402.03.02 C): "When necessary during setup, adjust the AC up to -0.10
+        // percent to + 0.3 percent provided all other properties stay within their
+        // specified acceptance limits." A DELTA from the approval's JMF %AC, not a
+        // retyped JMF - the approval's own figure stays a readout, because a
+        // signature that covers a value and a box that lets someone retype it are
+        // contradictory. It is what every sublot is then paid against:
+        // lotScalars() folds it into 'Pay Values'!A13:A16 and the page's Lot Pay
+        // reads the same sum (effectiveJmfAc()). Frame, so it rolls forward with
+        // the lot - after setup the adjusted figure IS the JMF. Optional: no
+        // adjustment is the ordinary case, and a blank is zero.
+        { key: "lot_setup_ac_adjust", label: "Setup AC adjustment (± % from JMF)", type: "number",
           req: false, mono: true },
       ],
     },
@@ -8426,6 +8525,16 @@ function recompute() {
       const sec = document.querySelector(`[data-section="${sectionId}"]`);
       outstanding.push({ id: sectionId, label: sec ? sec.dataset.label : "Sublots", kind: "warn", text });
     });
+  // The second spec sweep (2026-09-18) - dust ratio, mix temperature, core
+  // counts, a changed binder, Department verification, the setup AC
+  // adjustment and the 50-ton sampling rule. Same shape and same reason as
+  // the moisture line: page-level helpers return `{ sectionId, text }` and
+  // are pooled here, because `outstanding` has one producer. A sub-section
+  // (`binder`, drawn into Contract & Mix) is found the way Consensus is.
+  productionSpecWarnings(vol, ver).forEach(({ sectionId, text }) => {
+    const sec = document.querySelector(`[data-subsection="${sectionId}"],[data-section="${sectionId}"]`);
+    outstanding.push({ id: sectionId, label: sec ? sec.dataset.label : "PlantBook", kind: "warn", text });
+  });
   const lp = computeLotPay();
   if (lp) {
     const sec = document.querySelector('[data-section="pay"]');
@@ -10137,7 +10246,15 @@ async function buildReviewPDF(payload) {
     // live on the lot's `values.design` block, which is the approval's.
     "jmf-figures"(section) {
       if (!lotDes) return;
-      const list = [["JMF %AC", lotDes.jmf_ac], ["Target air voids (%)", lotDes.target_va],
+      // The same sum the page and the mapper use: the approval's JMF %AC plus
+      // the lot's setup adjustment (402.03.02 C)), named as such when present.
+      const adj = Number((lot.values || {}).lot_setup_ac_adjust);
+      const hasAdj = Number.isFinite(adj) && adj !== 0 && Number.isFinite(Number(lotDes.jmf_ac));
+      const jmf = hasAdj ? Math.round((Number(lotDes.jmf_ac) + adj) * 100) / 100 : lotDes.jmf_ac;
+      const jmfLabel = hasAdj
+        ? `JMF %AC (approval ${lotDes.jmf_ac} ${adj > 0 ? "+" : "−"} ${Math.abs(adj)} setup adjustment)`
+        : "JMF %AC";
+      const list = [[jmfLabel, jmf], ["Target air voids (%)", lotDes.target_va],
                     ["Minimum VMA (%)", lotDes.min_vma]]
         .map(([k, v]) => [k, hdNum(v, 2)]).filter((pr) => pr[1] !== "" && pr[1] != null);
       if (!list.length) return;
@@ -12218,9 +12335,14 @@ const PB_VOL = (() => {
     // O = %passing #200 / Pbe, reported as a band when it leaves 0.6..1.6.
     // The workbook prints a spec note beside it rather than a number; the band
     // strings are returned so the page can say the same thing.
-    let dustRatio = null, dustRatioNote = null;
+    let dustRatio = null, dustRatioNote = null, dustRatioRaw = null;
     if (pctPassing200 != null && pbe != null && pbe !== 0) {
       const raw = pctPassing200 / pbe;
+      // The bare quotient rides out beside the banded value, because the band
+      // is the WORKBOOK's flat 0.6-1.6 and the spec's production range is
+      // per mix (402.03.02 D) 5): 1.0-2.0 on a No. 4) - the page judges the raw
+      // figure against the right one rather than re-deriving it from a string.
+      dustRatioRaw = raw;
       if (raw > 1.6) { dustRatio = ">1.6"; dustRatioNote = DUST_RATIO_NOTE; }
       else if (raw < 0.6) { dustRatio = "<0.6"; dustRatioNote = DUST_RATIO_NOTE; }
       else dustRatio = raw;
@@ -12234,7 +12356,7 @@ const PB_VOL = (() => {
       // moisture taken off it, and what the workbook will read.
       backCalcBinderPct: backCalc, moisture, binderPct,
       absorbedAC, pbe, vma, vfa,
-      dustRatio, dustRatioNote,
+      dustRatio, dustRatioNote, dustRatioRaw,
       needs: [...new Set(needs)],
     };
   }
@@ -13960,7 +14082,12 @@ function payWarnings(result, ctx = {}) {
 
   if (h.mcl) {
     out.push(w(`${h.why} The rest of this readout still shows every sublot's result, `
-      + `which is what the Department will want to see.`));
+      + `which is what the Department will want to see. What MCL means on the ground `
+      + `(402.05.02's own footnotes, STD pp.187-189): the Department decides whether the material `
+      + `is removed and replaced at no expense to it, or stays in place at a 0.65 pay factor on the `
+      + `Contract unit BID price - not the $50 - for the tonnage the failing test represents, one `
+      + `sublot for an acceptance test. A removal runs from halfway to the preceding acceptable `
+      + `test to halfway to the succeeding one, and the Engineer may widen or narrow it.`));
   } else if (h.state === 'bad') {
     out.push(w(`Lot pay is ${fmtPct(result.finalPct)}: a penalty of `
       + `${fmtTons(result.tonnageAdj, { signed: false })}`
@@ -15502,6 +15629,20 @@ function lotScalars(values) {
     if (design[from] !== undefined && design[from] !== null && design[from] !== ''
         && v[to] === undefined) out[to] = design[from];
   }
+  // The setup AC adjustment (402.03.02 C), -0.10 to +0.3 of the JMF) is a
+  // DELTA typed on the form; the workbook has no cell for the delta, only
+  // the JMF %AC each sublot is paid against ('Pay Values'!A13:A16). So the
+  // approval's figure plus the adjustment is what reaches the sheet, and the
+  // page's Lot Pay reads the same sum (effectiveJmfAc()) - one fact, one
+  // arithmetic. Only for a value that came off the form: a `jmf_ac` already
+  // under the mapper's own name is a real workbook's cell and wins, because
+  // check_mapper reads A13 itself. Rounded to the hundredth the JMF is
+  // published to, so 5.9 + 0.2 does not reach the sheet as 6.1000000000000005.
+  const adj = Number(v.lot_setup_ac_adjust);
+  if (v.jmf_ac === undefined && Number.isFinite(adj) && adj !== 0
+      && v.lot_setup_ac_adjust !== '' && Number.isFinite(Number(out.jmf_ac))) {
+    out.jmf_ac = Math.round((Number(out.jmf_ac) + adj) * 100) / 100;
+  }
   return { ...out, ...v };
 }
 
@@ -15575,6 +15716,11 @@ const LOT_TABLE_ROUTES = {
       technician: 'tested_by',          // RENAME
       ac_method: 'acceptance_label',    // RENAME; the CODE is derived from it
     },
+    // 402.03.02 B)'s 50-ton rule is judged on the page and nothing on the
+    // sheet holds "tons produced today before the sample" - the ticket's own
+    // Tons column is the cumulative lot figure (Superpave!L). Dropped by name
+    // so check_bridge's "every column is routed or explicitly dropped" holds.
+    drop: { tons_before: 'no AMAW cell - the page raises the 50-ton sampling rule off it (402.03.02 B))' },
   },
   sublot_bsg: {
     by: 'sublot', id: 'sublot', slot: 'specimen', into: 'rows.specimens',
@@ -18957,6 +19103,15 @@ const PB_LOT = (() => {
       // cores under Option A ("for surface mixtures only"), so it is carried
       // rather than re-parsed at each use.
       layer: mix && mix.layer ? str(mix.layer) : null,
+      // The binder the design was approved WITH, carried so the lot can say
+      // when its own differs. 402.03.02 C) (STD p.177): a change of binder
+      // supplier during production is noted on the AMAW with the new supplier
+      // and source code - the page raises exactly that when
+      // `lot_binder_terminal` stops matching this (binderSupplierWarnings()).
+      // The lot's OWN binder fields are seeded from the same two values a few
+      // lines up; this is the reference they are later compared against.
+      binder_terminal: str(v.binder_terminal) || null,
+      binder_grade: str(v.binder_grade) || (mix ? mix.binder_grade : null) || null,
       // The contract's letting date, carried for one reason: kytc-lookup will
       // not answer without it, and the Lot step's compaction lookup needs that
       // function to find the proposal (it is the only source of the proposal's
@@ -19323,7 +19478,14 @@ function paintLotReadouts() {
     if (os && sub) os.textContent = sub;
   };
   const from = d ? d.source : "no approval opened yet";
-  show("jmf_ac", d ? d.jmf_ac : null, from);
+  // The JMF %AC printed is the one the sublots are PAID against: the
+  // approval's figure plus any setup adjustment typed on Contract & Mix
+  // (402.03.02 C)), and the caption says so when one is in play. The
+  // approval's own figure stays where it was - in `values.design`, signed.
+  const adj = setupAcAdjust();
+  show("jmf_ac", effectiveJmfAc(), !d ? from : adj
+    ? `${from} · ${d.jmf_ac} ${adj > 0 ? "+" : "−"} ${fmt(Math.abs(adj), 2)} setup adjustment (402.03.02 C))`
+    : from);
   show("target_va", d ? d.target_va : null, from);
   show("min_vma", d ? d.min_vma : null, from);
 
@@ -19694,6 +19856,244 @@ function wetMixWarnings(wet) {
     + `back-calculated and then has its block's moisture subtracted (Gradation!D33).` }];
 }
 
+/* ---------- the second spec sweep, 2026-09-18 ----------
+ *
+ * Seven thresholds, one shape: each helper reads what the page has already
+ * computed or what a technician has already typed, and returns
+ * `[{ sectionId, text }]` - the same shape wetMixWarnings() returns - for
+ * recompute() to pool into `outstanding`, which keeps its single producer.
+ * None of them computes a figure of its own; a helper that re-derived a value
+ * would be a second reader of the same cells, which is the drift this file
+ * keeps recording. The thresholds live in CONFIG (DUST_RATIO, MIX_TEMPS,
+ * CORES_PER_SUBLOT, VERIFY_TOLERANCE, SETUP_AC_ADJUST, SAMPLE_MIN_TONS) and
+ * their clauses in CONFIG.SPECS.CITES; the CONFIG comment carries each cite.
+ *
+ * Every line collects ITS offenders into one entry rather than one entry per
+ * (sublot, figure), for the reason the 0.90-floor line does: a lot that went
+ * wrong goes wrong on several at once, and six rail entries saying one thing
+ * read as six problems. The entry sends you to the FIRST offending tab; the
+ * text names every one.
+ */
+
+/** 402.03.02 D) 5) - the production dust-to-binder range for THIS mix. The
+ *  workbook bands at 0.6-1.6 whatever the mix (Superpave!O14); the spec gives
+ *  a No. 4 mixture 1.0-2.0, so the raw quotient is judged here. */
+function dustRatioRange() {
+  return lotMixTypeCode() === 14 ? CONFIG.DUST_RATIO.NO4 : CONFIG.DUST_RATIO.STANDARD;
+}
+function dustRatioWarnings(vol) {
+  if (!vol || !vol.sublots) return [];
+  const [lo, hi] = dustRatioRange();
+  const off = [];
+  vol.sublots.forEach((v, i) => {
+    const r = v ? v.dustRatioRaw : null;
+    if (!Number.isFinite(r)) return;
+    if (r < lo || r > hi) off.push(`sublot ${i + 1} (${fmt(r, 2)})`);
+  });
+  if (!off.length) return [];
+  const no4 = lotMixTypeCode() === 14;
+  return [{ sectionId: `sublot-${1 + vol.sublots.findIndex((v) => v && Number.isFinite(v.dustRatioRaw) && (v.dustRatioRaw < lo || v.dustRatioRaw > hi))}`,
+    text: `Dust-to-binder ratio outside ${lo}–${hi}${no4 ? " (the No. 4 range)" : ""} on: ${off.join(", ")}. `
+      + `KYTC 402.03.02 D) 5): make immediate corrections to the mixture, and if the ratio is still `
+      + `outside the range, cease production until it is back inside. `
+      + (no4 ? `The workbook's own cell bands at 0.6–1.6 whatever the mix (Superpave!O14), so it may `
+              + `read ">1.6" on a No. 4 sublot that is in spec; this line reads the spec's range.`
+            : `The workbook's Superpave!O14 bands on the same figures.`) }];
+}
+
+/** "PG 64-22" / "PG64-22" -> the key CONFIG.MIX_TEMPS uses. */
+function binderGradeKey(g) { return String(g == null ? "" : g).toUpperCase().replace(/\s+/g, ""); }
+/** 401.03.01 - mixture temperature at the plant, off the ticket, against the
+ *  lot's binder grade. No verdict for a grade the table does not list. */
+function mixTempWarnings() {
+  const spec = CONFIG.MIX_TEMPS[binderGradeKey(fieldValue("lot_binder_grade"))];
+  if (!spec) return [];
+  const hot = [], cold = [], warm = [];
+  let first = null;
+  lotRows("sublot_tickets").forEach((r) => {
+    const t = num(r.temperature), n = sublotIndexOf(r.sublot);
+    if (t == null || !n) return;
+    const tag = `sublot ${n} (${fmt(t, 0)} °F)`;
+    if (t > spec.hma[1]) hot.push(tag);
+    else if (t < spec.wma[0]) cold.push(tag);
+    else if (t < spec.hma[0]) warm.push(tag);
+    else return;
+    if (first == null) first = n;
+  });
+  if (!hot.length && !cold.length && !warm.length) return [];
+  const grade = binderGradeKey(fieldValue("lot_binder_grade")).replace(/^PG/, "PG ");
+  let text = "";
+  if (hot.length || cold.length) {
+    text += `Mixture temperature at the plant outside KYTC 401.03.01's ${grade} range `
+      + `(HMA ${spec.hma[0]}–${spec.hma[1]} °F, WMA ${spec.wma[0]}–${spec.wma[1]}, measured in the truck) on: `
+      + `${[...hot, ...cold].join(", ")}. The Engineer may retest or reject mixture heated outside the specified range. `;
+  }
+  if (warm.length) {
+    text += `Below the HMA floor of ${spec.hma[0]} °F but at or above the WMA floor of ${spec.wma[0]} on: `
+      + `${warm.join(", ")} - fine only if this is a warm mix (401.03.01, the ** rows); the form does not know which.`;
+  }
+  return [{ sectionId: `sublot-${first}`, text: text.trim() }];
+}
+
+/** 402.03.02 D) 6), Option A - four mat cores per sublot, two joint cores where
+ *  joint density applies. Counted on sublots that have volumetrics (something
+ *  was produced to core) and only cores that HAVE a % solid, because that is
+ *  what the density pay is computed from - a core labelled and never weighed
+ *  is not a density. A sublot cored a day later is simply not there yet. */
+function coreCountWarnings(vol) {
+  if (!vol || !vol.sublots) return [];
+  if ((DENSITY_OPTION_CODE[fieldValue("lot_density_option")] || 1) !== 1) return [];
+  const joint = Number(fieldValue("lot_joint_density")) === 1;
+  const lane = coresBySublot("mat_cores"), jc = coresBySublot("joint_cores");
+  const { MAT, JOINT } = CONFIG.CORES_PER_SUBLOT;
+  const short = [];
+  vol.sublots.forEach((v, i) => {
+    if (!v || v.va == null) return;
+    const bits = [];
+    if (lane[i].length < MAT) bits.push(`${lane[i].length} of ${MAT} mat`);
+    if (joint && jc[i].length < JOINT) bits.push(`${jc[i].length} of ${JOINT} joint`);
+    if (bits.length) short.push({ n: i + 1, text: `sublot ${i + 1}: ${bits.join(", ")}` });
+  });
+  if (!short.length) return [];
+  return [{ sectionId: `sublot-${short[0].n}`,
+    text: `Cores with a density short of Option A's count - ${short.map((s) => s.text).join("; ")}. `
+      + `KYTC 402.03.02 D) 6): furnish 4 mat cores per sublot${joint ? " and 2 joint cores per sublot on a surface mixture" : ""}. `
+      + `Lane density is the lot's heaviest pay weight and a sublot with no cores has none; a sublot `
+      + `cored later is simply not weighed yet, so this clears as the weights arrive.` }];
+}
+
+/** 402.03.02 C) - the binder the lot is running against the binder the design
+ *  was approved with. Within the same PG grade a supplier change is permitted
+ *  "by notifying the Engineer and noting the new supplier and the supplier
+ *  source code on the Asphalt Mixture Acceptance Workbook"; a GRADE change is
+ *  a change to the approved design, which needs written approval. */
+function binderSupplierWarnings() {
+  const d = lotDesign();
+  if (!d) return [];
+  const norm = (s) => String(s == null ? "" : s).trim().toUpperCase().replace(/\s+/g, " ");
+  const out = [];
+  const gradeNow = binderGradeKey(fieldValue("lot_binder_grade")), gradeWas = binderGradeKey(d.binder_grade);
+  if (gradeNow && gradeWas && gradeNow !== gradeWas) {
+    out.push({ sectionId: "binder",
+      text: `Binder grade is ${gradeNow} where the design was approved with ${gradeWas}. That is not a supplier `
+        + `change - it is a change to the approved mix design, which KYTC 402.03.02 C) permits after the first `
+        + `sublot only with the Engineer's written approval. The approval's grade is what the lot's pay is measured under.` });
+  }
+  const now = fieldValue("lot_binder_terminal");
+  if (d.binder_terminal && now && norm(now) !== norm(d.binder_terminal)) {
+    out.push({ sectionId: "binder",
+      text: `Binder producer is "${now}" where the approval was issued with "${d.binder_terminal}". `
+        + `KYTC 402.03.02 C): within the same performance grade a supplier change is permitted by notifying `
+        + `the Engineer and noting the new supplier and its source code on the AMAW - which is what this `
+        + `box writes ('Pay Values'!B46/C46), so leave it as the supplier actually delivering and tell the Engineer.` });
+  }
+  return out;
+}
+
+/** 402.03.03 A) - each Department record (QA/IQ) against the Contractor's
+ *  sublot it verifies. computeVerification() tags each record with the sublot
+ *  it verifies; the sublot's own figures come from computeSublotVolumetrics().
+ *  AV and VMA carry two tolerances (same equipment 1.0, different 1.5) and the
+ *  form does not know which lab ran what - so a difference inside 1.0-1.5 is
+ *  raised as "within tolerance only on different equipment" and one over 1.5
+ *  as outside either. AC has one figure. */
+function verificationToleranceWarnings(vol, ver) {
+  if (!vol || !vol.sublots || !ver || !ver.records) return [];
+  const T = CONFIG.VERIFY_TOLERANCE;
+  const hard = [], soft = [];
+  let first = null;
+  ver.records.forEach((r) => {
+    if (!r || !r.verifies) return;
+    const s = vol.sublots[r.verifies - 1];
+    if (!s) return;
+    const who = `${r.name || "record"} vs sublot ${r.verifies}`;
+    const tab = sublotIndexOf(r.sub) || r.verifies;
+    const cmp = (label, a, b, same, diff) => {
+      if (!Number.isFinite(a) || !Number.isFinite(b)) return;
+      const dlt = Math.abs(a - b);
+      if (dlt > diff + 1e-9) { hard.push(`${who} ${label} Δ${fmt(dlt, 2)}`); if (first == null) first = tab; }
+      else if (same != null && dlt > same + 1e-9) { soft.push(`${who} ${label} Δ${fmt(dlt, 2)}`); if (first == null) first = tab; }
+    };
+    cmp("AC", r.binderPct, s.binderPct, null, T.AC);
+    cmp("AV", r.va, s.va, T.AV_VMA_SAME, T.AV_VMA_DIFF);
+    cmp("VMA", r.vma, s.vma, T.AV_VMA_SAME, T.AV_VMA_DIFF);
+  });
+  const out = [];
+  if (hard.length) {
+    out.push({ sectionId: `sublot-${first}`,
+      text: `Department verification outside KYTC 402.03.03 A)'s tolerances (AC ±${T.AC}; AV and VMA `
+        + `±${T.AV_VMA_SAME} same equipment / ±${T.AV_VMA_DIFF} different): ${hard.join(", ")}. `
+        + `Outside them the Department retests the Contractor's retained samples for the affected sublot and `
+        + `ITS results compute the lot pay - so the pay on the Lot Pay step, which reads the Contractor's `
+        + `figures, is not the pay this lot will get.` });
+  }
+  if (soft.length) {
+    out.push({ sectionId: `sublot-${first}`,
+      text: `Department verification between ${T.AV_VMA_SAME} and ${T.AV_VMA_DIFF} on: ${soft.join(", ")}. `
+        + `KYTC 402.03.03 A) allows ±${T.AV_VMA_SAME} on the same equipment and ±${T.AV_VMA_DIFF} on different, `
+        + `and this form does not know which lab ran which - within tolerance only if the two labs tested `
+        + `on different equipment.` });
+  }
+  return out;
+}
+
+/** 402.03.02 C) - the setup AC adjustment as typed, and the JMF %AC every
+ *  sublot is actually paid against: the approval's figure plus it. ONE
+ *  arithmetic for the page (lotPayInputs(), the readout, the PDF) and the
+ *  workbook (lotScalars() in the mapper); rounded to the hundredth the JMF
+ *  is published to. Blank is zero - no adjustment is the ordinary lot. */
+function setupAcAdjust() {
+  const a = num(fieldValue("lot_setup_ac_adjust"));
+  return a == null ? 0 : a;
+}
+function effectiveJmfAc() {
+  const d = lotDesign();
+  const base = d ? num(d.jmf_ac) : null;
+  if (base == null) return null;
+  return Math.round((base + setupAcAdjust()) * 100) / 100;
+}
+function setupAcAdjustWarnings() {
+  const a = num(fieldValue("lot_setup_ac_adjust"));
+  if (a == null || a === 0) return [];
+  const { MIN, MAX } = CONFIG.SETUP_AC_ADJUST;
+  if (a >= MIN - 1e-9 && a <= MAX + 1e-9) return [];
+  return [{ sectionId: "binder",
+    text: `Setup AC adjustment of ${a > 0 ? "+" : "−"}${fmt(Math.abs(a), 2)}% is outside the ${MIN} to +${MAX} `
+      + `KYTC 402.03.02 C) allows during setup, "provided all other properties stay within their specified `
+      + `acceptance limits". Beyond that it is a change to the approved mix design, which needs the Engineer's `
+      + `written approval - and the adjusted AC must stay above 403.03.03 C) 2)'s minimums. Every sublot on `
+      + `Lot Pay is being measured against the adjusted figure.` }];
+}
+
+/** 402.03.02 B) - no quality control sample before 50 tons at the start of a
+ *  production day, read off the ticket's own "Tons today before sample". */
+function sampleTimingWarnings() {
+  const min = CONFIG.SAMPLE_MIN_TONS;
+  const early = [];
+  lotRows("sublot_tickets").forEach((r) => {
+    const t = num(r.tons_before), n = sublotIndexOf(r.sublot);
+    if (t == null || !n || t >= min) return;
+    early.push({ n, t });
+  });
+  if (!early.length) return [];
+  return [{ sectionId: `sublot-${early[0].n}`,
+    text: `Sample taken behind fewer than ${min} tons on its production day: `
+      + `${early.map((e) => `sublot ${e.n} (${fmt(e.t, 0)} tons)`).join(", ")}. KYTC 402.03.02 B): at the `
+      + `beginning of each production day take no quality control sample before ${min} tons, and if the random `
+      + `number falls inside the first ${min}, sample the first loaded truck after the one carrying the ${min}th ton.` }];
+}
+
+/** Every helper above, pooled - recompute() reads this once. Empty on
+ *  DesignBook, where none of the fields exist. */
+function productionSpecWarnings(vol, ver) {
+  if (!isPlantBook()) return [];
+  return [
+    ...dustRatioWarnings(vol), ...mixTempWarnings(), ...coreCountWarnings(vol),
+    ...binderSupplierWarnings(), ...verificationToleranceWarnings(vol, ver),
+    ...setupAcAdjustWarnings(), ...sampleTimingWarnings(),
+  ];
+}
+
 function computeSublotVolumetrics() {
   if (!isPlantBook()) return null;
   const wet = [];   // blocks over 403.03.03 B)'s 0.25% - see noteWetMix()
@@ -19947,7 +20347,10 @@ function computeVerification(gse) {
     if (vma) vma.title = v.vma == null ? why : "100 - (Gmb x (100 - %AC) / the verified sublot's Gsb) - Super Verify L";
     const vfa = putCell(vRow, "vfa", v.vfa, CONFIG.DP.vfa);
     if (vfa) vfa.title = v.vfa == null ? why : "100 x (VMA - Va) / VMA - Super Verify M";
-    out.push(v);
+    // Tagged with WHICH sublot this record verifies (and which tab it sits
+    // on), so verificationToleranceWarnings() can put it beside the
+    // Contractor's figures without reading the identity table a second time.
+    out.push({ ...v, name, sub, verifies });
   });
   return { records: out, wet };
 }
@@ -20115,7 +20518,9 @@ function coresBySublot(key) {
 function lotPayInputs() {
   const d = lotDesign();
   const f = (k) => num(fieldValue(k));
-  const jmfAC = d ? num(d.jmf_ac) : null;
+  // The approval's JMF %AC PLUS the setup adjustment (402.03.02 C)) - the
+  // same sum lotScalars() writes to 'Pay Values'!A13:A16, see effectiveJmfAc().
+  const jmfAC = effectiveJmfAc();
   const targetAV = d ? num(d.target_va) : null;
   const minVMA = d ? num(d.min_vma) : null;
   const mixTypeCode = lotMixTypeCode();

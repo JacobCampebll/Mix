@@ -517,6 +517,12 @@ const NO_WORKBOOK_CELL = new Set([
   // LOT_FIELD_ALIASES (mapper.mjs) once someone checks a real workbook for
   // the actual "Additive dosage rate" cell, and remove it from this set.
   "lot_additive_dosage",
+  // 2026-09-18: the setup AC adjustment (402.03.02 C)) is a DELTA and the
+  // workbook has no cell for a delta - only the JMF %AC each sublot is paid
+  // against ('Pay Values'!A13:A16). lotScalars() folds it into that write, so
+  // it reaches the AMAW without an alias of its own; check_bridge.mjs asserts
+  // the fold (approval 5.9 + 0.2 -> 6.1 on all four rows).
+  "lot_setup_ac_adjust",
 ]);
 // Only the `lot_`-prefixed scalars: sections.mjs reserves that prefix for the
 // lot header, which is exactly what the mapper's 'Pay Values' block writes.

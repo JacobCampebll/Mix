@@ -335,9 +335,14 @@ export function sublotVolumetrics(o = {}) {
   // O = %passing #200 / Pbe, reported as a band when it leaves 0.6..1.6.
   // The workbook prints a spec note beside it rather than a number; the band
   // strings are returned so the page can say the same thing.
-  let dustRatio = null, dustRatioNote = null;
+  let dustRatio = null, dustRatioNote = null, dustRatioRaw = null;
   if (pctPassing200 != null && pbe != null && pbe !== 0) {
     const raw = pctPassing200 / pbe;
+    // The bare quotient rides out beside the banded value, because the band
+    // is the WORKBOOK's flat 0.6-1.6 and the spec's production range is
+    // per mix (402.03.02 D) 5): 1.0-2.0 on a No. 4) - the page judges the raw
+    // figure against the right one rather than re-deriving it from a string.
+    dustRatioRaw = raw;
     if (raw > 1.6) { dustRatio = ">1.6"; dustRatioNote = DUST_RATIO_NOTE; }
     else if (raw < 0.6) { dustRatio = "<0.6"; dustRatioNote = DUST_RATIO_NOTE; }
     else dustRatio = raw;
@@ -351,7 +356,7 @@ export function sublotVolumetrics(o = {}) {
     // moisture taken off it, and what the workbook will read.
     backCalcBinderPct: backCalc, moisture, binderPct,
     absorbedAC, pbe, vma, vfa,
-    dustRatio, dustRatioNote,
+    dustRatio, dustRatioNote, dustRatioRaw,
     needs: [...new Set(needs)],
   };
 }

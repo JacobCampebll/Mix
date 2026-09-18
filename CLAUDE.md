@@ -4344,3 +4344,100 @@ commit where possible.
   them out of the attributes now. **A checker that only runs with uncommitted
   fixtures is a checker that goes red quietly** - worth knowing beside the
   clipping-baseline note, which is the same hazard from the other end.
+
+- **The second spec sweep landed as one commit, 2026-09-18 (Jake: "do 1-8 as
+  one commit"): seven production thresholds PlantBook had the data for and
+  never said, plus the setup AC adjustment the pay was silently ignoring.**
+  All rail WARNINGS, none blocking - the figures are the figures, what the
+  Department does about them is the Department's. Each has a constant in
+  `CONFIG` (`DUST_RATIO`, `MIX_TEMPS`, `CORES_PER_SUBLOT`, `VERIFY_TOLERANCE`,
+  `SETUP_AC_ADJUST`, `SAMPLE_MIN_TONS`), a cite in `PLANTBOOK_CITES` opened
+  and read in the real book (`dust402` p.178, `verify402` p.180, `temp401`
+  p.173 / `401-6`, `sample402` and `setup402` p.177), and a page-level helper
+  beside `dustRatioWarnings()` returning `[{ sectionId, text }]` for
+  `recompute()` to pool through `productionSpecWarnings()` - the moisture
+  line's shape, kept because `outstanding` has one producer. Each collects its
+  offenders into ONE line and sends you to the first tab, for the reason the
+  0.90-floor line does. Verified in a browser, every one driven on and off
+  (35 probe assertions), and by the checkers: sections, page drift 205,
+  intake 158, bridge 79, roll-forward 40, pay 127/127, payview, mapper 4
+  unexplained (unchanged).
+  **Item by item, with what is worth knowing beyond the clause:**
+  **Dust-to-binder ratio (402.03.02 D) 5)) is judged on the RAW quotient
+  against the SPEC's range for this mix, not on the workbook's band.**
+  `Superpave!O14` prints `">1.6"` whatever the mix, and a No. 4 mixture's
+  production range is 1.0-2.0 - so a No. 4 sublot at 1.9 is in spec while its
+  cell reads out of it. `volumetrics.mjs` returns `dustRatioRaw` beside the
+  banded value now (both copies), and the rail line says which range it read.
+  The DESIGN criterion (403.03.03 C) 1), surface 0.6-1.4) is a different
+  number and DesignBook's business; not touched.
+  **Mixture temperature (401.03.01, "Asphalt Mixtures at Plant (Measured in
+  Truck)") has no HMA/WMA switch on the form, so the WMA rows are a softer
+  line, not a fault.** Above the HMA ceiling or below the WMA floor is
+  "outside"; between the WMA and HMA floors is "fine only if this is a warm
+  mix". Only PG 64-22 and PG 76-22 are in the table, so any other grade gets no
+  verdict rather than a borrowed one. `binderGradeKey()` strips the space, so
+  `PG 64-22` and `PG64-22` are one key.
+  **Core counts (402.03.02 D) 6), Option A: 4 mat, 2 joint) count cores WITH
+  a % solid on sublots that HAVE volumetrics**, because that is what density
+  pay is computed from and a labelled, unweighed core is not a density. A
+  sublot cored the next day is simply not there yet, and the text says so.
+  Option B is silent, and joint cores are only expected where
+  `lot_joint_density` is Yes.
+  **A changed binder is two different lines, because the spec makes them two
+  different things.** 402.03.02 C): "Within the same performance grade,
+  changing asphalt binder supplier is permitted by notifying the Engineer and
+  noting the new supplier and the supplier source code on the Asphalt Mixture
+  Acceptance Workbook" - so a SUPPLIER change is a reminder to notify and to
+  leave the box as the supplier actually delivering (it IS the AMAW note,
+  `'Pay Values'!B46/C46`). A GRADE change is a change to the approved design
+  and needs written approval. Both compare against `values.design`, which
+  `intake.mjs` now stamps with the approval's `binder_terminal` and
+  `binder_grade` (both copies) - a lot saved before this has neither and
+  raises neither, honestly.
+  **Department verification (402.03.03 A)) has TWO AV/VMA tolerances and the
+  form cannot tell them apart.** AC ±0.5; AV and VMA ±1.0 on the same
+  equipment, ±1.5 on different. So a difference over 1.5 is a hard line
+  ("the Department retests the retained samples and ITS results compute the
+  lot pay - so the pay on the Lot Pay step is not the pay this lot will
+  get"), and 1.0-1.5 is raised as "within tolerance only if the two labs
+  tested on different equipment". `computeVerification()` tags each record
+  with `verifies` / `name` / `sub` so the comparison never reads the identity
+  table a second time. Still untested against a real lot with a real
+  verification, same debt `check_verify.mjs` records.
+  **The MCL warning now says what MCL costs** (402.05.02's footnotes, STD
+  pp.187-189): remove and replace at no expense to the Department, or remain
+  at a 0.65 pay factor on the Contract unit BID price - not the $50 - for the
+  tonnage the failing test represents, one sublot for an acceptance test; a
+  removal runs halfway to the preceding and succeeding acceptable tests.
+  `payview.mjs`, both copies; it stays the STRING it is.
+  **The setup AC adjustment (402.03.02 C), -0.10 to +0.3) is a DELTA on
+  Contract & Mix, and the JMF %AC every sublot is paid against is the
+  approval's figure plus it - ONE arithmetic in three places.** The approval's
+  own figure stays a signed readout (a signature that covers a value and a box
+  that retypes it are contradictory); `effectiveJmfAc()` on the page feeds
+  `lotPayInputs()`, the Lot Pay readout (whose caption then reads
+  "5.9 + 0.20 setup adjustment") and the review PDF; `lotScalars()` in the
+  mapper folds it into `'Pay Values'!A13:A16` on the way to the workbook,
+  which has no cell for a delta - so `lot_setup_ac_adjust` is on
+  `NO_WORKBOOK_CELL` with that reason and `check_bridge.mjs` asserts the fold
+  (5.9 + 0.2 -> 6.1 on all four rows). A real workbook's own A13 still wins,
+  because `check_mapper` reads it. It sits on the `binder` block, which draws
+  INTO the lot step, so `frameFields()` calls it frame and it ROLLS FORWARD -
+  correct, not an accident: after setup the adjusted figure IS the JMF.
+  Outside the range it warns, and adds the clause's own condition ("provided
+  all other properties stay within their specified acceptance limits").
+  **The 50-ton rule (402.03.02 B)) needed a column nobody had, so it has one:
+  `tons_before`, "Tons today before sample", optional, on the ticket table.**
+  It is NOT the cumulative Tons column, which counts the whole lot and says
+  nothing about the day. No AMAW cell holds it, so `LOT_TABLE_ROUTES` drops it
+  by name - which is how `check_bridge`'s "every column is routed or explicitly
+  dropped" stays true. Below 50 the line quotes the remedy: sample the first
+  loaded truck after the one carrying the 50th ton.
+  **Two things about the probe that will save the next person an hour.** A
+  `source:` combo field CLEARS a typed off-list value on the `change` event,
+  so a probe that dispatches `change` after typing "SOMEBODY ELSE" tests an
+  empty box - dispatch `input` and pick a value off `state.ref`. And the test
+  lot carries four weighed cores per sublot, so "short of cores" has to be
+  driven by blanking a core's weight, not by feeding the helper a synthetic
+  sublot - the counts come off the live tables.

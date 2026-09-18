@@ -108,6 +108,34 @@ export const PLANTBOOK_CITES = {
     label: "KYTC 402.05.02",
     what: "the Lot Pay Adjustment — the three schedules are on PDF 185 (402-10), 186 (402-11) and 188 (402-13)",
   },
+  // ---- Added 2026-09-18 with the second spec sweep (Jake: "do 1-8 as one
+  // commit"). Every page below was opened and read in the real 2026 book, and
+  // the footer recorded beside it, per the method at the top of this table.
+  dust402: {
+    doc: "STD", page: 178, footer: "402-3",
+    label: "KYTC 402.03.02 D) 5)",
+    what: "the dust-to-binder ratio in production — 0.6 to 1.6, or 1.0 to 2.0 on a No. 4 mix; outside it make immediate corrections, and if it is still outside cease production",
+  },
+  verify402: {
+    doc: "STD", page: 180, footer: "402-5",
+    label: "KYTC 402.03.03 A)",
+    what: "Department verification — a QA/IQ result against the sublot it verifies: AC ±0.5, AV and VMA ±1.0 on the same equipment or ±1.5 on different; outside those the Department retests the retained samples and ITS results compute the lot pay",
+  },
+  temp401: {
+    doc: "STD", page: 173, footer: "401-6",
+    label: "KYTC 401.03.01",
+    what: "mixing and laying temperatures — asphalt mixture at the plant, measured in the truck: PG 64-22 HMA 250–330 °F, PG 76-22 HMA 310–350; a WMA may run to 230 / 250 at the floor",
+  },
+  sample402: {
+    doc: "STD", page: 177, footer: "402-2",
+    label: "KYTC 402.03.02 B)",
+    what: "sampling — one sample per sublot from the truck bed at the plant, and no quality control sample before 50 tons at the start of a production day",
+  },
+  setup402: {
+    doc: "STD", page: 177, footer: "402-2",
+    label: "KYTC 402.03.02 C)",
+    what: "the setup period — the first sublot; adjust the AC from −0.10 to +0.3 of the JMF while establishing it, and after the first sublot make no change to the approved design without the Engineer's written approval",
+  },
 };
 
 // DesignBook cite keys this schema reuses. The checker resolves a `cites`
@@ -626,7 +654,7 @@ const sixOf4 = (n) => [0, 1, 2, 3, 4, 5].map((i) => 6 * (n - 1) + i);
 // the section(s) wrapping them changed.
 const SUBLOT_TICKETS_SPEC = {
   key: "sublot_tickets", heading: "Sublot ticket", banded: true, fixed: true,
-  grid: ".7fr 1fr .8fr .9fr .9fr .8fr 1fr 1fr 1.1fr 1.5fr",
+  grid: ".7fr 1fr .8fr .9fr .9fr .9fr .8fr 1fr 1fr 1.1fr 1.5fr",
   seed: TICKET_SEED,
   columns: [
     { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
@@ -646,6 +674,14 @@ const SUBLOT_TICKETS_SPEC = {
     // 4955 -> 5390 -> 6693 -> 7530. The label says so, because a
     // technician reading "Tons" will type the sublot's own.
     { key: "tons_cum", label: "Tons (cum.)", type: "number", req: true, mono: true },
+    // 402.03.02 B): "At the beginning of each production day, do not take
+    // any quality control samples before the production of 50 tons." What
+    // this sublot's sample was taken behind TODAY - not the cumulative figure
+    // above, which counts the whole lot and says nothing about the day. On no
+    // cell: MEDL never receives it and LOT_TABLE_ROUTES drops it by name; the
+    // page raises the 50-ton rule off it (sampleTimingWarnings()). Optional,
+    // because both real lots were sampled with nobody writing this down.
+    { key: "tons_before", label: "Tons today before sample", type: "number", req: false, mono: true },
     // On the sheet and on the printed page, but NOT in the staging
     // field map — MEDL never receives it. Kept because the Department
     // reads it, and optional because nothing downstream needs it.
@@ -1012,7 +1048,7 @@ function buildSublotTabSections() {
       id: `sublot-${n}`, label: `Sublot ${n}`, step: `Sublot ${n}`,
       tag: `AMAW · QC0${n} — this sublot's blend %, ticket, BSG/MSG, gradation weights and cores`,
       type: "rows",
-      cites: ["accept402", "volumetric", "density402", "agg805"],
+      cites: ["accept402", "volumetric", "density402", "dust402", "temp401", "sample402", "agg805"],
       rows,
     });
   }
@@ -1223,7 +1259,7 @@ function buildSublotVerificationSections() {
       id: `sublot-${n}-verify`, label: "Department Verification", into: `sublot-${n}`, banded: true,
       tag: "AMAW · Super Verify — QA01 / IQ01, this sublot's slot",
       type: "grid",
-      cites: ["accept402", "km443"],
+      cites: ["accept402", "verify402", "km443"],
       rows: [
         sliceSpec(VERIFY_IDENTITY_SPEC, verifyRowOf4(n)),
         sliceSpec(VERIFY_BSG_SPEC, verifySpecimenOf4(n)),
@@ -1535,7 +1571,7 @@ export const PLANTBOOK_SECTIONS = [
     id: "binder", label: "Binder", into: "lot", banded: true,
     tag: "AMAW · Pay Values B46/C46 — dropdowns from Supabase reference",
     type: "grid",
-    cites: ["accept402"],
+    cites: ["accept402", "setup402"],
     fields: [
       { key: "lot_binder_terminal", label: "Binder producer", type: "text", req: true,
         source: "binder_terminals" },
@@ -1546,6 +1582,18 @@ export const PLANTBOOK_SECTIONS = [
       // additive is itself optional (`lot_additive` above), so a dosage rate
       // with nothing to dose is meaningless rather than missing.
       { key: "lot_additive_dosage", label: "Additive dosage rate (%)", type: "number",
+        req: false, mono: true },
+      // 402.03.02 C): "When necessary during setup, adjust the AC up to -0.10
+      // percent to + 0.3 percent provided all other properties stay within their
+      // specified acceptance limits." A DELTA from the approval's JMF %AC, not a
+      // retyped JMF - the approval's own figure stays a readout, because a
+      // signature that covers a value and a box that lets someone retype it are
+      // contradictory. It is what every sublot is then paid against:
+      // lotScalars() folds it into 'Pay Values'!A13:A16 and the page's Lot Pay
+      // reads the same sum (effectiveJmfAc()). Frame, so it rolls forward with
+      // the lot - after setup the adjusted figure IS the JMF. Optional: no
+      // adjustment is the ordinary case, and a blank is zero.
+      { key: "lot_setup_ac_adjust", label: "Setup AC adjustment (± % from JMF)", type: "number",
         req: false, mono: true },
     ],
   },

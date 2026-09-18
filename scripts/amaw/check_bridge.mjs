@@ -168,6 +168,9 @@ function buildFormLot() {
   //    them. A fixture without this block cannot see that seam at all.
   values.design = { jmf_ac: 5.9, target_va: 3.5, min_vma: 15.0 };
   values.lot_wedge_tons = 120;
+  // 402.03.02 C)'s setup adjustment - a DELTA on the form, folded into the
+  // JMF %AC on the way to the sheet. Asserted in B2 below.
+  values.lot_setup_ac_adjust = 0.2;
 
   // -- row tables
   for (const { table } of rowTables()) {
@@ -368,7 +371,13 @@ is('QC01 truck ticket tonnage',
 console.log('\nB2. the approval\'s pay constants reach their cells');
 const jmfCell = A(INPUTS.jmfAc.sheet, `${INPUTS.jmfAc.col}${INPUTS.jmfAc.first}`);
 const mvCell = A(INPUTS.minVma.sheet, `${INPUTS.minVma.col}${INPUTS.minVma.first}`);
-is('the JMF %AC reaches \'Pay Values\'!A13', cells[jmfCell] === 5.9, cells[jmfCell]);
+// 5.9 on the approval plus the 0.2 setup adjustment typed on the form - the
+// delta has no cell of its own and reaches the workbook only inside this one.
+is('the JMF %AC reaches \'Pay Values\'!A13 as the approval\'s 5.9 + the 0.2 setup adjustment',
+  cells[jmfCell] === 6.1, cells[jmfCell]);
+is('the adjusted JMF %AC is written for all four sublots',
+  [0, 1, 2, 3].every((i) =>
+    cells[A(INPUTS.jmfAc.sheet, `${INPUTS.jmfAc.col}${INPUTS.jmfAc.first + i}`)] === 6.1));
 is('the minimum VMA reaches \'Pay Values\'!H13', cells[mvCell] === 15.0, cells[mvCell]);
 is('wedge tons reaches \'Pay Values\'!J20', cells[INPUTS.wedgeTons] === 120, cells[INPUTS.wedgeTons]);
 is('the minimum VMA is written for all four sublots',

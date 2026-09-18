@@ -524,6 +524,20 @@ export function lotScalars(values) {
     if (design[from] !== undefined && design[from] !== null && design[from] !== ''
         && v[to] === undefined) out[to] = design[from];
   }
+  // The setup AC adjustment (402.03.02 C), -0.10 to +0.3 of the JMF) is a
+  // DELTA typed on the form; the workbook has no cell for the delta, only
+  // the JMF %AC each sublot is paid against ('Pay Values'!A13:A16). So the
+  // approval's figure plus the adjustment is what reaches the sheet, and the
+  // page's Lot Pay reads the same sum (effectiveJmfAc()) - one fact, one
+  // arithmetic. Only for a value that came off the form: a `jmf_ac` already
+  // under the mapper's own name is a real workbook's cell and wins, because
+  // check_mapper reads A13 itself. Rounded to the hundredth the JMF is
+  // published to, so 5.9 + 0.2 does not reach the sheet as 6.1000000000000005.
+  const adj = Number(v.lot_setup_ac_adjust);
+  if (v.jmf_ac === undefined && Number.isFinite(adj) && adj !== 0
+      && v.lot_setup_ac_adjust !== '' && Number.isFinite(Number(out.jmf_ac))) {
+    out.jmf_ac = Math.round((Number(out.jmf_ac) + adj) * 100) / 100;
+  }
   return { ...out, ...v };
 }
 
@@ -597,6 +611,11 @@ export const LOT_TABLE_ROUTES = {
       technician: 'tested_by',          // RENAME
       ac_method: 'acceptance_label',    // RENAME; the CODE is derived from it
     },
+    // 402.03.02 B)'s 50-ton rule is judged on the page and nothing on the
+    // sheet holds "tons produced today before the sample" - the ticket's own
+    // Tons column is the cumulative lot figure (Superpave!L). Dropped by name
+    // so check_bridge's "every column is routed or explicitly dropped" holds.
+    drop: { tons_before: 'no AMAW cell - the page raises the 50-ton sampling rule off it (402.03.02 B))' },
   },
   sublot_bsg: {
     by: 'sublot', id: 'sublot', slot: 'specimen', into: 'rows.specimens',

@@ -850,7 +850,12 @@ export function payWarnings(result, ctx = {}) {
 
   if (h.mcl) {
     out.push(w(`${h.why} The rest of this readout still shows every sublot's result, `
-      + `which is what the Department will want to see.`));
+      + `which is what the Department will want to see. What MCL means on the ground `
+      + `(402.05.02's own footnotes, STD pp.187-189): the Department decides whether the material `
+      + `is removed and replaced at no expense to it, or stays in place at a 0.65 pay factor on the `
+      + `Contract unit BID price - not the $50 - for the tonnage the failing test represents, one `
+      + `sublot for an acceptance test. A removal runs from halfway to the preceding acceptable `
+      + `test to halfway to the succeeding one, and the Engineer may widen or narrow it.`));
   } else if (h.state === 'bad') {
     out.push(w(`Lot pay is ${fmtPct(result.finalPct)}: a penalty of `
       + `${fmtTons(result.tonnageAdj, { signed: false })}`
