@@ -11,10 +11,11 @@ before anything was written to Supabase.
 that AMP number is a real row in `plants`. **All 80 KYTC district/CO/crew
 codes (`LU#####` / `DL#####`) went into `supabase/kytc_district_labs.sql`.**
 **A second pass 2026-09-17b resolved the 8 duplicate-AMP codes (section 1)
-too, adding 17 more rows** — 109 total now. Everything else below was left
-OUT of the seed rather than guessed at. Nothing here blocks PlantBook — it
-just means these specific plants/companies have no producer/supplier lab
-option in the dropdown yet.
+too, adding 17 more rows** — 109 total. **A third pass 2026-09-18 added one
+more** (`C198` -> `AMP070311`, flagged unconfirmed - see section 2) — 110
+total now. Everything else below was left OUT of the seed rather than
+guessed at. Nothing here blocks PlantBook — it just means these specific
+plants/companies have no producer/supplier lab option in the dropdown yet.
 
 **Same pass, `lab_name`'s job changed.** It no longer holds the export's
 raw "Company - AMPxxxxxx" string; it's `plants.name` itself, kept in sync
@@ -88,7 +89,7 @@ also unblocks its lab code here.
 | `AMP060305` | `C179` | Ohio Valley Asphalt |
 | `AMP060401` | `C186` | Barrett Paving Materials |
 | `AMP070310` | `C229` | Hamilton & Hinkle Paving |
-| `AMP070501` | `C198` | The Allen Company |
+| `AMP070501` | `C198` | The Allen Company (**RESOLVED 2026-09-18** - see below) |
 | `AMP080307` | `C202` | Mago Construction |
 | `AMP090101` | `C356` | Brown County Construction |
 | `AMP090109` | `C801` | Freedom Asphalt |
@@ -112,6 +113,19 @@ County Construction, Freedom Asphalt) have **no footprint anywhere else in
 the export** — the "went out of business" explanation (same as `HAPCO, LLC
 - Out of Business` in section 3) fits these best, but there's nothing to
 redirect them to even if that's confirmed.
+
+**RESOLVED 2026-09-18: `C198` inserted as `AMP070311`, flagged unconfirmed.**
+Andrew noticed `AMP070301` (Berea)'s two codes (`C199`/`C518`, both clean per
+section 1) and initially suspected one was misfiled for the still-uncovered
+Danville plant. It wasn't — the export genuinely ties both to Berea with no
+typo on our end — but that prompted re-checking this section, where the real
+candidate was already sitting: `C198`/`AMP070501`. Inserted with
+`flagged_mismatch = true` and a note explaining the inferred renumbering,
+same honesty mechanism as the 7+2 rows in section 5/§1 — nobody has actually
+confirmed `070501` was Danville's old number, only inferred it from `plants`
+having no other lab code for a plant this well-documented elsewhere in the
+app. If that inference turns out wrong, unflagging or reassigning it is a
+one-row update, not a schema change.
 
 ## 3. Contractor codes with no AMP at all (25) — plant-tied field can't use these
 

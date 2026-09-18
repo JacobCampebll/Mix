@@ -388,3 +388,24 @@ on conflict (lab_id) do update set
   amp_number = excluded.amp_number,
   flagged_mismatch = excluded.flagged_mismatch,
   flag_note = excluded.flag_note;
+
+-- ---------------------------------------------------------------------
+-- Third pass, 2026-09-18 (Andrew, after noticing AMP070301/Berea's C199/
+-- C518 pair and wondering if one of them was misfiled for the still-
+-- uncovered Danville plant). It wasn't - the export genuinely ties both
+-- to Berea, no typo on our end - but the reconciliation doc's own section 2
+-- already named the real candidate: C198, tied in the export to AMP070501,
+-- which matches no live plant. `plants` carries AMP070311 ("The Allen
+-- Company @ Danville (Drum)") with no lab code otherwise seeded, and the
+-- doc speculated 070501 may simply be an old number for what's now 070311.
+-- Inserted flagged rather than silently trusted - nobody has confirmed the
+-- renumbering, only inferred it. See CLAUDE.md, dated 2026-09-18.
+-- ---------------------------------------------------------------------
+
+insert into producer_supplier_labs (lab_id, amp_number, lab_name, flagged_mismatch, flag_note) values
+  ('C198', 'AMP070311', null, true,
+   'Export lists C198 under AMP070501, which matches no live plant; plants carries AMP070311 (The Allen Company @ Danville (Drum)) with no lab code otherwise seeded. Inferred renumbering (070501 -> 070311), NOT confirmed - see docs/plantbook-lab-id-reconciliation.md section 2 and the CLAUDE.md entry dated 2026-09-18.')
+on conflict (lab_id) do update set
+  amp_number = excluded.amp_number,
+  flagged_mismatch = excluded.flagged_mismatch,
+  flag_note = excluded.flag_note;
