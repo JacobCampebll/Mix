@@ -3648,6 +3648,58 @@ read-only, so a write test goes through `apply_migration` and ends in
   right step with the right control focused holding the right value. Harness
   354 passing, page checker 197, unchanged by any of this.
 
+- **The polish-resistant class gaps Andrew found on Granite/Siltstone
+  (2026-09-18) were real, but the fix was not to `aggregate_types` - that
+  table's nulls for those two lithologies are correct, on the same footing
+  as the Dolomite-fine-sizes precedent already in this file.** `aggregate_types`
+  only ever carries a generic, type-name-only answer; for Dolomite/Limestone/
+  Slag KYTC's own list gives both an unclassed and a Class A/B variant name,
+  and for Quartzite/Sandstone the generic name always says Class A - but for
+  **Granite and Siltstone neither variant exists, on purpose**, because per
+  the LAM (`docs/lam-polish-resistant-sources.md`) those two are certified
+  per PRODUCER with no KY-wide generic answer (granite in particular has zero
+  domestic sources - all four approved producers are out of state). That is
+  exactly why `polish_resistant_sources` and its `polishFactsFor()` override
+  (`designbook.html`, 2026-09-11) already exist, and it already covers
+  granite, siltstone, quartzite and traprock correctly.
+  **The real bug: the override can only fire for a producer already in
+  `aggregates`, and 10 of the 45 LAM-approved producers were never added
+  there** - `aggregates` was seeded 2026-09-02/03, before the LAM extraction
+  existed, and nobody went back to reconcile the two. All 4 granite
+  producers (Vulcan Enka NC, Vulcan Hendersonville NC, Maymead, Harrison
+  Construction @ Waynesville), the one quartzite producer (Martin Marietta @
+  Elizabethton), and 4 of 6 siltstone producers (Vulcan Springfield TN,
+  Rogers Group Cross Plains TN, Vulcan Clarksville Quarry, Vulcan Dickson TN
+  - Haydon Greensburg and Winn Materials were already there) were missing.
+  So a real design built on "Granite #67's" or most Siltstone sizes from an
+  actually-approved producer got no match anywhere - not in the producer
+  dropdown, and no LAM override, since the override needs an AGP number that
+  resolves - and read as unproven/not-PR despite the LAM saying Class A+ with
+  "Restriction: None" for every one of the four granite sources. Every other
+  lithology (dolomite 13/13, limestone 7/7, sandstone 4/4, crushed gravel
+  6/6, slag 3/3) was already fully covered, which is why this never surfaced
+  until someone specifically checked granite/siltstone.
+  **Fixed by inserting the 9 missing producers into `aggregates`** (category
+  `crushed_stone` for all nine, matching the existing convention that
+  dolomite/limestone/quartzite/siltstone share one category rather than each
+  getting their own - the `category` check constraint only allows
+  `crushed_stone`/`sand_gravel`/`slag`/`sandstone` anyway). Verified by
+  rejoining `polish_resistant_sources` to `aggregates`: all 9 now resolve a
+  producer, and `get_advisors` showed no new findings from the insert (the
+  two pre-existing warnings are the `claim_technician`/
+  `mark_technician_onboarded` SECURITY DEFINER functions and leaked-password
+  protection, both already known and unrelated).
+  **Ontario Traprock (AGP000606, the LAM's one traprock producer) was
+  deliberately NOT added, on Andrew's call.** `aggregate_types` has no
+  "Traprock" type name at all today - a technician cannot select the
+  material - and adding one needs a real SiteManager mat_code, which nobody
+  has; the code comment at `polishLithologyOf()` in `designbook.html` already
+  says as much ("Traprock has no aggregate_types row today... kept so the
+  mapping stays complete if KYTC ever adds one"). Same rule this file already
+  applies to the Sample id prefix and the district Class 2 lab codes: a
+  guessed identifier is worse than a documented gap. Left open rather than
+  guessed at.
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
