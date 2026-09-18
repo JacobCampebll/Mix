@@ -183,6 +183,62 @@ export const FAILURE = {
 // editable like every other provisional one.
 export const LOT_TONS = 4000;
 
+// ---------------------------------------------------------------------
+//  HOW MANY LOTS THIS LINE ITEM HOLDS — the "of ~11" in "Lot 8 of ~11"
+// ---------------------------------------------------------------------
+//
+//  Jake, 2026-09-17: a technician eleven lots into a 44,000-ton line item
+//  has no way to know that from the page - the lot number is a box they
+//  type, and nothing says how many the job has.
+//
+//  The quantity is already here. `kytc-items` returns each line's CURRENT
+//  QUANTITY (the pay estimate's live figure, which unlike the paid-to-date
+//  columns does NOT lag production), `applyProjectItems()` puts it on the
+//  `project_items` table, and a lot inherits that table from its approval.
+//  So this is arithmetic on what the lot already carries rather than a
+//  second fetch, and it moves on its own when a change order re-quantifies
+//  the line and somebody presses the lookup again.
+//
+//  THE DIVISOR IS THE SPEC CONSTANT, NOT THIS LOT'S OWN `lot_tons`. A lot
+//  IS 4,000 tons (402.03.02 A)) and `lot_tons` is editable precisely
+//  because the LAST lot of a job is short - dividing by a short lot's own
+//  tonnage would inflate the count of a job that is nearly finished.
+//
+//  ONE LINE ITEM OR NOTHING, and that is the load-bearing half. Jake
+//  settled the same day what a lot number resets on: contract, line item,
+//  design AND plant - so two line items on the table are two separate lot
+//  SERIES, each numbered from 1, and "which of them is this lot" is a
+//  question the form cannot answer (nothing records the line a lot is on).
+//  Summing them would invent a denominator for a series that does not
+//  exist; picking the first would be a guess. Both are named instead - the
+//  same answer `applyProjectItems()` gives when two mixes could be the
+//  design's, and the same rule as the compaction Option.
+//
+//  It is an ESTIMATE and reads as one wherever it is printed ("~11"). The
+//  quantity is a live figure that a change order moves, the last lot is
+//  short, and nothing here gates anything: a lot whose number exceeds the
+//  estimate is perfectly ordinary and is not flagged.
+export function expectedLots(lot) {
+  const rows = ((lot && lot.rows && lot.rows.project_items) || [])
+    .filter((r) => r && (str(r.project) || str(r.line) || num(r.quantity) != null));
+  if (!rows.length) return { lots: null, why: 'no project items on this lot' };
+  if (rows.length > 1) {
+    const named = rows.map((r) => `${str(r.project) || '?'} ln ${str(r.line) || '?'}`).join(', ');
+    return { lots: null, why: `this contract carries ${rows.length} line items for the mix (${named}) `
+      + 'and a lot number restarts on each, so which series this lot is in is not stated' };
+  }
+  const r = rows[0], tons = num(r.quantity);
+  if (!(tons > 0)) return { lots: null, why: 'the line item carries no quantity' };
+  return {
+    lots: Math.ceil(tons / LOT_TONS),
+    tons,
+    line: str(r.line) || null,
+    project: str(r.project) || null,
+    unit: str(r.unit) || null,
+    why: null,
+  };
+}
+
 // The unit price the Lot Pay Adjustment is computed against - $50.00/ton,
 // a SPEC CONSTANT and not this contract's bid price.
 //

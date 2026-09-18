@@ -7956,6 +7956,64 @@ function computeTSR() {
 }
 
 /* ---------- validation: the step block, the rail ticks, the meter ---------- */
+/**
+ * The lot as `expectedLots()` wants it, read LIVE off the form wherever the
+ * form is on screen and off `state.lot` before it is.
+ *
+ * BOTH SURFACES GO THROUGH THIS. The appbar chip's "of ~11" and the sentence
+ * behind it on the box are one answer painted twice, and reading `state.lot`
+ * for the chip is what made them disagree: that snapshot is written when the
+ * lot is opened and again when it is saved, so a Project Items lookup - which
+ * is the whole reason the count moves - left the chip on the approval's
+ * figure with the tooltip already on the new one.
+ *
+ * rowsOfList + rowValuesOf rather than collectForm(): recompute() runs on
+ * every keystroke anywhere in the lot, and walking the WHOLE form to read one
+ * table would put a full collect behind each one. The two helpers read
+ * exactly the rows this needs, and rowsOfList() is the same function every
+ * other per-table reader on the page uses, so a sliced table (four
+ * `[data-rowlist]` nodes on the Sublot tabs) reconstructs correctly here
+ * too - project_items is not sliced today, and this does not care.
+ */
+function lotExpectation() {
+  const live = document.querySelector('[data-rowlist="project_items"]');
+  const lot = live
+    ? { rows: { project_items: rowsOfList("project_items").map(rowValuesOf) } }
+    : state.lot;
+  return lot ? PB_LOT.expectedLots(lot) : null;
+}
+
+/**
+ * The appbar's "LOT 8 of ~11" and the sentence behind it, painted together.
+ *
+ * Same split this file already uses for a prefilled value: the NUMERAL is on
+ * screen and the detail behind it rides in the control's `title`, rather than
+ * a line of grey text under the field (the `.srcnote` that went away
+ * 2026-09-13). One producer either way - both read `expectedLots()` through
+ * `lotExpectation()`, and neither recomputes a denominator of its own.
+ *
+ * It says WHY when it cannot count, because "no denominator" and "two line
+ * items so the question is ambiguous" are different answers and the second is
+ * the one a person can act on.
+ */
+function paintLotDenominator() {
+  const el = document.querySelector('[data-field="lot_number"]');
+  if (!el) return;
+  // The chip carries the numeral and this carries the sentence, so they are
+  // painted together rather than at two different moments.
+  const chip = $("mixid");
+  if (chip) chip.textContent = designLabel();
+  const e = lotExpectation();
+  if (e && e.lots) {
+    const where = [e.project, e.line ? `line ${e.line}` : null].filter(Boolean).join(" ");
+    el.title = `${where || "This line item"} carries ${e.tons.toLocaleString()}`
+      + `${e.unit ? " " + e.unit : ""} - about ${e.lots} lots of ${PB_LOT.LOT_TONS.toLocaleString()} tons. `
+      + "Approximate: a change order moves the quantity and the last lot is short.";
+  } else {
+    el.title = `How many lots this line item holds is not known - ${e ? e.why : "no project items"}.`;
+  }
+}
+
 function recompute() {
   const outstanding = [];
   let totalReq = 0, totalFilled = 0;
@@ -8129,6 +8187,7 @@ function recompute() {
   // left the page's own VMA preview one keystroke behind a blend edit, same
   // trap as everywhere else this rule applies. computeCoreSolids() writes
   // the readonly % solid column that lotPay() then reads.
+  paintLotDenominator();
   paintBlendMirrors();
   computeBlendGsb();
   const vol = computeSublotVolumetrics();
@@ -9121,7 +9180,23 @@ function designLabel() {
   // pay (lot 1 sublot 1 carries the "*For Sublot # 1 Only" allowance and
   // nothing else on the job ever does).
   if (isPlantBook()) {
-    if (state.lot) return `LOT ${state.lot.lot_number} · ${state.lot.mix_id}`;
+    // "LOT 8 of ~11" (Jake, 2026-09-17). The denominator is the line item's
+    // own quantity over a 4,000-ton lot, and it is deliberately APPROXIMATE:
+    // the quantity moves with a change order and the last lot of a job is
+    // short. `expectedLots()` is the single producer and refuses rather than
+    // guesses - two line items on the contract are two lot SERIES, so it
+    // names them instead of summing. A lot past the estimate is ordinary and
+    // is not flagged; this is orientation, not a check.
+    if (state.lot) {
+      const e = lotExpectation();
+      const of = e && e.lots ? ` of ~${e.lots}` : "";
+      // The NUMERATOR is live too: `lot_number` is an ordinary editable field
+      // and a lot rolled forward or corrected must not keep announcing the
+      // number it was opened on.
+      const n = fieldValue("lot_number");
+      const no = n == null || n === "" ? state.lot.lot_number : n;
+      return `LOT ${no}${of} · ${state.lot.mix_id}`;
+    }
     return "LOT · —";
   }
   if (state.mix) return `MIX · ${state.mix.signature}`;
@@ -16778,6 +16853,18 @@ const PB_LOT = (() => {
   // A lot is identified by contract + plant + mix + lot number. Same four
   // columns as amaw_lots' unique index, so a key computed here and a row found
   // there can never disagree about which lot is which.
+  //
+  // KNOWN INCOMPLETE, and stated rather than half-fixed (Jake, 2026-09-17): the
+  // lot number restarts per contract + LINE ITEM + design + plant, and a
+  // contract can carry two line items for the same mix - so these four columns
+  // can collide between two real lots that are genuinely different. The fifth
+  // part is the line item, which the lot envelope holds only as a row of
+  // `project_items` rather than as a scalar, and the DDL's unique index would
+  // have to move with the constant or the sentence above stops being true. Both
+  // halves are one change and neither is made here; nothing calls
+  // `createLotStore()` yet and `supabase/amaw_lots.sql` is unapplied, so the
+  // collision is not reachable today. `expectedLots()` already refuses to count
+  // a denominator on a two-line-item contract for the same reason.
   const IDENTITY = ['contract_id', 'amp_number', 'mix_id', 'lot_number'];
 
   /** Stable key for one lot. Uppercased and trimmed so "252112 " and "252112"
@@ -17509,6 +17596,62 @@ const PB_LOT = (() => {
   // 'Pay Values'!F4. The last lot of a job is short, so the seeded value stays
   // editable like every other provisional one.
   const LOT_TONS = 4000;
+
+  // ---------------------------------------------------------------------
+  //  HOW MANY LOTS THIS LINE ITEM HOLDS — the "of ~11" in "Lot 8 of ~11"
+  // ---------------------------------------------------------------------
+  //
+  //  Jake, 2026-09-17: a technician eleven lots into a 44,000-ton line item
+  //  has no way to know that from the page - the lot number is a box they
+  //  type, and nothing says how many the job has.
+  //
+  //  The quantity is already here. `kytc-items` returns each line's CURRENT
+  //  QUANTITY (the pay estimate's live figure, which unlike the paid-to-date
+  //  columns does NOT lag production), `applyProjectItems()` puts it on the
+  //  `project_items` table, and a lot inherits that table from its approval.
+  //  So this is arithmetic on what the lot already carries rather than a
+  //  second fetch, and it moves on its own when a change order re-quantifies
+  //  the line and somebody presses the lookup again.
+  //
+  //  THE DIVISOR IS THE SPEC CONSTANT, NOT THIS LOT'S OWN `lot_tons`. A lot
+  //  IS 4,000 tons (402.03.02 A)) and `lot_tons` is editable precisely
+  //  because the LAST lot of a job is short - dividing by a short lot's own
+  //  tonnage would inflate the count of a job that is nearly finished.
+  //
+  //  ONE LINE ITEM OR NOTHING, and that is the load-bearing half. Jake
+  //  settled the same day what a lot number resets on: contract, line item,
+  //  design AND plant - so two line items on the table are two separate lot
+  //  SERIES, each numbered from 1, and "which of them is this lot" is a
+  //  question the form cannot answer (nothing records the line a lot is on).
+  //  Summing them would invent a denominator for a series that does not
+  //  exist; picking the first would be a guess. Both are named instead - the
+  //  same answer `applyProjectItems()` gives when two mixes could be the
+  //  design's, and the same rule as the compaction Option.
+  //
+  //  It is an ESTIMATE and reads as one wherever it is printed ("~11"). The
+  //  quantity is a live figure that a change order moves, the last lot is
+  //  short, and nothing here gates anything: a lot whose number exceeds the
+  //  estimate is perfectly ordinary and is not flagged.
+  function expectedLots(lot) {
+    const rows = ((lot && lot.rows && lot.rows.project_items) || [])
+      .filter((r) => r && (str(r.project) || str(r.line) || num(r.quantity) != null));
+    if (!rows.length) return { lots: null, why: 'no project items on this lot' };
+    if (rows.length > 1) {
+      const named = rows.map((r) => `${str(r.project) || '?'} ln ${str(r.line) || '?'}`).join(', ');
+      return { lots: null, why: `this contract carries ${rows.length} line items for the mix (${named}) `
+        + 'and a lot number restarts on each, so which series this lot is in is not stated' };
+    }
+    const r = rows[0], tons = num(r.quantity);
+    if (!(tons > 0)) return { lots: null, why: 'the line item carries no quantity' };
+    return {
+      lots: Math.ceil(tons / LOT_TONS),
+      tons,
+      line: str(r.line) || null,
+      project: str(r.project) || null,
+      unit: str(r.unit) || null,
+      why: null,
+    };
+  }
 
   // The unit price the Lot Pay Adjustment is computed against - $50.00/ton,
   // a SPEC CONSTANT and not this contract's bid price.
@@ -18813,7 +18956,7 @@ const PB_LOT = (() => {
     APPROVAL_FORMAT, APPROVAL_MAX_VERSION, DOC_KIND, SUBMITTED_ACTION, APPROVED_ACTION,
     VERIFICATION, isVerified, VERIFY_FN, FAILURE, MIX_TYPE_CODES,
     splitDesignation, mixTypeFor, jointDensityFor, JOINT_DENSITY_SIZES, esalClassFor,
-    ACCEPTANCE_METHODS, acceptanceMethodFor, LOT_TONS, ADJUSTMENT_UNIT_PRICE,
+    ACCEPTANCE_METHODS, acceptanceMethodFor, LOT_TONS, ADJUSTMENT_UNIT_PRICE, expectedLots,
     effectiveMixOf, approvalChecks, submitterOf,
     verifyRequest, readVerifyResponse, notChecked, lotFromApproval,
     rollForwardLot, frameFields, ROLL_FORWARD_EXCEPTIONS,

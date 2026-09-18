@@ -3902,3 +3902,41 @@ commit where possible.
   **DesignBook is untouched again by construction** - the `<colgroup>` is
   emitted only for `wide` (a section with more than one physical column), so
   its single fluid `width:100%` gradation table is exactly as it was.
+
+- **The appbar chip reads "LOT 8 of ~11" now, and the denominator is the line
+  item's own quantity over the spec's 4,000-ton lot** (Jake, 2026-09-17,
+  picking route 2 of three). A lot number by itself says nothing about how far
+  through a job a plant is: 44,000 tons of one line item is eleven lots, and
+  "LOT 8" alone is the same chip on the second lot of a small job and the
+  second-to-last of a big one.
+  **`PB_LOT.expectedLots()` is the single producer, and it REFUSES rather than
+  guesses.** Two line items for the mix on one contract are two lot SERIES, so
+  it names them instead of summing (see the identity entry below - this is the
+  same fact from the other end). No line item, or one carrying no quantity, is
+  the same answer: a `why` sentence rather than a number.
+  **The divisor is `LOT_TONS`, the spec constant, NOT the lot's own
+  `lot_tons`.** 402.03.02 A) defines a lot as 4,000 tons and that is what the
+  contract's quantity divides by; `lot_tons` is editable precisely because the
+  LAST lot of a job is short, so dividing by a short lot's own tonnage would
+  inflate the count exactly where the count matters most.
+  **`Math.ceil`, and the numeral is prefixed `~` and says so in the tooltip.**
+  4,001 tons is two lots, the second of them 1 ton. The estimate moves with a
+  change order and the last lot is short, which is why it is approximate in the
+  chip rather than stated as a fact.
+  **A lot past the estimate raises NOTHING.** Lot 14 of ~11 is ordinary - the
+  quantity grew, or the sheet is stale - and the page does not invent a verdict
+  it did not compute. Same rule that keeps `payWarnings()` the single producer
+  of the rail's pay warnings and left the gradation deviation uncoloured.
+  **ONE ANSWER, PAINTED TWICE, AND READING `state.lot` IS WHAT BROKE IT.** The
+  numeral is in the chip and the sentence behind it is the `lot_number` box's
+  `title` - the same split as a prefilled value's tint and tooltip. The first
+  cut had the chip on `state.lot`, which is written when a lot is opened and
+  again when it is saved, so a Project Items lookup - which is the whole reason
+  the count moves - left the chip on the approval's figure with the tooltip
+  already on the new one. Both go through `lotExpectation()` now, which reads
+  the live form (`rowsOfList` + `rowValuesOf`, never `collectForm()`, because
+  `recompute()` runs on every keystroke) and falls back to `state.lot` before
+  the form exists. **The NUMERATOR is live too**, off the `lot_number` field:
+  a lot rolled forward must not keep announcing the number it was opened on.
+  Verified in a browser across all six cases rather than by reading - the
+  refusal on two line items and on a missing quantity as hard as the fills.
