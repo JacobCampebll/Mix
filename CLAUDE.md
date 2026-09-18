@@ -3759,12 +3759,14 @@ read-only, so a write test goes through `apply_migration` and ends in
   #9M exist). Whether this reflects real gaps in the original 115-row
   extraction or genuinely reflects that KYTC/SiteManager never assigned a
   code for e.g. "Quartzite #67's" because nobody has ever needed one is
-  unconfirmed - not something to guess at from here. Two purely cosmetic
-  issues alongside it, safe to fix whenever: `"Siltsone Sand"` is a typo
-  (functionally harmless - `polishLithologyOf()`'s regex already tolerates
-  it on purpose, per its own comment), and all four Sandstone size rows
-  (`Sandst. #78's` etc.) use a curly apostrophe (U+2019) where every other
-  row in the table uses a straight one.
+  unconfirmed - not something to guess at from here. **Two purely cosmetic
+  issues alongside it, fixed live the same day since they were zero-risk**:
+  `"Siltsone Sand"` -> `"Siltstone Sand"` (was functionally harmless either
+  way - `polishLithologyOf()`'s regex tolerates the typo on purpose, per its
+  own comment - fixed for cleanliness, not correctness), and the four
+  Sandstone size rows (`Sandst. #78's` etc., plus the two Sandst. Sand rows
+  swept by the same statement) had their curly apostrophe (U+2019)
+  normalized to the straight one every other row in the table uses.
   **Deliberately not acted on further this session** - Andrew is taking a
   short list back to Jake and Tate first: the precise Dolomite/Granite rule
   as confirmed above (so it's on record rather than re-derived next time),
