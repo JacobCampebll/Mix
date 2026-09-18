@@ -99,6 +99,18 @@ function readLot(file) {
 // ---------------------------------------------------------------------------
 // HTML -> the text a person would see, for both the assertions and the print.
 // ---------------------------------------------------------------------------
+// Every `title` attribute's value, joined - the addresses and the derivations
+// that ride in a tooltip rather than in the text. Entity-decoded the same way
+// toText() decodes, because `esc()` writes `'Pay Values'!D17` out as
+// `&#39;Pay Values&#39;!D17` and a raw grep for the apostrophe finds nothing.
+function toTitles(html) {
+  return (html.match(/title="[^"]*"/g) || [])
+    .map((t) => t.slice(7, -1))
+    .join('\n')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ');
+}
+
 function toText(html) {
   return html
     // A .prsub under a value is a second line on screen, so it has to become
@@ -320,8 +332,16 @@ const real = files.slice(0, 2).map((f, i) => {
   const html = payExplainHTML(result, { ...base, trace, open });
   const text = toText(html);
   const W = 'layered';
-  // layer 1: every property line, with its cell
-  for (const cell of ["'Pay Values'!B21", "'Pay Values'!B22", "'Pay Values'!D17", "'Pay Values'!G17", "'Pay Values'!K17", "'Pay Values'!J21", "'Pay Values'!J23", "'Pay Values'!J24"]) shows(W, text, cell);
+  // layer 1: every property line still CARRIES its workbook cell - but in a
+  // `title`, not in the text. Jake, 2026-09-17: "lets get rid of the grey
+  // letters that say superpave f and g or what not", so the third column went
+  // and the address became the row's tooltip. This assertion read the visible
+  // text and went red the moment that shipped, which is the check asserting a
+  // reverted design rather than the page losing anything - the addresses are
+  // all still there. Reading the titles is what keeps the real guarantee
+  // (every property is traceable to a cell) without re-demanding the column.
+  const titles = toTitles(html);
+  for (const cell of ["'Pay Values'!B21", "'Pay Values'!B22", "'Pay Values'!D17", "'Pay Values'!G17", "'Pay Values'!K17", "'Pay Values'!J21", "'Pay Values'!J23", "'Pay Values'!J24"]) shows(W, titles, cell);
   // layer 2: the band each sublot's air void landed on, in the schedule's words, and the roll-up
   const av1 = result.perSublot[0].av;
   shows(W, text, av1.bands.map((b) => b.band).join(''));
@@ -330,7 +350,14 @@ const real = files.slice(0, 2).map((f, i) => {
   // the final line writes the weighted sum out in full
   shows(W, text, `× ${result.weights.laneDensity}% + `);
   shows(W, text, `= ${result.finalPct}`);
-  shows(W, text, "'Pay Values'!F5");           // the $50 is explained where the dollars are
+  // Same move as the property cells above: eqHTML() puts the address in the
+  // row's title, so this asserts the $50 is still traceable to F5 rather than
+  // that it is printed beside the dollars.
+  shows(W, titles, "'Pay Values'!F5");
+  // ...and the SENTENCE explaining it is still visible text, which is the
+  // half that actually has to be read: the defined unit price is not the
+  // contract's bid price, said where the dollars are.
+  shows(W, text, "the spec's defined unit price for the Lot Pay Adjustment (402.05.02)");
   // layer 3: the weighings, the formula and the cell
   shows(W, text, '4785.2 g in air ÷ (4793.6 SSD − 2771.4 in water = 2022.2) = 2.366');
   shows(W, text, '2000.0 g mix ÷ (2000.0 + 7400.0 calibration − 8590.0 final + 0.0 absorbed) = 2.469');
