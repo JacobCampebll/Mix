@@ -96,7 +96,11 @@ export const LOT = {
   // empty B3 as "not ready to hand off", not as a read failure.
   sampleIdPrefix: "B3",
   itemCode: "D3",          // "385" — the pay item, matches the mix id's lead
-  lotNumber: "F3",         // 1, 2, … within the contract
+  // 1, 2, … within ONE series, and a contract can carry several: the number
+  // restarts per contract + LINE ITEM + design + plant (Jake, 2026-09-17).
+  // `expectedLots()` refuses to count a denominator when the contract carries
+  // two line items for the mix, for exactly this reason.
+  lotNumber: "F3",
   county: "I3",            // sn 8, the one LOT field the staging map carries
 
   contract: "B4",          // `t_cont_smpl.cont_id` — "252112"

@@ -3940,3 +3940,35 @@ commit where possible.
   a lot rolled forward must not keep announcing the number it was opened on.
   Verified in a browser across all six cases rather than by reading - the
   refusal on two line items and on a missing quantity as hard as the fills.
+
+- **SETTLED 2026-09-17 (Jake), closing a question this file has carried as
+  "Still open, and Tate's": the lot number restarts per contract + LINE ITEM +
+  design + plant - "and it could be the same of all those but be option B
+  instead of option A dictated by kytc guys during the project from the
+  district".**
+  Both comments that guessed at this were wrong, and wrong differently, which
+  is why it is worth recording rather than just fixing. `addresses.mjs`
+  described `'Pay Values'!F3` as "1, 2, … within the contract" - too coarse, a
+  contract can carry several series. `storage.mjs`'s
+  `IDENTITY = ['contract_id', 'amp_number', 'mix_id', 'lot_number']` assumed
+  per design - too coarse by one, missing the line item.
+  **The line item is the part that bites**, because it is the one a contract
+  really does carry twice: 262120's 0.38B is on `MP07606272601` and the
+  contract carries a second route. So two genuinely different lots can compute
+  the same four-column key.
+  **`IDENTITY` is NOT changed, and that is deliberate rather than an
+  oversight.** The fifth part is the line item, which a lot envelope holds only
+  as a row of `project_items` rather than as a scalar, and the comment's own
+  promise - "a key computed here and a row found there can never disagree" -
+  is only true if `amaw_lots`' unique index moves with the constant. Those are
+  one change, and neither half is reachable today: nothing calls
+  `createLotStore()` and `supabase/amaw_lots.sql` is unapplied. Both comments
+  now state the real rule and say the constant is short of it, which is the
+  honest shape for a known gap in unwired code.
+  **And the compaction Option is part of the identity too**, which nothing had
+  suspected: KYTC's district can switch a job from Option A to Option B
+  mid-project, and that changes what is measured and how the lot is paid - so
+  two lots identical in all five parts can still be different records. The
+  Option is already on the form and already looked up off the proposal's
+  per-route note; what is new is that it is an identity part rather than a
+  setting. Whoever wires `createLotStore()` owes it a column.

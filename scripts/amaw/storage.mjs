@@ -45,6 +45,18 @@ export const isDepartmentBlock = (block) => DEPARTMENT_BLOCKS.indexOf(block) >= 
 // A lot is identified by contract + plant + mix + lot number. Same four
 // columns as amaw_lots' unique index, so a key computed here and a row found
 // there can never disagree about which lot is which.
+//
+// KNOWN INCOMPLETE, and stated rather than half-fixed (Jake, 2026-09-17): the
+// lot number restarts per contract + LINE ITEM + design + plant, and a
+// contract can carry two line items for the same mix - so these four columns
+// can collide between two real lots that are genuinely different. The fifth
+// part is the line item, which the lot envelope holds only as a row of
+// `project_items` rather than as a scalar, and the DDL's unique index would
+// have to move with the constant or the sentence above stops being true. Both
+// halves are one change and neither is made here; nothing calls
+// `createLotStore()` yet and `supabase/amaw_lots.sql` is unapplied, so the
+// collision is not reachable today. `expectedLots()` already refuses to count
+// a denominator on a two-line-item contract for the same reason.
 export const IDENTITY = ['contract_id', 'amp_number', 'mix_id', 'lot_number'];
 
 /** Stable key for one lot. Uppercased and trimmed so "252112 " and "252112"
