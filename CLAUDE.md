@@ -3802,6 +3802,41 @@ read-only, so a write test goes through `apply_migration` and ends in
   `docs/plantbook-lab-id-reconciliation.md` both updated to match (110
   rows total now, up from 109).
 
+- **The polish-resistant reconciliation effort moved its data of record out
+  of this file, 2026-09-21.** Everything in this section up to here is still
+  the narrative - what was found and why, in order. The row-by-row audit
+  itself now lives in **`docs/aggregate-polish-resistant-reconciliation.md`**,
+  same split this file already uses for the LAM extraction and the lab-id
+  reconciliation: a doc for the exhaustive data, this file for decisions.
+  Reason for moving it: this is explicitly a standing, multi-session effort
+  (Andrew: Division of Materials' own records are themselves "in too many
+  places and in often a disorganized manner"), and CLAUDE.md prose - correct
+  as it is - had become exactly the kind of thing you'd have to `grep` for an
+  anchor phrase in rather than look up, which is the failure mode the whole
+  effort is trying to fix elsewhere.
+  **What the new doc found, cross-referencing `aggregate_types` against
+  SiteManager's own `T_MATL` material-code export** (`SM basic material
+  codes_Coop.xls`, `tsm.T_MATL`, pulled by Andrew): SiteManager's asphalt
+  aggregate codes are genuinely lithology-blind WITHIN a class tier (matching
+  how `aggregate_types` already shares one `mat_code` across several
+  `type_name`s) - but only for five coarse sizes plus fine sand and
+  non-graded coarse, each of which SiteManager splits into base/A+/A/B tiers.
+  Everything else has one code, period. **24 of 110 rows disagree with
+  SiteManager's own tier for their assigned `mat_code`** - `mat_code` is not
+  cosmetic, it is auto-filled onto the Aggregate Structure row and flows into
+  both the generated MixPack (`Design Data!H`) and the AMAW mapper
+  (`matCodeFor`), so a wrong one is a wrong value in the file KYTC loads into
+  SiteManager. And the **A+ tier - 7 codes - is used by NO row at all**,
+  despite `polish_resistant_class`'s own check constraint already allowing
+  `'A+'`; Granite (LAM-confirmed Class A+, no restriction, all 4 producers) is
+  the likely home for it, not yet applied. Full table, per-material notes and
+  what's genuinely still open (Gravel's class is unconfirmed either way;
+  Siltstone's generic row is probably meant to be unclassed rather than on
+  the Class A code it's on now; whether fine aggregate's tier model actually
+  mirrors coarse) are in the doc. **No Supabase writes were made** - every
+  flagged row needs a judgment call before it's safe to fix, which is exactly
+  what the doc's "Open questions" section is for.
+
 ## Conventions for changing this file
 
 Both collaborators edit `CLAUDE.md`. To avoid merge conflicts, append to the
