@@ -4682,3 +4682,105 @@ commit where possible.
   against copying. Andrew or Tate to say which M 323 column each Class reads.
   And there is no minimum TSR for an ordinary Superpave mix in 403 - "reported
   and verified per KM 64-443"; the 80% lives only in 412 for SMA.
+
+- **Notation consistency pass, 2026-09-21: "Density" is "Unit Weight
+  (lb/ft³)" everywhere now, and Gb/Gsb/Gse/Gmm/Nini/Nmax/µm are real
+  subscript, not plain text - and both required finding a real, narrow gap
+  in this codebase's own escaping convention rather than working around it.**
+  **The rounding half was a genuine, pre-existing inconsistency, not just a
+  rename.** DesignBook's Design Values density had always rounded to a tenth
+  (`CONFIG.DP.density: 1`); PlantBook's core density (the same pcf figure,
+  `Gmb × 62.4`) was rounding to a hundredth (`CONFIG.DP.unit_weight: 2`) -
+  now both 1. A THIRD site had its own bug: the Four Points trial table's
+  per-row density column pre-rounded with `Math.round()` to a whole number
+  before formatting, so a 149.4 pcf trial printed "149" while the design
+  summary two lines below it correctly printed "149.4" for the same kind of
+  figure. Fixed by reading `CONFIG.DP.density` there too instead of a
+  hand-rolled `Math.round(...)`/`0`.
+  **Real subscript needed a real answer to "is this label safe to
+  un-escape", because embedding `<sub>` tags in a string that then goes
+  through `esc()` prints the literal text `<sub>b</sub>` - esc() does not
+  know a subscript tag from a script tag.** Checked every relevant render
+  path individually rather than assuming: `gridHTML()`'s ordinary field
+  labels, `fourpointHTML()`'s consts and table header, and `rowHeadHTML()`'s
+  column headers were ALREADY unescaped (raw `${f.label}`), so those took
+  real `<sub>` for free. `computedHTML()`'s `row()`/`extra` panel,
+  `rowHeadingHTML()`'s `spec.heading`/`spec.stat.label`, and
+  `designValuesMirrorHTML()`'s `cols` array all DID escape their label - but
+  in every one of those, the label is verifiably always a static
+  CONFIG.SECTIONS/CONFIG.LEGACY.DESIGN_VALUES constant, never a value that
+  has been through a technician's or Supabase's hands, so un-escaping the
+  label specifically (never the VALUE beside it) is safe on the same
+  reasoning this file already applies elsewhere: the sieve-input XSS was
+  about escaping DATA, not our own authored markup.
+  **`eqHTML()` (the Lot Pay readout, `payview.mjs`, spliced into `PB_PAY`)
+  is the one case where that reasoning does NOT hold everywhere, and it
+  needed a narrower fix.** Most of its ~30 call sites pass a hardcoded
+  literal name ('Gmm', 'density', 'deviation'...), but at least one
+  (`eqHTML(esc, id, ...)` in `coreFigures()`) passes a core id that
+  ultimately comes from a technician's typed identifier - so globally
+  un-escaping `name` would reopen exactly the class of bug the sieve-value
+  XSS already taught this codebase to avoid. Fixed with one explicit,
+  narrow opt-in: `eqHTML(esc, name, expr, cell, cls, goto, rawName = false)`
+  - `esc(name)` by default, `name` raw only when the caller passes
+  `rawName: true`, which is done at exactly the four call sites where
+  `name` is a hardcoded 'G<sub>...</sub>' literal. Mirrored byte-for-byte
+  in both `public/designbook.html`'s `PB_PAY` copy and
+  `scripts/amaw/payview.mjs` - confirmed identical by
+  `check_page_plantbook.mjs`.
+  **Uppercase text-transform turns a subscript "mm" into visible "MM", and
+  turns µ into a whole different, wrong unit - both found by checking the
+  CSS before trusting a plain `<sub>` tag would just work.** Nearly every
+  label class this page uses (`.dvrow .l`, `.field label`, `.rowhead > div`,
+  `table.fptable th`, `.rowgroup-head`, `.rowstat-l`, `.fp-card .l`) sets
+  `text-transform:uppercase`, and that transform reaches into a `<sub>`'s
+  text same as everything else - so a naive "G<sub>mm</sub>" would render
+  visually uppercase, defeating the "should be lowercase" half of the ask.
+  Fixed with one global rule, `sub, sup{text-transform:none}`, rather than
+  an inline style repeated at every call site. **Micrometres were already a
+  known trap** - this file already carried a comment explaining that an
+  uppercased "µ" (micro sign) becomes Greek capital Mu, and "µm" reads as
+  "(MM)", a 1000x wrong unit, which is why "Film thickness (micron)" had
+  been spelled out instead of using the symbol since it was written. Rather
+  than reverting that safety measure to satisfy "µm followed by lowercase
+  m" literally, the fix is a `.notransform{text-transform:none}` utility
+  wrapped around just the "µm" span, so it survives its uppercase context
+  intact - `Film thickness (<span class="notransform">µm</span>)` - while
+  the rest of the label around it still uppercases normally. Verified in a
+  real browser render of the actual stylesheet against every affected class,
+  not assumed.
+  **The PDF (`buildReviewPDF`, `buildApprovalPDF`) is deliberately NOT
+  touched by this pass** - pdf-lib's `page.drawText` has no subscript or
+  rich-text support at all, so a matching fix there needs a genuinely new
+  helper (draw a subscripted term as two text runs, normal size then a
+  smaller one shifted down), not a find-and-replace, and doing it
+  half-in-this-commit would leave two different partial states to track
+  instead of one clean follow-up. A comment at the top of `buildReviewPDF`
+  says so and points at what to grep for. Both books' review/approval PDFs
+  still print "Density (pcf)"/"Gsb"/"Gmm" etc. in plain text until that
+  follow-up lands.
+  **Two verification paths, because the harness needed a Playwright
+  Chromium this environment doesn't ship with `HARNESS_LIBS` pointed at by
+  default.** `node scripts/amaw/check_page_plantbook.mjs` (197/197) and
+  `check_sections.mjs` confirmed the PB_SECTIONS/PB_PAY ported blocks stay
+  byte-identical to `sections.mjs`/`payview.mjs`. The full
+  `scripts/amaw/harness/run.mjs` needed `HARNESS_PAGE` pointed at this
+  machine's real path and `PW_CHROMIUM` pointed at a local
+  `ms-playwright/chromium-*/chrome-win64/chrome.exe` (found under
+  `%LOCALAPPDATA%`) rather than the default `/opt/pw-browsers/...` path -
+  once pointed correctly, 340/341 passed at every viewport width in both
+  books with zero console errors; the one failure (`ReferenceError: PDFLib
+  is not defined` inside `buildReviewPDF`) reproduces identically against
+  the UNMODIFIED file (confirmed by `git stash`-ing this change and
+  re-running), so it is a pre-existing environment gap (PDFLib is a CDN
+  `<script>` the harness's offline rewrite does not always substitute),
+  unrelated to this change.
+  **Scope, decided with Andrew before writing any code**: the rename/
+  subscript/unit fixes apply to discrete field labels, table/column headers
+  and stat-card captions only - descriptive prose sentences (rail warnings,
+  tooltips, code comments) keep their existing wording ("the dust-to-binder
+  ratio in production...") rather than being force-fit with the
+  abbreviation. `Gmb` is untouched throughout (not on the requested list);
+  "density"/"joint density"/"lane density"/"density option"/"% density"
+  (in-place-density pay concepts, not the pcf figure) are untouched too -
+  confirmed by inventory before editing, not assumed.

@@ -825,13 +825,13 @@ const SUBLOT_VOLUMETRICS_SPEC = {
     // volumetrics.mjs.
     { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
     { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
-    { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
+    { key: "gmm", label: "G<sub>mm</sub> (MSG)", type: "number", req: false, mono: true, readonly: true },
     { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
     { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
     { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true, readonly: true },
     { key: "vfa", label: "VFA (%)", type: "number", req: false, mono: true, readonly: true },
     // KYTC writes it "D/A"; pay.mjs and the loader call it dustRatio.
-    { key: "dust_ratio", label: "D/A ratio", type: "text", req: false, mono: true, readonly: true },
+    { key: "dust_ratio", label: "D/A Ratio", type: "text", req: false, mono: true, readonly: true },
   ],
 };
 // The two Cores banks, unchanged from the standalone "Cores & Density" step -
@@ -846,7 +846,7 @@ const CORE_COLUMNS = [
   { key: "wt_water", label: "Wt in water (g)", type: "number", req: false, mono: true },
   { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: false, mono: true },
   { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
-  { key: "density", label: "Density (pcf)", type: "number", req: false, mono: true, readonly: true },
+  { key: "density", label: "Unit Weight (lb/ft³)", type: "number", req: false, mono: true, readonly: true },
   { key: "pct_solid", label: "% density", type: "number", mono: true, readonly: true },
   { key: "pay_value", label: "Pay (%)", type: "text", mono: true, readonly: true },
 ];
@@ -990,7 +990,7 @@ function aggBlendSpec(n) {
     // and standout, but not taking up its own box." Painted by the same
     // `show('blend_gsb_${n}', ...)` call paintLotReadouts() already made
     // when this was a `fields` readout - only the markup it targets moved.
-    stat: { label: "Combined Gsb", out: `blend_gsb_${n}` },
+    stat: { label: "Combined G<sub>sb</sub>", out: `blend_gsb_${n}` },
   };
 }
 // Superpave row 9, R9/S9/T9/U9. Fixed at one row because there is exactly
@@ -1002,7 +1002,7 @@ function aggBlendSpec(n) {
 // BLEND_PCT_SPEC's own banner), so showing this table too would just say
 // the same four numbers a second time.
 const BLEND_GSB_SPEC = {
-  key: "blend_gsb", heading: "Combined Gsb, by sublot", hidden: true,
+  key: "blend_gsb", heading: "Combined G<sub>sb</sub>, by sublot", hidden: true,
   fixed: true, span: [6, 12],
   grid: "1fr 1fr 1fr 1fr",
   seed: [{}],
@@ -1245,7 +1245,7 @@ const VERIFY_VOLUMETRICS_SPEC = {
     { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true, chipHide: true },
     { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
     { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
-    { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
+    { key: "gmm", label: "G<sub>mm</sub> (MSG)", type: "number", req: false, mono: true, readonly: true },
     { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
     { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
     { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true, readonly: true },
@@ -1689,11 +1689,11 @@ export const PLANTBOOK_SECTIONS = [
       { key: "lot_handmix_binder_pct", label: "Hand-mixed %AC", type: "number", req: false, mono: true },
       // N42 = AVERAGE of the two determinations below, so it is computed now
       // rather than typed.
-      { key: "lot_handmix_gmm", label: "Hand-mixed Gmm", type: "number", req: false, mono: true, readonly: true },
+      { key: "lot_handmix_gmm", label: "Hand-mixed G<sub>mm</sub>", type: "number", req: false, mono: true, readonly: true },
       // J8 = (100-N43)/((100/N42)-(N43/1.03)). Not a cell a person fills, but
       // shown because every sublot's VMA and Pbe are measured against it, and
       // a blank one explains why those columns are blank.
-      { key: "lot_gse", label: "Gse (effective aggregate)", type: "number", req: false, mono: true, readonly: true },
+      { key: "lot_gse", label: "G<sub>se</sub> (effective aggregate)", type: "number", req: false, mono: true, readonly: true },
     ],
     // The same Rice test as the sublots', on the lot's hand-mixed sample -
     // `Superpave` columns M and N of the same block. WATCH THE ROUNDING: this

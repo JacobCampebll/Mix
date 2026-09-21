@@ -114,6 +114,18 @@
   .mono{font-family:'Roboto Mono',monospace;}
   a{color:inherit;}
   .hidden{display:none !important;}
+  /* Every label class this page uppercases (.dvrow .l, .field label, .rowhead,
+     table.fptable th, .rowgroup-head, .rowstat-l, .fp-card .l...) uppercases
+     everything inside it by default, sub/sup included - so a metric's real
+     subscript ("Gmm" -> G-sub-mm) would render as an uppercased "MM", not the
+     lowercase the notation calls for. Global, once, rather than an inline
+     style repeated at every call site. */
+  sub, sup{text-transform:none;}
+  /* Same trap, worse consequence: an uppercased micro sign (µ) becomes Greek
+     capital Mu, and "µm" reads as "MM" - millimetres, a 1000x wrong unit on a
+     document a technician reads a real measurement off. .notransform is the
+     escape hatch for exactly that one span of text. */
+  .notransform{text-transform:none;}
 
   /* frozen header: wordmark bar + job strip both stay pinned on scroll.
      The KYTC gradient rule (blue -> gold) moves to the whole block's base. */
@@ -2207,19 +2219,25 @@ const CONFIG = {
       "VMA (%)":             ["designData", "O57", 1],
       "VFA (%)":             ["designData", "O56", 1],
       "Air voids (%)":       ["designData", "O61", 1],
+      // Gmm and Gse are matched by an `outputs` wb: entry above (Design
+      // Values prints its own computed figure instead), so these two never
+      // reach the screen and are left plain. Gsb has no computed counterpart
+      // - it DOES print, in the "Stated only in the MixPack" panel - so it
+      // gets the same subscript the displayed ones below it do.
       "Gmm":                 ["designData", "O65", 3],
       "Gse":                 ["designData", "O68", 3],
-      "Gsb":                 ["designData", "O67", 2],
-      "%Gmm @ Nini":         ["designData", "O59", 1],
-      "%Gmm @ Nmax":         ["designData", "O60", 1],
+      "G<sub>sb</sub>":      ["designData", "O67", 2],
+      "%G<sub>mm</sub> @ N<sub>ini</sub>": ["designData", "O59", 1],
+      "%G<sub>mm</sub> @ N<sub>max</sub>": ["designData", "O60", 1],
       "Unit weight (pcf)":   ["designData", "O62", 1],
       "Effective AC (%)":    ["designData", "O64", 1],
       "Absorbed AC (%)":     ["designData", "O66", 2],
       "Dust / binder ratio": ["designData", "O58", 1],
-      // Micrometres. Written out rather than "\u00b5m" because the panel's
-      // labels are CSS-uppercased and "\u00b5" becomes a capital Mu, which
-      // reads as "(MM)" - a 1000x wrong unit on a KYTC document.
-      "Film thickness (micron)": ["designData", "O69", 1],
+      // Micrometres. The panel's labels are CSS-uppercased, and an
+      // uppercased "\u00b5" becomes a capital Mu, reading as "(MM)" - a
+      // 1000x wrong unit on a KYTC document (see the `.notransform` rule
+      // this label now relies on to stay "\u00b5m" instead).
+      "Film thickness (<span class=\"notransform\">\u00b5m</span>)": ["designData", "O69", 1],
     },
     // The 4 gyratory trial points (Pb/Gmb/Gmm), found 2026-09-04 in a real
     // Ver 11.3 sample (CL3 0.38A 64-22 Haydon NEW.xlsm) - it was wrong to
@@ -2901,7 +2919,11 @@ const CONFIG = {
     // later is a matter of where somebody happened to paste. Caught here by
     // the value printing as 5.0 when 5.02 was asked for; the harness now
     // fails on any duplicate in this block so the next one cannot be silent.
-    va: 2, vma: 2, vfa: 2, unit_weight: 2, dust_ratio: 2,
+    // unit_weight (a core's pcf figure) was 2 until 2026-09-21; DesignBook's
+    // own Design Values density has always been 1 (below), and the two are
+    // the same metric under one name now ("Unit Weight (lb/ft³)") - so they
+    // round the same way too.
+    va: 2, vma: 2, vfa: 2, unit_weight: 1, dust_ratio: 2,
     // %AC to two, on BOTH books' tables that carry it. It is typed on the
     // sublot volumetrics and COMPUTED on the verification (back-calculated
     // off the sample's own Gmm), and the two sit two steps apart on one
@@ -3075,7 +3097,7 @@ const CONFIG = {
             fills: { mat_code: (r) => r.mat_code } },
           { key: "mat_code",  label: "Mat. code",    type: "text",   req: true, mono: true },
           { key: "pct_blend", label: "% blend",      type: "number", req: true, mono: true },
-          { key: "gsb",       label: "Gsb",          type: "number", req: true, mono: true },
+          { key: "gsb",       label: "G<sub>sb</sub>", type: "number", req: true, mono: true },
           // 805.05.01 (STD p.562): water absorption no more than 3.0% for
           // each size and type, or 4.0% for the combined aggregate when
           // blast-furnace slag is used. Optional - the MixPack has no cell for
@@ -3150,8 +3172,8 @@ const CONFIG = {
       tag: "R35 §10.1 · Pb(design), ±0.5%, +1.0%", type: "fourpoint",
       cites: ["volumetric"],
       constants: [
-        { key: "fp_gsb",   label: "Combined Gsb",        auto: "aggregate", value: "" },
-        { key: "fp_gb",    label: "Binder sp. gravity (Gb)", value: "1.030" },
+        { key: "fp_gsb",   label: "Combined G<sub>sb</sub>", auto: "aggregate", value: "" },
+        { key: "fp_gb",    label: "Binder sp. gravity (G<sub>b</sub>)", value: "1.030" },
         { key: "fp_p075",  label: "% passing #200",      auto: "gradation", value: "" },
         { key: "fp_vatgt", label: "Design air-void target (%)", value: "3.5" },
       ],
@@ -3175,22 +3197,24 @@ const CONFIG = {
       // `wb` names the CONFIG.LEGACY.DESIGN_VALUES entry this output is the
       // same quantity as, so the workbook's figure and the one fit from the
       // four points print on one line. `row` is the line's own name, for the
-      // five where the two documents use different words for one thing -
-      // a reviewer looking for "Unit weight" must not have to know we call
-      // it density. Anything the workbook states and the calculator does not
-      // (Gsb, the %Gmm pair, absorbed AC, film thickness) follows underneath;
-      // Gmb is the one that goes the other way.
+      // few where the two documents use different words for one thing.
+      // Unit Weight used to be one of those five ("a reviewer looking for
+      // 'Unit weight' must not have to know we call it density") - as of
+      // 2026-09-21 we call it Unit Weight too, so that bridge is gone and its
+      // `row` override with it. Anything the workbook states and the
+      // calculator does not (Gsb, the %Gmm pair, absorbed AC, film thickness)
+      // follows underneath; Gmb is the one that goes the other way.
       outputs: [
         { key: "design_pb",  label: "Design Pb (%)", wb: "AC (%)",              row: "AC / design Pb (%)" },
         { key: "va_design",  label: "Va (%)",        wb: "Air voids (%)",       row: "Air voids / Va (%)" },
         { key: "vma_design", label: "VMA (%)",       wb: "VMA (%)" },
         { key: "vfa_design", label: "VFA (%)",       wb: "VFA (%)" },
-        { key: "gmm_design", label: "Gmm at design", wb: "Gmm",           row: "Gmm" },
+        { key: "gmm_design", label: "G<sub>mm</sub> at design", wb: "Gmm",  row: "G<sub>mm</sub>" },
         { key: "gmb_design", label: "Gmb at design", row: "Gmb" },
-        { key: "gse",        label: "Gse",           wb: "Gse" },
+        { key: "gse",        label: "G<sub>se</sub>",           wb: "Gse" },
         { key: "pbe",        label: "Pbe (%)",       wb: "Effective AC (%)",    row: "Effective AC / Pbe (%)" },
-        { key: "dust_pbe",   label: "Dust / Pbe",    wb: "Dust / binder ratio", row: "Dust ratio" },
-        { key: "density",    label: "Density (pcf)", wb: "Unit weight (pcf)",   row: "Unit weight / density (pcf)" },
+        { key: "dust_pbe",   label: "D/A Ratio",     wb: "Dust / binder ratio" },
+        { key: "density",    label: "Unit Weight (lb/ft³)", wb: "Unit weight (pcf)" },
       ],
     },
     {
@@ -4165,13 +4189,13 @@ const verifySpecimenOf4 = (n) =>
       // volumetrics.mjs.
       { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
       { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
-      { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
+      { key: "gmm", label: "G<sub>mm</sub> (MSG)", type: "number", req: false, mono: true, readonly: true },
       { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
       { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
       { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true, readonly: true },
       { key: "vfa", label: "VFA (%)", type: "number", req: false, mono: true, readonly: true },
       // KYTC writes it "D/A"; pay.mjs and the loader call it dustRatio.
-      { key: "dust_ratio", label: "D/A ratio", type: "text", req: false, mono: true, readonly: true },
+      { key: "dust_ratio", label: "D/A Ratio", type: "text", req: false, mono: true, readonly: true },
     ],
   };
   // The two Cores banks, unchanged from the standalone "Cores & Density" step -
@@ -4186,7 +4210,7 @@ const verifySpecimenOf4 = (n) =>
     { key: "wt_water", label: "Wt in water (g)", type: "number", req: false, mono: true },
     { key: "wt_ssd", label: "SSD wt (g)", type: "number", req: false, mono: true },
     { key: "bsg", label: "BSG", type: "number", req: false, mono: true, readonly: true },
-    { key: "density", label: "Density (pcf)", type: "number", req: false, mono: true, readonly: true },
+    { key: "density", label: "Unit Weight (lb/ft³)", type: "number", req: false, mono: true, readonly: true },
     { key: "pct_solid", label: "% density", type: "number", mono: true, readonly: true },
     { key: "pay_value", label: "Pay (%)", type: "text", mono: true, readonly: true },
   ];
@@ -4330,7 +4354,7 @@ const verifySpecimenOf4 = (n) =>
       // taking up its own box." Painted by the same `show('blend_gsb_${n}',
       // ...)` call paintLotReadouts() already made when this was a `fields`
       // readout - only the markup it targets moved.
-      stat: { label: "Combined Gsb", out: `blend_gsb_${n}` },
+      stat: { label: "Combined G<sub>sb</sub>", out: `blend_gsb_${n}` },
     };
   }
   // Superpave row 9, R9/S9/T9/U9. Fixed at one row because there is exactly
@@ -4342,7 +4366,7 @@ const verifySpecimenOf4 = (n) =>
   // AGG_BLEND_SPEC's own banner), so showing this table too would just say
   // the same four numbers a second time.
   const BLEND_GSB_SPEC = {
-    key: "blend_gsb", heading: "Combined Gsb, by sublot", hidden: true,
+    key: "blend_gsb", heading: "Combined G<sub>sb</sub>, by sublot", hidden: true,
     fixed: true, span: [6, 12],
     grid: "1fr 1fr 1fr 1fr",
     seed: [{}],
@@ -4585,7 +4609,7 @@ const verifySpecimenOf4 = (n) =>
       { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true, chipHide: true },
       { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
       { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
-      { key: "gmm", label: "Gmm (MSG)", type: "number", req: false, mono: true, readonly: true },
+      { key: "gmm", label: "G<sub>mm</sub> (MSG)", type: "number", req: false, mono: true, readonly: true },
       { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
       { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
       { key: "vma", label: "VMA (%)", type: "number", req: false, mono: true, readonly: true },
@@ -5029,11 +5053,11 @@ const verifySpecimenOf4 = (n) =>
         { key: "lot_handmix_binder_pct", label: "Hand-mixed %AC", type: "number", req: false, mono: true },
         // N42 = AVERAGE of the two determinations below, so it is computed now
         // rather than typed.
-        { key: "lot_handmix_gmm", label: "Hand-mixed Gmm", type: "number", req: false, mono: true, readonly: true },
+        { key: "lot_handmix_gmm", label: "Hand-mixed G<sub>mm</sub>", type: "number", req: false, mono: true, readonly: true },
         // J8 = (100-N43)/((100/N42)-(N43/1.03)). Not a cell a person fills, but
         // shown because every sublot's VMA and Pbe are measured against it, and
         // a blank one explains why those columns are blank.
-        { key: "lot_gse", label: "Gse (effective aggregate)", type: "number", req: false, mono: true, readonly: true },
+        { key: "lot_gse", label: "G<sub>se</sub> (effective aggregate)", type: "number", req: false, mono: true, readonly: true },
       ],
       // The same Rice test as the sublots', on the lot's hand-mixed sample -
       // `Superpave` columns M and N of the same block. WATCH THE ROUNDING: this
@@ -5744,9 +5768,13 @@ function rowHeadingHTML(spec) {
   // readout fields already carry, so paintLotReadouts()'s existing
   // `show(spec.stat.out, ...)` calls paint this without any change on their
   // side - only where the target markup lives moved.
-  const stat = spec.stat ? `<span class="rowstat"><span class="rowstat-l">${esc(spec.stat.label)}</span>
+  // spec.stat.label and spec.heading are CONFIG.SECTIONS constants (see the
+  // same reasoning on computedHTML's row()/extra panel) - un-escaped so a
+  // heading like "Combined G<sub>sb</sub>, by sublot" renders as real
+  // subscript rather than literal angle brackets.
+  const stat = spec.stat ? `<span class="rowstat"><span class="rowstat-l">${spec.stat.label}</span>
     <span class="rowstat-v mono" data-out="${esc(spec.stat.out)}">—</span></span>` : "";
-  return `<div class="rowgroup-head${spec.banded ? " banded" : ""}">${esc(spec.heading)}` +
+  return `<div class="rowgroup-head${spec.banded ? " banded" : ""}">${spec.heading}` +
     stat +
     (a ? `<button type="button" class="seclookup" id="${a.id}">${a.label}</button>` : "") +
     `</div>` +
@@ -6030,8 +6058,8 @@ function fourpointHTML(section) {
   return `<div class="fp-consts">${consts}</div>
     <div class="fpscroll"><table class="fptable">
       <thead><tr>
-        <th>Pb (%)</th><th>Gmb</th><th>Gmm</th>
-        <th>Va (%)</th><th>VMA (%)</th><th>VFA (%)</th><th>Density (pcf)</th>
+        <th>Pb (%)</th><th>Gmb</th><th>G<sub>mm</sub></th>
+        <th>Va (%)</th><th>VMA (%)</th><th>VFA (%)</th><th>Unit Weight (lb/ft³)</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
@@ -6076,9 +6104,14 @@ function computedHTML(section) {
   // about the same number, and it has its own variant for exactly that
   // reason - do not merge the two.
   const weighted = section.outputs.some((o) => o.weight);
+  // `label` here is always o.row/o.label straight off CONFIG.SECTIONS - a
+  // developer-authored constant, never a value that has passed through a
+  // technician's or Supabase's hands - so it is safe to leave un-escaped,
+  // unlike the esc()'d VALUE spans beside it. That is what lets a label like
+  // "G<sub>mm</sub> at design" render as real subscript.
   const row = (label, dvKey, weightKey) =>
     `<div class="dvrow">
-       <span class="l">${esc(label)}</span>
+       <span class="l">${label}</span>
        ${weighted ? `<span class="w"${weightKey ? ` data-dvw="${weightKey}"` : ""}>—</span>` : ""}
        <span class="v"${dvKey ? ` data-dv="${dvKey}"` : ""}>—</span>
      </div>`;
@@ -6091,9 +6124,12 @@ function computedHTML(section) {
     return row(o.row || o.label, o.key, o.weight);
   }).join("");
   // Whatever the workbook states that the calculator has no counterpart for.
+  // d.label is a CONFIG.LEGACY.DESIGN_VALUES key, another developer-authored
+  // constant (see `row()` above) - un-escaped for the same reason. d.value is
+  // real extracted file content and stays escaped.
   const extra = wb.filter((d) => !used.has(d.label))
     .map((d) => `<div class="dvrow">
-       <span class="l">${esc(d.label)}</span>
+       <span class="l">${d.label}</span>
        <span class="v wb">${esc(String(d.value))}</span>
      </div>`).join("");
   // The head band is the TABLE's name, not a row of column names - it is
@@ -6993,6 +7029,22 @@ function niceTicks(min, max, want, padFrac) {
   return { lo, hi, ticks, dp };
 }
 
+// Unlabelled minor ticks at a fixed step (e.g. every 0.1), for reading
+// between the labelled major gridlines to the nearest tenth. Deliberately
+// NOT a second layer of full-width/height gridlines - drawFpChart renders
+// these as short marks on the axis line only, so the plot area itself stays
+// uncluttered while the axis line reads like a fine ruler. A tick within a
+// quarter-step of a major tick is dropped so the two never double up.
+function minorTicks(lo, hi, step, majors) {
+  const out = [];
+  const n = Math.round((hi - lo) / step);
+  for (let i = 0; i <= n; i++) {
+    const v = +(lo + i * step).toFixed(4);
+    if (!majors.some((m) => Math.abs(m - v) < step / 4)) out.push(v);
+  }
+  return out;
+}
+
 // The fitted curve split into the stretch the four trial points actually
 // support and the stretches beyond them. A parabola drawn past its outermost
 // point is extrapolation, and it must not read as measured - the renderers
@@ -7177,7 +7229,11 @@ function computeFourPoint() {
       pbs.push(pb); vas.push(va); vmas.push(vma); vfas.push(vfa); denss.push(dens);
     }
     const put = (m, val, d) => { const el = document.querySelector(`[data-fpout="${m}:${i}"]`); if (el) el.textContent = val == null ? "—" : val.toFixed(d); };
-    put("va", va, 1); put("vma", vma, 1); put("vfa", vfa, 1); put("dens", dens == null ? null : Math.round(dens), 0);
+    // Unit Weight rounds to the nearest 0.1 like every other Design Value
+    // (CONFIG.DP.density) - this per-trial-point figure used to round to a
+    // whole number here alone, which is what a 149.4 pcf trial printed as
+    // "149" while the design summary below correctly printed "149.4".
+    put("va", va, 1); put("vma", vma, 1); put("vfa", vfa, 1); put("dens", dens, CONFIG.DP.density);
   });
 
   const dv = (k, v) => { const el = document.querySelector(`[data-dv="${k}"]`); if (el) el.textContent = v; };
@@ -7216,9 +7272,9 @@ function computeFourPoint() {
     `<div class="fp-card hero"><div class="l">Design Pb</div><div class="v">${fmt(designPb, 1)}%</div></div>
      <div class="fp-card"><div class="l">VMA at design</div><div class="v">${fmt(vmaD, 1)}%</div></div>
      <div class="fp-card"><div class="l">VFA at design</div><div class="v">${fmt(vfaD, 1)}%</div></div>
-     <div class="fp-card"><div class="l">Gse</div><div class="v">${fmt(gse, 3)}</div></div>
+     <div class="fp-card"><div class="l">G<sub>se</sub></div><div class="v">${fmt(gse, 3)}</div></div>
      <div class="fp-card"><div class="l">Pbe</div><div class="v">${fmt(pbe, 1)}%</div></div>
-     <div class="fp-card"><div class="l">Dust / Pbe</div><div class="v">${fmt(dust, 1)}</div></div>`;
+     <div class="fp-card"><div class="l">D/A Ratio</div><div class="v">${fmt(dust, 1)}</div></div>`;
 
   dv("design_pb", fmt(designPb, 1));
   dv("gmm_design", fmt(gmmD, 3));
@@ -8357,6 +8413,20 @@ function drawFpChart(pbs, vas, vaFit, vaTgt, designPb) {
       <text x="${x0 - 9}" y="${(y + 3).toFixed(1)}" font-size="9" fill="var(--muted)" text-anchor="end">${t.toFixed(ay.dp)}</text>`;
   }).join("");
 
+  // Minor ticks at 0.1 so a reading between two labelled gridlines can still
+  // be placed to the nearest tenth - short marks on the axis line only
+  // (minorTicks), no full gridline, no label, so the plot itself gains no
+  // extra clutter.
+  const MINOR_STEP = 0.1;
+  const xMinor = minorTicks(ax.lo, ax.hi, MINOR_STEP, ax.ticks).map((t) => {
+    const x = xp(t).toFixed(1);
+    return `<line x1="${x}" y1="${yBase}" x2="${x}" y2="${yBase + 3}" stroke="var(--line)" stroke-width="0.6" opacity="0.55"/>`;
+  }).join("");
+  const yMinor = minorTicks(ay.lo, ay.hi, MINOR_STEP, ay.ticks).map((t) => {
+    const y = yp(t).toFixed(1);
+    return `<line x1="${x0 - 3}" y1="${y}" x2="${x0}" y2="${y}" stroke="var(--line)" stroke-width="0.6" opacity="0.55"/>`;
+  }).join("");
+
   // Solid where the four points support the fit, dashed past them (fitRuns).
   const supLo = Math.min(...pbs), supHi = Math.max(...pbs);
   const curve = vaFit
@@ -8397,7 +8467,7 @@ function drawFpChart(pbs, vas, vaFit, vaTgt, designPb) {
 
   const mid = ((yTop + yBase) / 2).toFixed(1);
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
-    ${xAxis}${yAxis}
+    ${xAxis}${yAxis}${xMinor}${yMinor}
     <line x1="${x0}" y1="${yBase}" x2="${x1}" y2="${yBase}" stroke="var(--line)"/>
     <line x1="${x0}" y1="${yTop}" x2="${x0}" y2="${yBase}" stroke="var(--line)"/>
     <text x="${((x0 + x1) / 2).toFixed(1)}" y="${H - 6}" font-size="10" fill="var(--muted)" text-anchor="middle">Pb (%)</text>
@@ -10291,6 +10361,19 @@ function handoffFileName(payload) {
 
 /* ---------- the document ---------- */
 
+// OPEN, deliberately deferred 2026-09-21: this function (and
+// buildApprovalPDF below it) still draws "Density (pcf)"/"Gsb"/"Gb"/"Gmm"/
+// "Gse"/"Dust ratio"/"D/A"-style plain text with pdf-lib's page.drawText,
+// which has no subscript/rich-text support at all - unlike the live page
+// (both books), which now shows "Unit Weight (lb/ft³)" and true <sub>
+// notation (Gmm/Gse/Gsb/Gb/Nini/Nmax) throughout. Closing this gap needs a
+// small new helper that draws a subscripted term as two page.drawText calls
+// (normal size, then a smaller one shifted down) rather than one - real new
+// code, not a find-and-replace - which is exactly why it was left for its
+// own pass instead of half-done here. To pick it up: grep this file for
+// "Gsb"/"Gb "/"Density (pcf)"/"Dust ratio" between here and buildApprovalPDF,
+// and compare each site's live-page equivalent (search the same term without
+// "PDF" filenames) for the wording already settled on.
 async function buildReviewPDF(payload) {
   const { PDFDocument, StandardFonts, rgb, degrees } = PDFLib;
   const H = CONFIG.HANDOFF, P = H.PAGE, C = H.BRAND, T = H.TYPE, RW = H.ROW;
@@ -14193,11 +14276,17 @@ function detailsHTML(key, open, cls, summary, body) {
 const src = (n, table, row) =>
   (Number.isFinite(Number(n)) && table && row !== '' && row != null) ? `sublot-${n}|${table}|${row}` : '';
 
-function eqHTML(esc, name, expr, cell, cls = '', goto = '') {
+// `rawName` is a narrow, explicit opt-in: `name` is escaped by default because
+// several call sites pass real dynamic content (a typed core id, a loop
+// index) that must never reach innerHTML unescaped - the sieve-value XSS
+// this codebase already learned from once. Pass `rawName: true` ONLY when
+// `name` is a hardcoded string literal at the call site (e.g. 'G<sub>mm</sub>'),
+// never when it is built from a variable.
+function eqHTML(esc, name, expr, cell, cls = '', goto = '', rawName = false) {
   const cl = 'payx-eq' + (cls ? ' ' + cls : '') + (goto ? ' payx-goto' : '');
   return `<div class="${cl}"${cell ? ` title="${esc(cell)}"` : ''}`
     + (goto ? ` data-goto="${esc(goto)}" role="button" tabindex="0"` : '') + '>'
-    + `<span class="k">${esc(name)}</span>`
+    + `<span class="k">${rawName ? name : esc(name)}</span>`
     + `<span class="e mono">${esc(expr)}</span></div>`;
 }
 
@@ -14215,7 +14304,7 @@ function gmbFigures(esc, t, n) {
 }
 function gmmFigures(esc, t, n) {
   if (!t) return '';
-  const lines = [eqHTML(esc, 'Gmm', `${fx(t.gmm, 3)} - maximum specific gravity (Rice), the average of the bowls`, 'Superpave row 42')];
+  const lines = [eqHTML(esc, 'G<sub>mm</sub>', `${fx(t.gmm, 3)} - maximum specific gravity (Rice), the average of the bowls`, 'Superpave row 42', '', '', true)];
   (t.dets || []).forEach((d, k) => {
     lines.push(eqHTML(esc, `bowl ${k + 1}`,
       `${fx(d.mix, 1)} g mix ÷ (${fx(d.mix, 1)} + ${fx(d.calibration, 1)} calibration − ${fx(d.finalWeight, 1)} final + ${fx(d.absorbedWater ?? 0, 1)} absorbed) = ${fx(d.msg, 3)}`,
@@ -14228,8 +14317,8 @@ function acFigures(esc, t, hm, s, n) {
   const out = [];
   if (hm) {
     // The hand-mixed check sample is the LOT's, and it lives on Sublot 1's tab.
-    out.push(eqHTML(esc, 'Gse', `${fx(hm.gse, 3)} - effective aggregate gravity, from the hand-mixed check sample`,
-      'Superpave!J8', '', src(1, 'handmix_msg', 0)));
+    out.push(eqHTML(esc, 'G<sub>se</sub>', `${fx(hm.gse, 3)} - effective aggregate gravity, from the hand-mixed check sample`,
+      'Superpave!J8', '', src(1, 'handmix_msg', 0), true));
     out.push(eqHTML(esc, '', `(100 − ${fx(hm.binderPct, 2)} hand-mixed %AC) ÷ (100 ÷ ${fx(hm.gmm, 3)} hand-mixed Gmm - ${fx(hm.binderPct, 2)} ÷ 1.03) = ${fx(hm.gse, 3)}`, '', 'sub'));
   }
   out.push(gmmFigures(esc, t, n));
@@ -14256,7 +14345,7 @@ function vmaFigures(esc, t, s, n) {
   if (!t) return '';
   return gmbFigures(esc, t, n)
     + eqHTML(esc, '%AC', `${fx(t.binderPct, 2)} - back-calculated, see the % AC line`, 'Superpave!B14')
-    + eqHTML(esc, 'Gsb', `${fx(t.gsb, 3)} - combined aggregate gravity for this sublot, from the blend`, 'Superpave R9:U9')
+    + eqHTML(esc, 'G<sub>sb</sub>', `${fx(t.gsb, 3)} - combined aggregate gravity for this sublot, from the blend`, 'Superpave R9:U9', '', '', true)
     + eqHTML(esc, 'VMA', `100 − ${fx(t.gmb, 3)} × (100 − ${fx(t.binderPct, 2)}) ÷ ${fx(t.gsb, 3)} = ${fx(t.vma, 2)}%`, "Superpave M → 'Pay Values'!I13")
     + eqHTML(esc, 'deviation', `${fx(t.vma, 2)} − ${fx(s.minVMA, 2)} minimum = ${sg(isNum(t.vma) && isNum(s.minVMA) ? t.vma - s.minVMA : null, 2)}`, "'Pay Values'!J13");
 }
@@ -14268,7 +14357,7 @@ function coreFigures(esc, c, n, table, id) {
   // (which is exactly what lot 1 of the two real AMAWs does).
   const to = id ? src(n, table, '#' + id) : '';
   return eqHTML(esc, 'BSG', `${fx(c.air, 1)} g in air ÷ (${fx(c.ssd, 1)} SSD − ${fx(c.water, 1)} in water) = ${fx(c.bsg, 3)}`, 'Cores G', 'sub', to)
-    + eqHTML(esc, 'density', `${fx(c.bsg, 3)} × 62.4 = ${fx(c.density, 1)} pcf`, 'Cores H', 'sub')
+    + eqHTML(esc, 'unit weight', `${fx(c.bsg, 3)} × 62.4 = ${fx(c.density, 1)} pcf`, 'Cores H', 'sub')
     + eqHTML(esc, '% solid', `${fx(c.density, 1)} ÷ (${fx(c.msg, 3)} sublot Gmm × 62.4) × 100 = ${fx(c.pctSolid, 2)}%`, 'Cores I', 'sub');
 }
 
@@ -19985,7 +20074,7 @@ function designAggregateMirrorHTML(d) {
   if (!rows.length) return `<div class="dmirror-empty">No approval opened yet.</div>`;
   const cell = (v, mono) => `<td${mono ? ' class="mono"' : ""}>${v == null || v === "" ? "—" : esc(String(v))}</td>`;
   return `<div class="rowscroll"><table class="readtable">
-    <thead><tr><th>Producer</th><th>Type &amp; size</th><th>Mat. code</th><th>% blend</th><th>Gsb</th></tr></thead>
+    <thead><tr><th>Producer</th><th>Type &amp; size</th><th>Mat. code</th><th>% blend</th><th>G<sub>sb</sub></th></tr></thead>
     <tbody>${rows.map((r) => `<tr>
       ${cell(r.producer)}${cell(r.type_size)}${cell(r.mat_code, true)}
       ${cell(r.pct_blend == null ? null : String(r.pct_blend), true)}
@@ -20016,18 +20105,20 @@ function designValuesMirrorHTML(d) {
       ["Air voids / Va (%)", v.va, DP.va_design],
       ["VMA (%)", v.vma, DP.vma_design],
       ["VFA (%)", v.vfa, DP.vfa_design],
-      ["Gmm", v.gmm, DP.gmm_design],
+      ["G<sub>mm</sub>", v.gmm, DP.gmm_design],
     ],
     [
       ["Gmb", v.gmb, DP.gmb_design],
-      ["Gse", v.gse, DP.gse],
+      ["G<sub>se</sub>", v.gse, DP.gse],
       ["Effective AC / Pbe (%)", v.pbe, DP.pbe],
-      ["Dust ratio", v.dust_pbe, DP.dust_pbe],
-      ["Unit weight / density (pcf)", v.density, DP.density],
+      ["D/A Ratio", v.dust_pbe, DP.dust_pbe],
+      ["Unit Weight (lb/ft³)", v.density, DP.density],
     ],
   ];
+  // label is always one of the literal strings in `cols` above, never data -
+  // un-escaped for the same reason computedHTML's row()/extra panel are.
   const table = (rows) => `<div class="dvtable">` + rows.map(([label, val, dp]) =>
-    `<div class="dvrow"><span class="l">${esc(label)}</span>
+    `<div class="dvrow"><span class="l">${label}</span>
        <span class="v${val == null ? " none" : ""}">${val == null ? "—" : fmt(val, dp)}</span>
      </div>`).join("") + `</div>`;
   return `<div class="dvsplit twin">${cols.map(table).join("")}</div>`;

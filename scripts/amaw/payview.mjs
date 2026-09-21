@@ -539,11 +539,17 @@ function detailsHTML(key, open, cls, summary, body) {
 const src = (n, table, row) =>
   (Number.isFinite(Number(n)) && table && row !== '' && row != null) ? `sublot-${n}|${table}|${row}` : '';
 
-function eqHTML(esc, name, expr, cell, cls = '', goto = '') {
+// `rawName` is a narrow, explicit opt-in: `name` is escaped by default because
+// several call sites pass real dynamic content (a typed core id, a loop
+// index) that must never reach innerHTML unescaped - the sieve-value XSS
+// this codebase already learned from once. Pass `rawName: true` ONLY when
+// `name` is a hardcoded string literal at the call site (e.g. 'G<sub>mm</sub>'),
+// never when it is built from a variable.
+function eqHTML(esc, name, expr, cell, cls = '', goto = '', rawName = false) {
   const cl = 'payx-eq' + (cls ? ' ' + cls : '') + (goto ? ' payx-goto' : '');
   return `<div class="${cl}"${cell ? ` title="${esc(cell)}"` : ''}`
     + (goto ? ` data-goto="${esc(goto)}" role="button" tabindex="0"` : '') + '>'
-    + `<span class="k">${esc(name)}</span>`
+    + `<span class="k">${rawName ? name : esc(name)}</span>`
     + `<span class="e mono">${esc(expr)}</span></div>`;
 }
 
@@ -561,7 +567,7 @@ function gmbFigures(esc, t, n) {
 }
 function gmmFigures(esc, t, n) {
   if (!t) return '';
-  const lines = [eqHTML(esc, 'Gmm', `${fx(t.gmm, 3)} - maximum specific gravity (Rice), the average of the bowls`, 'Superpave row 42')];
+  const lines = [eqHTML(esc, 'G<sub>mm</sub>', `${fx(t.gmm, 3)} - maximum specific gravity (Rice), the average of the bowls`, 'Superpave row 42', '', '', true)];
   (t.dets || []).forEach((d, k) => {
     lines.push(eqHTML(esc, `bowl ${k + 1}`,
       `${fx(d.mix, 1)} g mix ÷ (${fx(d.mix, 1)} + ${fx(d.calibration, 1)} calibration − ${fx(d.finalWeight, 1)} final + ${fx(d.absorbedWater ?? 0, 1)} absorbed) = ${fx(d.msg, 3)}`,
@@ -574,8 +580,8 @@ function acFigures(esc, t, hm, s, n) {
   const out = [];
   if (hm) {
     // The hand-mixed check sample is the LOT's, and it lives on Sublot 1's tab.
-    out.push(eqHTML(esc, 'Gse', `${fx(hm.gse, 3)} - effective aggregate gravity, from the hand-mixed check sample`,
-      'Superpave!J8', '', src(1, 'handmix_msg', 0)));
+    out.push(eqHTML(esc, 'G<sub>se</sub>', `${fx(hm.gse, 3)} - effective aggregate gravity, from the hand-mixed check sample`,
+      'Superpave!J8', '', src(1, 'handmix_msg', 0), true));
     out.push(eqHTML(esc, '', `(100 − ${fx(hm.binderPct, 2)} hand-mixed %AC) ÷ (100 ÷ ${fx(hm.gmm, 3)} hand-mixed Gmm - ${fx(hm.binderPct, 2)} ÷ 1.03) = ${fx(hm.gse, 3)}`, '', 'sub'));
   }
   out.push(gmmFigures(esc, t, n));
@@ -602,7 +608,7 @@ function vmaFigures(esc, t, s, n) {
   if (!t) return '';
   return gmbFigures(esc, t, n)
     + eqHTML(esc, '%AC', `${fx(t.binderPct, 2)} - back-calculated, see the % AC line`, 'Superpave!B14')
-    + eqHTML(esc, 'Gsb', `${fx(t.gsb, 3)} - combined aggregate gravity for this sublot, from the blend`, 'Superpave R9:U9')
+    + eqHTML(esc, 'G<sub>sb</sub>', `${fx(t.gsb, 3)} - combined aggregate gravity for this sublot, from the blend`, 'Superpave R9:U9', '', '', true)
     + eqHTML(esc, 'VMA', `100 − ${fx(t.gmb, 3)} × (100 − ${fx(t.binderPct, 2)}) ÷ ${fx(t.gsb, 3)} = ${fx(t.vma, 2)}%`, "Superpave M → 'Pay Values'!I13")
     + eqHTML(esc, 'deviation', `${fx(t.vma, 2)} − ${fx(s.minVMA, 2)} minimum = ${sg(isNum(t.vma) && isNum(s.minVMA) ? t.vma - s.minVMA : null, 2)}`, "'Pay Values'!J13");
 }
@@ -614,7 +620,7 @@ function coreFigures(esc, c, n, table, id) {
   // (which is exactly what lot 1 of the two real AMAWs does).
   const to = id ? src(n, table, '#' + id) : '';
   return eqHTML(esc, 'BSG', `${fx(c.air, 1)} g in air ÷ (${fx(c.ssd, 1)} SSD − ${fx(c.water, 1)} in water) = ${fx(c.bsg, 3)}`, 'Cores G', 'sub', to)
-    + eqHTML(esc, 'density', `${fx(c.bsg, 3)} × 62.4 = ${fx(c.density, 1)} pcf`, 'Cores H', 'sub')
+    + eqHTML(esc, 'unit weight', `${fx(c.bsg, 3)} × 62.4 = ${fx(c.density, 1)} pcf`, 'Cores H', 'sub')
     + eqHTML(esc, '% solid', `${fx(c.density, 1)} ÷ (${fx(c.msg, 3)} sublot Gmm × 62.4) × 100 = ${fx(c.pctSolid, 2)}%`, 'Cores I', 'sub');
 }
 
