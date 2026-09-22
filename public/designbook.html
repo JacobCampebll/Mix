@@ -2456,13 +2456,26 @@ const CONFIG = {
   // same footing as the sieve mm list and the R35 Pb tolerance below —
   // not a Supabase reference table, since it only changes if M323 itself
   // is revised, unlike the aggregate/binder rosters which grow routinely.
+  //
+  // CORRECTED 2026-09-22. The 15-41 .. 32-67 band is M 323's control point
+  // on the 2.36 mm sieve (the #8), not the 4.75 mm (the #4); the #4 carries a
+  // "90 max" point of its own on the 0.38, and the 3/8" carries it on the
+  // 0.50 (and so on up). The table had the #8 band keyed `s4_75`, so every
+  // 0.45 chart in both books drew the gold band one sieve coarse and left
+  // the #4 unbounded. Checked three ways: KYTC's AMAW `.45 Data` and
+  // `Calculations!W14:AX30` (which is what PAYS a gradation-accepted lot,
+  // see pay.mjs CONTROL_POINTS_BY_MIX_TYPE), the MixPack template's own
+  // `Chart Data!E3:G..` for a 0.38, and KM 64-421's worked 0.50 example
+  // (KM p.429: "No. 8 28 - 58", "3/8 in. 90 max"). The No. 4 column is the
+  // workbook's too: 9.5 mm 95-100 and 4.75 mm 90-100, 1.18 mm 30-60, #200
+  // 6-12 - the table had 30-55 and 6-13 with no 4.75 mm point at all.
   GRADATION_CONTROL_POINTS: {
-    "1.5":  { s50: [100, null], s37_5: [90, 100], s25: [null, 90], s4_75: [15, 41], s0_075: [0, 6] },
-    "1.0":  { s37_5: [100, null], s25: [90, 100], s19: [null, 90], s4_75: [19, 45], s0_075: [1, 7] },
-    "0.75": { s25: [100, null], s19: [90, 100], s12_5: [null, 90], s4_75: [23, 49], s0_075: [2, 8] },
-    "0.5":  { s19: [100, null], s12_5: [90, 100], s9_5: [null, 90], s4_75: [28, 58], s0_075: [2, 10] },
-    "0.38": { s12_5: [100, null], s9_5: [90, 100], s4_75: [32, 67], s0_075: [2, 10] },
-    "4":    { s9_5: [null, 100], s1_18: [30, 55], s0_075: [6, 13] },
+    "1.5":  { s50: [100, null], s37_5: [90, 100], s25: [null, 90], s2_36: [15, 41], s0_075: [0, 6] },
+    "1.0":  { s37_5: [100, null], s25: [90, 100], s19: [null, 90], s2_36: [19, 45], s0_075: [1, 7] },
+    "0.75": { s25: [100, null], s19: [90, 100], s12_5: [null, 90], s2_36: [23, 49], s0_075: [2, 8] },
+    "0.5":  { s19: [100, null], s12_5: [90, 100], s9_5: [null, 90], s2_36: [28, 58], s0_075: [2, 10] },
+    "0.38": { s12_5: [100, null], s9_5: [90, 100], s4_75: [null, 90], s2_36: [32, 67], s0_075: [2, 10] },
+    "4":    { s12_5: [100, null], s9_5: [95, 100], s4_75: [90, 100], s1_18: [30, 60], s0_075: [6, 12] },
   },
 
   /* ---- Moisture in the coated mixture - KYTC 403.03.03 B) (STD PDF p.193,

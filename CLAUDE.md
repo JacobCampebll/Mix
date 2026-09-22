@@ -4873,6 +4873,22 @@ commit where possible.
   (`Calculations!A6:B13` - ATDB, the two sand asphalts, wedge, slurry, curb,
   OGFC, sand seal) are on the Nominal size select and in `MIX_TYPE_CODES` with
   `specialty: true`; a specialty TYPE is Gradation whatever the course.
+  **`CONFIG.GRADATION_CONTROL_POINTS` had the #8 band on the #4, on every
+  Superpave size, since it was written on 2026-09-04.** M 323 Table 4's
+  15-41 .. 32-67 band is the 2.36 mm control point; the 4.75 mm carries a "90
+  max" of its own on the 0.38 (the 9.5 mm on the 0.50, and so on up). The
+  table had it keyed `s4_75`, so every 0.45 chart in both books drew the gold
+  band one sieve coarse and left the #4 unbounded, and this file's own line
+  "`.45 Data` carries the same gradation control points DesignBook holds" was
+  wrong: it did not. Caught because the gradation pay GATES on those points
+  and the workbook's table (`W14:AX30`, transcribed to
+  `CONTROL_POINTS_BY_MIX_TYPE` in pay.mjs) disagreed with the constant;
+  confirmed by the AMAW's `.45 Data`, the MixPack template's `Chart Data!
+  E3:G..` and KM 64-421's worked 0.50 example (KM p.429, "No. 8 28 - 58",
+  "3/8 in. 90 max"). The No. 4 column is the workbook's now too (9.5 mm
+  95-100, 4.75 mm 90-100, 1.18 mm 30-60, #200 6-12; it had 30-55 and 6-13 and
+  no 4.75 mm point). Andrew's constant, corrected here because the pay depends
+  on it - worth a look from him all the same.
   Verified in a browser on the test lot: the course flips the acceptance
   method and the readout's shape, a person's own pick is never overwritten,
   OGFC is Gradation whatever the course, project items match the leveling
