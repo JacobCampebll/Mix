@@ -1134,24 +1134,48 @@
      until 2026-09-11, when the workbook figure stopped printing at all
      (see computedHTML()) - .dvtable is single-column everywhere now, no
      ".two" variant left to size for. */
-  .dvsplit{display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr);
-           gap:18px 34px; align-items:start;}
-  .dvsplit.one{grid-template-columns:minmax(0,620px); justify-content:center;}
+  /* max-content, not fr (2026-09-22): fr fills whatever the section gives it,
+     which on a wide window is most of ~780-1100px - and .dvrow's own label
+     column then stretched to match, leaving a wide gap between a short label
+     ("VFA (%)") and its value at the far right. Andrew, off a real
+     screenshot: too much empty horizontal space. Each table now sizes to its
+     own content and the two sit left-aligned; whatever the section doesn't
+     need falls to the outer margin instead of into every row. */
+  .dvsplit{display:grid; grid-template-columns:max-content max-content;
+           justify-content:start; gap:18px 34px; align-items:start;}
+  .dvsplit.one{grid-template-columns:max-content; justify-content:center;}
   /* PlantBook's Design Values mirror (2026-09-15): two EQUAL-width halves of
      one list, not the workbook/computed pair .dvsplit was built for - Andrew,
      off a real screenshot, "design values info in tab 1 can be tightened
      spatially, quite a bit". Ten stacked rows read half as tall as five and
-     five side by side; reuses .dvsplit's grid rather than a third layout. */
+     five side by side; reuses .dvsplit's grid rather than a third layout.
+     Kept at 1fr 1fr (not the max-content tightening above) and its .dvtable
+     kept stretched below - this pass only touched the two tables Andrew
+     screenshotted, DesignBook's own Design Values. */
   .dvsplit.twin{grid-template-columns:1fr 1fr; gap:0 24px;}
+  .dvsplit.twin .dvtable{justify-self:stretch;}
+  .dvsplit.twin .dvrow{grid-template-columns:minmax(0,1fr) 108px;}
   @media (max-width:1000px){
-    .dvsplit{grid-template-columns:1fr;}
+    .dvsplit{grid-template-columns:1fr; justify-content:stretch;}
     /* .dvsplit.twin (2 classes) outranks the bare .dvsplit rule just above
        whatever the source order, same cascade trap CLAUDE.md already records
        for @media overrides - restated here, not left to lose silently. */
     .dvsplit.twin{grid-template-columns:1fr;}
+    /* Stacked to one column, a table is the only thing on its row - the
+       tightened width above would anchor it to the left with a bare gutter
+       where the other table used to sit, so it reverts to the original
+       flexible row here rather than staying pinned narrow. */
+    .dvtable{justify-self:stretch;}
+    .dvrow{grid-template-columns:minmax(0,1fr) 108px;}
   }
-  .dvtable{border-top:1px solid var(--line); min-width:0;}
-  .dvrow{display:grid; grid-template-columns:minmax(0,1fr) 108px;
+  .dvtable{border-top:1px solid var(--line); min-width:0; justify-self:start;}
+  /* Fixed, not minmax(0,1fr): a label column sized to fill whatever the
+     table's own outer width happens to be is the same "gap between a short
+     label and its value" problem one level down, once .dvsplit above no
+     longer hands each table more room than it needs. 186px clears the
+     widest real label ("Film thickness (micron)", ~153px measured) with
+     headroom; 84px clears every value here (five characters, monospace). */
+  .dvrow{display:grid; grid-template-columns:186px 84px;
          align-items:baseline; gap:14px; padding:5px 4px;
          border-bottom:1px solid var(--line);}
   .dvrow:hover{background:var(--well);}
@@ -2949,6 +2973,19 @@ const CONFIG = {
     thickness: 1, saturation: 1, load: 1, strength: 1,
     // The TSR tab's specimen weights, which KYTC records to a tenth of a gram.
     tsr_weight: 1, gmb_tsr: 3,
+    // Every raw specimen weighing, on both books - DesignBook's TSR and
+    // Performance Specimens tables, PlantBook's BSG/MSG bowls, moisture pans
+    // and cores. All of it is grams to a tenth (the same precision
+    // `tsr_weight` already states above), and until 2026-09-22 none of these
+    // column keys had a DP entry at all - so a whole-number weight rendered
+    // as "2460" rather than "2460.0" on import, reopen or a fresh row,
+    // wherever roundTo() had no dp to round to. One entry per key covers
+    // every table that uses it, the same way `va`/`vma` above cover several
+    // tables at once.
+    dry_wt: 1, ssd_wt: 1, wt_water: 1, sat_ssd_wt: 1,
+    wt_air: 1, wt_ssd: 1,
+    wt_mix: 1, calibration: 1, final_wt: 1, absorbed_water: 1,
+    wt_before: 1, wt_after: 1, wt_pan: 1,
     // Hamburg: the deformations are millimetres to three places; the pass
     // counts and stripping-inflection points are General in the workbook.
     hamburg_left_maxdef: 3, hamburg_right_maxdef: 3,
@@ -3210,7 +3247,7 @@ const CONFIG = {
         { key: "vma_design", label: "VMA (%)",       wb: "VMA (%)" },
         { key: "vfa_design", label: "VFA (%)",       wb: "VFA (%)" },
         { key: "gmm_design", label: "G<sub>mm</sub> at design", wb: "Gmm",  row: "G<sub>mm</sub>" },
-        { key: "gmb_design", label: "Gmb at design", row: "Gmb" },
+        { key: "gmb_design", label: "G<sub>mb</sub> at design", row: "G<sub>mb</sub>" },
         { key: "gse",        label: "G<sub>se</sub>",           wb: "Gse" },
         { key: "pbe",        label: "Pbe (%)",       wb: "Effective AC (%)",    row: "Effective AC / Pbe (%)" },
         { key: "dust_pbe",   label: "D/A Ratio",     wb: "Dust / binder ratio" },
@@ -3266,7 +3303,7 @@ const CONFIG = {
             { key: "dry_wt",     label: "Dry wt (g)",     type: "number", req: false, mono: true },
             { key: "ssd_wt",     label: "SSD wt (g)",     type: "number", req: false, mono: true },
             { key: "wt_water",   label: "Wt in water (g)", type: "number", req: false, mono: true },
-            { key: "gmb",        label: "Gmb (BSG)",      type: "text",   req: false, mono: true, readonly: true },
+            { key: "gmb",        label: "G<sub>mb</sub> (BSG)", type: "text",   req: false, mono: true, readonly: true },
             // The vacuum-saturated SSD weight (row 44) - what the initial
             // saturation is computed from. Only a conditioned specimen has one.
             { key: "sat_ssd_wt", label: "Sat. SSD wt (g)", type: "number", req: false, mono: true },
@@ -4188,7 +4225,7 @@ const verifySpecimenOf4 = (n) =>
       // from Gse and the sublot's Gmm, less the moisture correction - see
       // volumetrics.mjs.
       { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
-      { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
+      { key: "gmb", label: "G<sub>mb</sub> (BSG)", type: "number", req: false, mono: true, readonly: true },
       { key: "gmm", label: "G<sub>mm</sub> (MSG)", type: "number", req: false, mono: true, readonly: true },
       { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
       { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
@@ -4608,7 +4645,7 @@ const verifySpecimenOf4 = (n) =>
       { key: "record", label: "Record", type: "text", readonly: true },
       { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true, chipHide: true },
       { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
-      { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
+      { key: "gmb", label: "G<sub>mb</sub> (BSG)", type: "number", req: false, mono: true, readonly: true },
       { key: "gmm", label: "G<sub>mm</sub> (MSG)", type: "number", req: false, mono: true, readonly: true },
       { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
       { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
@@ -5691,11 +5728,16 @@ function rowHTML(spec, values, idx) {
     // `c.readonly` becomes `disabled` for the source/select branches (see
     // refControlHTML()'s own note) and stays the `readonly` attribute for a
     // plain input - two different HTML mechanisms for the same schema flag.
+    // `data-weight` marks a raw gram weighing (label ends "(g)") - the
+    // sections#focusout handler snaps a whole number a technician just typed
+    // to a tenth ("2460" -> "2460.0") the moment they tab off, matching the
+    // precision CONFIG.DP now gives every one of these keys on render/import.
+    const wt = c.type === "number" && /\(g\)$/.test(c.label || "") ? ' data-weight="1"' : "";
     const ctrl = c.source ? refControlHTML(c, cls, attrs, v, c.readonly)
       : c.type === "select"
         ? selectHTML(cls, attrs, (c.options || []).map((o) =>
             (typeof o === "string" ? { value: o, label: o } : o)), v, c.readonly)
-        : `<input type="text"${ro} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
+        : `<input type="text"${ro}${wt} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
     // `num` is what lets a phone pack three figures onto one line instead of
     // giving each its own. A number column holds a figure - four or five
     // characters - where a text column can hold a 48-character producer name,
@@ -6058,7 +6100,7 @@ function fourpointHTML(section) {
   return `<div class="fp-consts">${consts}</div>
     <div class="fpscroll"><table class="fptable">
       <thead><tr>
-        <th>Pb (%)</th><th>Gmb</th><th>G<sub>mm</sub></th>
+        <th>Pb (%)</th><th>G<sub>mb</sub></th><th>G<sub>mm</sub></th>
         <th>Va (%)</th><th>VMA (%)</th><th>VFA (%)</th><th>Unit Weight (lb/ft³)</th>
       </tr></thead>
       <tbody>${rows}</tbody>
@@ -8416,15 +8458,20 @@ function drawFpChart(pbs, vas, vaFit, vaTgt, designPb) {
   // Minor ticks at 0.1 so a reading between two labelled gridlines can still
   // be placed to the nearest tenth - short marks on the axis line only
   // (minorTicks), no full gridline, no label, so the plot itself gains no
-  // extra clutter.
+  // extra clutter. --muted at 0.7 opacity/0.9 width, not --line at 0.55/0.6
+  // (2026-09-22): --line is already a light warm gray (#DAD7CE) even at full
+  // opacity, so at 55% it read as barely-there next to the major ticks -
+  // --muted (#6E7580) is the same color this page's axis labels already use,
+  // so a minor tick now reads as a shorter, not fainter, version of a major
+  // one.
   const MINOR_STEP = 0.1;
   const xMinor = minorTicks(ax.lo, ax.hi, MINOR_STEP, ax.ticks).map((t) => {
     const x = xp(t).toFixed(1);
-    return `<line x1="${x}" y1="${yBase}" x2="${x}" y2="${yBase + 3}" stroke="var(--line)" stroke-width="0.6" opacity="0.55"/>`;
+    return `<line x1="${x}" y1="${yBase}" x2="${x}" y2="${yBase + 4}" stroke="var(--muted)" stroke-width="0.9" opacity="0.7"/>`;
   }).join("");
   const yMinor = minorTicks(ay.lo, ay.hi, MINOR_STEP, ay.ticks).map((t) => {
     const y = yp(t).toFixed(1);
-    return `<line x1="${x0 - 3}" y1="${y}" x2="${x0}" y2="${y}" stroke="var(--line)" stroke-width="0.6" opacity="0.55"/>`;
+    return `<line x1="${x0 - 4}" y1="${y}" x2="${x0}" y2="${y}" stroke="var(--muted)" stroke-width="0.9" opacity="0.7"/>`;
   }).join("");
 
   // Solid where the four points support the fit, dashed past them (fitRuns).
@@ -10144,6 +10191,15 @@ function wireForm() {
     else comboClose();
   });
   $("sections").addEventListener("focusout", (e) => {
+    // A specimen weight (data-weight, rowHTML()) is reported to a tenth of a
+    // gram everywhere else it appears - import, reopen, the review PDF, the
+    // AMAW - so a technician typing "2460" and tabbing off should see
+    // "2460.0" here too, not only after a save/reload round-trip. Rounds to
+    // the tenth if more precision was typed, same as CONFIG.DP does on import.
+    if (e.target.dataset && e.target.dataset.weight) {
+      const n = parseFloat(e.target.value);
+      if (Number.isFinite(n)) e.target.value = n.toFixed(1);
+    }
     if (e.target !== combo.input) return;
     // Let the popup's own click land first; it prevents the blur, so by the
     // next tick focus is either back on the input or genuinely gone.
@@ -14294,7 +14350,7 @@ function eqHTML(esc, name, expr, cell, cls = '', goto = '', rawName = false) {
 
 function gmbFigures(esc, t, n) {
   if (!t) return '';
-  const lines = [eqHTML(esc, 'Gmb', `${fx(t.gmb, 3)} - bulk specific gravity, the average of the specimens`, 'Superpave G, Average row')];
+  const lines = [eqHTML(esc, 'G<sub>mb</sub>', `${fx(t.gmb, 3)} - bulk specific gravity, the average of the specimens`, 'Superpave G, Average row', '', '', true)];
   (t.specimens || []).forEach((s, k) => {
     lines.push(eqHTML(esc, `specimen ${k + 1}`,
       `${fx(s.air, 1)} g in air ÷ (${fx(s.ssd, 1)} SSD − ${fx(s.water, 1)} in water = ${fx(s.volume, 1)}) = ${fx(s.bsg, 3)}`,
@@ -20108,7 +20164,7 @@ function designValuesMirrorHTML(d) {
       ["G<sub>mm</sub>", v.gmm, DP.gmm_design],
     ],
     [
-      ["Gmb", v.gmb, DP.gmb_design],
+      ["G<sub>mb</sub>", v.gmb, DP.gmb_design],
       ["G<sub>se</sub>", v.gse, DP.gse],
       ["Effective AC / Pbe (%)", v.pbe, DP.pbe],
       ["D/A Ratio", v.dust_pbe, DP.dust_pbe],

@@ -557,7 +557,7 @@ function eqHTML(esc, name, expr, cell, cls = '', goto = '', rawName = false) {
 
 function gmbFigures(esc, t, n) {
   if (!t) return '';
-  const lines = [eqHTML(esc, 'Gmb', `${fx(t.gmb, 3)} - bulk specific gravity, the average of the specimens`, 'Superpave G, Average row')];
+  const lines = [eqHTML(esc, 'G<sub>mb</sub>', `${fx(t.gmb, 3)} - bulk specific gravity, the average of the specimens`, 'Superpave G, Average row', '', '', true)];
   (t.specimens || []).forEach((s, k) => {
     lines.push(eqHTML(esc, `specimen ${k + 1}`,
       `${fx(s.air, 1)} g in air ÷ (${fx(s.ssd, 1)} SSD − ${fx(s.water, 1)} in water = ${fx(s.volume, 1)}) = ${fx(s.bsg, 3)}`,
