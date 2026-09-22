@@ -4895,3 +4895,50 @@ commit where possible.
   line and not the "ASPHALT WEDGE CURB" (a curb, by the foot). Checkers:
   sections, intake 172, bridge 77, roll-forward 40, page drift 222+, pay
   127/127 plus the schedule block, mapper 4 unexplained (unchanged).
+
+- **DECIDED 2026-09-22 (Jake): no test results in Supabase, ever - what goes
+  there is a LEDGER, one small row per lot.** This answers the question
+  `docs/plantbook-storage.md` has carried since 2026-09-13 and puts the
+  three-table store in `supabase/amaw_lots.sql` on the shelf: do not apply
+  it. Jake: "we don't want to save any of the actual testing data in Supabase
+  ... a small amount of data to keep a chain in supabase of the lots so that
+  it could not be messed up by the contractor ... KYTC to view a cid and see
+  how many lots are on certain mixes on that project and status if submitted
+  or not."
+  The row: the six-part identity (contract, line item, plant, mix id, lot
+  number, compaction Option), a one-way `status` (Open -> Submitted ->
+  Accepted; "a lot is never opened by a contractor or kytc after it has been
+  submitted"), who opened and who submitted it and when, the SHA-256 of the
+  frozen submittal payload the PDF carries (so KYTC can check the file it
+  receives, the way `verify.html` checks an approval), and the previous lot's
+  hash carried by roll-forward (so lot 8 provably followed the submitted lot
+  7). ~300 bytes a lot. Sealing is a SECURITY DEFINER function, so no client
+  ever writes `Submitted` or a hash itself; reads are plant-scoped through
+  `technician_effective_plant_access` and KYTC sees all through `all_plants`.
+  **It must work offline** (Jake: "we need it to work offline too"), which the
+  file model already does: the ledger row is written when there is a
+  connection and queued when there is not, and opening a lot never waits on
+  it. Submit is the one moment that needs the network, as it already is.
+  Two of the storage doc's open questions closed with it: **every plant is one
+  contractor's** ("they are all unique, some plants are signed to one
+  contractor even though it has a different name"), so plant-scoped reads
+  leak nothing; and the custodian of an in-progress lot is the contractor
+  until submission, with KYTC welcome to see it - which the ledger gives as
+  STATUS, not results. District scoping (who writes QA01/IQ01) is still
+  Andrew's. The plan doc Andrew is reading is
+  https://claude.ai/code/artifact/ba38eedc-aff5-4e9e-a04a-2885ee805950.
+  **For scale, measured rather than guessed:** a fully filled lot envelope is
+  32 KB as JSON and 4 KB gzipped (`PlantBook_TESTLOT_gradation.json`), so
+  even the rejected full store would have been ~6.5 MB for 200 lots, about 1%
+  of the free tier's 500 MB - storage was never the argument against it;
+  custody was.
+  **And #8 above is settled by the spec, not by the workbook**: 402.05.02 A)
+  (STD p.182, footer `402-7`) - "When the Engineer determines the first
+  sublot's individual pay values are 0.90 or greater, the Department will use
+  1.00 pay values for all properties in the sublot. When ... less than 0.90,
+  the Department will apply a pay value of 0.85 or less for that property and
+  may require corrective work." That is exactly what `gradationSublotPay()`
+  implements as INTENDED for `'Pay Values'!E37`; the workbook's literal
+  always-100 is its bug. Note the "0.85 or less" second half is the
+  Engineer's call and is not computed anywhere - the volumetric allowance
+  cells (D13/G13/K13) do not compute it either.
