@@ -70,7 +70,7 @@
 // them; the third the workbook derives for itself and we carry only as a
 // cross-check. Do not "simplify" by treating all three the same.
 
-import { blankLot, normaliseLot } from './storage.mjs';
+import { blankLot, normaliseLot, restampIdentity } from './storage.mjs';
 import { LOT, AGGREGATE, SUBLOT, VERIFY as AVERIFY, GRADATION, CORES, PAY, CALC } from './addresses.mjs';
 import { vmaMinimumFor, airVoidTargetFor } from './pay.mjs';
 import PLANTBOOK_SECTIONS, { LOT_LEVEL_ROW_TABLES, LOT_LEVEL_ROW_COLUMNS } from './sections.mjs';
@@ -1385,6 +1385,13 @@ export function lotFromApproval(payload, opts = {}) {
     verification: verification.state,
   }];
 
+  // The key was stamped by blankLot() before any of the seeding above ran, so
+  // it cannot have carried the line item the project items just supplied, nor
+  // the compaction option densityOptionFor() just forced. Restamping is what
+  // keeps `normaliseLot(lot)` a no-op — an envelope whose key disagrees with
+  // its own contents changes identity the first time it is saved.
+  restampIdentity(lot);
+
   return {
     ok: true,
     lot,
@@ -1629,6 +1636,8 @@ export function rollForwardLot(prev, opts = {}) {
         + 'The contract, plant, mix, approval, blend and project items carried over; '
         + 'every measurement was cleared.',
   }];
+
+  restampIdentity(lot);   // see the note at the end of lotFromApproval()
 
   return {
     ok: true,

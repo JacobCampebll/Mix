@@ -119,7 +119,10 @@ ok([...frame].filter((k) => k.startsWith('jmf_')).length === 13,
 
 head('the lot number is derived, not typed');
 ok(lot.lot_number === 8 && lot.values.lot_number === 8, 'lot 7 -> lot 8');
-ok(lot.key.endsWith('|8'), 'the storage key carries the new number', lot.key);
+// The key is the six-part natural one, so the lot number is a FIELD in it
+// rather than its tail - two identity parts (the line item, the compaction
+// option) sit after it and either may legitimately be empty.
+ok(lot.key.split('|')[4] === '8', 'the storage key carries the new number', lot.key);
 ok(rollForwardLot({ ...prev, lot_number: 3 }).lot.lot_number === 4, 'lot 3 -> lot 4');
 ok(rollForwardLot(prev, { lotNumber: 12 }).lot.lot_number === 12, 'an explicit lotNumber wins');
 // The setup allowance is what makes this matter, so say so in the check.

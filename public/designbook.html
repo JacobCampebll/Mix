@@ -18356,8 +18356,8 @@ return {
 /* ===== PLANTBOOK LOT — storage envelope and approval intake =====
  *
  * Two modules from scripts/amaw/, de-moduled and spliced in verbatim:
- * storage.mjs (the lot envelope, and the two interchangeable backends behind
- * save/load/list/remove) then intake.mjs (the front door - what an uploaded
+ * storage.mjs (the lot envelope, and the local-first store that writes
+ * localStorage then catches Supabase up) then intake.mjs (the front door - what an uploaded
  * DesignBook approval IS, whether PlantBook may open a lot on it, and what a
  * lot inherits from it). Their own header comments below say what each is for
  * and what it was built against; nothing in either body has been rewritten.
@@ -18396,98 +18396,243 @@ const PB_LOT = (() => {
 
   /* ---- from storage.mjs ---- */
 
-  // PlantBook lot storage — one interface, two implementations.
+  // PlantBook lot storage — local first, Supabase behind it.
   //
-  // Jake has not decided whether an AMAW lot lives in a file (localStorage plus
-  // download/upload, exactly as DesignBook works) or in Supabase. Both are
-  // being built until he has talked to Tate and Andrew — see
-  // docs/plantbook-storage.md for the argument and supabase/amaw_lots.sql for
-  // the schema half. This module is what makes that decision cheap to reverse:
-  // the page only ever calls save / load / list / remove, and the envelope is
-  // the same shape on disk and in jsonb, so flipping the flag changes where a
-  // lot lives, not what it is.
+  // SETTLED 2026-09-22 (Jake): "the information of the plantbook data is deleted
+  // once the project is over or a week after is the best way to do this. Along
+  // the way contractors will still be downloading the pdf as a back up. Storage
+  // has to be the way." So this is no longer two competing implementations with
+  // a flag between them, as docs/plantbook-storage.md describes it — it is one
+  // store with two layers:
   //
-  //   const store = PB_LOT.createLotStore({ backend: CONFIG.STORAGE.BACKEND, client: sb });
+  //   localStorage   always written, always first, always the thing on screen.
+  //   Supabase       written when it is reachable, caught up when it is not.
+  //
+  //   const store = PB_LOT.createLotStore({ client: sb, backend: 'synced' });
   //   (in the module this read `import { createLotStore } from './storage.mjs'`.)
+  //
+  // The order is the whole design. A plant is a shed beside a drum mixer and a
+  // technician with no signal must never be told to wait for one — so a save
+  // lands on this machine, returns, and the network happens afterwards. Jake,
+  // 2026-09-22: "we need it to work offline too."
   //
   // PURE MODULE. No DOM beyond `localStorage`, which is probed rather than
   // assumed: CLAUDE.md records that it can come back empty or throw outright
-  // (private window, cleared or blocked site data), so every read and write
-  // here is wrapped and `available()` is the honest answer, not a guess. The
-  // Supabase client is INJECTED, never imported — the pages are self-contained
-  // with no build step, and this file has to be loadable in Node for tests.
+  // (private window, cleared or blocked site data), so every read and write here
+  // is wrapped and `available()` is the honest answer, not a guess. The Supabase
+  // client is INJECTED, never imported — the pages are self-contained with no
+  // build step, and this file has to be loadable in Node for its checker.
   //
-  // Everything is async in both implementations even where localStorage is
-  // synchronous, so the two are interchangeable without the caller knowing
-  // which it holds.
+  // Everything is async in both layers even where localStorage is synchronous,
+  // so a caller never has to know which one answered.
+  //
+  // ---------------------------------------------------------------------
+  // THE QUEUE IS NOT A QUEUE
+  // ---------------------------------------------------------------------
+  // There is no list of pending writes anywhere, and that is deliberate. Every
+  // lot carries `revision` (bumped on every local save) and `synced_revision`
+  // (the revision the server has confirmed). A lot needs pushing exactly when
+  // those differ, so the outbox is DERIVED from the lots themselves and cannot
+  // drift from them, go stale, or survive a lot being deleted. A queue that can
+  // disagree with its contents is a queue that eventually does.
+  //
+  // The same two numbers answer the question that actually bites — was this
+  // edited in two places? `unsynced` means local moved; a server revision above
+  // `synced_revision` means the server moved; BOTH is a conflict, and it is
+  // reported rather than resolved, because silently picking one loses a
+  // technician's afternoon.
 
   // ---------------------------------------------------------------------
   // The envelope
   // ---------------------------------------------------------------------
-  // Same body either way: a lot's identity, its lot-level values, its seven
-  // test records, and an append-only history. Bump VERSION only for a breaking
-  // change — `load()` refuses a newer envelope rather than half-reading it,
-  // the same rule readHandoffPDF() follows in designbook.html.
+  // Same body on disk, in jsonb, in the .json download and inside the lot PDF.
+  // Bump VERSION only for a breaking change — `load()` refuses a newer envelope
+  // rather than half-reading it, the same rule readHandoffPDF() follows in
+  // designbook.html.
   const LOT_FORMAT = 'kytc-plantbook-lot';
   const LOT_VERSION = 1;
 
   // t_tst_rslt_dtl's own block ids (docs/amaw-map.md), in workbook order.
   const BLOCKS = ['VI01', 'QC01', 'QC02', 'QC03', 'QC04', 'QA01', 'IQ01'];
   // QA01 is Department acceptance, IQ01 independent assurance. Both are filled
-  // by KYTC district personnel, not by the plant — which is the single fact
-  // that makes the file model hard (they never hold the contractor's file) and
-  // the stored model's department path necessary.
+  // by KYTC district personnel, not by the plant — the single fact that makes a
+  // file-only model hard, and the one supabase/amaw_lots.sql still cannot model
+  // because district scoping has no representation in the schema.
   const DEPARTMENT_BLOCKS = ['QA01', 'IQ01'];
   const isDepartmentBlock = (block) => DEPARTMENT_BLOCKS.indexOf(block) >= 0;
 
-  // A lot is identified by contract + plant + mix + lot number. Same four
-  // columns as amaw_lots' unique index, so a key computed here and a row found
-  // there can never disagree about which lot is which.
-  //
-  // KNOWN INCOMPLETE, and stated rather than half-fixed (Jake, 2026-09-17): the
-  // lot number restarts per contract + LINE ITEM + design + plant, and a
-  // contract can carry two line items for the same mix - so these four columns
-  // can collide between two real lots that are genuinely different. The fifth
-  // part is the line item, which the lot envelope holds only as a row of
-  // `project_items` rather than as a scalar, and the DDL's unique index would
-  // have to move with the constant or the sentence above stops being true. Both
-  // halves are one change and neither is made here; nothing calls
-  // `createLotStore()` yet and `supabase/amaw_lots.sql` is unapplied, so the
-  // collision is not reachable today. `expectedLots()` already refuses to count
-  // a denominator on a two-line-item contract for the same reason.
-  const IDENTITY = ['contract_id', 'amp_number', 'mix_id', 'lot_number'];
+  // Open -> Submitted -> Accepted, one way. Jake, 2026-09-22: "A lot is never
+  // opened by a contractor or kytc after it has been submitted to the state."
+  const LOT_STATUSES = ['Open', 'Submitted', 'Accepted'];
 
-  /** Stable key for one lot. Uppercased and trimmed so "252112 " and "252112"
-   *  are not two lots; `|` cannot appear in any of the four fields. */
+  // ---------------------------------------------------------------------
+  // Identity
+  // ---------------------------------------------------------------------
+  // The six parts, settled 2026-09-17 (Jake): the lot number restarts per
+  // contract + LINE ITEM + design + plant, "and it could be the same of all
+  // those but be option B instead of option A dictated by kytc guys during the
+  // project from the district".
+  //
+  // This is the NATURAL key. It is not what a lot is stored under — see
+  // `uid` below — because two of the six legitimately change after a lot is
+  // open: a change order renumbers the line item, and the district switches the
+  // compaction option mid-job. Keying on them would fork a lot into two records
+  // the moment somebody corrected one, with the week's work stranded on the old
+  // one. Same six columns as amaw_lots' unique index, so a key computed here and
+  // a row found there can never disagree about which lot is which.
+  const IDENTITY = ['contract_id', 'line_item', 'amp_number', 'mix_id', 'lot_number', 'density_option'];
+  // The four that must be present. A lot genuinely may not know its line item
+  // yet (the contract's items have not been looked up) or its option (the
+  // proposal carries one note per route and this contract has two).
+  const IDENTITY_REQUIRED = ['contract_id', 'amp_number', 'mix_id', 'lot_number'];
+
+  /** Stable natural key for one lot. Uppercased and trimmed so "252112 " and
+   *  "252112" are not two lots; `|` cannot appear in any of the six fields. */
   function lotKey(identity) {
     const part = (v) => String(v == null ? '' : v).trim().toUpperCase();
-    const missing = IDENTITY.filter((k) => !part(identity && identity[k]));
+    const missing = IDENTITY_REQUIRED.filter((k) => !part(identity && identity[k]));
     if (missing.length) throw new StorageError('invalid', `lot identity is missing ${missing.join(', ')}`);
     return IDENTITY.map((k) => part(identity[k])).join('|');
   }
 
+  /** The six parts as the ledger's own columns, ready to send. */
+  function lotIdentity(lot) {
+    return {
+      contract_id:    String(lot.contract_id || '').trim(),
+      line_item:      String(lot.line_item || '').trim(),
+      amp_number:     String(lot.amp_number || '').trim(),
+      mix_id:         String(lot.mix_id || '').trim(),
+      lot_number:     Number(lot.lot_number),
+      density_option: String(lot.density_option || '').trim().toUpperCase(),
+    };
+  }
+
+  // The line item and the compaction option are not fields a technician types
+  // into an identity box — they are consequences of two lookups. Reading them
+  // off the envelope is what keeps the identity a FUNCTION of the lot rather
+  // than a second copy of it that can drift.
+  //
+  // The line item refuses to guess between two candidates, exactly as
+  // expectedLots() does: a contract with a PCN per route can carry this mix on
+  // both, and picking the first would file the lot under a line it was not
+  // produced on.
+  function deriveIdentityParts(lot) {
+    const values = (lot && lot.values) || {};
+    const rows = (lot && lot.rows) || {};
+    const items = Array.isArray(rows.project_items) ? rows.project_items : [];
+    const lines = [];
+    for (const r of items) {
+      const v = r && (r.line != null ? r.line : r.line_item);
+      const s = v == null ? '' : String(v).trim();
+      if (s && lines.indexOf(s) < 0) lines.push(s);
+    }
+    return {
+      line_item: lines.length === 1 ? lines[0] : '',
+      density_option: String(values.lot_density_option || '').trim().toUpperCase().replace(/^OPTION\s+/, ''),
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // uid — what a lot is actually stored under
+  // ---------------------------------------------------------------------
+  // Fixed at birth, on this machine, before the lot has ever reached a server.
+  // That is what lets a technician with no signal start a lot at all, and it is
+  // what makes every later push an upsert rather than a reconciliation.
+  //
+  // IT IS DERIVED FROM THE NATURAL KEY, NOT RANDOM, and that was a correction
+  // rather than the first instinct. A random uid gives two people who each start
+  // lot 3 offline — the day shift on the shared tablet, the night shift on a
+  // laptop — two rows carrying one identity, and the second one to get a signal
+  // is refused by amaw_lots' unique index with nothing a technician can do about
+  // it. Derived, they are one lot: both push to the same row and the second sees
+  // an ordinary revision conflict, which is a sentence the page can actually
+  // say. It also makes re-importing the same .json twice land on the lot it
+  // already is, instead of quietly making a second one.
+  //
+  // Fixed at BIRTH is the other half. normaliseLot() carries an existing uid
+  // through untouched, so a lot whose line item a change order renumbers, or
+  // whose compaction option the district switches mid-job, keeps the uid it was
+  // born with — the two identity parts that legitimately move cannot move the
+  // lot out from under a week of work.
+  //
+  // The narrow case it cannot tell apart: two genuinely different lots both
+  // started BEFORE their compaction option was known, so both born on the same
+  // key. The page guards that by looking for an existing lot on the key before
+  // opening a new one, and saying so rather than merging.
+
+  /** A uuid that is a pure function of a string. Deterministic on purpose. */
+  function uidFromKey(key) {
+    // FNV-1a over four offset streams. Not a cryptographic hash and does not
+    // need to be — it only has to be stable and collision-free across the few
+    // hundred lots one contractor will ever re-import.
+    const bytes = new Uint8Array(16);
+    for (let s = 0; s < 4; s++) {
+      let h = 0x811c9dc5 ^ (s * 0x01000193);
+      const salted = key + '#' + s;
+      for (let i = 0; i < salted.length; i++) {
+        h ^= salted.charCodeAt(i);
+        h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+      }
+      bytes[s * 4] = (h >>> 24) & 0xff; bytes[s * 4 + 1] = (h >>> 16) & 0xff;
+      bytes[s * 4 + 2] = (h >>> 8) & 0xff; bytes[s * 4 + 3] = h & 0xff;
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    return bytesToUuid(bytes);
+  }
+
+  function bytesToUuid(b) {
+    const hex = [];
+    for (let i = 0; i < 16; i++) hex.push((b[i] + 0x100).toString(16).slice(1));
+    return hex.slice(0, 4).join('') + '-' + hex.slice(4, 6).join('') + '-' +
+           hex.slice(6, 8).join('') + '-' + hex.slice(8, 10).join('') + '-' + hex.slice(10, 16).join('');
+  }
+
   /** A new, empty lot envelope. */
   function blankLot(identity, extra) {
+    const e = extra || {};
     const lot = {
       format: LOT_FORMAT,
       version: LOT_VERSION,
+      uid: e.uid || identity.uid || null,       // filled below
       key: lotKey(identity),
       contract_id: String(identity.contract_id).trim(),
+      line_item: String(identity.line_item == null ? (e.line_item || '') : identity.line_item).trim(),
       amp_number: String(identity.amp_number).trim(),
       mix_id: String(identity.mix_id).trim(),
-      mix_signature: (extra && extra.mix_signature) || null,
+      mix_signature: e.mix_signature || null,
       lot_number: Number(identity.lot_number),
-      plant_name: (extra && extra.plant_name) || null,
+      density_option: String(identity.density_option == null ? (e.density_option || '') : identity.density_option)
+                        .trim().toUpperCase(),
+      plant_name: e.plant_name || null,
       status: 'Open',
-      values: {},           // lot-level: blend, Pay Values header, recycle
-      rows: {},             // {cores:[...], gradation:[...]} — core count is NOT fixed
-      records: {},          // block -> { values, rows, revision, entered_by, entered_name, updated_at }
+      values: {},           // lot-level: Contract & Mix, the binder block, the approval's `design`
+      rows: {},             // every repeating table, flat, keyed as the form keys them
+      records: {},          // block -> {...}. Unused until district scoping exists.
       extracted_from: {},   // field -> source cell; provisional, never authoritative
       history: [],          // append only
       saved_at: null,
       saved_by: null,
       revision: 0,
+      // --- sync bookkeeping. See "THE QUEUE IS NOT A QUEUE" above. ---------
+      // THREE counters, because there are two independent sequences. `revision`
+      // counts saves on THIS machine; `server_revision` is the number the server
+      // last handed back, and is the optimistic token a later push must present;
+      // `synced_revision` is the local revision that push confirmed. Conflating
+      // the first two sends a local count where the server expects its own, and
+      // the mismatch reads as "somebody else saved first" on a lot nobody else
+      // has touched.
+        synced_revision: null,   // the local revision the server has confirmed
+      server_revision: null,   // the server's own counter, as it last reported it
+      synced_at: null,
+      pending_seal: null,      // a Submit made with no signal, waiting to be sent
+      // --- stamped by the server, never by the page ------------------------
+      submitted_at: null, submitted_name: null,
+      accepted_at: null,  accepted_name: null,
+      submittal_sha256: null, prev_sha256: null,
+      purge_after: null, purged_at: null,
     };
+    lot.uid = lot.uid || uidFromKey(lot.key);
     return lot;
   }
 
@@ -18502,7 +18647,10 @@ const PB_LOT = (() => {
         `this lot was written by a newer PlantBook (v${raw.version}); update the page rather than opening it`);
     }
     const lot = blankLot(raw, raw);
-    for (const k of ['mix_signature', 'plant_name', 'status', 'saved_at', 'saved_by']) {
+    for (const k of ['mix_signature', 'plant_name', 'saved_at', 'saved_by',
+                     'synced_at', 'pending_seal',
+                     'submitted_at', 'submitted_name', 'accepted_at', 'accepted_name',
+                     'submittal_sha256', 'prev_sha256', 'purge_after', 'purged_at']) {
       if (raw[k] != null) lot[k] = raw[k];
     }
     for (const k of ['values', 'rows', 'records', 'extracted_from']) {
@@ -18510,29 +18658,96 @@ const PB_LOT = (() => {
     }
     lot.history = Array.isArray(raw.history) ? raw.history : [];
     lot.revision = Number(raw.revision || 0);
+    lot.synced_revision = raw.synced_revision == null ? null : Number(raw.synced_revision);
+    lot.server_revision = raw.server_revision == null ? null : Number(raw.server_revision);
+    // An unknown status reads as Open rather than being carried: every gate in
+    // the page and every policy in the database switches on these three words.
+    lot.status = LOT_STATUSES.indexOf(raw.status) >= 0 ? raw.status : 'Open';
+
+    return restampIdentity(lot);
+  }
+
+  /**
+   * Re-derive the two identity parts a lookup fills in AFTER a lot is open, and
+   * restamp the key from them. Idempotent, and the one definition of the rule —
+   * intake.mjs calls it too, on the lot it builds from an approval and on the
+   * one it rolls forward, because a lot whose key disagreed with its own
+   * contents would be filed under a line item it was not produced on the first
+   * time anybody saved it.
+   *
+   * An explicit value already on the envelope wins: a lot read back from the
+   * LEDGER carries what the server believes, and for an already-stored lot that
+   * is the authority. The uid is NOT restamped — it is fixed at birth, which is
+   * the whole point of it.
+   */
+  function restampIdentity(lot) {
+    const derived = deriveIdentityParts(lot);
+    if (!lot.line_item && derived.line_item) lot.line_item = derived.line_item;
+    if (!lot.density_option && derived.density_option) lot.density_option = derived.density_option;
     lot.key = lotKey(lot);
     return lot;
   }
 
-  /** The row a list() returns. Identical from both backends so the queue screen
-   *  does not care which one it is talking to. */
+  /** The row a list() returns. Identical from both layers so a queue screen does
+   *  not care which one it is talking to. */
   function lotSummary(lot) {
     const records = lot.records || {};
     const entered = BLOCKS.filter((b) => records[b] && hasContent(records[b]));
     return {
+      uid: lot.uid,
       key: lot.key,
       contract_id: lot.contract_id,
+      line_item: lot.line_item || '',
       amp_number: lot.amp_number,
       plant_name: lot.plant_name || null,
       mix_id: lot.mix_id,
       mix_signature: lot.mix_signature || null,
       lot_number: lot.lot_number,
+      density_option: lot.density_option || '',
       status: lot.status || 'Open',
       records_entered: entered.length,
-      sublots_entered: entered.filter((b) => b.indexOf('QC') === 0).length,
+      sublots_entered: sublotsWithContent(lot),
       saved_at: lot.saved_at || null,
       saved_by: lot.saved_by || null,
+      revision: Number(lot.revision || 0),
+      synced_revision: lot.synced_revision == null ? null : Number(lot.synced_revision),
+      server_revision: lot.server_revision == null ? null : Number(lot.server_revision),
+      unsynced: isUnsynced(lot),
+      has_data: true,
+      purge_after: lot.purge_after || null,
+      purged_at: lot.purged_at || null,
     };
+  }
+
+  /** Does this lot hold local work the server has not confirmed? */
+  function isUnsynced(lot) {
+    if (!lot) return false;
+    if (lot.pending_seal) return true;
+    return Number(lot.revision || 0) !== Number(lot.synced_revision == null ? -1 : lot.synced_revision);
+  }
+
+  // How many of the four sublots have anything in them. Read off the flat row
+  // tables the form actually writes, because `records` is unused today — a count
+  // derived from an empty map would report every lot as untouched.
+  function sublotsWithContent(lot) {
+    const rows = (lot && lot.rows) || {};
+    const seen = new Set();
+    for (const key of Object.keys(rows)) {
+      const list = rows[key];
+      if (!Array.isArray(list)) continue;
+      for (const r of list) {
+        if (!r || typeof r !== 'object') continue;
+        const s = r.sublot == null ? null : String(r.sublot);
+        if (!s) continue;
+        const n = /(\d)\s*$/.exec(s.split('-')[0] || s);
+        const filled = Object.keys(r).some((k) => k !== 'sublot' && k !== 'core_id' &&
+          r[k] !== null && r[k] !== '' && r[k] !== undefined);
+        if (n && filled) seen.add(n[1]);
+      }
+    }
+    const direct = Object.keys(rows).filter((k) => /^sub[1-4]_/.test(k));
+    for (const k of direct) seen.add(k.slice(3, 4));
+    return seen.size;
   }
 
   function hasContent(rec) {
@@ -18544,30 +18759,39 @@ const PB_LOT = (() => {
   // ---------------------------------------------------------------------
   // Errors
   // ---------------------------------------------------------------------
-  // Callers switch on `.code`, never on the message. `conflict` is the one that
-  // needs its own wording on screen: a week-long lot means stale tabs are
-  // normal, and "a colleague saved first, reload" is a different sentence from
-  // "something went wrong".
+  // Callers switch on `.code`, never on the message. Two need their own wording
+  // on screen. `conflict` — a week-long lot makes a stale tab ordinary, and "a
+  // colleague saved first" is a different sentence from "something went wrong".
+  // `offline` — not an error at all on this page; the save already succeeded
+  // locally and the sentence is about when it will reach KYTC.
   class StorageError extends Error {
     constructor(code, message, cause) {
       super(message);
       this.name = 'StorageError';
-      this.code = code;          // unavailable | quota | conflict | not_found | denied | invalid | backend
+      // unavailable | quota | conflict | offline | not_found | denied | invalid | backend | sealed
+      this.code = code;
       if (cause) this.cause = cause;
     }
   }
 
+  // A failure that means "the network, not the data". These are retried from the
+  // outbox; everything else is a real answer and is surfaced.
+  function isTransient(err) {
+    if (!err) return false;
+    if (err.code === 'offline' || err.code === 'backend') return true;
+    const m = String(err.message || '').toLowerCase();
+    return m.indexOf('failed to fetch') >= 0 || m.indexOf('networkerror') >= 0 ||
+           m.indexOf('load failed') >= 0 || m.indexOf('timeout') >= 0;
+  }
+
   // =====================================================================
-  // (a) FILE MODEL — localStorage
+  // (a) LOCAL — localStorage
   // =====================================================================
-  // What DesignBook does, ported. Everything stays on this machine, in this
-  // browser, at this origin. Read docs/plantbook-storage.md before relying on
-  // it for a lot that spans days: origin scoping, Safari's 7-day eviction,
-  // cleared site data, a second device and a QA technician at another employer
-  // are all real and all silent.
+  // Everything stays on this machine, in this browser, at this origin. It is the
+  // layer that is always written and always read back, so it is also the layer
+  // that must never throw where it can report instead.
 
   const LOCAL_PREFIX = 'amaw_lot:';
-  const LOCAL_INDEX = 'amaw_lot_index';
 
   /**
    * @param {object} [opts]
@@ -18576,30 +18800,42 @@ const PB_LOT = (() => {
    */
   function localLotStore(opts = {}) {
     const prefix = opts.prefix || LOCAL_PREFIX;
-    const indexKey = (opts.prefix ? opts.prefix + 'index' : LOCAL_INDEX);
+    const indexKey = prefix + 'index';
 
     // Resolved once, defensively: touching localStorage at all can throw in a
     // locked-down browser, so even reading the property is inside the try.
     function store() {
       try {
         const s = opts.storage || (typeof globalThis !== 'undefined' ? globalThis.localStorage : null);
-        if (!s) return null;
-        return s;
+        return s || null;
       } catch (_) { return null; }
     }
 
-    // A write probe, not just a presence check: Safari in private mode exposes
+    // QuotaExceededError is not hypothetical. A filled lot is ~32 KB and a
+    // contractor may hold several at once.
+    const isQuota = (err) => !!err && (err.name === 'QuotaExceededError' ||
+      err.name === 'NS_ERROR_DOM_QUOTA_REACHED' || err.code === 22);
+
+    // A write probe, not a presence check: Safari in private mode exposes
     // localStorage and throws on setItem, so "it exists" proves nothing.
+    //
+    // IT HAS TO TELL A FULL BROWSER FROM A BLOCKED ONE. Both throw here, and
+    // they need opposite sentences — one says download your working copy now,
+    // the other says this window cannot store anything at all. Reporting the
+    // blocked wording to somebody who is simply out of space sends them looking
+    // at their privacy settings while the work they have not downloaded sits
+    // one tab-close from gone.
     function probe() {
       const s = store();
-      if (!s) return { ok: false, reason: 'this browser has no localStorage' };
+      if (!s) return { ok: false, code: 'unavailable', reason: 'this browser has no localStorage' };
       const k = prefix + '__probe';
-      try {
-        s.setItem(k, '1');
-        s.removeItem(k);
-        return { ok: true };
-      } catch (err) {
-        return { ok: false, reason: 'localStorage is not writable here (private window, or site data is blocked)', cause: err };
+      try { s.setItem(k, '1'); s.removeItem(k); return { ok: true }; }
+      catch (err) {
+        return isQuota(err)
+          ? { ok: false, code: 'quota', cause: err,
+              reason: 'this browser is out of storage — download the working copy now, before anything else' }
+          : { ok: false, code: 'unavailable', cause: err,
+              reason: 'localStorage is not writable here (private window, or site data is blocked)' };
       }
     }
 
@@ -18620,12 +18856,9 @@ const PB_LOT = (() => {
       catch (err) { throw new StorageError('invalid', 'this lot cannot be serialised', err); }
       try { s.setItem(key, text); }
       catch (err) {
-        // QuotaExceededError is not hypothetical here. KYCT Data Sublot # 1-4
-        // are A1:AE1031 each; a full lot is not a mix design.
-        const quota = err && (err.name === 'QuotaExceededError' || err.name === 'NS_ERROR_DOM_QUOTA_REACHED' || err.code === 22);
-        throw new StorageError(quota ? 'quota' : 'unavailable',
-          quota ? 'this browser is out of storage — download the working copy now, before anything else'
-                : 'localStorage refused the write', err);
+        throw new StorageError(isQuota(err) ? 'quota' : 'unavailable',
+          isQuota(err) ? 'this browser is out of storage — download the working copy now, before anything else'
+                       : 'localStorage refused the write', err);
       }
     }
 
@@ -18637,34 +18870,44 @@ const PB_LOT = (() => {
       write: (idx) => writeJSON(indexKey, idx),
     };
 
-    return {
+    const api = {
       name: 'local',
 
       async available() { return probe(); },
 
-      async save(lot, { by = null } = {}) {
+      async save(lot, { by = null, bump = true } = {}) {
         const p = probe();
-        if (!p.ok) throw new StorageError('unavailable', p.reason, p.cause);
+        if (!p.ok) throw new StorageError(p.code || 'unavailable', p.reason, p.cause);
         const next = normaliseLot(lot);
         next.saved_at = new Date().toISOString();
         next.saved_by = by || next.saved_by || null;
-        next.revision = Number(next.revision || 0) + 1;
-        writeJSON(prefix + next.key, next);
+        if (bump) next.revision = Number(next.revision || 0) + 1;
+        writeJSON(prefix + next.uid, next);
         // Index second: if the lot write succeeded and this one throws, the lot
-        // is still on disk and a rebuildIndex() recovers it. The other order
-        // would advertise a lot that is not there.
+        // is still on disk and rebuildIndex() recovers it. The other order would
+        // advertise a lot that is not there.
         try {
           const idx = index.read();
-          idx[next.key] = lotSummary(next);
+          idx[next.uid] = lotSummary(next);
           index.write(idx);
         } catch (_) { /* the lot itself is saved; the list is rebuildable */ }
         return next;
       },
 
-      async load(key) {
-        const raw = readJSON(prefix + String(key), null);
+      async load(uid) {
+        const raw = readJSON(prefix + String(uid), null);
         if (!raw) return null;
         return normaliseLot(raw);
+      },
+
+      /** Find a lot by its natural key rather than its uid — the question a
+       *  reopened file asks ("have I already got this lot?"). */
+      async findByKey(key) {
+        const idx = index.read();
+        for (const uid of Object.keys(idx)) {
+          if (idx[uid] && idx[uid].key === String(key)) return api.load(uid);
+        }
+        return null;
       },
 
       async list(filter = {}) {
@@ -18675,19 +18918,19 @@ const PB_LOT = (() => {
         return out;
       },
 
-      async remove(key) {
+      async remove(uid) {
         const s = store();
         if (!s) throw new StorageError('unavailable', 'localStorage is not available');
         let existed = false;
-        try { existed = s.getItem(prefix + String(key)) != null; s.removeItem(prefix + String(key)); }
+        try { existed = s.getItem(prefix + String(uid)) != null; s.removeItem(prefix + String(uid)); }
         catch (err) { throw new StorageError('unavailable', 'localStorage refused the delete', err); }
-        try { const idx = index.read(); delete idx[String(key)]; index.write(idx); } catch (_) {}
+        try { const idx = index.read(); delete idx[String(uid)]; index.write(idx); } catch (_) {}
         return existed;
       },
 
-      // Local-only extra. The index is a cache of the lots themselves, so it can
-      // always be rebuilt — after a partial write, or after a lot arrives by
-      // file import rather than through save().
+      // The index is a cache of the lots themselves, so it can always be
+      // rebuilt — after a partial write, or after a lot arrives by file import
+      // rather than through save().
       async rebuildIndex() {
         const s = store();
         if (!s) throw new StorageError('unavailable', 'localStorage is not available');
@@ -18700,66 +18943,75 @@ const PB_LOT = (() => {
           if (!k || k.indexOf(prefix) !== 0 || k === indexKey) continue;
           const raw = readJSON(k, null);
           if (!raw) continue;
-          try { const lot = normaliseLot(raw); idx[lot.key] = lotSummary(lot); } catch (_) { /* skip a corrupt one */ }
+          try { const lot = normaliseLot(raw); idx[lot.uid] = lotSummary(lot); } catch (_) { /* skip a corrupt one */ }
         }
         index.write(idx);
         return Object.keys(idx).length;
       },
+
+      /** Every lot holding work the server has not confirmed. The outbox,
+       *  derived rather than stored. */
+      async outbox() {
+        const idx = index.read();
+        return Object.keys(idx).filter((uid) => idx[uid] && idx[uid].unsynced);
+      },
     };
+    return api;
   }
 
   // =====================================================================
-  // (b) STORED MODEL — Supabase
+  // (b) REMOTE — Supabase
   // =====================================================================
-  // Against supabase/amaw_lots.sql, which is NOT APPLIED. Every call here
-  // fails cleanly with code 'backend' until Andrew applies it, which is what
-  // lets both paths sit in the page at once.
+  // Against supabase/amaw_lots.sql. Until Andrew applies it every call here
+  // fails with code 'backend', which isTransient() treats as "not now" — so an
+  // unapplied schema behaves exactly like a plant with no signal, and the page
+  // keeps working out of localStorage either way.
   //
-  // Two things about this implementation are not incidental:
+  // Two things about this layer are not incidental:
   //
-  //  * It writes ONE ROW PER TEST RECORD, because the table is shaped that way.
-  //    A contractor QC tech saving sublot 3 and a district tech saving QA01
-  //    touch different rows, days apart. Collapsing the seven into one document
-  //    would rebuild the file model's merge problem inside Postgres.
-  //  * QA01/IQ01 go through the `amaw_save_department_record` RPC, never a
-  //    plain update. A district technician has no plant access row, so the lot
-  //    fails the SELECT policy, so a direct UPDATE resolves no target and
-  //    silently writes 0 rows — the exact trap CLAUDE.md records. The RPC is
-  //    SECURITY DEFINER for that reason.
+  //  * IT NEVER WRITES THE CHAIN. status, the hashes, submitted_*/accepted_* and
+  //    purge_after go through amaw_seal_lot() and nowhere else, because the
+  //    guard trigger pins them on any other write. A save that tried would not
+  //    error — it would silently do nothing, which is worse.
+  //  * THE LEDGER ROW IS UPSERTED ON `id`, not on the identity. line_item and
+  //    density_option are the two identity columns a later lookup legitimately
+  //    changes, and an upsert on the natural key would insert a second lot the
+  //    first time one of them did.
 
-  /**
-   * @param {object} opts
-   * @param {object} opts.client  a supabase-js client (injected — never named
-   *                              `supabase` at a page's top level, see CLAUDE.md)
-   */
   function supabaseLotStore(opts = {}) {
     const sb = opts.client;
     if (!sb) throw new StorageError('invalid', 'supabaseLotStore needs a client');
     const T_LOTS = opts.lotsTable || 'amaw_lots';
-    const T_RECORDS = opts.recordsTable || 'amaw_lot_records';
+    const T_DATA = opts.dataTable || 'amaw_lot_data';
     const V_SUMMARIES = opts.summariesView || 'amaw_lot_summaries';
-    const RPC_SAVE_DEPT = opts.saveDepartmentRpc || 'amaw_save_department_record';
+    const RPC_SEAL = opts.sealRpc || 'amaw_seal_lot';
 
-    // PostgREST error -> StorageError. The two that matter:
-    //   42P01 - the table does not exist, i.e. the DDL has not been applied.
-    //   PGRST116 - "multiple (or no) rows returned" from .single(). It is what
-    //     an RLS-filtered or revision-filtered write looks like from the client
-    //     (CLAUDE.md): Postgres touched 0 rows and .single() complained about
-    //     the count. It is a conflict or a permission answer, never a bug to
-    //     show raw.
+    // PostgREST error -> StorageError. The ones that matter:
+    //   42P01 / PGRST205 - the relation does not exist: the DDL is unapplied.
+    //   PGRST116 - ".single() got no row". It is what an RLS-filtered write
+    //     looks like from the client (CLAUDE.md): Postgres touched 0 rows and
+    //     .single() complained about the count. A permission or conflict answer,
+    //     never a bug to show raw.
+    //   40001 - the data guard's stale-revision raise.
     function fail(err, what) {
       if (!err) return null;
       const code = err.code || '';
-      if (code === '42P01') {
-        return new StorageError('backend', 'PlantBook storage is not set up on this project yet (supabase/amaw_lots.sql has not been applied)', err);
+      const msg = String(err.message || '');
+      if (code === '42P01' || code === 'PGRST205') {
+        return new StorageError('backend',
+          'PlantBook storage is not set up on this project yet (supabase/amaw_lots.sql has not been applied)', err);
+      }
+      if (code === '40001' || /stale revision/i.test(msg)) {
+        return new StorageError('conflict', msg || `${what} was saved by somebody else while you were editing`, err);
       }
       if (code === 'PGRST116') {
-        return new StorageError('conflict', `${what} matched no row — either a colleague saved first, or this lot is not yours to change`, err);
+        return new StorageError('conflict',
+          `${what} matched no row — either a colleague saved first, or this lot is not yours to change`, err);
       }
       if (code === '42501' || code === 'PGRST301') {
-        return new StorageError('denied', `you do not have access to ${what}`, err);
+        return new StorageError('denied', msg || `you do not have access to ${what}`, err);
       }
-      return new StorageError('backend', err.message || `${what} failed`, err);
+      return new StorageError('backend', msg || `${what} failed`, err);
     }
 
     return {
@@ -18775,160 +19027,390 @@ const PB_LOT = (() => {
         }
       },
 
-      async save(lot, { by = null, blocks = null } = {}) {
+      /**
+       * Push one lot. Returns the server's confirmed data revision.
+       * `by` carries { sm_id, name } — the ledger denormalises the name because
+       * a contractor cannot read another technician's technicians row.
+       */
+      async push(lot, { by = null } = {}) {
         const next = normaliseLot(lot);
-        next.saved_at = new Date().toISOString();
-        next.saved_by = by || next.saved_by || null;
+        const id = lotIdentity(next);
 
-        // 1. The lot row. Identity is immutable server-side (amaw_lots_guard),
-        //    so an upsert on the natural key is safe to repeat.
-        const { data: lotRow, error: lotErr } = await sb.from(T_LOTS)
+        const { error: lotErr } = await sb.from(T_LOTS)
           .upsert({
-            contract_id: next.contract_id,
-            amp_number: next.amp_number,
-            mix_id: next.mix_id,
-            lot_number: next.lot_number,
+            id: next.uid,
+            ...id,
             mix_signature: next.mix_signature,
-            status: next.status,
+            sm_id: (by && by.sm_id) || next.saved_by && next.saved_by.sm_id || null,
+            author_name: (by && by.name) || (next.saved_by && next.saved_by.name) || 'unknown',
+          }, { onConflict: 'id' });
+        if (lotErr) throw fail(lotErr, 'this lot');
+
+        // The envelope. `revision` is what the client last had confirmed; the
+        // guard raises if anybody else has saved since.
+        const { data, error } = await sb.from(T_DATA)
+          .upsert({
+            lot_id: next.uid,
             values: next.values,
             rows: next.rows,
+            records: next.records,
             extracted_from: next.extracted_from,
-            // author_name is stamped by the trigger; sent so the NOT NULL is
-            // satisfied on the first insert of a session.
-            author_name: (by && by.name) || 'unknown',
-          }, { onConflict: 'contract_id,amp_number,mix_id,lot_number' })
-          .select('id')
+            // The server's own counter, not ours. Null on a first push, which
+            // the data guard reads as "insert" rather than as a stale token.
+            revision: next.server_revision == null ? null : Number(next.server_revision),
+            saved_name: (by && by.name) || null,
+            client_saved_at: next.saved_at,
+          }, { onConflict: 'lot_id' })
+          .select('revision, updated_at')
           .single();
-        if (lotErr) throw fail(lotErr, 'this lot');
-        const lotId = lotRow.id;
-
-        // 2. The records. Only the blocks asked for, so saving sublot 3 does
-        //    not rewrite sublot 1 and steal its revision.
-        const wanted = (blocks && blocks.length ? blocks : BLOCKS)
-          .filter((b) => next.records && next.records[b]);
-        for (const block of wanted) {
-          const rec = next.records[block] || {};
-          if (isDepartmentBlock(block)) {
-            const { data, error } = await sb.rpc(RPC_SAVE_DEPT, {
-              p_lot_id: lotId,
-              p_block: block,
-              p_values: rec.values || {},
-              p_rows: rec.rows || {},
-              p_revision: rec.revision == null ? null : Number(rec.revision),
-            });
-            if (error) {
-              // The function raises on a stale revision rather than returning,
-              // so the message is the only discriminator available.
-              if (/stale revision/i.test(error.message || '')) {
-                throw new StorageError('conflict', `${block} was saved by someone else while you were editing — reload it`, error);
-              }
-              throw fail(error, `the ${block} record`);
-            }
-            rec.revision = Number(data);
-          } else {
-            const { data, error } = await sb.from(T_RECORDS)
-              .upsert({
-                lot_id: lotId, block,
-                values: rec.values || {},
-                rows: rec.rows || {},
-              }, { onConflict: 'lot_id,block' })
-              .select('revision, entered_name, updated_at')
-              .single();
-            if (error) throw fail(error, `the ${block} record`);
-            rec.revision = data.revision;
-            rec.entered_name = data.entered_name;
-            rec.updated_at = data.updated_at;
-          }
-          next.records[block] = rec;
-        }
-        return next;
+        if (error) throw fail(error, "this lot's data");
+        return { revision: data.revision, updated_at: data.updated_at };
       },
 
-      async load(key) {
-        const [contract_id, amp_number, mix_id, lot_number] = String(key).split('|');
-        const { data: row, error } = await sb.from(T_LOTS)
-          .select('id, contract_id, amp_number, mix_id, mix_signature, lot_number, status, values, rows, extracted_from, author_name, updated_at')
-          .eq('contract_id', contract_id).eq('amp_number', amp_number)
-          .eq('mix_id', mix_id).eq('lot_number', Number(lot_number))
-          .maybeSingle();
+      /** Move a lot along the chain. The one call a client cannot fake. */
+      async seal(uid, status, { sha256 = null, prev = null } = {}) {
+        const { data, error } = await sb.rpc(RPC_SEAL, {
+          p_lot_id: String(uid), p_status: status, p_sha256: sha256, p_prev: prev,
+        });
+        if (error) {
+          const msg = String(error.message || '');
+          if (/never reopened|only a submitted lot|only KYTC|not at a plant|needs the submittal hash/i.test(msg)) {
+            throw new StorageError('sealed', msg, error);
+          }
+          throw fail(error, 'sealing this lot');
+        }
+        return data;
+      },
+
+      async load(uid) {
+        const { data: row, error } = await sb.from(V_SUMMARIES).select('*').eq('id', String(uid)).maybeSingle();
         if (error) throw fail(error, 'this lot');
         if (!row) return null;
 
-        const { data: recs, error: recErr } = await sb.from(T_RECORDS)
-          .select('block, values, rows, revision, entered_name, updated_at')
-          .eq('lot_id', row.id);
-        if (recErr) throw fail(recErr, "this lot's test records");
+        const { data: d, error: dErr } = await sb.from(T_DATA)
+          .select('values, rows, records, extracted_from, history, revision, saved_name, updated_at')
+          .eq('lot_id', String(uid)).maybeSingle();
+        if (dErr) throw fail(dErr, "this lot's data");
 
-        const lot = blankLot(row, row);
+        const lot = blankLot(row, { ...row, uid: row.id });
         lot.status = row.status;
-        lot.values = row.values || {};
-        lot.rows = row.rows || {};
-        lot.extracted_from = row.extracted_from || {};
-        lot.saved_at = row.updated_at || null;
-        lot.saved_by = row.author_name ? { name: row.author_name } : null;
-        for (const r of (recs || [])) {
-          lot.records[r.block] = {
-            values: r.values || {}, rows: r.rows || {},
-            revision: r.revision, entered_name: r.entered_name, updated_at: r.updated_at,
-          };
+        lot.submitted_at = row.submitted_at; lot.submitted_name = row.submitted_name;
+        lot.accepted_at = row.accepted_at;   lot.accepted_name = row.accepted_name;
+        lot.submittal_sha256 = row.submittal_sha256; lot.prev_sha256 = row.prev_sha256;
+        lot.purge_after = row.purge_after;   lot.purged_at = row.purged_at;
+        if (d) {
+          lot.values = d.values || {};
+          lot.rows = d.rows || {};
+          lot.records = d.records || {};
+          lot.extracted_from = d.extracted_from || {};
+          lot.history = Array.isArray(d.history) ? d.history : [];
+          lot.revision = Number(d.revision || 0);
+          lot.synced_revision = Number(d.revision || 0);
+          lot.server_revision = Number(d.revision || 0);
+          lot.saved_at = d.updated_at || null;
+          lot.saved_by = d.saved_name ? { name: d.saved_name } : null;
+        } else {
+          // A purged lot: the ledger row survives and the data does not. This
+          // is a real, expected state and it is not an error — it is what the
+          // retention rule looks like from the client.
+          lot.revision = 0; lot.synced_revision = 0; lot.server_revision = null;
+          lot.saved_at = row.updated_at || null;
         }
         return lot;
       },
 
       async list(filter = {}) {
         let q = sb.from(V_SUMMARIES).select('*');
-        if (filter.amp_number) q = q.eq('amp_number', filter.amp_number);
+        if (filter.amp_number)  q = q.eq('amp_number', filter.amp_number);
         if (filter.contract_id) q = q.eq('contract_id', filter.contract_id);
-        if (filter.status) q = q.eq('status', filter.status);
-        if (filter.mix_id) q = q.eq('mix_id', filter.mix_id);
+        if (filter.status)      q = q.eq('status', filter.status);
+        if (filter.mix_id)      q = q.eq('mix_id', filter.mix_id);
         const { data, error } = await q.order('updated_at', { ascending: false }).limit(filter.limit || 200);
         if (error) throw fail(error, 'the lot list');
-        const out = (data || []).map((r) => ({
-          key: lotKey(r),
-          contract_id: r.contract_id,
-          amp_number: r.amp_number,
-          plant_name: r.plant_name || null,
-          mix_id: r.mix_id,
-          mix_signature: r.mix_signature || null,
-          lot_number: r.lot_number,
-          status: r.status,
-          records_entered: r.records_entered || 0,
-          sublots_entered: r.sublots_entered || 0,
-          saved_at: r.updated_at || null,
-          saved_by: r.author_name ? { name: r.author_name } : null,
-        }));
-        return applyFilter(out, { ...filter, amp_number: null, contract_id: null, status: null, mix_id: null });
+        return (data || []).map(summaryFromRow);
       },
 
-      async remove(key) {
-        const [contract_id, amp_number, mix_id, lot_number] = String(key).split('|');
-        // The delete policy allows the author's own Open lot only. Anything
-        // else deletes nothing and reports it, rather than appearing to work.
-        const { data, error } = await sb.from(T_LOTS).delete()
-          .eq('contract_id', contract_id).eq('amp_number', amp_number)
-          .eq('mix_id', mix_id).eq('lot_number', Number(lot_number))
-          .select('id');
+      async remove(uid) {
+        const { data, error } = await sb.from(T_LOTS).delete().eq('id', String(uid)).select('id');
         if (error) throw fail(error, 'this lot');
         if (!data || !data.length) {
-          throw new StorageError('denied', 'only the technician who started a lot can delete it, and only while it is Open');
+          throw new StorageError('denied',
+            'only the technician who started a lot can delete it, and only while it is Open');
         }
         return true;
       },
     };
   }
 
+  function summaryFromRow(r) {
+    return {
+      uid: r.id,
+      key: lotKey(r),
+      contract_id: r.contract_id,
+      line_item: r.line_item || '',
+      amp_number: r.amp_number,
+      plant_name: r.plant_name || null,
+      mix_id: r.mix_id,
+      mix_signature: r.mix_signature || null,
+      lot_number: r.lot_number,
+      density_option: r.density_option || '',
+      status: r.status,
+      records_entered: 0,
+      sublots_entered: 0,
+      saved_at: r.updated_at || null,
+      saved_by: r.saved_name ? { name: r.saved_name } : (r.author_name ? { name: r.author_name } : null),
+      revision: Number(r.revision || 0),
+      synced_revision: Number(r.revision || 0),
+      unsynced: false,
+      has_data: r.has_data !== false,
+      purge_after: r.purge_after || null,
+      purged_at: r.purged_at || null,
+    };
+  }
+
+  // =====================================================================
+  // (c) SYNCED — local first, Supabase behind it
+  // =====================================================================
+  // This is what the page holds. Every method answers out of localStorage and
+  // then reconciles; nothing a technician does waits on a network.
+
+  function syncedLotStore(opts = {}) {
+    const local = opts.local || localLotStore(opts);
+    const remote = opts.remote || (opts.client ? supabaseLotStore(opts) : null);
+    // Reported to the page so it can say where a lot stands, rather than
+    // guessing from a spinner.
+    const state = { online: null, lastError: null, lastSyncAt: null, pending: 0 };
+    const listeners = [];
+
+    function announce() {
+      state.online = state.online;
+      for (const fn of listeners) { try { fn({ ...state }); } catch (_) {} }
+    }
+    function online() {
+      try {
+        const nav = (typeof globalThis !== 'undefined') && globalThis.navigator;
+        if (nav && typeof nav.onLine === 'boolean') return nav.onLine;
+      } catch (_) {}
+      return true;   // no navigator (Node, or an old browser): try and find out
+    }
+
+    // THE ORDER HERE IS LOAD-BEARING, and the first version had it backwards.
+    // A lot's data is writable only while the server still considers it Open —
+    // "amaw_lot_data: update for open visible lots" — so the DATA GOES FIRST and
+    // the seal closes the door behind it. Sealing first refuses the write that
+    // carries everything typed since the last sync, and refuses it as a
+    // permission error, which reads as a conflict it is not. A technician who
+    // filled a whole lot offline and then pressed Submit is exactly the case,
+    // and it is not a rare one.
+    async function pushOne(lot, by) {
+      if (!remote) return null;
+      if (!online()) throw new StorageError('offline', 'no connection — this lot is saved on this device and will sync when you are back online');
+      const seal = lot.pending_seal;
+      // The server treats a lot as Open until it has been sealed to SUBMITTED,
+      // whatever this copy says. A pending Accept is therefore not a reopening:
+      // by then KYTC already holds the copy the hash on the PDF covers, and its
+      // data window shut when it was submitted.
+      const serverOpen = seal ? seal.status === 'Submitted' : (lot.status === 'Open');
+      let res = null;
+      if (serverOpen) {
+        res = await remote.push(lot, { by });
+        lot.server_revision = Number(res.revision);
+      } else if (!seal && isUnsynced(lot)) {
+        // Already sealed server-side and still holding local changes: they
+        // cannot reach KYTC and never will, because the copy KYTC holds is the
+        // one the hash on the PDF covers. The lot stops asking, and says why
+        // rather than retrying forever or pretending it went.
+        lot.frozen = 'this lot was submitted, so the copy KYTC holds can no longer be changed';
+      }
+      if (seal) {
+        await remote.seal(lot.uid, seal.status, { sha256: seal.sha256, prev: seal.prev });
+        lot.pending_seal = null;
+        lot.status = seal.status;
+      }
+      lot.synced_revision = Number(lot.revision || 0);
+      lot.synced_at = new Date().toISOString();
+      return res;
+    }
+
+    const api = {
+      name: 'synced',
+      local, remote,
+      state: () => ({ ...state }),
+      onChange(fn) { listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); } },
+
+      async available() {
+        const l = await local.available();
+        if (!remote) return l;
+        const r = await remote.available();
+        state.online = r.ok;
+        state.lastError = r.ok ? null : r.reason;
+        announce();
+        // Local alone is a working PlantBook. Remote alone is not, because the
+        // page reads what it just wrote.
+        return l.ok ? { ok: true, remote: r.ok, reason: r.ok ? null : r.reason } : l;
+      },
+
+      /**
+       * Save. Local FIRST, and the promise is not waiting on the network — the
+       * push is started and its failure recorded, never thrown at the caller,
+       * because a save that succeeded on this machine did succeed.
+       */
+      async save(lot, { by = null, sync = true } = {}) {
+        const saved = await local.save(lot, { by });
+        if (sync && remote) {
+          try {
+            await pushOne(saved, by);
+            await local.save(saved, { by, bump: false });   // record synced_revision
+            state.online = true; state.lastError = null; state.lastSyncAt = saved.synced_at;
+          } catch (err) {
+            state.lastError = err && err.message;
+            if (!isTransient(err) && err && err.code === 'conflict') {
+              // A real disagreement, not a dropped connection. The local copy is
+              // kept — it is this person's work — and the caller is told, so it
+              // can offer the download before anything is overwritten.
+              state.online = true;
+              saved.conflict = err.message;
+            } else {
+              state.online = false;
+            }
+          }
+          state.pending = (await local.outbox()).length;
+          announce();
+        }
+        return saved;
+      },
+
+      /** Everything local, reconciled with the server where it can be. */
+      async load(uid) {
+        const mine = await local.load(uid);
+        if (!remote || !online()) return mine;
+        let theirs = null;
+        try { theirs = await remote.load(uid); state.online = true; }
+        catch (err) { state.online = !isTransient(err); state.lastError = err && err.message; announce(); return mine; }
+        if (!theirs) return mine;
+        if (!mine) { await local.save(theirs, { bump: false }); return theirs; }
+
+        const localMoved = isUnsynced(mine);
+        const remoteMoved = Number(theirs.server_revision == null ? -1 : theirs.server_revision) >
+                            Number(mine.server_revision == null ? -1 : mine.server_revision);
+        if (localMoved && remoteMoved) {
+          // BOTH moved. Nothing is overwritten and nothing is merged: the local
+          // copy stays on screen and the caller is handed the fact, because
+          // silently picking a winner loses somebody's afternoon.
+          mine.conflict = 'this lot was also edited elsewhere — download your working copy before taking theirs';
+          mine.remote = theirs;
+          return mine;
+        }
+        if (remoteMoved) { await local.save(theirs, { bump: false }); return theirs; }
+        return mine;
+      },
+
+      async findByKey(key) { return local.findByKey(key); },
+
+      /** The local list, with anything the server knows about folded in. A
+       *  purged lot appears here from the server alone, which is the point:
+       *  "lot 7 existed and was submitted" outlives its data. */
+      async list(filter = {}) {
+        const mine = await local.list(filter);
+        if (!remote || !online()) return mine;
+        let theirs = [];
+        try { theirs = await remote.list(filter); state.online = true; }
+        catch (err) { state.online = !isTransient(err); state.lastError = err && err.message; return mine; }
+        const byUid = new Map();
+        for (const r of theirs) byUid.set(r.uid, r);
+        for (const m of mine) {
+          const r = byUid.get(m.uid);
+          // The local copy wins on content (it may hold unsynced work) and the
+          // server wins on the chain, which the client never writes.
+          byUid.set(m.uid, r ? { ...m, status: r.status, submitted_at: r.submitted_at,
+                                 purge_after: r.purge_after, purged_at: r.purged_at,
+                                 has_data: true } : m);
+        }
+        return Array.from(byUid.values()).sort(byRecency);
+      },
+
+      async remove(uid) {
+        const gone = await local.remove(uid);
+        if (remote && online()) { try { await remote.remove(uid); } catch (_) { /* local is the answer */ } }
+        return gone;
+      },
+
+      /**
+       * Seal. Works offline: the seal is stamped on the local lot and pushed
+       * with everything else when there is a connection. A submitted lot is
+       * frozen locally the moment the button is pressed, whatever the network
+       * is doing — which is what a technician means by "I submitted it".
+       */
+      async seal(uid, status, { sha256 = null, prev = null, by = null } = {}) {
+        const lot = await local.load(uid);
+        if (!lot) throw new StorageError('not_found', 'there is no such lot on this device');
+        if (status === 'Submitted' && lot.status !== 'Open') {
+          throw new StorageError('sealed', `lot ${lot.lot_number} is already ${lot.status}, and a lot is never reopened once submitted`);
+        }
+        lot.pending_seal = { status, sha256, prev, at: new Date().toISOString() };
+        lot.status = status;
+        const saved = await local.save(lot, { by, bump: false });
+        if (remote && online()) {
+          try {
+            await pushOne(saved, by);
+            await local.save(saved, { by, bump: false });
+            state.online = true; state.lastError = null;
+          } catch (err) {
+            state.lastError = err && err.message;
+            state.online = !isTransient(err);
+            if (!isTransient(err)) throw err;   // "only KYTC accepts a lot" is an answer, not a delay
+          }
+          state.pending = (await local.outbox()).length;
+          announce();
+        }
+        return saved;
+      },
+
+      /** Send everything the server has not confirmed. Safe to call often —
+       *  it is a no-op when the outbox is empty. */
+      async flush({ by = null } = {}) {
+        if (!remote) return { pushed: 0, pending: 0 };
+        const uids = await local.outbox();
+        let pushed = 0;
+        const failures = [];
+        for (const uid of uids) {
+          const lot = await local.load(uid);
+          if (!lot) continue;
+          try {
+            await pushOne(lot, by);
+            await local.save(lot, { by, bump: false });
+            pushed++;
+          } catch (err) {
+            failures.push({ uid, error: err });
+            if (isTransient(err)) break;   // still offline: stop, do not hammer
+          }
+        }
+        state.pending = (await local.outbox()).length;
+        state.lastSyncAt = new Date().toISOString();
+        if (pushed) { state.online = true; state.lastError = null; }
+        announce();
+        return { pushed, pending: state.pending, failures };
+      },
+    };
+    return api;
+  }
+
   // =====================================================================
   // The switch
   // =====================================================================
-  // One flag. `CONFIG.STORAGE = { BACKEND: 'local' | 'supabase' }` in the page,
-  // and this is the only place that reads it.
-  const BACKENDS = ['local', 'supabase'];
+  // `CONFIG.STORAGE = { BACKEND: 'synced' | 'local' | 'supabase' }` in the page,
+  // and this is the only place that reads it. 'local' is the fallback for a page
+  // with no Supabase client; 'supabase' alone is for the checker, and is not a
+  // shape the page should ever run in — it would block a technician's save on a
+  // network that may not be there.
+  const BACKENDS = ['synced', 'local', 'supabase'];
 
   function createLotStore(config = {}) {
-    const backend = config.backend || 'local';
-    if (backend === 'local') return localLotStore(config);
+    const backend = config.backend || (config.client ? 'synced' : 'local');
+    if (backend === 'synced')   return syncedLotStore(config);
+    if (backend === 'local')    return localLotStore(config);
     if (backend === 'supabase') return supabaseLotStore(config);
-    throw new StorageError('invalid', `unknown storage backend "${backend}" (expected ${BACKENDS.join(' or ')})`);
+    throw new StorageError('invalid', `unknown storage backend "${backend}" (expected ${BACKENDS.join(', ')})`);
   }
 
   // ---------------------------------------------------------------------
@@ -18936,7 +19418,7 @@ const PB_LOT = (() => {
   // ---------------------------------------------------------------------
   function applyFilter(rows, filter) {
     let out = rows;
-    for (const k of ['contract_id', 'amp_number', 'mix_id', 'status']) {
+    for (const k of ['contract_id', 'amp_number', 'mix_id', 'status', 'line_item']) {
       if (filter && filter[k]) out = out.filter((r) => String(r[k]) === String(filter[k]));
     }
     if (filter && filter.lot_number != null) out = out.filter((r) => Number(r.lot_number) === Number(filter.lot_number));
@@ -18947,10 +19429,9 @@ const PB_LOT = (() => {
     return String(b.saved_at || '').localeCompare(String(a.saved_at || ''));
   }
 
-  /** Merge a lot read from a file into one already held, record by record.
-   *  Used by the file model's import and by any future local-first sync: the
-   *  newer `updated_at` wins PER RECORD, never per lot, so importing a file
-   *  that carries only QA01 cannot wipe four sublots. */
+  /** Merge a lot read from a file into one already held, record by record. Used
+   *  by the file import: the newer `updated_at` wins PER RECORD, never per lot,
+   *  so importing a file that carries only QA01 cannot wipe four sublots. */
   function mergeLots(base, incoming) {
     const a = normaliseLot(base);
     const b = normaliseLot(incoming);
@@ -19047,9 +19528,9 @@ const PB_LOT = (() => {
   // ---------------------------------------------------------------------
   // CONVERSION: what this module imported, and where those names come from now
   // ---------------------------------------------------------------------
-  // `blankLot` was `import { blankLot } from './storage.mjs'`. storage.mjs is
-  // the half of this block above, so it is simply in scope and the import
-  // disappears.
+  // `blankLot`, `normaliseLot` and `restampIdentity` were
+  // `import { ... } from './storage.mjs'`. storage.mjs is the half of this
+  // block above, so they are simply in scope and the import disappears.
   //
   // The other three are their own page-level blocks - `PB_AMAW` (addresses.mjs),
   // `PB_PAY` (pay.mjs) and `PB_SECTIONS` (sections.mjs) - and each of those is a
@@ -20392,6 +20873,13 @@ const PB_LOT = (() => {
       verification: verification.state,
     }];
 
+    // The key was stamped by blankLot() before any of the seeding above ran, so
+    // it cannot have carried the line item the project items just supplied, nor
+    // the compaction option densityOptionFor() just forced. Restamping is what
+    // keeps `normaliseLot(lot)` a no-op — an envelope whose key disagrees with
+    // its own contents changes identity the first time it is saved.
+    restampIdentity(lot);
+
     return {
       ok: true,
       lot,
@@ -20637,6 +21125,8 @@ const PB_LOT = (() => {
           + 'every measurement was cleared.',
     }];
 
+    restampIdentity(lot);   // see the note at the end of lotFromApproval()
+
     return {
       ok: true,
       lot,
@@ -20656,9 +21146,10 @@ const PB_LOT = (() => {
   // The surface: every name the two modules export, and nothing else.
   return {
     // storage.mjs
-    LOT_FORMAT, LOT_VERSION, BLOCKS, DEPARTMENT_BLOCKS, isDepartmentBlock,
-    IDENTITY, lotKey, blankLot, normaliseLot, lotSummary, StorageError,
-    localLotStore, supabaseLotStore, BACKENDS, createLotStore, mergeLots,
+    LOT_FORMAT, LOT_VERSION, BLOCKS, DEPARTMENT_BLOCKS, isDepartmentBlock, LOT_STATUSES,
+    IDENTITY, lotKey, lotIdentity, deriveIdentityParts, uidFromKey,
+    blankLot, normaliseLot, restampIdentity, lotSummary, isUnsynced, StorageError, isTransient,
+    localLotStore, supabaseLotStore, syncedLotStore, BACKENDS, createLotStore, mergeLots,
     // intake.mjs
     APPROVAL_FORMAT, APPROVAL_MAX_VERSION, DOC_KIND, SUBMITTED_ACTION, APPROVED_ACTION,
     VERIFICATION, isVerified, VERIFY_FN, FAILURE, MIX_TYPE_CODES,
