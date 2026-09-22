@@ -3479,6 +3479,18 @@ const PB_SECTIONS = (() => {
       label: "KYTC 402.05.02",
       what: "the Lot Pay Adjustment — the three schedules are on PDF 185 (402-10), 186 (402-11) and 188 (402-13)",
     },
+    // ---- Added 2026-09-22 with the Specialty Mixtures pay schedule. Both
+    // pages opened and read in the real 2026 book.
+    payspec402: {
+      doc: "STD", page: 184, footer: "402-9",
+      label: "KYTC 402.05.01",
+      what: "the Lot Pay Adjustment Schedule for Specialty Mixtures — a pay factor per sublot on the deviation from the JMF, sieve by sieve and for the AC; the lot pays the sublot average",
+    },
+    specialty402: {
+      doc: "STD", page: 178, footer: "402-3",
+      label: "KYTC 402.03.02 F)",
+      what: "specialty mixtures — OGFC, ATDB, pavement wedge, leveling and wedging, scratch course, temporary applications and base failure repair: one AC and one gradation determination per sublot",
+    },
     // ---- Added 2026-09-18 with the second spec sweep (Jake: "do 1-8 as one
     // commit"). Every page below was opened and read in the real 2026 book, and
     // the footer recorded beside it, per the method at the top of this table.
@@ -4676,7 +4688,7 @@ const verifySpecimenOf4 = (n) =>
       // Printed under the band, once. The wash is the provisional-value
       // tint this project already uses; the rule is what a blank box became.
       legend: "Shaded values are read from the approval. Gold is still to fill in; blue is done.",
-      cites: ["jmf", "accept402"],
+      cites: ["jmf", "accept402", "specialty402"],
       // A button in the section head, the same shape Contract Information's
       // contract lookup has. `key` is what the page dispatches on; the schema
       // names the lookup and never holds a handler, because this module is
@@ -4751,12 +4763,47 @@ const verifySpecimenOf4 = (n) =>
             { value: "1.50", label: "1.50 (1-1/2\")" }, { value: "1.00", label: "1.00 (1\")" },
             { value: "0.75", label: "0.75 (3/4\")" },   { value: "0.50", label: "0.50 (1/2\")" },
             { value: "0.38", label: "0.38 (3/8\")" },   { value: "NO.4", label: "NO.4 (4.75 mm)" },
+            // The workbook's eight non-Superpave mixture types (Calculations!
+            // A6:B13), added 2026-09-22 - accepted on AC and gradation and paid
+            // under the Specialty schedule. The values are what intake.mjs's
+            // mixTypeFor() keys on, whitespace ignored (MIX_TYPE_CODES).
+            { value: "OGFC", label: "OGFC \u2014 open-graded friction course" },
+            { value: "ATDB", label: "ATDB \u2014 asphalt-treated drainage blanket" },
+            { value: "WEDGE", label: "Asphalt wedge (407)" },
+            { value: "SAND ASPHALT 1", label: "Sand asphalt Type I" },
+            { value: "SAND ASPHALT 2", label: "Sand asphalt Type II" },
+            { value: "SAND SEAL", label: "Sand seal" },
+            { value: "SLURRY", label: "Slurry seal" },
+            { value: "CURB", label: "Curb / median mix" },
           ] },
         { key: "lot_mix_type", label: "Mix type", type: "select", req: true,
           options: [
             { value: "A", label: "A \u2014 polish-resistant" },
             { value: "B", label: "B \u2014 polish-resistant" },
             { value: "D", label: "D \u2014 no polish requirement" },
+          ] },
+        // ---- THE COURSE - what this lot is PLACED as ----------------------
+        //
+        // 2026-09-22, with the Specialty Mixtures pay schedule. The same
+        // approved 0.38 surface design is mainline on one contract and
+        // "LEVELING & WEDGING PG64-22" on the next - contracts 252112 and
+        // 262120 both carry that item (bid code 00190) beside their surface
+        // items - and the two are ACCEPTED AND PAID DIFFERENTLY: mainline on
+        // volumetrics under 402.05.02, a leveling course on AC and gradation
+        // under 402.05.01. So this decides the acceptance method below
+        // (intake.mjs acceptanceMethodFor(); the page re-derives it when this
+        // changes) and is what the Project Items lookup matches the contract's
+        // line by when it is not mainline. The approval cannot say which, so
+        // intake seeds MAINLINE, tinted, and a person changes it. The options
+        // are intake.mjs COURSES, key for key - check_sections.mjs asserts it.
+        { key: "lot_course", label: "Course / pay item", type: "select", req: true,
+          options: [
+            { value: "mainline",    label: "Mainline or shoulder \u2014 paid on volumetrics" },
+            { value: "leveling",    label: "Leveling & wedging" },
+            { value: "scratch",     label: "Scratch course" },
+            { value: "wedge",       label: "Asphalt mixture for pavement wedge" },
+            { value: "base_repair", label: "Base failure repair" },
+            { value: "temporary",   label: "Temporary application" },
           ] },
         // ---- and the workbook's own translation of them -------------------
         //
@@ -4823,7 +4870,7 @@ const verifySpecimenOf4 = (n) =>
         { key: "lot_acceptance_method", label: "Acceptance method", type: "select", req: true,
           options: [
             { value: "Volumetrics", label: "Volumetrics" },
-            { value: "Gradation",   label: "Gradation (pay not modelled)" },
+            { value: "Gradation",   label: "Gradation \u2014 AC and sieves, the Specialty schedule" },
             { value: "Visual",      label: "Visual" },
           ] },
         // The proposal writes these two words out in full ("OPTION A",
@@ -5160,7 +5207,7 @@ const verifySpecimenOf4 = (n) =>
       // part and it shows why the pay value is what it is and then one click
       // further beyond that and it shows exactly what numbers went into it".
       type: "pay",
-      cites: ["pay402", "density402"],
+      cites: ["pay402", "payspec402", "density402"],
     },
 
     {
@@ -10112,6 +10159,9 @@ function wireForm() {
       if (e.target.dataset.autofilled) { delete e.target.dataset.autofilled; e.target.removeAttribute("title"); }
       e.target.classList.remove("prefilled", "autofilled");
       autofillFrom(e.target);
+      // The course and the size decide the acceptance method, and with it
+      // which pay schedule runs (syncAcceptanceFromCourse).
+      if (e.target.dataset.field === "lot_course" || e.target.dataset.field === "lot_nominal_size") syncAcceptanceFromCourse();
       recompute();
       state.dirty = true;
       renderSavedState();
@@ -13615,6 +13665,329 @@ function jointDensityLot({
 }
 
 // ---------------------------------------------------------------------------
+// GRADATION ACCEPTANCE - 'Accept. Grad. # 1'..'# 4' (Calculations!H13 = 1)
+// ---------------------------------------------------------------------------
+//
+// 2026 Std Spec 402.05.01 (STD p.182, footer 402-7): specialty mixtures -
+// OGFC, ATDB, Asphalt Mixture for Pavement Wedge, Leveling and Wedging,
+// Scratch Course, temporary mixtures and Base Failure Repair - are paid under
+// the "LOT PAY ADJUSTMENT SCHEDULE FOR SPECIALTY MIXTURES (TEST DEVIATION
+// FROM JMF)" on p.184 (footer 402-9): "The Department will assign a pay value
+// for AC and gradation within each sublot and average the sublot pay values
+// to determine the pay value for each lot."
+//
+// The workbook's shape, read off the shipped VER 14.01 template. NO
+// gradation-accepted lot is on file - both real lots are Volumetrics - so
+// unlike every ladder above, this block is checked against the template's
+// own formulas rather than against Excel's cached answers (check_pay.mjs
+// says which is which). A real leveling-and-wedging AMAW is the thing still
+// owed here.
+//
+//   'Accept. Grad. # n'!A8:H20  one row per sieve, 2" .. #200 - thirteen rows;
+//                               the 1/4" is skipped (Gradation!D16 is never read)
+//     B   the JMF target, TYPED on that sheet. PlantBook writes it from the
+//         lot's one JMF column rather than asking twice.
+//     C   the acceptance test, Gradation!D/G/J/M for the sublot, prefixed
+//         "* " and ROUNDED TO A WHOLE PERCENT when it is outside the mixture
+//         type's CONTROL POINTS (Calculations!AY16:AZ29, an HLOOKUP on J1
+//         into W14:AX30 - transcribed below as CONTROL_POINTS_BY_MIX_TYPE)
+//     D   a check test typed on the same sheet (not modelled here)
+//     E   the Department's verification gradation (Super Verify; no UI yet)
+//     F   AVERAGE of C, D and E as present; for the #200, Calculations!Q124
+//     G   ABS(B - F), the deviation from the JMF
+//     H   the pay factor
+//   row 21  % AC   C21 is Gradation!D33 (the moisture-corrected back-calc),
+//                  else D34; H21 is the AC ladder on ROUND(ABS(dev),1)
+//   row 22  F.M.   fineness modulus, ONLY for mixture types 7, 8 and 13
+//                  (Sand Asphalt I and II, Sand Seal), whose sieve rows read ""
+//   'Pay Values'!E37:E40  MIN('Accept. Grad. # n'!H8:H22) - the sublot's pay
+//   'Pay Values'!E41      AVERAGE(E37:E40)                - the lot's pay
+//   Calculations!A71      IF(H13=1, 'Pay Values'!E41, ...) - the final pay value
+//
+// THREE THINGS THAT ARE NOT IN THE SPEC'S TABLE, all reproduced but the last:
+//
+//  1. THE CONTROL-POINT GATE. Every sieve row's H is
+//       IF(OR(ROUND(ABS(G),1) <= <top band>, LEFT(C,1) <> "*"), 100, <ladder>)
+//     so a sieve pays 100 WHATEVER its deviation from the JMF unless its
+//     test value is outside the mixture's control points. The spec's table
+//     is headed "test deviation from JMF" and says nothing about control
+//     points; the workbook adds the gate and the workbook is what KYTC pays
+//     by, so it is reproduced, and the readout says which of the two
+//     reasons a sieve paid 100 for. Neither the AC row nor the F.M. row has
+//     the gate.
+//  2. THE #200 IS ROUNDED TO THE NEAREST HALF before the deviation
+//     (Calculations!Q124: fractional part 0-0.2 rounds down, 0.3-0.7 to .5,
+//     0.8-0.9 up); every other starred sieve is rounded to a whole percent
+//     and an unstarred one is used as it is.
+//  3. THE SUBLOT-1 ALLOWANCE IS MISWRITTEN IN THE WORKBOOK, and this is the
+//     one place this file departs from it. 'Pay Values'!E37 reads
+//       IF(AND(F3=1, MIN(H8:H22)) >= 90, 100, ...)
+//     with the ">= 90" OUTSIDE the AND. AND() returns a boolean, and Excel
+//     ranks a boolean above every number - so TRUE >= 90 and FALSE >= 90 are
+//     both TRUE, and the first sublot pays 100 on EVERY lot, whatever it
+//     tested and whatever the lot number. The three cells beside it
+//     (D13/G13/K13, all IF(AND(F3=1, x >= 90), 100, x)) make the intent
+//     unmistakable, and no real lot has ever been paid through E37 (both on
+//     file are Volumetrics) - so unlike the text-beats-number quirks above,
+//     which are reproduced because approved lots were paid by them, this is
+//     implemented AS INTENDED: lot 1's first sublot is forgiven anything at
+//     90 or better. `workbookLiteral` on the sublot result is what the sheet
+//     itself would print, so the two can be compared. Flagged for Tate.
+//
+// Scale: 100 is the spec's 1.00, as everywhere else in this file.
+
+const GRADATION_FLOOR = 75;   // the last row of every ladder on p.184
+
+// The deviation ladders, [top of band, pay]; a deviation past the last band
+// pays GRADATION_FLOOR. Transcribed from H8:H20 of the template, sieve by
+// sieve. The spec's own table (p.184) groups them the same way, with two
+// differences the workbook resolves: the spec has no 2" row (the workbook
+// pays the 2" on the 1 1/2" ladder), and the spec writes "—" where a ladder
+// skips a factor (the #100 has no 98 or 85; the #200 no 90).
+const GRADATION_LADDERS = {
+  coarse: [[13, 100], [14, 98], [16, 95], [20, 90], [23, 85]],   // 2", 1 1/2"          H8, H9
+  mid:    [[9, 100], [10, 98], [12, 95], [14, 90], [16, 85]],    // 1", 3/4", 1/2"      H10-H12
+  fine:   [[8, 100], [9, 98], [10, 95], [12, 90], [14, 85]],     // 3/8" .. #30         H13-H17
+  no50:   [[6, 100], [7, 98], [8, 95], [9, 90], [10, 85]],       // #50                 H18
+  no100:  [[3, 100], [4, 95], [5, 90]],                          // #100                H19
+  no200:  [[2, 100], [2.5, 98], [3, 95], [3.5, 85]],             // #200                H20
+};
+const SPECIALTY_AC_LADDER = [[0.5, 100], [0.6, 98], [0.7, 90], [0.8, 85]];       // H21
+const FINENESS_MODULUS_LADDER = [[0.30, 100], [0.34, 98], [0.39, 95], [0.46, 90], [0.55, 85]];  // H22
+
+// The thirteen sieves of 'Accept. Grad. # n', in sheet order, keyed the way
+// both books' sieve lists are (sections.mjs AMAW_SIEVES / CONFIG.SECTIONS).
+const GRADATION_PAY_SIEVES = [
+  { key: 's50',    label: '2"',     row: 8,  ladder: 'coarse' },
+  { key: 's37_5',  label: '1-1/2"', row: 9,  ladder: 'coarse' },
+  { key: 's25',    label: '1"',     row: 10, ladder: 'mid' },
+  { key: 's19',    label: '3/4"',   row: 11, ladder: 'mid' },
+  { key: 's12_5',  label: '1/2"',   row: 12, ladder: 'mid' },
+  { key: 's9_5',   label: '3/8"',   row: 13, ladder: 'fine' },
+  { key: 's4_75',  label: '#4',     row: 14, ladder: 'fine' },
+  { key: 's2_36',  label: '#8',     row: 15, ladder: 'fine' },
+  { key: 's1_18',  label: '#16',    row: 16, ladder: 'fine' },
+  { key: 's0_6',   label: '#30',    row: 17, ladder: 'fine' },
+  { key: 's0_3',   label: '#50',    row: 18, ladder: 'no50' },
+  { key: 's0_15',  label: '#100',   row: 19, ladder: 'no100' },
+  { key: 's0_075', label: '#200',   row: 20, ladder: 'no200' },
+];
+const GRADATION_AC_ROW = 21;
+const GRADATION_FM_ROW = 22;
+
+// Mixture types paid on FINENESS MODULUS rather than on the sieves: Sand
+// Asphalt Type I (7), Type II (8) and Sand Seal (13). Their sieve rows on
+// 'Accept. Grad.' read "" (C8 opens IF(OR(J1=7, J1=8, J1=13, ...), "", ...)),
+// and 'Gradation'!D35 = SUM(C17:C22)/100 is the F.M. - the cumulative
+// percent retained on the #4 .. #100, summed, over 100.
+const FM_MIX_TYPES = [7, 8, 13];
+const FM_SIEVES = ['s4_75', 's2_36', 's1_18', 's0_6', 's0_3', 's0_15'];
+
+// Calculations!W14:AX30 - the control points per mixture type code (row 14 is
+// the code, rows 16-29 the sieves 2" .. #200 with the 1/4" at row 22),
+// [min, max] as the sheet holds them. A blank min reads 0 through
+// AY = HLOOKUP(..., FALSE) and a blank max reads 100 through
+// AZ = IF(HLOOKUP(...) = 0, 100, ...), so a sieve not listed here is [0, 100]
+// - i.e. never starred - which is controlPointBand()'s answer for it.
+//
+// The Superpave columns (1-5, 14) are AASHTO M 323 Table 4 and match the
+// workbook's own `.45 Data` sheet cell for cell. Note the 15-41 .. 32-67 band
+// sits on the #8 (2.36 mm), NOT the #4; the #4 carries the "90 max" point.
+// The specialty columns are KYTC's own (407 for the wedge, 404 for OGFC...).
+const CONTROL_POINTS_BY_MIX_TYPE = {
+  1:  { s50: [100, 100], s37_5: [90, 100], s25: [0, 90], s2_36: [15, 41], s0_075: [0, 6] },      // Superpave 1.5
+  2:  { s37_5: [100, 100], s25: [90, 100], s19: [0, 90], s2_36: [19, 45], s0_075: [1, 7] },      // Superpave 1.0
+  3:  { s25: [100, 100], s19: [90, 100], s12_5: [0, 90], s2_36: [23, 49], s0_075: [2, 8] },      // Superpave 0.75
+  4:  { s19: [100, 100], s12_5: [90, 100], s9_5: [0, 90], s2_36: [28, 58], s0_075: [2, 10] },    // Superpave 0.50
+  5:  { s12_5: [100, 100], s9_5: [90, 100], s4_75: [0, 90], s2_36: [32, 67], s0_075: [2, 10] },  // Superpave 0.38
+  6:  { s37_5: [100, 100], s19: [85, 100], s12_5: [35, 65], s4_75: [0, 20], s2_36: [0, 10], s0_075: [0, 4] },  // ATDB
+  7:  { s6_3: [100, 100], s2_36: [75, 100], s1_18: [60, 90], s0_6: [45, 75], s0_3: [15, 45], s0_15: [5, 15], s0_075: [2, 6] },  // Sand Asphalt I
+  8:  { s6_3: [100, 100], s2_36: [50, 90], s1_18: [25, 65], s0_6: [15, 45], s0_3: [5, 30], s0_15: [3, 20], s0_075: [2, 6] },    // Sand Asphalt II
+  9:  { s37_5: [100, 100], s19: [70, 100], s9_5: [45, 80], s4_75: [30, 60], s2_36: [20, 45], s1_18: [15, 35], s0_3: [5, 20], s0_15: [3, 10] },  // Asphalt Wedge (407.02.02)
+  10: { s9_5: [100, 100], s4_75: [90, 100], s2_36: [65, 90], s1_18: [45, 70], s0_6: [30, 50], s0_3: [18, 30], s0_15: [10, 21], s0_075: [5, 15] },  // Slurry Seal
+  11: { s12_5: [100, 100], s4_75: [60, 80], s2_36: [45, 65], s0_3: [13, 25], s0_075: [6, 12] },  // Curb/Median Mix
+  12: { s12_5: [100, 100], s9_5: [90, 100], s4_75: [25, 50], s2_36: [5, 15], s0_075: [2, 5] },   // Open Graded Friction Course
+  13: { s6_3: [100, 100], s2_36: [50, 90], s1_18: [25, 65], s0_6: [15, 45], s0_3: [5, 30], s0_15: [3, 20], s0_075: [2, 6] },    // Sand Seal
+  14: { s9_5: [100, 100], s6_3: [95, 100], s4_75: [90, 100], s1_18: [30, 60], s0_075: [6, 12] },  // Superpave No.4
+};
+
+/** The control-point table for a mixture type code, or null for a code the
+ *  workbook has no column for (the HLOOKUP is #N/A and every sieve pays ""). */
+function controlPointsFor(mixTypeCode) {
+  return CONTROL_POINTS_BY_MIX_TYPE[Number(mixTypeCode)] || null;
+}
+
+/** [min, max] the acceptance test is judged inside for one sieve, with the
+ *  sheet's own defaults for a blank cell (AY -> 0, AZ -> 100). Null when the
+ *  mixture type has no column at all. */
+function controlPointBand(mixTypeCode, sieveKey) {
+  const t = controlPointsFor(mixTypeCode);
+  if (!t) return null;
+  const b = t[sieveKey];
+  return [b && isNum(b[0]) ? b[0] : 0, b && isNum(b[1]) ? b[1] : 100];
+}
+
+// Calculations!Q124: the #200's test value to the nearest half. B124 =
+// ROUND(frac, 1); 0-0.2 -> INT, 0.3-0.7 -> INT + 0.5, else INT + 1.
+function roundToHalf(v) {
+  if (!isNum(v)) return v;
+  const whole = Math.floor(v);
+  const frac = xlRound(v - whole, 1);
+  if (frac <= 0.2) return whole;
+  if (frac <= 0.7) return whole + 0.5;
+  return whole + 1;
+}
+
+// One ladder, on an already-rounded deviation. `rule` names the band in the
+// schedule's own words so the readout never re-derives it.
+function ladderPay(ladder, d, dp) {
+  const f = (x) => (dp === 2 ? x.toFixed(2) : String(x));
+  let lo = null;
+  for (const [top, pay] of ladder) {
+    const band = lo == null ? `|dev| ≤ ${f(top)}` : `|dev| ${f(lo)} – ${f(top)}`;
+    if (d <= top) return { pay, rule: { band, pay } };
+    lo = top;
+  }
+  return { pay: GRADATION_FLOOR, rule: { band: `|dev| > ${f(lo)}`, pay: GRADATION_FLOOR } };
+}
+
+/**
+ * One sieve of one sublot - 'Accept. Grad. # n' row 8..20.
+ *
+ *   sieve        an entry of GRADATION_PAY_SIEVES (or its key)
+ *   jmf          the JMF target % passing (column B)
+ *   test         this sublot's % passing (Gradation!D/G/J/M, the raw quotient)
+ *   mixTypeCode  Calculations!J1, for the control-point gate
+ *
+ * Returns { key, label, row, jmf, test, band, starred, shown, dev, rounded,
+ *           pay, rule }. `shown` is what the sheet's F column carries into the
+ * deviation - the test value rounded to a whole when starred, to the nearest
+ * half on the #200; `starred` is the gate; `pay` is null where the sheet's H
+ * would read "" (no test, no JMF, a mixture type with no control-point column,
+ * or an F.M. mixture whose sieve rows are blank by design).
+ */
+function sievePay({ sieve, jmf, test, mixTypeCode } = {}) {
+  const sv = typeof sieve === 'string' ? GRADATION_PAY_SIEVES.find(s => s.key === sieve) : sieve;
+  const base = { key: sv ? sv.key : null, label: sv ? sv.label : null, row: sv ? sv.row : null,
+                 jmf: isNum(jmf) ? jmf : null, test: isNum(test) ? test : null,
+                 band: null, starred: null, shown: null, dev: null, rounded: null, pay: null, rule: null };
+  if (!sv || !isNum(jmf) || !isNum(test)) return base;
+  const code = Number(mixTypeCode);
+  if (FM_MIX_TYPES.indexOf(code) >= 0) {
+    return { ...base, rule: { band: 'not scored - this mixture type is paid on fineness modulus', pay: null } };
+  }
+  const band = controlPointBand(code, sv.key);
+  if (!band) {
+    return { ...base, rule: { band: `not scored - Calculations!W14:AX30 has no column for mixture type ${mixTypeCode ?? '(blank)'}`, pay: null } };
+  }
+  const starred = test < band[0] || test > band[1];
+  let shown = starred ? xlRound(test, 0) : test;
+  if (sv.key === 's0_075') shown = roundToHalf(shown);              // F20 = Calculations!Q124
+  const dev = Math.abs(jmf - shown);
+  const rounded = xlRound(dev, 1);
+  if (!starred) {
+    return { ...base, band, starred, shown, dev, rounded, pay: 100,
+             rule: { band: `inside the control points ${band[0]}–${band[1]}`, pay: 100, gate: true } };
+  }
+  const { pay, rule } = ladderPay(GRADATION_LADDERS[sv.ladder], rounded, 1);
+  return { ...base, band, starred, shown, dev, rounded, pay, rule: { ...rule, ladder: sv.ladder } };
+}
+
+/** % AC under Gradation acceptance - 'Accept. Grad. # n'!H21. The ladder is
+ *  the Specialty schedule's (≤0.5 100, 0.6 98, 0.7 90, 0.8 85, ≥0.9 75), on
+ *  ROUND(ABS(dev), 1), with no MCL and no control-point gate. NOT acPay():
+ *  the volumetric ladder is 100/95/90/MCL and has the sublot-1 widening. */
+function specialtyAcPay({ jmfAC, ac } = {}) {
+  if (!isNum(ac) || !isNum(jmfAC)) return { dev: null, rounded: null, pay: null, rule: null };
+  const dev = ac - jmfAC;
+  const d = xlRound(Math.abs(dev), 1);
+  const { pay, rule } = ladderPay(SPECIALTY_AC_LADDER, d, 1);
+  return { dev, rounded: d, pay, rule };
+}
+
+/** Gradation!D35 / Calculations!D121: the fineness modulus of a % passing
+ *  column - the cumulative percent retained on the #4 .. #100, summed, over
+ *  100. Null unless all six sieves are present. */
+function finenessModulus(passingByKey) {
+  if (!passingByKey) return null;
+  let sum = 0;
+  for (const k of FM_SIEVES) {
+    const p = passingByKey[k];
+    if (!isNum(p)) return null;
+    sum += 100 - p;
+  }
+  return tidy(sum / 100);
+}
+
+/** 'Accept. Grad. # n'!H22 - on ROUND(ABS(dev), 2). */
+function finenessModulusPay({ target, test } = {}) {
+  if (!isNum(target) || !isNum(test)) return { dev: null, rounded: null, pay: null, rule: null };
+  const dev = test - target;
+  const d = xlRound(Math.abs(dev), 2);
+  const { pay, rule } = ladderPay(FINENESS_MODULUS_LADDER, d, 2);
+  return { dev, rounded: d, pay, rule };
+}
+
+/**
+ * One sublot under Gradation acceptance - 'Pay Values'!E37:E40.
+ *
+ *   mixTypeCode   Calculations!J1
+ *   jmf           { sieveKey: % passing }   the JMF column ('Accept. Grad.'!B8:B20)
+ *   test          { sieveKey: % passing }   this sublot's gradation
+ *   jmfAC, ac     the JMF %AC and this sublot's %AC (rows B21 / C21)
+ *   fmTarget, fm  fineness modulus, target and test - read only for FM_MIX_TYPES;
+ *                 derived from `jmf` / `test` by finenessModulus() when not given
+ *   isFirstSublot lot 1's first sublot - the allowance (see note 3 above)
+ *   position      0-based sublot index; 0 is 'Pay Values' row 37, whose
+ *                 literal formula pays 100 unconditionally (note 3)
+ *
+ * `pay` is MIN over every factor present (sieves, AC, F.M.) - the sheet's
+ * MIN(H8:H22) - or null when nothing has been tested. `lowest` names the
+ * factor(s) that set it.
+ */
+function gradationSublotPay({
+  mixTypeCode, jmf = {}, test = {}, jmfAC, ac, fmTarget, fm,
+  isFirstSublot = false, position = null,
+} = {}) {
+  const code = Number(mixTypeCode);
+  const sieves = GRADATION_PAY_SIEVES.map(sv => sievePay({ sieve: sv, jmf: jmf[sv.key], test: test[sv.key], mixTypeCode: code }));
+  const acR = specialtyAcPay({ jmfAC, ac });
+  let fmR = null;
+  if (FM_MIX_TYPES.indexOf(code) >= 0) {
+    const tgt = isNum(fmTarget) ? fmTarget : finenessModulus(jmf);
+    const tst = isNum(fm) ? fm : finenessModulus(test);
+    fmR = { target: tgt, test: tst, ...finenessModulusPay({ target: tgt, test: tst }) };
+  }
+  const factors = [];
+  sieves.forEach(s => { if (isNum(s.pay)) factors.push({ what: s.label, key: s.key, pay: s.pay }); });
+  if (isNum(acR.pay)) factors.push({ what: '% AC', key: 'ac', pay: acR.pay });
+  if (fmR && isNum(fmR.pay)) factors.push({ what: 'F.M.', key: 'fm', pay: fmR.pay });
+
+  let min = null, lowest = [];
+  if (factors.length) {
+    min = Math.min(...factors.map(f => f.pay));
+    lowest = factors.filter(f => f.pay === min).map(f => f.what);
+  }
+  let pay = min, allowance = null;
+  if (isFirstSublot && isNum(min) && min >= 90 && min !== 100) {
+    pay = 100; allowance = { from: min, to: 100 };
+  }
+  // What the sheet itself prints for this row - see note 3: row 37 is 100
+  // whenever anything is scored, and the other three rows are the MIN.
+  const workbookLiteral = position === 0 ? (factors.length ? 100 : null) : min;
+  return { position, sieves, ac: acR, fm: fmR, factors, min, lowest, pay, allowance, workbookLiteral };
+}
+
+/** 'Pay Values'!E41 - the lot's pay under Gradation acceptance, the average
+ *  of the sublot pays present; null when no sublot has one. */
+function gradationLotPay({ sublots = [] } = {}) {
+  const pays = sublots.map(s => (s ? s.pay : null)).filter(v => isNum(v));
+  return { sublots, lot: pays.length ? avgPresent(pays) : null,
+           rule: pays.length ? `average of the ${pays.length} sublot${pays.length === 1 ? '' : 's'} scored ('Pay Values'!E41)`
+                             : 'no sublot has a gradation or %AC result yet' };
+}
+
+// ---------------------------------------------------------------------------
 // The lot
 // ---------------------------------------------------------------------------
 //
@@ -13643,10 +14016,17 @@ function lotPay({
   jointDensityFlag = 1, densityOption = 1, acceptanceOption = 2,
   lotNumber, esalClass, mixTypeCode = 5,
   tonnage, unitPrice, wedgeTons = 0,
+  // Gradation acceptance only: { jmf: {sieveKey: %}, jmfAC?, fmTarget?,
+  //   sublots: [{ test: {sieveKey: %}, ac?, jmfAC?, fm? }, ...] } - see
+  //   gradationSublotPay(). The %AC per sublot falls back to `sublots[i]`.
+  gradation = null,
 } = {}) {
   const notes = [];
   const w = weights || propertyWeights({ jointDensityFlag, densityOption, acceptanceOption });
-  if (!weights && Object.values(w).every(x => x === 0)) {
+  // Under Gradation acceptance every weight IS zero by design ('Pay
+  // Values'!E20:E24 all read 0 when H13 = 1) - the pay comes from the
+  // Specialty schedule below, so a zero weight there is not worth a note.
+  if (!weights && Number(acceptanceOption) !== 1 && Object.values(w).every(x => x === 0)) {
     notes.push(`no weights defined for joint=${jointDensityFlag} density-option=${densityOption} acceptance=${acceptanceOption}; the workbook pays 0 on every property`);
   }
 
@@ -13691,6 +14071,34 @@ function lotPay({
     vma: { value: visual ? 100 : vmaLot, weight: w.vma },
   };
 
+  // Gradation acceptance (Calculations!H13 = 1). On the sheet the five
+  // properties read "" - 'Pay Values' rows 13-16, 21 and 22 all open
+  // IF(Calculations!H13=1,"",...) - and the pay is the Specialty schedule's,
+  // per sublot then averaged. See gradationSublotPay() above for the
+  // schedule and for the three things about it that are not in the spec.
+  let gradationResult = null;
+  if (Number(acceptanceOption) === 1) {
+    const g = gradation || {};
+    const gs = g.sublots || [];
+    const n = Math.max(gs.length, sublots.length);
+    const per = [];
+    for (let i = 0; i < n; i++) {
+      const gi = gs[i] || {}, si = sublots[i] || {};
+      per.push(gradationSublotPay({
+        mixTypeCode, jmf: g.jmf || {}, test: gi.test || {},
+        jmfAC: gi.jmfAC ?? si.jmfAC ?? g.jmfAC, ac: gi.ac ?? si.ac,
+        fmTarget: g.fmTarget, fm: gi.fm,
+        isFirstSublot: Number(lotNumber) === 1 && i === 0, position: i,
+      }));
+    }
+    gradationResult = gradationLotPay({ sublots: per });
+    for (const k of Object.keys(byProperty)) byProperty[k] = { value: null, weight: 0 };
+    const literalDiffers = per.filter(s => s.workbookLiteral !== s.pay && (isNum(s.pay) || isNum(s.workbookLiteral)));
+    if (literalDiffers.length) {
+      notes.push(`'Pay Values'!E37 as written in the workbook pays sublot 1 100 whatever it tested (its ">= 90" sits outside the AND, and Excel ranks a boolean above every number); this computes the allowance as the cells beside it intend - lot 1's first sublot is forgiven anything at 90 or better - so sublot 1 here is ${per[0].pay ?? 'blank'} where the sheet would print ${per[0].workbookLiteral ?? 'blank'}`);
+    }
+  }
+
   // Calculations!A71. Under Visual acceptance the whole thing is 100; under
   // Gradation it is 'Pay Values'!E41, the gradation pay average, which is a
   // different acceptance path and is not modelled here.
@@ -13698,7 +14106,9 @@ function lotPay({
   if (Number(acceptanceOption) === 3) {
     finalPct = 100;
   } else if (Number(acceptanceOption) === 1) {
-    notes.push('Gradation acceptance (Calculations!H13 = 1): final pay is the gradation average at \'Pay Values\'!E41, which this module does not compute');
+    // 'Pay Values'!E41 -> Calculations!A71.
+    finalPct = gradationResult.lot;
+    if (finalPct === null) notes.push(`Gradation acceptance (Calculations!H13 = 1): ${gradationResult.rule}, so there is no final pay value`);
   } else {
     // Joint density blank drops its term entirely rather than contributing 0 -
     // that is A71's own IF('Pay Values'!B21="", ...) branch. It comes to the
@@ -13737,6 +14147,7 @@ function lotPay({
     perSublot,
     byProperty,
     laneDetail, jointDetail,
+    gradation: gradationResult,                             // Gradation acceptance only: the sublot factors and 'Pay Values'!E41
     finalPct,                                               // 'Pay Values'!J21 / Calculations!A71
     finalPctCapped: finalPct === null ? null : Math.min(finalPct, 100), // Calculations!A72, advisory
     payTons: net,
@@ -13945,10 +14356,14 @@ function flagsSentence(result, ctx) {
   if (n) bits.push(`${n} sublot${n === 1 ? '' : 's'}`);
   const acc = ACCEPTANCE[Number(ctx.acceptanceOption)];
   if (acc) bits.push(acc);
-  if (ctx.jointDensityFlag != null) {
+  // Under Gradation acceptance neither density flag moves anything ('Pay
+  // Values'!B21/B22 read "" when H13 = 1), so naming them would be naming a
+  // setting that is not in force.
+  const grad = Number(ctx.acceptanceOption) === 1;
+  if (!grad && ctx.jointDensityFlag != null) {
     bits.push(Number(ctx.jointDensityFlag) === 1 ? 'joint density counts' : 'joint density does not count');
   }
-  if (ctx.densityOption != null) bits.push(`density option ${Number(ctx.densityOption) === 2 ? 'B' : 'A'}`);
+  if (!grad && ctx.densityOption != null) bits.push(`density option ${Number(ctx.densityOption) === 2 ? 'B' : 'A'}`);
   if (ctx.esalClass != null) bits.push(`AADTT Class ${ctx.esalClass}`);
   return bits.join(' · ');
 }
@@ -13979,11 +14394,12 @@ function payHeadline(result, ctx = {}) {
         + `conversation with the Department.`,
     };
   }
-  if (Number(ctx.acceptanceOption) === 1) {
+  if (!isNum(pct) && Number(ctx.acceptanceOption) === 1) {
     return {
-      state: 'none', word: 'Gradation', mcl: false, pct, tons, money, sub,
-      why: `This lot is accepted on gradation, whose pay schedule is a second one over the sieve and `
-        + `AC deviations ('Pay Values'!E41). It is not computed here.`,
+      state: 'none', word: '—', mcl: false, pct, tons, money, sub,
+      why: `Gradation acceptance: each sublot pays the lowest factor over its sieves and its %AC on the `
+        + `Specialty Mixtures schedule (402.05.01), and the lot pays their average ('Pay Values'!E41). `
+        + `No sublot has a gradation or %AC result yet, so there is no pay value - that is not a 0% and not a 100%.`,
     };
   }
   if (!isNum(pct)) {
@@ -14480,6 +14896,73 @@ function densityWhy(p, result, ctx, esc, open) {
 
 // ---- layer 1: the lines -----------------------------------------------------
 
+// ---- Gradation acceptance: one line per sublot, the factors behind it ------
+//
+// Under Calculations!H13 = 1 the five properties are not in force, so the
+// list is the SUBLOTS instead: each pays the LOWEST factor over its thirteen
+// sieves, its %AC and (Sand Asphalt / Sand Seal) its fineness modulus -
+// 'Pay Values'!E37:E40 - and the lot pays their average (E41). Opening a
+// sublot shows every factor: JMF -> test, whether the test sat inside the
+// control points (the workbook's gate: inside pays 100 whatever the
+// deviation - see pay.mjs), the rounded deviation and the band it landed on.
+const GRAD_HEAD = ['Sieve', 'JMF → test', 'Control points', 'Deviation → band', 'Pay'];
+
+function gradationWhy(s, i, ctx, esc) {
+  const rows = [subGrid(esc, GRAD_HEAD.map(esc), 'head')];
+  const f1 = (v, key) => (isNum(v) ? (key === 's0_075' ? v.toFixed(1) : trim(v, 1)) : '—');
+  (s.sieves || []).forEach((sv) => {
+    if (!isNum(sv.jmf) && !isNum(sv.test)) return;
+    const jt = `${f1(sv.jmf, sv.key)} → ${f1(sv.test, sv.key)}`
+      + (sv.starred && isNum(sv.shown) && sv.shown !== sv.test ? ` (as ${f1(sv.shown, sv.key)})` : '');
+    const cp = sv.band ? `${sv.band[0]}–${sv.band[1]} · ${sv.starred ? 'OUTSIDE' : 'inside'}` : '—';
+    let band;
+    if (!sv.rule) band = '<span class="prsub">—</span>';
+    else if (sv.rule.gate) band = `<span class="payband">${esc('inside the control points → 100 whatever the deviation')}</span>`;
+    else if (!isNum(sv.pay)) band = `<span class="prsub">${esc(sv.rule.band)}</span>`;
+    else band = `<span class="mono">${esc(trim(sv.rounded))}</span> <span class="payband">${esc(sv.rule.band)}</span>`;
+    rows.push(subGrid(esc, [esc(sv.label), `<span class="mono">${esc(jt)}</span>`, `<span class="mono">${esc(cp)}</span>`, band, payBadge(sv.pay, esc)]));
+  });
+  const ac = s.ac || {};
+  const inp = (ctx.sublots || [])[i] || {};
+  const g = ctx.gradation || {};
+  const gi = (g.sublots || [])[i] || {};
+  const jmfAC = isNum(gi.jmfAC) ? gi.jmfAC : isNum(inp.jmfAC) ? inp.jmfAC : g.jmfAC;
+  const acTest = isNum(gi.ac) ? gi.ac : inp.ac;
+  rows.push(subGrid(esc, [esc('% AC'),
+    `<span class="mono">${esc(isNum(ac.dev) ? `${fx(jmfAC, 2)} → ${fx(acTest, 2)}` : '—')}</span>`,
+    `<span class="prsub">${esc('no gate')}</span>`,
+    ac.rule ? `<span class="mono">${esc(fx(ac.rounded, 1))}</span> <span class="payband">${esc(ac.rule.band)}</span>` : '<span class="prsub">—</span>',
+    payBadge(ac.pay, esc)]));
+  if (s.fm) {
+    rows.push(subGrid(esc, [esc('F.M.'),
+      `<span class="mono">${esc(isNum(s.fm.target) && isNum(s.fm.test) ? `${fx(s.fm.target, 2)} → ${fx(s.fm.test, 2)}` : '—')}</span>`,
+      `<span class="prsub">${esc('no gate')}</span>`,
+      s.fm.rule ? `<span class="mono">${esc(fx(s.fm.rounded, 2))}</span> <span class="payband">${esc(s.fm.rule.band)}</span>` : '<span class="prsub">—</span>',
+      payBadge(s.fm.pay, esc)]));
+  }
+  let roll;
+  if (!s.factors.length) roll = 'nothing scored yet - no sieve has both a JMF and a test value, and there is no %AC';
+  else roll = `lowest of ${s.factors.length} factor${s.factors.length === 1 ? '' : 's'} (${s.lowest.join(', ')}) = ${trim(s.min)}`
+    + (s.allowance ? ` → sublot-1 allowance: ${trim(s.allowance.from)} → 100` : '');
+  return rows.join('') + eqHTML(esc, 'sublot pay', roll, `'Pay Values'!E${37 + i}`, 'roll');
+}
+
+function gradationLines(result, ctx, esc, open) {
+  const g = result.gradation;
+  return (g.sublots || []).map((s, i) => {
+    const note = !s.factors.length ? 'nothing scored yet'
+      : s.allowance ? `lowest ${s.lowest.join(', ')} at ${trim(s.min)}; forgiven on the setup sublot`
+      : s.min === 100 ? 'every factor paid 100'
+      : `lowest: ${s.lowest.join(', ')}`;
+    const line = `<span class="payx-l">${esc(`Sublot ${i + 1}`)}</span>`
+      + `<span class="payx-v">${payBadge(s.pay, esc)}</span>`
+      + `<span class="payx-w mono">${esc(s.factors.length ? `min of ${s.factors.length}` : '')}</span>`
+      + `<span class="payx-c mono"></span>`
+      + `<span class="payx-n">${esc(note)}</span>`;
+    return detailsHTML(`grad.${i}`, open, 'payx-prop', line, gradationWhy(s, i, ctx, esc));
+  }).join('');
+}
+
 function propertyLine(p, result, esc) {
   const by = (result.byProperty || {})[p.key] || {};
   const w = (result.weights || {})[p.key] || 0;
@@ -14502,6 +14985,7 @@ function propertyLine(p, result, esc) {
 
 function finalLines(result, ctx, esc, open) {
   const by = result.byProperty || {};
+  const grad = result.gradation;
   const terms = PROPERTIES.filter((p) => by[p.key] && !(p.key === 'jointDensity' && blank(by[p.key].value)));
   const sum = terms.map((p) => {
     const t = by[p.key];
@@ -14510,6 +14994,12 @@ function finalLines(result, ctx, esc, open) {
   }).join(' + ');
   const final = result.finalPct;
   let body = eqHTML(esc, 'final pay value', `${sum} = ${isNum(final) ? trim(final) : '—'}`, "Calculations!A71 → 'Pay Values'!J21");
+  if (grad) {
+    const pays = (grad.sublots || []).map((s) => s.pay).filter(isNum);
+    body = eqHTML(esc, 'final pay value',
+      pays.length ? `average(${pays.map((v) => trim(v)).join(', ')}) = ${trim(final)} - Gradation acceptance: the sublot pays, averaged` : grad.rule,
+      "'Pay Values'!E41 → Calculations!A71");
+  }
   if (Number(ctx.acceptanceOption) === 3) body = eqHTML(esc, 'final pay value', '100 - Visual acceptance pays 100 whatever the properties read', "'Pay Values'!J21");
   if (!isNum(final)) (result.notes || []).forEach((n) => { body += `<div class="payx-note">${esc(n)}</div>`; });
   if (isNum(final) && final > 100) {
@@ -14517,8 +15007,8 @@ function finalLines(result, ctx, esc, open) {
   }
   const line1 = `<span class="payx-l">Final pay value</span>`
     + `<span class="payx-v">${payBadge(final, esc)}</span>`
-    + `<span class="payx-w mono">${esc(`×${Object.values(result.weights || {}).reduce((a, b) => a + (b || 0), 0)}%`)}</span>`
-    + `<span class="payx-c mono"></span><span class="payx-n">${esc(isNum(final) ? 'the five contributions, added' : 'no value - open for why')}</span>`;
+    + `<span class="payx-w mono">${esc(grad ? 'average' : `×${Object.values(result.weights || {}).reduce((a, b) => a + (b || 0), 0)}%`)}</span>`
+    + `<span class="payx-c mono"></span><span class="payx-n">${esc(isNum(final) ? (grad ? 'the sublot pays, averaged' : 'the five contributions, added') : 'no value - open for why')}</span>`;
   const out = [detailsHTML('final', open, 'payx-prop total', line1, body)];
 
   const net = result.payTons, tons = result.tonnageAdj, money = result.dollarAdj;
@@ -14554,17 +15044,21 @@ function payExplainHTML(result, ctx = {}) {
   const esc = ctx.esc || escapeHTML;
   const open = new Set(ctx.open || []);
   const h = payHeadline(result, ctx);
-  const lines = PROPERTIES.map((p) => {
+  const grad = !!result.gradation;
+  const lines = grad ? gradationLines(result, ctx, esc, open) : PROPERTIES.map((p) => {
     const why = (p.key === 'laneDensity' || p.key === 'jointDensity')
       ? densityWhy(p, result, ctx, esc, open)
       : volumetricWhy(p, result, ctx, esc, open);
     return detailsHTML(`prop.${p.key}`, open, 'payx-prop', propertyLine(p, result, esc), why);
   }).join('');
+  const cols = grad
+    ? `<span class="payx-l">Sublot</span><span class="payx-v">Pay</span><span class="payx-w">Factors</span><span class="payx-c"></span><span class="payx-n">Lowest factor</span>`
+    : `<span class="payx-l">Property</span><span class="payx-v">Lot value</span><span class="payx-w">Weight</span><span class="payx-c">Counts</span><span class="payx-n"></span>`;
   return `<div class="payreadout payx">
     ${headlineHTML(h, esc)}
-    <div class="rowgroup-head">How the lot pay was arrived at <span class="payx-hint">click a line for why, and a sublot for the figures behind it</span></div>
+    <div class="rowgroup-head">How the lot pay was arrived at <span class="payx-hint">${grad ? 'click a sublot for every sieve and the AC behind its pay' : 'click a line for why, and a sublot for the figures behind it'}</span></div>
     <div class="payx-list">
-      <div class="payx-cols"><span class="payx-l">Property</span><span class="payx-v">Lot value</span><span class="payx-w">Weight</span><span class="payx-c">Counts</span><span class="payx-n"></span></div>
+      <div class="payx-cols">${cols}</div>
       ${lines}
       ${finalLines(result, ctx, esc, open)}
     </div>
@@ -14624,13 +15118,21 @@ function payWarnings(result, ctx = {}) {
   // lot that went wrong goes wrong on several at once and twelve rail entries
   // saying the same thing read as twelve problems.
   const under = { setup: [], normal: [] };
-  (result.perSublot || []).forEach((s, i) => {
+  // Under Gradation acceptance the three volumetric ladders are not run; the
+  // clause still names AC, so the Specialty schedule's AC factor is what is
+  // held to the floor (its 85 and 75 bands are both under it). The sieves
+  // are not in the clause and are not checked.
+  const floorSublots = result.gradation
+    ? (result.gradation.sublots || []).map((s) => ({ ac: s.ac }))
+    : (result.perSublot || []);
+  const floorProps = result.gradation ? FLOOR_PROPERTIES.filter((p) => p.key === 'ac') : FLOOR_PROPERTIES;
+  floorSublots.forEach((s, i) => {
     // Setup is LOT 1's first sublot, the same gate `isFirstSublot` uses. A
     // lot with no number reads as lot 1 everywhere else on this page, so it
     // reads as lot 1 here; that puts sublot 1 in the setup bucket, which
     // cites the clause that is true of a setup sublot.
     const isSetup = i === 0 && (result.lotNumber === null || result.lotNumber === 1);
-    FLOOR_PROPERTIES.forEach((p) => {
+    floorProps.forEach((p) => {
       const v = s && s[p.key] ? s[p.key].pay : null;
       const low = isMCL(v) || (isNum(v) && v < SUBLOT_PAY_FLOOR);
       if (low) (isSetup ? under.setup : under.normal)
@@ -14683,6 +15185,11 @@ function payWarnings(result, ctx = {}) {
     MCL, xlRound, avgPresent, lotAverage, propertyWeights, vmaMinimumFor,
     airVoidTargetFor, acPay, airVoidPay, vmaPay, sublotPay, laneCoreDetail, laneCorePay,
     jointCoreDetail, jointCorePay, laneDensityLot, jointDensityLot, lotPay,
+    // Gradation acceptance (2026-09-22)
+    GRADATION_LADDERS, SPECIALTY_AC_LADDER, FINENESS_MODULUS_LADDER, GRADATION_PAY_SIEVES,
+    GRADATION_AC_ROW, GRADATION_FM_ROW, FM_MIX_TYPES, FM_SIEVES, CONTROL_POINTS_BY_MIX_TYPE,
+    controlPointsFor, controlPointBand, roundToHalf, sievePay, specialtyAcPay,
+    finenessModulus, finenessModulusPay, gradationSublotPay, gradationLotPay,
     // from payview.mjs
     escapeHTML, fmtPct, fmtTons, fmtMoney, payHeadline, collectNotes,
     payViewHTML, payExplainHTML, payWarnings,
@@ -16914,6 +17421,30 @@ function amawCells(lot, tpl, ref) {
       'the JMF target gradation - every gradation pay value is a deviation from it');
   }
 
+  // Gradation acceptance (2026-09-22): 'Accept. Grad. # 1'..'# 4'!B8:B21 is
+  // the JMF the Specialty schedule's deviations are taken from - the same
+  // thirteen sieves as N10:N23 (rows 8-20 skip the 1/4", Gradation!D16 is
+  // never read) plus the JMF %AC at B21. They are TYPED cells on those four
+  // sheets, so one fact would otherwise be typed five times. Written only
+  // under Gradation acceptance: on a volumetric lot the sheets are blank by
+  // design and both real lots leave them so. `jmf` is keyed by the
+  // workbook's own sieve labels (GRADATION.sieves), and the row is the
+  // workbook's own - pay.mjs GRADATION_PAY_SIEVES carries the same list.
+  if (amStr(v.acceptance_method) === 'Gradation') {
+    const AG_ROWS = GRADATION.sieves.map((_, i) => (i === 6 ? null : 8 + (i < 6 ? i : i - 1)));
+    for (let n = 1; n <= 4; n++) {
+      const sheet = `Accept. Grad. # ${n}`;
+      GRADATION.sieves.forEach((sieve, i) => {
+        if (AG_ROWS[i] == null) return;
+        write(A(sheet, `B${AG_ROWS[i]}`), amNum(jmf[sieve]));
+      });
+      write(A(sheet, 'B21'), amNum(v.jmf_ac));
+    }
+    if (!amHas(v.jmf_ac)) {
+      need(A('Accept. Grad. # 1', 'B21'), 'the JMF %AC the Specialty schedule\'s AC factor deviates from');
+    }
+  }
+
   for (const block of ['QC01', 'QC02', 'QC03', 'QC04']) {
     const s = SUBLOT_OF[block];
     const rv = recVals(block), rr = recRows(block);
@@ -18663,6 +19194,23 @@ const PB_LOT = (() => {
     { size: '0.50', code: 4, name: 'Superpave 0.50' },
     { size: '0.38', code: 5, name: 'Superpave 0.38' },
     { size: 'NO.4', code: 14, name: 'Superpave No.4' },
+    // The workbook's other eight (Calculations!A6:B13), added 2026-09-22 with
+    // the Specialty Mixtures pay schedule. `specialty: true` is what
+    // acceptanceMethodFor() reads: these are accepted on AC and gradation
+    // (402.03.02 F)) and paid under 402.05.01, never on volumetrics. `fm`
+    // marks the three the workbook pays on FINENESS MODULUS rather than the
+    // sieves ('Accept. Grad.'!C8 reads "" for J1 = 7, 8 and 13). The `size`
+    // tokens are the form's option values with the whitespace stripped, which
+    // is how mixTypeFor() compares; none ends in a lone letter, so
+    // splitDesignation() leaves them whole.
+    { size: 'ATDB',         code: 6,  name: 'ATDB',                        specialty: true },
+    { size: 'SANDASPHALT1', code: 7,  name: 'Sand Asphalt Type I',         specialty: true, fm: true },
+    { size: 'SANDASPHALT2', code: 8,  name: 'Sand Asphalt Type II',        specialty: true, fm: true },
+    { size: 'WEDGE',        code: 9,  name: 'Asphalt Wedge',               specialty: true },
+    { size: 'SLURRY',       code: 10, name: 'Slurry Seal',                 specialty: true },
+    { size: 'CURB',         code: 11, name: 'Curb/Median Mix',             specialty: true },
+    { size: 'OGFC',         code: 12, name: 'Open Graded Friction Course', specialty: true },
+    { size: 'SANDSEAL',     code: 13, name: 'Sand Seal',                   specialty: true },
   ];
 
   /** "0.38B" / "0.38" / "no.4 a" -> { size, letter }. Same split
@@ -18680,7 +19228,43 @@ const PB_LOT = (() => {
   function mixTypeFor(nominalSize) {
     const size = splitDesignation(nominalSize).size.toUpperCase().replace(/\s+/g, '');
     const hit = MIX_TYPE_CODES.find((m) => m.size === size);
-    return hit ? { code: hit.code, name: hit.name } : null;
+    return hit ? { code: hit.code, name: hit.name, specialty: !!hit.specialty, fm: !!hit.fm } : null;
+  }
+
+  /** The COURSE a lot is placed as - mainline, or one of 402.03.02 F)'s
+   *  specialty applications of a Superpave-graded mixture. It is what decides
+   *  the acceptance method for a mix whose TYPE is Superpave: the same approved
+   *  0.38 surface design is mainline on one contract and "LEVELING & WEDGING
+   *  PG64-22" (bid code 00190) on the next - contracts 252112 and 262120 both
+   *  carry that item beside their surface items - and the two are accepted and
+   *  paid differently. `match` is how the contract's own line description
+   *  names the course, for specialtyCourseOf(); the options on the form
+   *  (sections.mjs `lot_course`) are this list, and check_sections asserts it.
+   *  "ASPHALT WEDGE CURB" is a curb, by the foot, not a mixture - hence the
+   *  negative lookahead. */
+  const COURSES = [
+    { key: 'mainline',    label: 'Mainline or shoulder', specialty: false, match: null },
+    { key: 'leveling',    label: 'Leveling & wedging',   specialty: true,  match: /LEVEL\w*\s*(&|AND)\s*WEDG/i },
+    { key: 'scratch',     label: 'Scratch course',       specialty: true,  match: /SCRATCH/i },
+    { key: 'wedge',       label: 'Asphalt mixture for pavement wedge', specialty: true,
+                          match: /PAVEMENT\s*WEDGE|ASPH(ALT)?\.?\s*(MIX(TURE)?\s*(FOR\s*)?)?WEDGE(?!\s*CURB)/i },
+    { key: 'base_repair', label: 'Base failure repair',  specialty: true,  match: /BASE\s*FAILURE/i },
+    { key: 'temporary',   label: 'Temporary application', specialty: true, match: /TEMPORARY/i },
+  ];
+  const DEFAULT_COURSE = 'mainline';
+
+  function courseFor(key) {
+    const k = String(key == null ? '' : key).trim().toLowerCase();
+    return COURSES.find((c) => c.key === k) || null;
+  }
+
+  /** The specialty course a contract line's description names, or null for
+   *  anything else (a mainline mix item, tack, DGA, a curb by the foot...). */
+  function specialtyCourseOf(description) {
+    const d = String(description == null ? '' : description);
+    if (!d.trim()) return null;
+    const hit = COURSES.find((c) => c.match && c.match.test(d));
+    return hit ? hit.key : null;
   }
 
   /** The sizes a surface mixture is placed at 1 inch (25 mm) or greater,
@@ -18777,7 +19361,19 @@ const PB_LOT = (() => {
    * which is why this reads off it rather than inventing a second opinion.
    */
   function acceptanceMethodFor(mix) {
-    return mixTypeFor(mix && mix.nominal_size) ? 'Volumetrics' : null;
+    // 2026-09-22: the Specialty schedule is modelled now (pay.mjs
+    // gradationSublotPay()), so GRADATION is an answer rather than a refusal.
+    // Two things say it: a mixture TYPE that is not Superpave (OGFC, ATDB, the
+    // wedge, the sand asphalts...), or a Superpave-graded mix placed as a
+    // specialty COURSE (leveling and wedging, scratch course...). A size the
+    // workbook has no mixture type for is still null - there is no schedule
+    // to run, and a wrong word here weighs every property at zero silently.
+    const mt = mixTypeFor(mix && mix.nominal_size);
+    if (!mt) return null;
+    if (mt.specialty) return 'Gradation';
+    const c = courseFor(mix && mix.course);
+    if (c && c.specialty) return 'Gradation';
+    return 'Volumetrics';
   }
 
   /** The AMAW's "ESAL Class" (`Calculations!D15`, picklist 1-4) from the
@@ -19236,7 +19832,7 @@ const PB_LOT = (() => {
     const mt = mix ? mixTypeFor(mix.nominal_size) : null;
     if (!mt) {
       wasMissing('lot_nominal_size',
-        'The approval carries no nominal size that matches a Superpave mixture type, so Calculations!J1 has nothing to gate on - every property pays zero until the size is set.',
+        'The approval carries no nominal size that matches one of the workbook\'s fourteen mixture types (Calculations!A1:B14), so Calculations!J1 has nothing to gate on - every property pays zero until the size is set.',
         ['pay']);
     }
 
@@ -19508,17 +20104,28 @@ const PB_LOT = (() => {
       sources.aadtt_class = `${sourceLabel(a)} · values.aadtt_class`;
     }
 
-    const accept = acceptanceMethodFor(mix);
+    // The COURSE this lot is placed as. The approval cannot say - it is a mix
+    // DESIGN, and the same 0.38 surface design is mainline on one contract and
+    // "LEVELING & WEDGING PG64-22" on the next - so it is seeded MAINLINE,
+    // tinted, on the assumption the acceptance method below has always been
+    // seeded on, and a person changes it; the page flips the acceptance method
+    // with it (syncAcceptanceFromCourse). COURSES in this module is the list.
+    derive('lot_course', DEFAULT_COURSE,
+      'assumed - an approval is a mix design and does not say what course the lot is placed as; change it if this lot is leveling & wedging, scratch course, pavement wedge, base failure repair or a temporary application',
+      `${cell(CALC.sheet, CALC.acceptanceMethod)} (through the acceptance method)`);
+
+    const accept = acceptanceMethodFor({ ...(mix || {}), course: DEFAULT_COURSE });
     if (accept) {
       derive('lot_acceptance_method', accept,
-        'a Superpave mixture is accepted on volumetric properties - 2026 Std Spec 402.03.02 A)',
+        accept === 'Gradation'
+          ? 'a specialty mixture is accepted on AC and gradation - 2026 Std Spec 402.03.02 F) - and paid under 402.05.01\'s Specialty schedule'
+          : 'a Superpave mixture is accepted on volumetric properties - 2026 Std Spec 402.03.02 A)',
         `${cell(CALC.sheet, CALC.acceptanceMethod)} -> ${cell(CALC.sheet, 'H13')}`);
     } else {
       wasMissing('lot_acceptance_method',
-        'The approval is not a Superpave mixture, so it is accepted on AC and gradation under '
-        + '402.03.02 F) and paid under the Specialty Mixtures schedule - which PlantBook does not '
-        + 'model. Nothing here can pay this lot; the acceptance method is left blank rather than '
-        + 'defaulted, because a wrong one weighs every property at zero without saying so.',
+        'The approval\'s mix matches none of the workbook\'s fourteen mixture types, so there is no '
+        + 'acceptance method to derive and no pay schedule to run. The acceptance method is left blank '
+        + 'rather than defaulted, because a wrong one weighs every property at zero without saying so.',
         ['pay']);
     }
     // Density option. On the CONTRACT, not on the design: 2026 Std Spec
@@ -19976,7 +20583,8 @@ const PB_LOT = (() => {
     APPROVAL_FORMAT, APPROVAL_MAX_VERSION, DOC_KIND, SUBMITTED_ACTION, APPROVED_ACTION,
     VERIFICATION, isVerified, VERIFY_FN, FAILURE, MIX_TYPE_CODES,
     splitDesignation, mixTypeFor, jointDensityFor, densityOptionFor, JOINT_DENSITY_SIZES, esalClassFor,
-    ACCEPTANCE_METHODS, acceptanceMethodFor, LOT_TONS, ADJUSTMENT_UNIT_PRICE, expectedLots,
+    ACCEPTANCE_METHODS, acceptanceMethodFor, COURSES, DEFAULT_COURSE, courseFor, specialtyCourseOf,
+    LOT_TONS, ADJUSTMENT_UNIT_PRICE, expectedLots,
     effectiveMixOf, approvalChecks, submitterOf,
     verifyRequest, readVerifyResponse, notChecked, lotFromApproval,
     rollForwardLot, frameFields, ROLL_FORWARD_EXCEPTIONS,
@@ -20993,6 +21601,41 @@ function lotMixTypeCode() {
   return mt ? mt.code : null;
 }
 
+/* ---------- the course decides the acceptance method ----------
+ *
+ * 2026-09-22. `lot_acceptance_method` is derived (intake.mjs
+ * acceptanceMethodFor()) from the mixture TYPE and the COURSE the lot is
+ * placed as: a Superpave mix on the mainline is Volumetrics; the same mix
+ * placed as leveling and wedging or a scratch course, or a non-Superpave
+ * type (OGFC, ATDB, the wedge...), is Gradation - and the two run different
+ * pay schedules. The intake seeds mainline, so when a person changes the
+ * course or the size the derivation has to run again, here. Only a value
+ * the page put there ITSELF is overwritten (blank, or still tinted) - a
+ * person's own pick stands, the rule every other derived field on this page
+ * follows. Wired from the form's input handler for the two fields it reads.
+ */
+function syncAcceptanceFromCourse() {
+  if (!isPlantBook()) return;
+  const el = document.querySelector('[data-field="lot_acceptance_method"]');
+  if (!el) return;
+  const derived = PB_LOT.acceptanceMethodFor({
+    nominal_size: fieldValue("lot_nominal_size"), course: fieldValue("lot_course"),
+  });
+  if (!derived) return;
+  const ours = String(el.value || "") === "" || el.classList.contains("prefilled");
+  if (!ours || el.value === derived) return;
+  if (!Array.from(el.options).some((o) => o.value === derived)) return;
+  const why = derived === "Gradation"
+    ? "a specialty course or mixture type is accepted on AC and gradation (402.03.02 F)) and paid under 402.05.01"
+    : "a Superpave mixture placed as mainline is accepted on volumetrics (402.03.02 A))";
+  el.value = derived;
+  el.classList.add("prefilled");
+  if (!state.extracted) state.extracted = { scalars: {}, tables: {} };
+  state.extracted.scalars.lot_acceptance_method = derived;
+  state.sources.lot_acceptance_method = `derived: ${why}`;
+  el.title = `from ${why}`;
+}
+
 function computeCoreSolids() {
   if (!isPlantBook()) return;
   const mixTypeCode = lotMixTypeCode();
@@ -21105,6 +21748,16 @@ function lotPayInputs() {
     sublots,
     laneCores: coresBySublot("mat_cores"),
     jointCores: coresBySublot("joint_cores"),
+    // Gradation acceptance only (lotPay() ignores it otherwise): the JMF
+    // column and each sublot's computed % passing - state.gradPassing, the
+    // ONE producer of those percentages (computeGradation()), never the DOM.
+    // The %AC per sublot is already on `sublots` above; the fineness modulus
+    // for a Sand Asphalt / Sand Seal is derived inside pay.mjs from the same
+    // two maps, so nothing else is read here.
+    gradation: {
+      jmf: Object.fromEntries(PB_PAY.GRADATION_PAY_SIEVES.map((sv) => [sv.key, num(fieldValue(`jmf_${sv.key}`))])),
+      sublots: [1, 2, 3, 4].map((n) => ({ test: (state.gradPassing || {})[`sub${n}`] || {} })),
+    },
     jointDensityFlag: Number(fieldValue("lot_joint_density")) || 1,
     densityOption: DENSITY_OPTION_CODE[fieldValue("lot_density_option")] || 1,
     acceptanceOption: ACCEPTANCE_CODE[fieldValue("lot_acceptance_method")] || 2,
@@ -22796,6 +23449,23 @@ function mixKey(size, grade) {
 // for is not a mix item at all (DGA, tack, striping) and is never offered.
 // Pure, so it can be tested without a page.
 function pickProjectItems(items, want) {
+  // A specialty COURSE - leveling & wedging, scratch course, pavement
+  // wedge... - is bid as its OWN line item, named by the course rather than
+  // by a mix signature ("LEVELING & WEDGING PG64-22", bid code 00190, on
+  // 252112 and 262120 alike), so the designation match below can never find
+  // it. Match the course's own wording (PB_LOT.specialtyCourseOf, the one
+  // definition), and the binder grade where the line carries one. PlantBook
+  // only: DesignBook has no course, and `want.course` is undefined there.
+  const course = want.course && want.course !== PB_LOT.DEFAULT_COURSE ? want.course : null;
+  if (course) {
+    const wantGrade = mixKey(null, want.binder_grade).grade;
+    const hit = (items || []).filter((it) => {
+      if (PB_LOT.specialtyCourseOf(it.description) !== course) return false;
+      const pg = /PG\s?\d{2}-\d{2}/i.exec(it.description || "");
+      return !wantGrade || !pg || mixKey(null, pg[0]).grade === wantGrade;
+    });
+    return { rows: hit, mixes: [], why: hit.length ? "course" : "no-course-match", course };
+  }
   const mixes = (items || []).map((it) => ({ item: it, sig: parseSignature(it.description) }))
                              .filter((x) => x.sig.nominal_size);
   const w = mixKey(want.nominal_size, want.binder_grade);
@@ -22815,18 +23485,21 @@ function pickProjectItems(items, want) {
 // dropped - the provisional-values rule under "Pages downstream of login".
 function applyProjectItems(data) {
   const spec = rowSpec("project_items");
-  const { rows, mixes, why } = pickProjectItems(data.items, {
+  const { rows, mixes, why, course } = pickProjectItems(data.items, {
     nominal_size: (effectiveMix() || {}).nominal_size,
     binder_grade: effectiveBinderGrade(),
+    course: isPlantBook() ? fieldValue("lot_course") : null,
   });
   const src = data.source === "estimate"
     ? `pay estimate ${data.estimate ? data.estimate.number : ""}${data.estimate && data.estimate.final ? " (final)" : ""}`
     : "item list as awarded";
   const parts = [];
-  const designation = (effectiveMix() || {}).nominal_size || "";
+  const courseDef = course ? PB_LOT.courseFor(course) : null;
+  const designation = courseDef ? courseDef.label.toLowerCase() : ((effectiveMix() || {}).nominal_size || "");
 
   if (!rows.length) {
-    if (why === "no-designation") parts.push("Set Nominal size and Mix type first - they are what picks this design's lines out of the contract.");
+    if (why === "no-course-match") parts.push(`No line item on this contract reads as ${designation} - the course on Contract & Mix picks the line, so check it against the contract's own wording.`);
+    else if (why === "no-designation") parts.push("Set Nominal size and Mix type first - they are what picks this design's lines out of the contract.");
     else if (mixes.length) parts.push(`No line item on this contract is ${designation}. The contract's mix items are ${mixes.map((x) => x.item.description).join("; ")}.`);
     else parts.push("No asphalt mix items on this contract.");
     parts.push(`Read from ${data.file} (${src}).`);

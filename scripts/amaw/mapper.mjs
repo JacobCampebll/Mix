@@ -1318,6 +1318,30 @@ export function amawCells(lot, tpl, ref) {
       'the JMF target gradation - every gradation pay value is a deviation from it');
   }
 
+  // Gradation acceptance (2026-09-22): 'Accept. Grad. # 1'..'# 4'!B8:B21 is
+  // the JMF the Specialty schedule's deviations are taken from - the same
+  // thirteen sieves as N10:N23 (rows 8-20 skip the 1/4", Gradation!D16 is
+  // never read) plus the JMF %AC at B21. They are TYPED cells on those four
+  // sheets, so one fact would otherwise be typed five times. Written only
+  // under Gradation acceptance: on a volumetric lot the sheets are blank by
+  // design and both real lots leave them so. `jmf` is keyed by the
+  // workbook's own sieve labels (GRADATION.sieves), and the row is the
+  // workbook's own - pay.mjs GRADATION_PAY_SIEVES carries the same list.
+  if (amStr(v.acceptance_method) === 'Gradation') {
+    const AG_ROWS = GRADATION.sieves.map((_, i) => (i === 6 ? null : 8 + (i < 6 ? i : i - 1)));
+    for (let n = 1; n <= 4; n++) {
+      const sheet = `Accept. Grad. # ${n}`;
+      GRADATION.sieves.forEach((sieve, i) => {
+        if (AG_ROWS[i] == null) return;
+        write(A(sheet, `B${AG_ROWS[i]}`), amNum(jmf[sieve]));
+      });
+      write(A(sheet, 'B21'), amNum(v.jmf_ac));
+    }
+    if (!amHas(v.jmf_ac)) {
+      need(A('Accept. Grad. # 1', 'B21'), 'the JMF %AC the Specialty schedule\'s AC factor deviates from');
+    }
+  }
+
   for (const block of ['QC01', 'QC02', 'QC03', 'QC04']) {
     const s = SUBLOT_OF[block];
     const rv = recVals(block), rr = recRows(block);

@@ -4819,3 +4819,63 @@ commit where possible.
   "density"/"joint density"/"lane density"/"density option"/"% density"
   (in-place-density pay concepts, not the pcf figure) are untouched too -
   confirmed by inventory before editing, not assumed.
+
+- **PlantBook pays a gradation-accepted lot now - the 402.05.01 Specialty
+  Mixtures schedule is modelled** (2026-09-22, Jake: "lets do 2 first").
+  `Calculations!H13 = 1` used to be a stated refusal ("PlantBook does not
+  model it"); `pay.mjs` carries the schedule under `gradationSublotPay()` /
+  `gradationLotPay()`, `lotPay()` runs it when `acceptanceOption === 1`, the
+  readout lists SUBLOTS (each opening to every sieve, the AC and, for a sand
+  asphalt, the fineness modulus) instead of the five properties, and the page
+  hands it the JMF column and `state.gradPassing`. Checked against the
+  template's own formulas rather than a cached answer - NO gradation-accepted
+  lot is on file (both real ones are Volumetrics) - so `check_pay.mjs` runs a
+  block of hand evaluations of `'Accept. Grad. # n'!H8:H22` and
+  `'Pay Values'!E37:E41` at the band edges, and a real leveling-and-wedging
+  AMAW is the thing still owed.
+  **Three things about that schedule are in the WORKBOOK and not in the spec
+  table, and only two are reproduced.** (1) **The control-point gate**: every
+  sieve row is `IF(OR(ROUND(ABS(G),1) <= top, LEFT(C,1) <> "*"), 100, ladder)`
+  - the test value is starred (`"* 30"`, rounded to a whole) only when it is
+  OUTSIDE the mixture type's control points (`Calculations!AY16:AZ29`, an
+  HLOOKUP into `W14:AX30`), and an unstarred sieve pays 100 whatever its
+  deviation from the JMF. The spec's table (p.184, footer `402-9`) is headed
+  "test deviation from JMF" and says nothing about control points; the
+  workbook adds the gate and the workbook is what pays, so it is reproduced
+  and the readout says which of the two reasons a sieve paid 100 for. Neither
+  the AC row nor the F.M. row has it. (2) **The #200 is rounded to the
+  nearest half** before the deviation (`Calculations!Q124`). (3) **The
+  sublot-1 allowance is MISWRITTEN**: `'Pay Values'!E37` reads
+  `IF(AND(F3=1, MIN(H8:H22)) >= 90, 100, ...)` with the `>= 90` OUTSIDE the
+  AND, and Excel ranks a boolean above every number, so sublot 1 pays 100 on
+  EVERY gradation-accepted lot whatever it tested and whatever the lot
+  number. The three cells beside it (`D13`/`G13`/`K13`) make the intent
+  unmistakable, and no real lot was ever paid through E37, so - unlike the
+  text-beats-number quirks this file records for the volumetric allowances,
+  reproduced because approved lots were paid by them - this one is implemented
+  AS INTENDED, `workbookLiteral` on the result says what the sheet would
+  print, and `lotPay()` notes it once when the two differ. **Open for Tate:**
+  every gradation-accepted lot KYTC has paid through VER 14.01 (or 13.3 - the
+  formula is identical there) had its first sublot at 100.
+  **Leveling & wedging is a Superpave mix placed as a specialty COURSE, and
+  the workbook agrees**: `Calculations!BB12:BB30` catalogues "00190 LEVELING
+  & WEDGING (0.38-IN) ASPHALT SURFACE PG64-22" against the same material
+  codes as the surface mixes, so `J1` stays the size and `H20` becomes
+  "Gradation". Contract & Mix has a **Course / pay item** select for it
+  (`lot_course`, intake.mjs `COURSES`, seeded MAINLINE and tinted - the
+  approval is a design and cannot say), `acceptanceMethodFor(mix)` reads the
+  course beside the type, `syncAcceptanceFromCourse()` on the page re-derives
+  the acceptance method when the course or the size changes (only over a
+  value the page put there itself), and `pickProjectItems()` matches a
+  specialty course's line by the course's own wording ("LEVELING & WEDGING
+  PG64-22" is on 252112 and 262120 alike, bid code 00190) since it carries no
+  mix signature to match. The workbook's other eight mixture types
+  (`Calculations!A6:B13` - ATDB, the two sand asphalts, wedge, slurry, curb,
+  OGFC, sand seal) are on the Nominal size select and in `MIX_TYPE_CODES` with
+  `specialty: true`; a specialty TYPE is Gradation whatever the course.
+  Verified in a browser on the test lot: the course flips the acceptance
+  method and the readout's shape, a person's own pick is never overwritten,
+  OGFC is Gradation whatever the course, project items match the leveling
+  line and not the "ASPHALT WEDGE CURB" (a curb, by the foot). Checkers:
+  sections, intake 172, bridge 77, roll-forward 40, page drift 222+, pay
+  127/127 plus the schedule block, mapper 4 unexplained (unchanged).

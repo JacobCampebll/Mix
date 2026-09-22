@@ -25,6 +25,8 @@ import { execFileSync } from 'child_process';
 import {
   lotPay, propertyWeights, laneDensityLot, jointDensityLot,
   laneCorePay, jointCorePay, sublotPay, MCL,
+  sievePay, specialtyAcPay, finenessModulusPay, finenessModulus, roundToHalf,
+  gradationSublotPay, gradationLotPay, controlPointBand,
 } from './pay.mjs';
 
 // ---------------------------------------------------------------------------
@@ -252,10 +254,103 @@ function checkPartial(file) {
 }
 
 // ---------------------------------------------------------------------------
+// Gradation acceptance - AGAINST THE TEMPLATE'S OWN FORMULAS, not against a
+// cached answer. Neither real lot is gradation-accepted (both read
+// Calculations!H13 = 2), so every 'Accept. Grad.' cell is blank in both and
+// there is nothing of Excel's to compare to - the same debt check_verify.mjs
+// records for Super Verify. Each expectation below is a hand evaluation of
+// the H8:H22 / E37:E41 formulas quoted in pay.mjs, at the band edges. A real
+// leveling-and-wedging AMAW would turn these into cached-value comparisons.
+// ---------------------------------------------------------------------------
+function checkGradationSchedule() {
+  console.log('\n=== Gradation acceptance, against the template formulas (VER 14.01) ===');
+  let bad = 0;
+  const ok = (label, got, want) => {
+    const pass = JSON.stringify(got) === JSON.stringify(want);
+    if (!pass) bad++;
+    console.log(`  ${pass ? 'ok  ' : 'FAIL'}  ${label.padEnd(66)} ${show(got)}${pass ? '' : `   want ${show(want)}`}`);
+  };
+  const sv = (sieve, jmf, test, code = 5) => sievePay({ sieve, jmf, test, mixTypeCode: code });
+  // H15 (#8) on a 0.38: control points 32-67. Starred below 32, so the ladder
+  // runs; ROUND(ABS(dev),1) against 8/9/10/12/14.
+  ok('#8 test 30 (starred) jmf 45 -> dev 15 -> 75 (H15)', sv('s2_36', 45, 30).pay, 75);
+  ok('#8 test 30 jmf 44 -> dev 14 -> 85', sv('s2_36', 44, 30).pay, 85);
+  ok('#8 test 30 jmf 42 -> dev 12 -> 90', sv('s2_36', 42, 30).pay, 90);
+  ok('#8 test 30 jmf 40 -> dev 10 -> 95', sv('s2_36', 40, 30).pay, 95);
+  ok('#8 test 30 jmf 39 -> dev 9 -> 98', sv('s2_36', 39, 30).pay, 98);
+  ok('#8 test 30 jmf 38 -> dev 8 -> 100', sv('s2_36', 38, 30).pay, 100);
+  ok('#8 test 30.4 (starred) is carried as ROUND(,0) = 30 (C15 "* 30")', sv('s2_36', 45, 30.4).shown, 30);
+  ok('#8 test 44.6 INSIDE 32-67 pays 100 whatever the JMF (the gate)', [sv('s2_36', 10, 44.6).pay, sv('s2_36', 10, 44.6).rule.gate], [100, true]);
+  ok('#8 test 44.6 inside is carried unrounded', sv('s2_36', 45, 44.6).shown, 44.6);
+  ok('#8 test 31.9 is starred (< 32)', sv('s2_36', 45, 31.9).starred, true);
+  ok('#8 test 32 is inside (>= 32)', sv('s2_36', 45, 32).starred, false);
+  // H20 (#200) on a 0.38: control points 2-10, F20 = Calculations!Q124 (nearest half).
+  ok('#200 test 12.36 -> "* 12" -> Q124 12 -> jmf 6 dev 6 -> 75 (H20)', sv('s0_075', 6, 12.36).pay, 75);
+  ok('#200 jmf 9.5 dev 2.5 -> 98', sv('s0_075', 9.5, 12.36).pay, 98);
+  ok('#200 jmf 10 dev 2 -> 100 (band edge)', sv('s0_075', 10, 12.36).pay, 100);
+  ok('#200 jmf 8.6 dev 3.4 -> 85', sv('s0_075', 8.6, 12.36).pay, 85);
+  ok('#200 jmf 8.4 dev 3.6 -> 75 (H20 has no 90 band)', sv('s0_075', 8.4, 12.36).pay, 75);
+  ok('#200 jmf 9 dev 3 -> 95', sv('s0_075', 9, 12.36).pay, 95);
+  ok('Q124 rounding: 4.26 -> 4.5, 4.3 -> 4.5, 4.76 -> 5, 4.2 -> 4', [4.26, 4.3, 4.76, 4.2].map(roundToHalf), [4.5, 4.5, 5, 4]);
+  // H8/H9 (2", 1 1/2") ladder on a 1.5 (code 1): 2" is 100-100, so 80 is starred.
+  ok('2" test 80 jmf 100 -> dev 20 -> 90 (H8, 13/14/16/20/23 ladder)', sv('s50', 100, 80, 1).pay, 90);
+  ok('2" dev 24 -> 75', sv('s50', 100, 76, 1).pay, 75);
+  ok('2" dev 13 -> 100', sv('s50', 100, 87, 1).pay, 100);
+  // H10-H12 (1", 3/4", 1/2") on a 0.75: 1" is 100-100.
+  ok('1" test 88 jmf 100 -> dev 12 -> 95 (H10)', sv('s25', 100, 88, 3).pay, 95);
+  ok('1" dev 17 -> 75', sv('s25', 100, 83, 3).pay, 75);
+  // H18 (#50) on the wedge (code 9): 5-20.
+  ok('#50 test 25 (starred) jmf 18 -> dev 7 -> 98 (H18)', sv('s0_3', 18, 25, 9).pay, 98);
+  ok('#50 dev 11 -> 75', sv('s0_3', 14, 25, 9).pay, 75);
+  // H19 (#100) on the wedge: 3-10, no 98 and no 85 band.
+  ok('#100 test 15 jmf 11 -> dev 4 -> 95 (H19)', sv('s0_15', 11, 15, 9).pay, 95);
+  ok('#100 dev 5 -> 90', sv('s0_15', 10, 15, 9).pay, 90);
+  ok('#100 dev 6 -> 75', sv('s0_15', 9, 15, 9).pay, 75);
+  ok('#100 dev 3 -> 100', sv('s0_15', 12, 15, 9).pay, 100);
+  // A sieve the mixture type has no control point for is 0-100: never starred.
+  ok('#16 on a 0.38 (no control point) is inside 0-100', [controlPointBand(5, 's1_18'), sv('s1_18', 40, 5).pay], [[0, 100], 100]);
+  // Sand Asphalt (7): sieve rows are "" by design; the F.M. pays instead.
+  ok('Sand Asphalt I: sieve rows are not scored', sv('s2_36', 85, 30, 7).pay, null);
+  ok('a code with no column (99) scores nothing', sv('s2_36', 45, 30, 99).pay, null);
+  // H21: the AC ladder on ROUND(ABS(dev),1).
+  ok('AC dev 0.5 -> 100, 0.55 -> 0.6 -> 98, 0.7 -> 90, 0.8 -> 85, 0.9 -> 75 (H21)',
+     [0.5, 0.55, 0.7, 0.8, 0.9].map((d) => specialtyAcPay({ jmfAC: 5.0, ac: 5.0 + d }).pay), [100, 98, 90, 85, 75]);
+  ok('AC pays the same on the low side', specialtyAcPay({ jmfAC: 5.9, ac: 5.2 }).pay, 90);
+  // H22: fineness modulus on ROUND(ABS(dev),2).
+  ok('F.M. dev 0.30/0.34/0.39/0.46/0.55/0.56 -> 100/98/95/90/85/75 (H22)',
+     [0.30, 0.34, 0.39, 0.46, 0.55, 0.56].map((d) => finenessModulusPay({ target: 2.5, test: 2.5 + d }).pay), [100, 98, 95, 90, 85, 75]);
+  ok('F.M. = SUM(100 - passing on #4..#100) / 100 (Gradation!D35)',
+     finenessModulus({ s4_75: 60, s2_36: 44, s1_18: 33, s0_6: 24, s0_3: 17, s0_15: 11 }), 4.11);
+  // E37:E40 - MIN over the factors present; the sublot-1 allowance as INTENDED.
+  const jmf = { s12_5: 100, s9_5: 96, s4_75: 62, s2_36: 45, s0_075: 6 };
+  const bad1 = gradationSublotPay({ mixTypeCode: 5, jmf, test: { s12_5: 100, s9_5: 95, s4_75: 60, s2_36: 30, s0_075: 12.4 }, jmfAC: 5.9, ac: 6.55, position: 1 });
+  ok('sublot MIN over 6 factors: #8 75, #200 75, AC 98 -> 75, lowest names both', [bad1.pay, bad1.factors.length, bad1.lowest], [75, 6, ['#8', '#200']]);
+  const setup = gradationSublotPay({ mixTypeCode: 5, jmf, test: { s12_5: 100, s9_5: 97, s4_75: 63, s2_36: 30, s0_075: 6.4 }, jmfAC: 5.9, ac: 5.9, isFirstSublot: true, position: 0 });
+  ok('setup sublot at min 75 is NOT forgiven (< 90)', [setup.pay, setup.allowance], [75, null]);
+  const setup2 = gradationSublotPay({ mixTypeCode: 5, jmf, test: { s12_5: 100, s9_5: 97, s4_75: 63, s2_36: 44, s0_075: 6.4 }, jmfAC: 5.9, ac: 6.55, isFirstSublot: true, position: 0 });
+  ok('setup sublot at min 98 (AC) is forgiven to 100', [setup2.min, setup2.pay, setup2.allowance], [98, 100, { from: 98, to: 100 }]);
+  ok('...and E37 as WRITTEN would print 100 either way (workbookLiteral)', [setup.workbookLiteral, setup2.workbookLiteral], [100, 100]);
+  ok('a sublot with nothing scored pays null, not 0', gradationSublotPay({ mixTypeCode: 5, jmf, test: {}, position: 2 }).pay, null);
+  // E41 -> Calculations!A71 -> J21/J23/J24, through lotPay().
+  const lot = lotPay({
+    acceptanceOption: 1, lotNumber: 2, mixTypeCode: 5, tonnage: 4000, unitPrice: 50,
+    sublots: [{ jmfAC: 5.9, ac: 6.55 }, { jmfAC: 5.9, ac: 5.9 }],
+    gradation: { jmf, sublots: [{ test: { s12_5: 100, s9_5: 95, s4_75: 60, s2_36: 30, s0_075: 12.4 } }, { test: { s12_5: 100, s9_5: 97, s4_75: 63, s2_36: 44, s0_075: 6.4 } }] },
+  });
+  ok('lot: average(75, 100) = 87.5 -> -500 tons -> -$25,000 at $50', [lot.finalPct, lot.tonnageAdj, lot.dollarAdj], [87.5, -500, -25000]);
+  ok('lot: the five volumetric properties read blank under H13 = 1', Object.values(lot.byProperty).every((t) => t.value === null && t.weight === 0), true);
+  ok('lot: the E37 quirk is noted once when the sheet would differ', lot.notes.filter((n) => /E37 as written/.test(n)).length, 1);
+  const empty = lotPay({ acceptanceOption: 1, lotNumber: 1, mixTypeCode: 5, tonnage: 4000, unitPrice: 50, sublots: [], gradation: { jmf, sublots: [] } });
+  ok('lot with nothing scored: no final pay, and says so', [empty.finalPct, empty.notes.some((n) => /no sublot has a gradation/.test(n))], [null, true]);
+  return bad;
+}
+const gradationFails = checkGradationSchedule();
+
+// ---------------------------------------------------------------------------
 const files = process.argv.slice(2);
 if (!files.length) {
   console.error('usage: check_pay.mjs <completed-amaw.xlsm> [more.xlsm ...]');
-  process.exit(2);
+  process.exit(gradationFails ? 1 : 2);
 }
 for (const f of files) checkLot(f);
 const partialFails = checkPartial(files[0]);
@@ -266,4 +361,4 @@ if (failed.length) {
   console.log('MISMATCHES:');
   for (const r of failed) console.log(`  ${r.label}: got ${show(r.got)}, workbook says ${show(r.want)}`);
 }
-process.exit(failed.length || partialFails ? 1 : 0);
+process.exit(failed.length || partialFails || gradationFails ? 1 : 0);

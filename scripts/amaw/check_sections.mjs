@@ -42,6 +42,7 @@ import {
   DESIGNBOOK_CITE_KEYS, AC_METHODS, acMethodCode,
 } from "./sections.mjs";
 import { LOT_FIELD_ALIASES } from "./mapper.mjs";
+import { COURSES } from "./intake.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PAGE = resolve(HERE, "../../public/designbook.html");
@@ -523,6 +524,13 @@ const NO_WORKBOOK_CELL = new Set([
   // it reaches the AMAW without an alias of its own; check_bridge.mjs asserts
   // the fold (approval 5.9 + 0.2 -> 6.1 on all four rows).
   "lot_setup_ac_adjust",
+  // 2026-09-22: the COURSE a lot is placed as (mainline / leveling and
+  // wedging / scratch course...). It has no cell of its own - what the
+  // workbook stores is its CONSEQUENCE, the acceptance method at
+  // Calculations!H20 (aliased above), which intake.mjs derives from it - and
+  // the Project Items lookup matches the contract's line by it. Asserted
+  // below to be, key for key, intake.mjs's COURSES.
+  "lot_course",
 ]);
 // Only the `lot_`-prefixed scalars: sections.mjs reserves that prefix for the
 // lot header, which is exactly what the mapper's 'Pay Values' block writes.
@@ -536,6 +544,19 @@ for (const [key, where] of scalarKeys) {
 for (const key of NO_WORKBOOK_CELL) {
   if (!scalarKeys.has(key))
     fail("H", `check_sections lists "${key}" as having no workbook cell, but the schema no longer has it`);
+}
+
+// `lot_course`'s options ARE intake.mjs's COURSES, key for key and in order.
+// Two lists of one fact, in two files that cannot import each other (the
+// schema is what intake reads), so the seam is asserted rather than trusted -
+// a course added on one side and not the other would seed a value the select
+// cannot show, which prefillLive() silently declines.
+{
+  const f = S.flatMap((s) => s.fields || []).find((x) => x && x.key === "lot_course");
+  const got = f ? (f.options || []).map((o) => o.value) : [];
+  const want = COURSES.map((c) => c.key);
+  if (JSON.stringify(got) !== JSON.stringify(want))
+    fail("H", `lot_course options ${JSON.stringify(got)} are not intake.mjs COURSES ${JSON.stringify(want)}`);
 }
 
 // A row spec by table key, wherever it lives - `sublot_tickets` etc. used to

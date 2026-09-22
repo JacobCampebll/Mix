@@ -495,6 +495,329 @@ export function jointDensityLot({
 }
 
 // ---------------------------------------------------------------------------
+// GRADATION ACCEPTANCE - 'Accept. Grad. # 1'..'# 4' (Calculations!H13 = 1)
+// ---------------------------------------------------------------------------
+//
+// 2026 Std Spec 402.05.01 (STD p.182, footer 402-7): specialty mixtures -
+// OGFC, ATDB, Asphalt Mixture for Pavement Wedge, Leveling and Wedging,
+// Scratch Course, temporary mixtures and Base Failure Repair - are paid under
+// the "LOT PAY ADJUSTMENT SCHEDULE FOR SPECIALTY MIXTURES (TEST DEVIATION
+// FROM JMF)" on p.184 (footer 402-9): "The Department will assign a pay value
+// for AC and gradation within each sublot and average the sublot pay values
+// to determine the pay value for each lot."
+//
+// The workbook's shape, read off the shipped VER 14.01 template. NO
+// gradation-accepted lot is on file - both real lots are Volumetrics - so
+// unlike every ladder above, this block is checked against the template's
+// own formulas rather than against Excel's cached answers (check_pay.mjs
+// says which is which). A real leveling-and-wedging AMAW is the thing still
+// owed here.
+//
+//   'Accept. Grad. # n'!A8:H20  one row per sieve, 2" .. #200 - thirteen rows;
+//                               the 1/4" is skipped (Gradation!D16 is never read)
+//     B   the JMF target, TYPED on that sheet. PlantBook writes it from the
+//         lot's one JMF column rather than asking twice.
+//     C   the acceptance test, Gradation!D/G/J/M for the sublot, prefixed
+//         "* " and ROUNDED TO A WHOLE PERCENT when it is outside the mixture
+//         type's CONTROL POINTS (Calculations!AY16:AZ29, an HLOOKUP on J1
+//         into W14:AX30 - transcribed below as CONTROL_POINTS_BY_MIX_TYPE)
+//     D   a check test typed on the same sheet (not modelled here)
+//     E   the Department's verification gradation (Super Verify; no UI yet)
+//     F   AVERAGE of C, D and E as present; for the #200, Calculations!Q124
+//     G   ABS(B - F), the deviation from the JMF
+//     H   the pay factor
+//   row 21  % AC   C21 is Gradation!D33 (the moisture-corrected back-calc),
+//                  else D34; H21 is the AC ladder on ROUND(ABS(dev),1)
+//   row 22  F.M.   fineness modulus, ONLY for mixture types 7, 8 and 13
+//                  (Sand Asphalt I and II, Sand Seal), whose sieve rows read ""
+//   'Pay Values'!E37:E40  MIN('Accept. Grad. # n'!H8:H22) - the sublot's pay
+//   'Pay Values'!E41      AVERAGE(E37:E40)                - the lot's pay
+//   Calculations!A71      IF(H13=1, 'Pay Values'!E41, ...) - the final pay value
+//
+// THREE THINGS THAT ARE NOT IN THE SPEC'S TABLE, all reproduced but the last:
+//
+//  1. THE CONTROL-POINT GATE. Every sieve row's H is
+//       IF(OR(ROUND(ABS(G),1) <= <top band>, LEFT(C,1) <> "*"), 100, <ladder>)
+//     so a sieve pays 100 WHATEVER its deviation from the JMF unless its
+//     test value is outside the mixture's control points. The spec's table
+//     is headed "test deviation from JMF" and says nothing about control
+//     points; the workbook adds the gate and the workbook is what KYTC pays
+//     by, so it is reproduced, and the readout says which of the two
+//     reasons a sieve paid 100 for. Neither the AC row nor the F.M. row has
+//     the gate.
+//  2. THE #200 IS ROUNDED TO THE NEAREST HALF before the deviation
+//     (Calculations!Q124: fractional part 0-0.2 rounds down, 0.3-0.7 to .5,
+//     0.8-0.9 up); every other starred sieve is rounded to a whole percent
+//     and an unstarred one is used as it is.
+//  3. THE SUBLOT-1 ALLOWANCE IS MISWRITTEN IN THE WORKBOOK, and this is the
+//     one place this file departs from it. 'Pay Values'!E37 reads
+//       IF(AND(F3=1, MIN(H8:H22)) >= 90, 100, ...)
+//     with the ">= 90" OUTSIDE the AND. AND() returns a boolean, and Excel
+//     ranks a boolean above every number - so TRUE >= 90 and FALSE >= 90 are
+//     both TRUE, and the first sublot pays 100 on EVERY lot, whatever it
+//     tested and whatever the lot number. The three cells beside it
+//     (D13/G13/K13, all IF(AND(F3=1, x >= 90), 100, x)) make the intent
+//     unmistakable, and no real lot has ever been paid through E37 (both on
+//     file are Volumetrics) - so unlike the text-beats-number quirks above,
+//     which are reproduced because approved lots were paid by them, this is
+//     implemented AS INTENDED: lot 1's first sublot is forgiven anything at
+//     90 or better. `workbookLiteral` on the sublot result is what the sheet
+//     itself would print, so the two can be compared. Flagged for Tate.
+//
+// Scale: 100 is the spec's 1.00, as everywhere else in this file.
+
+const GRADATION_FLOOR = 75;   // the last row of every ladder on p.184
+
+// The deviation ladders, [top of band, pay]; a deviation past the last band
+// pays GRADATION_FLOOR. Transcribed from H8:H20 of the template, sieve by
+// sieve. The spec's own table (p.184) groups them the same way, with two
+// differences the workbook resolves: the spec has no 2" row (the workbook
+// pays the 2" on the 1 1/2" ladder), and the spec writes "—" where a ladder
+// skips a factor (the #100 has no 98 or 85; the #200 no 90).
+export const GRADATION_LADDERS = {
+  coarse: [[13, 100], [14, 98], [16, 95], [20, 90], [23, 85]],   // 2", 1 1/2"          H8, H9
+  mid:    [[9, 100], [10, 98], [12, 95], [14, 90], [16, 85]],    // 1", 3/4", 1/2"      H10-H12
+  fine:   [[8, 100], [9, 98], [10, 95], [12, 90], [14, 85]],     // 3/8" .. #30         H13-H17
+  no50:   [[6, 100], [7, 98], [8, 95], [9, 90], [10, 85]],       // #50                 H18
+  no100:  [[3, 100], [4, 95], [5, 90]],                          // #100                H19
+  no200:  [[2, 100], [2.5, 98], [3, 95], [3.5, 85]],             // #200                H20
+};
+export const SPECIALTY_AC_LADDER = [[0.5, 100], [0.6, 98], [0.7, 90], [0.8, 85]];       // H21
+export const FINENESS_MODULUS_LADDER = [[0.30, 100], [0.34, 98], [0.39, 95], [0.46, 90], [0.55, 85]];  // H22
+
+// The thirteen sieves of 'Accept. Grad. # n', in sheet order, keyed the way
+// both books' sieve lists are (sections.mjs AMAW_SIEVES / CONFIG.SECTIONS).
+export const GRADATION_PAY_SIEVES = [
+  { key: 's50',    label: '2"',     row: 8,  ladder: 'coarse' },
+  { key: 's37_5',  label: '1-1/2"', row: 9,  ladder: 'coarse' },
+  { key: 's25',    label: '1"',     row: 10, ladder: 'mid' },
+  { key: 's19',    label: '3/4"',   row: 11, ladder: 'mid' },
+  { key: 's12_5',  label: '1/2"',   row: 12, ladder: 'mid' },
+  { key: 's9_5',   label: '3/8"',   row: 13, ladder: 'fine' },
+  { key: 's4_75',  label: '#4',     row: 14, ladder: 'fine' },
+  { key: 's2_36',  label: '#8',     row: 15, ladder: 'fine' },
+  { key: 's1_18',  label: '#16',    row: 16, ladder: 'fine' },
+  { key: 's0_6',   label: '#30',    row: 17, ladder: 'fine' },
+  { key: 's0_3',   label: '#50',    row: 18, ladder: 'no50' },
+  { key: 's0_15',  label: '#100',   row: 19, ladder: 'no100' },
+  { key: 's0_075', label: '#200',   row: 20, ladder: 'no200' },
+];
+export const GRADATION_AC_ROW = 21;
+export const GRADATION_FM_ROW = 22;
+
+// Mixture types paid on FINENESS MODULUS rather than on the sieves: Sand
+// Asphalt Type I (7), Type II (8) and Sand Seal (13). Their sieve rows on
+// 'Accept. Grad.' read "" (C8 opens IF(OR(J1=7, J1=8, J1=13, ...), "", ...)),
+// and 'Gradation'!D35 = SUM(C17:C22)/100 is the F.M. - the cumulative
+// percent retained on the #4 .. #100, summed, over 100.
+export const FM_MIX_TYPES = [7, 8, 13];
+export const FM_SIEVES = ['s4_75', 's2_36', 's1_18', 's0_6', 's0_3', 's0_15'];
+
+// Calculations!W14:AX30 - the control points per mixture type code (row 14 is
+// the code, rows 16-29 the sieves 2" .. #200 with the 1/4" at row 22),
+// [min, max] as the sheet holds them. A blank min reads 0 through
+// AY = HLOOKUP(..., FALSE) and a blank max reads 100 through
+// AZ = IF(HLOOKUP(...) = 0, 100, ...), so a sieve not listed here is [0, 100]
+// - i.e. never starred - which is controlPointBand()'s answer for it.
+//
+// The Superpave columns (1-5, 14) are AASHTO M 323 Table 4 and match the
+// workbook's own `.45 Data` sheet cell for cell. Note the 15-41 .. 32-67 band
+// sits on the #8 (2.36 mm), NOT the #4; the #4 carries the "90 max" point.
+// The specialty columns are KYTC's own (407 for the wedge, 404 for OGFC...).
+export const CONTROL_POINTS_BY_MIX_TYPE = {
+  1:  { s50: [100, 100], s37_5: [90, 100], s25: [0, 90], s2_36: [15, 41], s0_075: [0, 6] },      // Superpave 1.5
+  2:  { s37_5: [100, 100], s25: [90, 100], s19: [0, 90], s2_36: [19, 45], s0_075: [1, 7] },      // Superpave 1.0
+  3:  { s25: [100, 100], s19: [90, 100], s12_5: [0, 90], s2_36: [23, 49], s0_075: [2, 8] },      // Superpave 0.75
+  4:  { s19: [100, 100], s12_5: [90, 100], s9_5: [0, 90], s2_36: [28, 58], s0_075: [2, 10] },    // Superpave 0.50
+  5:  { s12_5: [100, 100], s9_5: [90, 100], s4_75: [0, 90], s2_36: [32, 67], s0_075: [2, 10] },  // Superpave 0.38
+  6:  { s37_5: [100, 100], s19: [85, 100], s12_5: [35, 65], s4_75: [0, 20], s2_36: [0, 10], s0_075: [0, 4] },  // ATDB
+  7:  { s6_3: [100, 100], s2_36: [75, 100], s1_18: [60, 90], s0_6: [45, 75], s0_3: [15, 45], s0_15: [5, 15], s0_075: [2, 6] },  // Sand Asphalt I
+  8:  { s6_3: [100, 100], s2_36: [50, 90], s1_18: [25, 65], s0_6: [15, 45], s0_3: [5, 30], s0_15: [3, 20], s0_075: [2, 6] },    // Sand Asphalt II
+  9:  { s37_5: [100, 100], s19: [70, 100], s9_5: [45, 80], s4_75: [30, 60], s2_36: [20, 45], s1_18: [15, 35], s0_3: [5, 20], s0_15: [3, 10] },  // Asphalt Wedge (407.02.02)
+  10: { s9_5: [100, 100], s4_75: [90, 100], s2_36: [65, 90], s1_18: [45, 70], s0_6: [30, 50], s0_3: [18, 30], s0_15: [10, 21], s0_075: [5, 15] },  // Slurry Seal
+  11: { s12_5: [100, 100], s4_75: [60, 80], s2_36: [45, 65], s0_3: [13, 25], s0_075: [6, 12] },  // Curb/Median Mix
+  12: { s12_5: [100, 100], s9_5: [90, 100], s4_75: [25, 50], s2_36: [5, 15], s0_075: [2, 5] },   // Open Graded Friction Course
+  13: { s6_3: [100, 100], s2_36: [50, 90], s1_18: [25, 65], s0_6: [15, 45], s0_3: [5, 30], s0_15: [3, 20], s0_075: [2, 6] },    // Sand Seal
+  14: { s9_5: [100, 100], s6_3: [95, 100], s4_75: [90, 100], s1_18: [30, 60], s0_075: [6, 12] },  // Superpave No.4
+};
+
+/** The control-point table for a mixture type code, or null for a code the
+ *  workbook has no column for (the HLOOKUP is #N/A and every sieve pays ""). */
+export function controlPointsFor(mixTypeCode) {
+  return CONTROL_POINTS_BY_MIX_TYPE[Number(mixTypeCode)] || null;
+}
+
+/** [min, max] the acceptance test is judged inside for one sieve, with the
+ *  sheet's own defaults for a blank cell (AY -> 0, AZ -> 100). Null when the
+ *  mixture type has no column at all. */
+export function controlPointBand(mixTypeCode, sieveKey) {
+  const t = controlPointsFor(mixTypeCode);
+  if (!t) return null;
+  const b = t[sieveKey];
+  return [b && isNum(b[0]) ? b[0] : 0, b && isNum(b[1]) ? b[1] : 100];
+}
+
+// Calculations!Q124: the #200's test value to the nearest half. B124 =
+// ROUND(frac, 1); 0-0.2 -> INT, 0.3-0.7 -> INT + 0.5, else INT + 1.
+export function roundToHalf(v) {
+  if (!isNum(v)) return v;
+  const whole = Math.floor(v);
+  const frac = xlRound(v - whole, 1);
+  if (frac <= 0.2) return whole;
+  if (frac <= 0.7) return whole + 0.5;
+  return whole + 1;
+}
+
+// One ladder, on an already-rounded deviation. `rule` names the band in the
+// schedule's own words so the readout never re-derives it.
+function ladderPay(ladder, d, dp) {
+  const f = (x) => (dp === 2 ? x.toFixed(2) : String(x));
+  let lo = null;
+  for (const [top, pay] of ladder) {
+    const band = lo == null ? `|dev| ≤ ${f(top)}` : `|dev| ${f(lo)} – ${f(top)}`;
+    if (d <= top) return { pay, rule: { band, pay } };
+    lo = top;
+  }
+  return { pay: GRADATION_FLOOR, rule: { band: `|dev| > ${f(lo)}`, pay: GRADATION_FLOOR } };
+}
+
+/**
+ * One sieve of one sublot - 'Accept. Grad. # n' row 8..20.
+ *
+ *   sieve        an entry of GRADATION_PAY_SIEVES (or its key)
+ *   jmf          the JMF target % passing (column B)
+ *   test         this sublot's % passing (Gradation!D/G/J/M, the raw quotient)
+ *   mixTypeCode  Calculations!J1, for the control-point gate
+ *
+ * Returns { key, label, row, jmf, test, band, starred, shown, dev, rounded,
+ *           pay, rule }. `shown` is what the sheet's F column carries into the
+ * deviation - the test value rounded to a whole when starred, to the nearest
+ * half on the #200; `starred` is the gate; `pay` is null where the sheet's H
+ * would read "" (no test, no JMF, a mixture type with no control-point column,
+ * or an F.M. mixture whose sieve rows are blank by design).
+ */
+export function sievePay({ sieve, jmf, test, mixTypeCode } = {}) {
+  const sv = typeof sieve === 'string' ? GRADATION_PAY_SIEVES.find(s => s.key === sieve) : sieve;
+  const base = { key: sv ? sv.key : null, label: sv ? sv.label : null, row: sv ? sv.row : null,
+                 jmf: isNum(jmf) ? jmf : null, test: isNum(test) ? test : null,
+                 band: null, starred: null, shown: null, dev: null, rounded: null, pay: null, rule: null };
+  if (!sv || !isNum(jmf) || !isNum(test)) return base;
+  const code = Number(mixTypeCode);
+  if (FM_MIX_TYPES.indexOf(code) >= 0) {
+    return { ...base, rule: { band: 'not scored - this mixture type is paid on fineness modulus', pay: null } };
+  }
+  const band = controlPointBand(code, sv.key);
+  if (!band) {
+    return { ...base, rule: { band: `not scored - Calculations!W14:AX30 has no column for mixture type ${mixTypeCode ?? '(blank)'}`, pay: null } };
+  }
+  const starred = test < band[0] || test > band[1];
+  let shown = starred ? xlRound(test, 0) : test;
+  if (sv.key === 's0_075') shown = roundToHalf(shown);              // F20 = Calculations!Q124
+  const dev = Math.abs(jmf - shown);
+  const rounded = xlRound(dev, 1);
+  if (!starred) {
+    return { ...base, band, starred, shown, dev, rounded, pay: 100,
+             rule: { band: `inside the control points ${band[0]}–${band[1]}`, pay: 100, gate: true } };
+  }
+  const { pay, rule } = ladderPay(GRADATION_LADDERS[sv.ladder], rounded, 1);
+  return { ...base, band, starred, shown, dev, rounded, pay, rule: { ...rule, ladder: sv.ladder } };
+}
+
+/** % AC under Gradation acceptance - 'Accept. Grad. # n'!H21. The ladder is
+ *  the Specialty schedule's (≤0.5 100, 0.6 98, 0.7 90, 0.8 85, ≥0.9 75), on
+ *  ROUND(ABS(dev), 1), with no MCL and no control-point gate. NOT acPay():
+ *  the volumetric ladder is 100/95/90/MCL and has the sublot-1 widening. */
+export function specialtyAcPay({ jmfAC, ac } = {}) {
+  if (!isNum(ac) || !isNum(jmfAC)) return { dev: null, rounded: null, pay: null, rule: null };
+  const dev = ac - jmfAC;
+  const d = xlRound(Math.abs(dev), 1);
+  const { pay, rule } = ladderPay(SPECIALTY_AC_LADDER, d, 1);
+  return { dev, rounded: d, pay, rule };
+}
+
+/** Gradation!D35 / Calculations!D121: the fineness modulus of a % passing
+ *  column - the cumulative percent retained on the #4 .. #100, summed, over
+ *  100. Null unless all six sieves are present. */
+export function finenessModulus(passingByKey) {
+  if (!passingByKey) return null;
+  let sum = 0;
+  for (const k of FM_SIEVES) {
+    const p = passingByKey[k];
+    if (!isNum(p)) return null;
+    sum += 100 - p;
+  }
+  return tidy(sum / 100);
+}
+
+/** 'Accept. Grad. # n'!H22 - on ROUND(ABS(dev), 2). */
+export function finenessModulusPay({ target, test } = {}) {
+  if (!isNum(target) || !isNum(test)) return { dev: null, rounded: null, pay: null, rule: null };
+  const dev = test - target;
+  const d = xlRound(Math.abs(dev), 2);
+  const { pay, rule } = ladderPay(FINENESS_MODULUS_LADDER, d, 2);
+  return { dev, rounded: d, pay, rule };
+}
+
+/**
+ * One sublot under Gradation acceptance - 'Pay Values'!E37:E40.
+ *
+ *   mixTypeCode   Calculations!J1
+ *   jmf           { sieveKey: % passing }   the JMF column ('Accept. Grad.'!B8:B20)
+ *   test          { sieveKey: % passing }   this sublot's gradation
+ *   jmfAC, ac     the JMF %AC and this sublot's %AC (rows B21 / C21)
+ *   fmTarget, fm  fineness modulus, target and test - read only for FM_MIX_TYPES;
+ *                 derived from `jmf` / `test` by finenessModulus() when not given
+ *   isFirstSublot lot 1's first sublot - the allowance (see note 3 above)
+ *   position      0-based sublot index; 0 is 'Pay Values' row 37, whose
+ *                 literal formula pays 100 unconditionally (note 3)
+ *
+ * `pay` is MIN over every factor present (sieves, AC, F.M.) - the sheet's
+ * MIN(H8:H22) - or null when nothing has been tested. `lowest` names the
+ * factor(s) that set it.
+ */
+export function gradationSublotPay({
+  mixTypeCode, jmf = {}, test = {}, jmfAC, ac, fmTarget, fm,
+  isFirstSublot = false, position = null,
+} = {}) {
+  const code = Number(mixTypeCode);
+  const sieves = GRADATION_PAY_SIEVES.map(sv => sievePay({ sieve: sv, jmf: jmf[sv.key], test: test[sv.key], mixTypeCode: code }));
+  const acR = specialtyAcPay({ jmfAC, ac });
+  let fmR = null;
+  if (FM_MIX_TYPES.indexOf(code) >= 0) {
+    const tgt = isNum(fmTarget) ? fmTarget : finenessModulus(jmf);
+    const tst = isNum(fm) ? fm : finenessModulus(test);
+    fmR = { target: tgt, test: tst, ...finenessModulusPay({ target: tgt, test: tst }) };
+  }
+  const factors = [];
+  sieves.forEach(s => { if (isNum(s.pay)) factors.push({ what: s.label, key: s.key, pay: s.pay }); });
+  if (isNum(acR.pay)) factors.push({ what: '% AC', key: 'ac', pay: acR.pay });
+  if (fmR && isNum(fmR.pay)) factors.push({ what: 'F.M.', key: 'fm', pay: fmR.pay });
+
+  let min = null, lowest = [];
+  if (factors.length) {
+    min = Math.min(...factors.map(f => f.pay));
+    lowest = factors.filter(f => f.pay === min).map(f => f.what);
+  }
+  let pay = min, allowance = null;
+  if (isFirstSublot && isNum(min) && min >= 90 && min !== 100) {
+    pay = 100; allowance = { from: min, to: 100 };
+  }
+  // What the sheet itself prints for this row - see note 3: row 37 is 100
+  // whenever anything is scored, and the other three rows are the MIN.
+  const workbookLiteral = position === 0 ? (factors.length ? 100 : null) : min;
+  return { position, sieves, ac: acR, fm: fmR, factors, min, lowest, pay, allowance, workbookLiteral };
+}
+
+/** 'Pay Values'!E41 - the lot's pay under Gradation acceptance, the average
+ *  of the sublot pays present; null when no sublot has one. */
+export function gradationLotPay({ sublots = [] } = {}) {
+  const pays = sublots.map(s => (s ? s.pay : null)).filter(v => isNum(v));
+  return { sublots, lot: pays.length ? avgPresent(pays) : null,
+           rule: pays.length ? `average of the ${pays.length} sublot${pays.length === 1 ? '' : 's'} scored ('Pay Values'!E41)`
+                             : 'no sublot has a gradation or %AC result yet' };
+}
+
+// ---------------------------------------------------------------------------
 // The lot
 // ---------------------------------------------------------------------------
 //
@@ -523,10 +846,17 @@ export function lotPay({
   jointDensityFlag = 1, densityOption = 1, acceptanceOption = 2,
   lotNumber, esalClass, mixTypeCode = 5,
   tonnage, unitPrice, wedgeTons = 0,
+  // Gradation acceptance only: { jmf: {sieveKey: %}, jmfAC?, fmTarget?,
+  //   sublots: [{ test: {sieveKey: %}, ac?, jmfAC?, fm? }, ...] } - see
+  //   gradationSublotPay(). The %AC per sublot falls back to `sublots[i]`.
+  gradation = null,
 } = {}) {
   const notes = [];
   const w = weights || propertyWeights({ jointDensityFlag, densityOption, acceptanceOption });
-  if (!weights && Object.values(w).every(x => x === 0)) {
+  // Under Gradation acceptance every weight IS zero by design ('Pay
+  // Values'!E20:E24 all read 0 when H13 = 1) - the pay comes from the
+  // Specialty schedule below, so a zero weight there is not worth a note.
+  if (!weights && Number(acceptanceOption) !== 1 && Object.values(w).every(x => x === 0)) {
     notes.push(`no weights defined for joint=${jointDensityFlag} density-option=${densityOption} acceptance=${acceptanceOption}; the workbook pays 0 on every property`);
   }
 
@@ -571,6 +901,34 @@ export function lotPay({
     vma: { value: visual ? 100 : vmaLot, weight: w.vma },
   };
 
+  // Gradation acceptance (Calculations!H13 = 1). On the sheet the five
+  // properties read "" - 'Pay Values' rows 13-16, 21 and 22 all open
+  // IF(Calculations!H13=1,"",...) - and the pay is the Specialty schedule's,
+  // per sublot then averaged. See gradationSublotPay() above for the
+  // schedule and for the three things about it that are not in the spec.
+  let gradationResult = null;
+  if (Number(acceptanceOption) === 1) {
+    const g = gradation || {};
+    const gs = g.sublots || [];
+    const n = Math.max(gs.length, sublots.length);
+    const per = [];
+    for (let i = 0; i < n; i++) {
+      const gi = gs[i] || {}, si = sublots[i] || {};
+      per.push(gradationSublotPay({
+        mixTypeCode, jmf: g.jmf || {}, test: gi.test || {},
+        jmfAC: gi.jmfAC ?? si.jmfAC ?? g.jmfAC, ac: gi.ac ?? si.ac,
+        fmTarget: g.fmTarget, fm: gi.fm,
+        isFirstSublot: Number(lotNumber) === 1 && i === 0, position: i,
+      }));
+    }
+    gradationResult = gradationLotPay({ sublots: per });
+    for (const k of Object.keys(byProperty)) byProperty[k] = { value: null, weight: 0 };
+    const literalDiffers = per.filter(s => s.workbookLiteral !== s.pay && (isNum(s.pay) || isNum(s.workbookLiteral)));
+    if (literalDiffers.length) {
+      notes.push(`'Pay Values'!E37 as written in the workbook pays sublot 1 100 whatever it tested (its ">= 90" sits outside the AND, and Excel ranks a boolean above every number); this computes the allowance as the cells beside it intend - lot 1's first sublot is forgiven anything at 90 or better - so sublot 1 here is ${per[0].pay ?? 'blank'} where the sheet would print ${per[0].workbookLiteral ?? 'blank'}`);
+    }
+  }
+
   // Calculations!A71. Under Visual acceptance the whole thing is 100; under
   // Gradation it is 'Pay Values'!E41, the gradation pay average, which is a
   // different acceptance path and is not modelled here.
@@ -578,7 +936,9 @@ export function lotPay({
   if (Number(acceptanceOption) === 3) {
     finalPct = 100;
   } else if (Number(acceptanceOption) === 1) {
-    notes.push('Gradation acceptance (Calculations!H13 = 1): final pay is the gradation average at \'Pay Values\'!E41, which this module does not compute');
+    // 'Pay Values'!E41 -> Calculations!A71.
+    finalPct = gradationResult.lot;
+    if (finalPct === null) notes.push(`Gradation acceptance (Calculations!H13 = 1): ${gradationResult.rule}, so there is no final pay value`);
   } else {
     // Joint density blank drops its term entirely rather than contributing 0 -
     // that is A71's own IF('Pay Values'!B21="", ...) branch. It comes to the
@@ -617,6 +977,7 @@ export function lotPay({
     perSublot,
     byProperty,
     laneDetail, jointDetail,
+    gradation: gradationResult,                             // Gradation acceptance only: the sublot factors and 'Pay Values'!E41
     finalPct,                                               // 'Pay Values'!J21 / Calculations!A71
     finalPctCapped: finalPct === null ? null : Math.min(finalPct, 100), // Calculations!A72, advisory
     payTons: net,

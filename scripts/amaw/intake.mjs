@@ -270,6 +270,23 @@ export const MIX_TYPE_CODES = [
   { size: '0.50', code: 4, name: 'Superpave 0.50' },
   { size: '0.38', code: 5, name: 'Superpave 0.38' },
   { size: 'NO.4', code: 14, name: 'Superpave No.4' },
+  // The workbook's other eight (Calculations!A6:B13), added 2026-09-22 with
+  // the Specialty Mixtures pay schedule. `specialty: true` is what
+  // acceptanceMethodFor() reads: these are accepted on AC and gradation
+  // (402.03.02 F)) and paid under 402.05.01, never on volumetrics. `fm`
+  // marks the three the workbook pays on FINENESS MODULUS rather than the
+  // sieves ('Accept. Grad.'!C8 reads "" for J1 = 7, 8 and 13). The `size`
+  // tokens are the form's option values with the whitespace stripped, which
+  // is how mixTypeFor() compares; none ends in a lone letter, so
+  // splitDesignation() leaves them whole.
+  { size: 'ATDB',         code: 6,  name: 'ATDB',                        specialty: true },
+  { size: 'SANDASPHALT1', code: 7,  name: 'Sand Asphalt Type I',         specialty: true, fm: true },
+  { size: 'SANDASPHALT2', code: 8,  name: 'Sand Asphalt Type II',        specialty: true, fm: true },
+  { size: 'WEDGE',        code: 9,  name: 'Asphalt Wedge',               specialty: true },
+  { size: 'SLURRY',       code: 10, name: 'Slurry Seal',                 specialty: true },
+  { size: 'CURB',         code: 11, name: 'Curb/Median Mix',             specialty: true },
+  { size: 'OGFC',         code: 12, name: 'Open Graded Friction Course', specialty: true },
+  { size: 'SANDSEAL',     code: 13, name: 'Sand Seal',                   specialty: true },
 ];
 
 /** "0.38B" / "0.38" / "no.4 a" -> { size, letter }. Same split
@@ -287,7 +304,43 @@ export function splitDesignation(raw) {
 export function mixTypeFor(nominalSize) {
   const size = splitDesignation(nominalSize).size.toUpperCase().replace(/\s+/g, '');
   const hit = MIX_TYPE_CODES.find((m) => m.size === size);
-  return hit ? { code: hit.code, name: hit.name } : null;
+  return hit ? { code: hit.code, name: hit.name, specialty: !!hit.specialty, fm: !!hit.fm } : null;
+}
+
+/** The COURSE a lot is placed as - mainline, or one of 402.03.02 F)'s
+ *  specialty applications of a Superpave-graded mixture. It is what decides
+ *  the acceptance method for a mix whose TYPE is Superpave: the same approved
+ *  0.38 surface design is mainline on one contract and "LEVELING & WEDGING
+ *  PG64-22" (bid code 00190) on the next - contracts 252112 and 262120 both
+ *  carry that item beside their surface items - and the two are accepted and
+ *  paid differently. `match` is how the contract's own line description
+ *  names the course, for specialtyCourseOf(); the options on the form
+ *  (sections.mjs `lot_course`) are this list, and check_sections asserts it.
+ *  "ASPHALT WEDGE CURB" is a curb, by the foot, not a mixture - hence the
+ *  negative lookahead. */
+export const COURSES = [
+  { key: 'mainline',    label: 'Mainline or shoulder', specialty: false, match: null },
+  { key: 'leveling',    label: 'Leveling & wedging',   specialty: true,  match: /LEVEL\w*\s*(&|AND)\s*WEDG/i },
+  { key: 'scratch',     label: 'Scratch course',       specialty: true,  match: /SCRATCH/i },
+  { key: 'wedge',       label: 'Asphalt mixture for pavement wedge', specialty: true,
+                        match: /PAVEMENT\s*WEDGE|ASPH(ALT)?\.?\s*(MIX(TURE)?\s*(FOR\s*)?)?WEDGE(?!\s*CURB)/i },
+  { key: 'base_repair', label: 'Base failure repair',  specialty: true,  match: /BASE\s*FAILURE/i },
+  { key: 'temporary',   label: 'Temporary application', specialty: true, match: /TEMPORARY/i },
+];
+export const DEFAULT_COURSE = 'mainline';
+
+export function courseFor(key) {
+  const k = String(key == null ? '' : key).trim().toLowerCase();
+  return COURSES.find((c) => c.key === k) || null;
+}
+
+/** The specialty course a contract line's description names, or null for
+ *  anything else (a mainline mix item, tack, DGA, a curb by the foot...). */
+export function specialtyCourseOf(description) {
+  const d = String(description == null ? '' : description);
+  if (!d.trim()) return null;
+  const hit = COURSES.find((c) => c.match && c.match.test(d));
+  return hit ? hit.key : null;
 }
 
 /** The sizes a surface mixture is placed at 1 inch (25 mm) or greater, which
@@ -383,7 +436,19 @@ export const ACCEPTANCE_METHODS = { Gradation: 1, Volumetrics: 2, Visual: 3 };
  * which is why this reads off it rather than inventing a second opinion.
  */
 export function acceptanceMethodFor(mix) {
-  return mixTypeFor(mix && mix.nominal_size) ? 'Volumetrics' : null;
+  // 2026-09-22: the Specialty schedule is modelled now (pay.mjs
+  // gradationSublotPay()), so GRADATION is an answer rather than a refusal.
+  // Two things say it: a mixture TYPE that is not Superpave (OGFC, ATDB, the
+  // wedge, the sand asphalts...), or a Superpave-graded mix placed as a
+  // specialty COURSE (leveling and wedging, scratch course...). A size the
+  // workbook has no mixture type for is still null - there is no schedule
+  // to run, and a wrong word here weighs every property at zero silently.
+  const mt = mixTypeFor(mix && mix.nominal_size);
+  if (!mt) return null;
+  if (mt.specialty) return 'Gradation';
+  const c = courseFor(mix && mix.course);
+  if (c && c.specialty) return 'Gradation';
+  return 'Volumetrics';
 }
 
 /** The AMAW's "ESAL Class" (`Calculations!D15`, picklist 1-4) from the
@@ -840,7 +905,7 @@ export function lotFromApproval(payload, opts = {}) {
   const mt = mix ? mixTypeFor(mix.nominal_size) : null;
   if (!mt) {
     wasMissing('lot_nominal_size',
-      'The approval carries no nominal size that matches a Superpave mixture type, so Calculations!J1 has nothing to gate on - every property pays zero until the size is set.',
+      'The approval carries no nominal size that matches one of the workbook\'s fourteen mixture types (Calculations!A1:B14), so Calculations!J1 has nothing to gate on - every property pays zero until the size is set.',
       ['pay']);
   }
 
@@ -1112,17 +1177,28 @@ export function lotFromApproval(payload, opts = {}) {
     sources.aadtt_class = `${sourceLabel(a)} · values.aadtt_class`;
   }
 
-  const accept = acceptanceMethodFor(mix);
+  // The COURSE this lot is placed as. The approval cannot say - it is a mix
+  // DESIGN, and the same 0.38 surface design is mainline on one contract and
+  // "LEVELING & WEDGING PG64-22" on the next - so it is seeded MAINLINE,
+  // tinted, on the assumption the acceptance method below has always been
+  // seeded on, and a person changes it; the page flips the acceptance method
+  // with it (syncAcceptanceFromCourse). COURSES in this module is the list.
+  derive('lot_course', DEFAULT_COURSE,
+    'assumed - an approval is a mix design and does not say what course the lot is placed as; change it if this lot is leveling & wedging, scratch course, pavement wedge, base failure repair or a temporary application',
+    `${cell(CALC.sheet, CALC.acceptanceMethod)} (through the acceptance method)`);
+
+  const accept = acceptanceMethodFor({ ...(mix || {}), course: DEFAULT_COURSE });
   if (accept) {
     derive('lot_acceptance_method', accept,
-      'a Superpave mixture is accepted on volumetric properties - 2026 Std Spec 402.03.02 A)',
+      accept === 'Gradation'
+        ? 'a specialty mixture is accepted on AC and gradation - 2026 Std Spec 402.03.02 F) - and paid under 402.05.01\'s Specialty schedule'
+        : 'a Superpave mixture is accepted on volumetric properties - 2026 Std Spec 402.03.02 A)',
       `${cell(CALC.sheet, CALC.acceptanceMethod)} -> ${cell(CALC.sheet, 'H13')}`);
   } else {
     wasMissing('lot_acceptance_method',
-      'The approval is not a Superpave mixture, so it is accepted on AC and gradation under '
-      + '402.03.02 F) and paid under the Specialty Mixtures schedule - which PlantBook does not '
-      + 'model. Nothing here can pay this lot; the acceptance method is left blank rather than '
-      + 'defaulted, because a wrong one weighs every property at zero without saying so.',
+      'The approval\'s mix matches none of the workbook\'s fourteen mixture types, so there is no '
+      + 'acceptance method to derive and no pay schedule to run. The acceptance method is left blank '
+      + 'rather than defaulted, because a wrong one weighs every property at zero without saying so.',
       ['pay']);
   }
   // Density option. On the CONTRACT, not on the design: 2026 Std Spec

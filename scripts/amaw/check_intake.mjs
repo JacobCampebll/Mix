@@ -28,7 +28,7 @@ import path from 'node:path';
 import {
   approvalChecks, lotFromApproval, verifyRequest, readVerifyResponse, notChecked,
   VERIFICATION, FAILURE, DOC_KIND, isVerified, mixTypeFor, jointDensityFor, densityOptionFor, esalClassFor,
-  acceptanceMethodFor,
+  acceptanceMethodFor, specialtyCourseOf, COURSES,
 } from './intake.mjs';
 import { normaliseLot, lotSummary } from './storage.mjs';
 import { lotPay, sublotPay } from './pay.mjs';
@@ -276,6 +276,33 @@ if (!approval) {
     ok('every Superpave size IS Volumetrics',
        ['1.50', '1.00', '0.75', '0.50', '0.38', 'NO.4']
          .every((sz) => acceptanceMethodFor({ nominal_size: sz + 'A' }) === 'Volumetrics'));
+    // 2026-09-22: the Specialty schedule IS modelled now (pay.mjs
+    // gradationSublotPay()), so Gradation is an ANSWER rather than the
+    // refusal above - for a non-Superpave mixture type, and for a Superpave
+    // mix placed as a specialty COURSE. "LEVELING & WEDGING" is still not a
+    // nominal size, which is why the refusal above still stands as written.
+    ok('a non-Superpave mixture TYPE is Gradation',
+       ['OGFC', 'ATDB', 'WEDGE', 'SAND ASPHALT 1', 'SAND ASPHALT 2', 'SAND SEAL', 'SLURRY', 'CURB']
+         .every((sz) => acceptanceMethodFor({ nominal_size: sz }) === 'Gradation'));
+    ok('a Superpave mix placed as a specialty COURSE is Gradation',
+       COURSES.filter((c) => c.specialty)
+         .every((c) => acceptanceMethodFor({ nominal_size: '0.38A', course: c.key }) === 'Gradation'));
+    ok('...and placed as mainline is Volumetrics',
+       acceptanceMethodFor({ nominal_size: '0.38A', course: 'mainline' }) === 'Volumetrics'
+       && acceptanceMethodFor({ nominal_size: '0.38A', course: 'nonsense' }) === 'Volumetrics');
+    ok('specialtyCourseOf() reads the contract line, and only a mixture line',
+       specialtyCourseOf('LEVELING & WEDGING PG64-22') === 'leveling'
+       && specialtyCourseOf('LEVELING AND WEDGING PG76-22') === 'leveling'
+       && specialtyCourseOf('ASPHALT SCRATCH COURSE (0.38-IN.) PG64-22') === 'scratch'
+       && specialtyCourseOf('ASPHALT WEDGE CURB') === null
+       && specialtyCourseOf('MICROSURFACING-LEVELING COURSE') === null
+       && specialtyCourseOf('CL3 ASPH SURF 0.38A PG64-22') === null
+       && specialtyCourseOf('') === null && specialtyCourseOf(null) === null,
+       ['LEVELING & WEDGING PG64-22', 'ASPHALT WEDGE CURB', 'MICROSURFACING-LEVELING COURSE'].map(specialtyCourseOf));
+    ok('lot_course is seeded mainline, derived, and not also listed as still to type',
+       lot.values.lot_course === 'mainline'
+       && r.report.derived.some((d2) => d2.key === 'lot_course')
+       && !typedKeys.includes('lot_course'), lot.values.lot_course);
     /* lot_unit_price came off the "still to type" list on 2026-09-13 once the
      * $50 turned out to be the spec's defined adjustment price (402.05.02)
      * rather than a bid price that varies by contract, and came off the FORM

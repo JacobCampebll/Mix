@@ -193,10 +193,14 @@ function flagsSentence(result, ctx) {
   if (n) bits.push(`${n} sublot${n === 1 ? '' : 's'}`);
   const acc = ACCEPTANCE[Number(ctx.acceptanceOption)];
   if (acc) bits.push(acc);
-  if (ctx.jointDensityFlag != null) {
+  // Under Gradation acceptance neither density flag moves anything ('Pay
+  // Values'!B21/B22 read "" when H13 = 1), so naming them would be naming a
+  // setting that is not in force.
+  const grad = Number(ctx.acceptanceOption) === 1;
+  if (!grad && ctx.jointDensityFlag != null) {
     bits.push(Number(ctx.jointDensityFlag) === 1 ? 'joint density counts' : 'joint density does not count');
   }
-  if (ctx.densityOption != null) bits.push(`density option ${Number(ctx.densityOption) === 2 ? 'B' : 'A'}`);
+  if (!grad && ctx.densityOption != null) bits.push(`density option ${Number(ctx.densityOption) === 2 ? 'B' : 'A'}`);
   if (ctx.esalClass != null) bits.push(`AADTT Class ${ctx.esalClass}`);
   return bits.join(' · ');
 }
@@ -227,11 +231,12 @@ export function payHeadline(result, ctx = {}) {
         + `conversation with the Department.`,
     };
   }
-  if (Number(ctx.acceptanceOption) === 1) {
+  if (!isNum(pct) && Number(ctx.acceptanceOption) === 1) {
     return {
-      state: 'none', word: 'Gradation', mcl: false, pct, tons, money, sub,
-      why: `This lot is accepted on gradation, whose pay schedule is a second one over the sieve and `
-        + `AC deviations ('Pay Values'!E41). It is not computed here.`,
+      state: 'none', word: '—', mcl: false, pct, tons, money, sub,
+      why: `Gradation acceptance: each sublot pays the lowest factor over its sieves and its %AC on the `
+        + `Specialty Mixtures schedule (402.05.01), and the lot pays their average ('Pay Values'!E41). `
+        + `No sublot has a gradation or %AC result yet, so there is no pay value - that is not a 0% and not a 100%.`,
     };
   }
   if (!isNum(pct)) {
@@ -743,6 +748,73 @@ function densityWhy(p, result, ctx, esc, open) {
 
 // ---- layer 1: the lines -----------------------------------------------------
 
+// ---- Gradation acceptance: one line per sublot, the factors behind it ------
+//
+// Under Calculations!H13 = 1 the five properties are not in force, so the
+// list is the SUBLOTS instead: each pays the LOWEST factor over its thirteen
+// sieves, its %AC and (Sand Asphalt / Sand Seal) its fineness modulus -
+// 'Pay Values'!E37:E40 - and the lot pays their average (E41). Opening a
+// sublot shows every factor: JMF -> test, whether the test sat inside the
+// control points (the workbook's gate: inside pays 100 whatever the
+// deviation - see pay.mjs), the rounded deviation and the band it landed on.
+const GRAD_HEAD = ['Sieve', 'JMF → test', 'Control points', 'Deviation → band', 'Pay'];
+
+function gradationWhy(s, i, ctx, esc) {
+  const rows = [subGrid(esc, GRAD_HEAD.map(esc), 'head')];
+  const f1 = (v, key) => (isNum(v) ? (key === 's0_075' ? v.toFixed(1) : trim(v, 1)) : '—');
+  (s.sieves || []).forEach((sv) => {
+    if (!isNum(sv.jmf) && !isNum(sv.test)) return;
+    const jt = `${f1(sv.jmf, sv.key)} → ${f1(sv.test, sv.key)}`
+      + (sv.starred && isNum(sv.shown) && sv.shown !== sv.test ? ` (as ${f1(sv.shown, sv.key)})` : '');
+    const cp = sv.band ? `${sv.band[0]}–${sv.band[1]} · ${sv.starred ? 'OUTSIDE' : 'inside'}` : '—';
+    let band;
+    if (!sv.rule) band = '<span class="prsub">—</span>';
+    else if (sv.rule.gate) band = `<span class="payband">${esc('inside the control points → 100 whatever the deviation')}</span>`;
+    else if (!isNum(sv.pay)) band = `<span class="prsub">${esc(sv.rule.band)}</span>`;
+    else band = `<span class="mono">${esc(trim(sv.rounded))}</span> <span class="payband">${esc(sv.rule.band)}</span>`;
+    rows.push(subGrid(esc, [esc(sv.label), `<span class="mono">${esc(jt)}</span>`, `<span class="mono">${esc(cp)}</span>`, band, payBadge(sv.pay, esc)]));
+  });
+  const ac = s.ac || {};
+  const inp = (ctx.sublots || [])[i] || {};
+  const g = ctx.gradation || {};
+  const gi = (g.sublots || [])[i] || {};
+  const jmfAC = isNum(gi.jmfAC) ? gi.jmfAC : isNum(inp.jmfAC) ? inp.jmfAC : g.jmfAC;
+  const acTest = isNum(gi.ac) ? gi.ac : inp.ac;
+  rows.push(subGrid(esc, [esc('% AC'),
+    `<span class="mono">${esc(isNum(ac.dev) ? `${fx(jmfAC, 2)} → ${fx(acTest, 2)}` : '—')}</span>`,
+    `<span class="prsub">${esc('no gate')}</span>`,
+    ac.rule ? `<span class="mono">${esc(fx(ac.rounded, 1))}</span> <span class="payband">${esc(ac.rule.band)}</span>` : '<span class="prsub">—</span>',
+    payBadge(ac.pay, esc)]));
+  if (s.fm) {
+    rows.push(subGrid(esc, [esc('F.M.'),
+      `<span class="mono">${esc(isNum(s.fm.target) && isNum(s.fm.test) ? `${fx(s.fm.target, 2)} → ${fx(s.fm.test, 2)}` : '—')}</span>`,
+      `<span class="prsub">${esc('no gate')}</span>`,
+      s.fm.rule ? `<span class="mono">${esc(fx(s.fm.rounded, 2))}</span> <span class="payband">${esc(s.fm.rule.band)}</span>` : '<span class="prsub">—</span>',
+      payBadge(s.fm.pay, esc)]));
+  }
+  let roll;
+  if (!s.factors.length) roll = 'nothing scored yet - no sieve has both a JMF and a test value, and there is no %AC';
+  else roll = `lowest of ${s.factors.length} factor${s.factors.length === 1 ? '' : 's'} (${s.lowest.join(', ')}) = ${trim(s.min)}`
+    + (s.allowance ? ` → sublot-1 allowance: ${trim(s.allowance.from)} → 100` : '');
+  return rows.join('') + eqHTML(esc, 'sublot pay', roll, `'Pay Values'!E${37 + i}`, 'roll');
+}
+
+function gradationLines(result, ctx, esc, open) {
+  const g = result.gradation;
+  return (g.sublots || []).map((s, i) => {
+    const note = !s.factors.length ? 'nothing scored yet'
+      : s.allowance ? `lowest ${s.lowest.join(', ')} at ${trim(s.min)}; forgiven on the setup sublot`
+      : s.min === 100 ? 'every factor paid 100'
+      : `lowest: ${s.lowest.join(', ')}`;
+    const line = `<span class="payx-l">${esc(`Sublot ${i + 1}`)}</span>`
+      + `<span class="payx-v">${payBadge(s.pay, esc)}</span>`
+      + `<span class="payx-w mono">${esc(s.factors.length ? `min of ${s.factors.length}` : '')}</span>`
+      + `<span class="payx-c mono"></span>`
+      + `<span class="payx-n">${esc(note)}</span>`;
+    return detailsHTML(`grad.${i}`, open, 'payx-prop', line, gradationWhy(s, i, ctx, esc));
+  }).join('');
+}
+
 function propertyLine(p, result, esc) {
   const by = (result.byProperty || {})[p.key] || {};
   const w = (result.weights || {})[p.key] || 0;
@@ -765,6 +837,7 @@ function propertyLine(p, result, esc) {
 
 function finalLines(result, ctx, esc, open) {
   const by = result.byProperty || {};
+  const grad = result.gradation;
   const terms = PROPERTIES.filter((p) => by[p.key] && !(p.key === 'jointDensity' && blank(by[p.key].value)));
   const sum = terms.map((p) => {
     const t = by[p.key];
@@ -773,6 +846,12 @@ function finalLines(result, ctx, esc, open) {
   }).join(' + ');
   const final = result.finalPct;
   let body = eqHTML(esc, 'final pay value', `${sum} = ${isNum(final) ? trim(final) : '—'}`, "Calculations!A71 → 'Pay Values'!J21");
+  if (grad) {
+    const pays = (grad.sublots || []).map((s) => s.pay).filter(isNum);
+    body = eqHTML(esc, 'final pay value',
+      pays.length ? `average(${pays.map((v) => trim(v)).join(', ')}) = ${trim(final)} - Gradation acceptance: the sublot pays, averaged` : grad.rule,
+      "'Pay Values'!E41 → Calculations!A71");
+  }
   if (Number(ctx.acceptanceOption) === 3) body = eqHTML(esc, 'final pay value', '100 - Visual acceptance pays 100 whatever the properties read', "'Pay Values'!J21");
   if (!isNum(final)) (result.notes || []).forEach((n) => { body += `<div class="payx-note">${esc(n)}</div>`; });
   if (isNum(final) && final > 100) {
@@ -780,8 +859,8 @@ function finalLines(result, ctx, esc, open) {
   }
   const line1 = `<span class="payx-l">Final pay value</span>`
     + `<span class="payx-v">${payBadge(final, esc)}</span>`
-    + `<span class="payx-w mono">${esc(`×${Object.values(result.weights || {}).reduce((a, b) => a + (b || 0), 0)}%`)}</span>`
-    + `<span class="payx-c mono"></span><span class="payx-n">${esc(isNum(final) ? 'the five contributions, added' : 'no value - open for why')}</span>`;
+    + `<span class="payx-w mono">${esc(grad ? 'average' : `×${Object.values(result.weights || {}).reduce((a, b) => a + (b || 0), 0)}%`)}</span>`
+    + `<span class="payx-c mono"></span><span class="payx-n">${esc(isNum(final) ? (grad ? 'the sublot pays, averaged' : 'the five contributions, added') : 'no value - open for why')}</span>`;
   const out = [detailsHTML('final', open, 'payx-prop total', line1, body)];
 
   const net = result.payTons, tons = result.tonnageAdj, money = result.dollarAdj;
@@ -817,17 +896,21 @@ export function payExplainHTML(result, ctx = {}) {
   const esc = ctx.esc || escapeHTML;
   const open = new Set(ctx.open || []);
   const h = payHeadline(result, ctx);
-  const lines = PROPERTIES.map((p) => {
+  const grad = !!result.gradation;
+  const lines = grad ? gradationLines(result, ctx, esc, open) : PROPERTIES.map((p) => {
     const why = (p.key === 'laneDensity' || p.key === 'jointDensity')
       ? densityWhy(p, result, ctx, esc, open)
       : volumetricWhy(p, result, ctx, esc, open);
     return detailsHTML(`prop.${p.key}`, open, 'payx-prop', propertyLine(p, result, esc), why);
   }).join('');
+  const cols = grad
+    ? `<span class="payx-l">Sublot</span><span class="payx-v">Pay</span><span class="payx-w">Factors</span><span class="payx-c"></span><span class="payx-n">Lowest factor</span>`
+    : `<span class="payx-l">Property</span><span class="payx-v">Lot value</span><span class="payx-w">Weight</span><span class="payx-c">Counts</span><span class="payx-n"></span>`;
   return `<div class="payreadout payx">
     ${headlineHTML(h, esc)}
-    <div class="rowgroup-head">How the lot pay was arrived at <span class="payx-hint">click a line for why, and a sublot for the figures behind it</span></div>
+    <div class="rowgroup-head">How the lot pay was arrived at <span class="payx-hint">${grad ? 'click a sublot for every sieve and the AC behind its pay' : 'click a line for why, and a sublot for the figures behind it'}</span></div>
     <div class="payx-list">
-      <div class="payx-cols"><span class="payx-l">Property</span><span class="payx-v">Lot value</span><span class="payx-w">Weight</span><span class="payx-c">Counts</span><span class="payx-n"></span></div>
+      <div class="payx-cols">${cols}</div>
       ${lines}
       ${finalLines(result, ctx, esc, open)}
     </div>
@@ -887,13 +970,21 @@ export function payWarnings(result, ctx = {}) {
   // lot that went wrong goes wrong on several at once and twelve rail entries
   // saying the same thing read as twelve problems.
   const under = { setup: [], normal: [] };
-  (result.perSublot || []).forEach((s, i) => {
+  // Under Gradation acceptance the three volumetric ladders are not run; the
+  // clause still names AC, so the Specialty schedule's AC factor is what is
+  // held to the floor (its 85 and 75 bands are both under it). The sieves
+  // are not in the clause and are not checked.
+  const floorSublots = result.gradation
+    ? (result.gradation.sublots || []).map((s) => ({ ac: s.ac }))
+    : (result.perSublot || []);
+  const floorProps = result.gradation ? FLOOR_PROPERTIES.filter((p) => p.key === 'ac') : FLOOR_PROPERTIES;
+  floorSublots.forEach((s, i) => {
     // Setup is LOT 1's first sublot, the same gate `isFirstSublot` uses. A
     // lot with no number reads as lot 1 everywhere else on this page, so it
     // reads as lot 1 here; that puts sublot 1 in the setup bucket, which
     // cites the clause that is true of a setup sublot.
     const isSetup = i === 0 && (result.lotNumber === null || result.lotNumber === 1);
-    FLOOR_PROPERTIES.forEach((p) => {
+    floorProps.forEach((p) => {
       const v = s && s[p.key] ? s[p.key].pay : null;
       const low = isMCL(v) || (isNum(v) && v < SUBLOT_PAY_FLOOR);
       if (low) (isSetup ? under.setup : under.normal)

@@ -108,6 +108,18 @@ export const PLANTBOOK_CITES = {
     label: "KYTC 402.05.02",
     what: "the Lot Pay Adjustment — the three schedules are on PDF 185 (402-10), 186 (402-11) and 188 (402-13)",
   },
+  // ---- Added 2026-09-22 with the Specialty Mixtures pay schedule. Both
+  // pages opened and read in the real 2026 book.
+  payspec402: {
+    doc: "STD", page: 184, footer: "402-9",
+    label: "KYTC 402.05.01",
+    what: "the Lot Pay Adjustment Schedule for Specialty Mixtures — a pay factor per sublot on the deviation from the JMF, sieve by sieve and for the AC; the lot pays the sublot average",
+  },
+  specialty402: {
+    doc: "STD", page: 178, footer: "402-3",
+    label: "KYTC 402.03.02 F)",
+    what: "specialty mixtures — OGFC, ATDB, pavement wedge, leveling and wedging, scratch course, temporary applications and base failure repair: one AC and one gradation determination per sublot",
+  },
   // ---- Added 2026-09-18 with the second spec sweep (Jake: "do 1-8 as one
   // commit"). Every page below was opened and read in the real 2026 book, and
   // the footer recorded beside it, per the method at the top of this table.
@@ -1312,7 +1324,7 @@ export const PLANTBOOK_SECTIONS = [
     // Printed under the band, once. The wash is the provisional-value
     // tint this project already uses; the rule is what a blank box became.
     legend: "Shaded values are read from the approval. Gold is still to fill in; blue is done.",
-    cites: ["jmf", "accept402"],
+    cites: ["jmf", "accept402", "specialty402"],
     // A button in the section head, the same shape Contract Information's
     // contract lookup has. `key` is what the page dispatches on; the schema
     // names the lookup and never holds a handler, because this module is
@@ -1387,12 +1399,47 @@ export const PLANTBOOK_SECTIONS = [
           { value: "1.50", label: "1.50 (1-1/2\")" }, { value: "1.00", label: "1.00 (1\")" },
           { value: "0.75", label: "0.75 (3/4\")" },   { value: "0.50", label: "0.50 (1/2\")" },
           { value: "0.38", label: "0.38 (3/8\")" },   { value: "NO.4", label: "NO.4 (4.75 mm)" },
+          // The workbook's eight non-Superpave mixture types (Calculations!
+          // A6:B13), added 2026-09-22 - accepted on AC and gradation and paid
+          // under the Specialty schedule. The values are what intake.mjs's
+          // mixTypeFor() keys on, whitespace ignored (MIX_TYPE_CODES).
+          { value: "OGFC", label: "OGFC \u2014 open-graded friction course" },
+          { value: "ATDB", label: "ATDB \u2014 asphalt-treated drainage blanket" },
+          { value: "WEDGE", label: "Asphalt wedge (407)" },
+          { value: "SAND ASPHALT 1", label: "Sand asphalt Type I" },
+          { value: "SAND ASPHALT 2", label: "Sand asphalt Type II" },
+          { value: "SAND SEAL", label: "Sand seal" },
+          { value: "SLURRY", label: "Slurry seal" },
+          { value: "CURB", label: "Curb / median mix" },
         ] },
       { key: "lot_mix_type", label: "Mix type", type: "select", req: true,
         options: [
           { value: "A", label: "A \u2014 polish-resistant" },
           { value: "B", label: "B \u2014 polish-resistant" },
           { value: "D", label: "D \u2014 no polish requirement" },
+        ] },
+      // ---- THE COURSE - what this lot is PLACED as ----------------------
+      //
+      // 2026-09-22, with the Specialty Mixtures pay schedule. The same
+      // approved 0.38 surface design is mainline on one contract and
+      // "LEVELING & WEDGING PG64-22" on the next - contracts 252112 and
+      // 262120 both carry that item (bid code 00190) beside their surface
+      // items - and the two are ACCEPTED AND PAID DIFFERENTLY: mainline on
+      // volumetrics under 402.05.02, a leveling course on AC and gradation
+      // under 402.05.01. So this decides the acceptance method below
+      // (intake.mjs acceptanceMethodFor(); the page re-derives it when this
+      // changes) and is what the Project Items lookup matches the contract's
+      // line by when it is not mainline. The approval cannot say which, so
+      // intake seeds MAINLINE, tinted, and a person changes it. The options
+      // are intake.mjs COURSES, key for key - check_sections.mjs asserts it.
+      { key: "lot_course", label: "Course / pay item", type: "select", req: true,
+        options: [
+          { value: "mainline",    label: "Mainline or shoulder \u2014 paid on volumetrics" },
+          { value: "leveling",    label: "Leveling & wedging" },
+          { value: "scratch",     label: "Scratch course" },
+          { value: "wedge",       label: "Asphalt mixture for pavement wedge" },
+          { value: "base_repair", label: "Base failure repair" },
+          { value: "temporary",   label: "Temporary application" },
         ] },
       // ---- and the workbook's own translation of them -------------------
       //
@@ -1459,7 +1506,7 @@ export const PLANTBOOK_SECTIONS = [
       { key: "lot_acceptance_method", label: "Acceptance method", type: "select", req: true,
         options: [
           { value: "Volumetrics", label: "Volumetrics" },
-          { value: "Gradation",   label: "Gradation (pay not modelled)" },
+          { value: "Gradation",   label: "Gradation \u2014 AC and sieves, the Specialty schedule" },
           { value: "Visual",      label: "Visual" },
         ] },
       // The proposal writes these two words out in full ("OPTION A", "OPTION
@@ -1796,7 +1843,7 @@ export const PLANTBOOK_SECTIONS = [
     // part and it shows why the pay value is what it is and then one click
     // further beyond that and it shows exactly what numbers went into it".
     type: "pay",
-    cites: ["pay402", "density402"],
+    cites: ["pay402", "payspec402", "density402"],
   },
 
   {

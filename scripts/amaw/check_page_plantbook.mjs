@@ -701,6 +701,44 @@ namespace('PB_PAY', '4. PB_PAY vs scripts/amaw/pay.mjs + payview.mjs');
           vmaCases.push([{ vma, minVMA, isFirstSublot, mixTypeCode }]);
   sweep('vmaPay()', P.vmaPay, M.vmaPay, vmaCases.concat([[undefined], [{}]]));
 
+  // ---- Gradation acceptance (2026-09-22) ---------------------------
+  // The Specialty schedule: the control-point gate, the six ladders, the
+  // #200's half-rounding, the AC and F.M. ladders, and the per-sublot MIN.
+  same('CONTROL_POINTS_BY_MIX_TYPE is identical', P.CONTROL_POINTS_BY_MIX_TYPE, M.CONTROL_POINTS_BY_MIX_TYPE);
+  same('GRADATION_LADDERS is identical', P.GRADATION_LADDERS, M.GRADATION_LADDERS);
+  same('GRADATION_PAY_SIEVES is identical', P.GRADATION_PAY_SIEVES, M.GRADATION_PAY_SIEVES);
+  const gradSieves = ['s50', 's37_5', 's25', 's19', 's12_5', 's9_5', 's4_75', 's2_36', 's1_18', 's0_6', 's0_3', 's0_15', 's0_075', 's6_3', 'bogus', null];
+  sweep('controlPointsFor()', P.controlPointsFor, M.controlPointsFor, codes.map((c) => [c]));
+  sweep('controlPointBand()', P.controlPointBand, M.controlPointBand, codes.flatMap((c) => gradSieves.map((sv) => [c, sv])));
+  sweep('roundToHalf()', P.roundToHalf, M.roundToHalf, nums.map((v) => [v]));
+  const sieveCases = [];
+  for (const sieve of gradSieves)
+    for (const jmf of [null, 45, 6.0, 100])
+      for (const test of [null, 30, 33, 44.6, 60.4, 12.36, 100, 99.4])
+        for (const mixTypeCode of [5, 7, 12, 14, 99, null])
+          sieveCases.push([{ sieve, jmf, test, mixTypeCode }]);
+  sweep('sievePay()', P.sievePay, M.sievePay, sieveCases.concat([[undefined], [{}]]));
+  sweep('specialtyAcPay()', P.specialtyAcPay, M.specialtyAcPay,
+        acCases.map(([c]) => [{ jmfAC: c.jmfAC, ac: c.ac }]).concat([[undefined], [{}]]));
+  const passing = { s4_75: 60, s2_36: 44, s1_18: 33, s0_6: 24, s0_3: 17, s0_15: 11, s0_075: 6 };
+  sweep('finenessModulus()', P.finenessModulus, M.finenessModulus, [[passing], [{ ...passing, s0_15: null }], [{}], [null]]);
+  sweep('finenessModulusPay()', P.finenessModulusPay, M.finenessModulusPay,
+        [2.5, 2.8, 2.95, 3.1, null].flatMap((t) => [2.5, 2.83, 2.9, 3.04, null].map((v) => [{ target: t, test: v }])).concat([[undefined], [{}]]));
+  const gradJmf = { s12_5: 100, s9_5: 96, s4_75: 62, s2_36: 45, s0_075: 6 };
+  const gradSub = (test, ac, extra) => ({ mixTypeCode: 5, jmf: gradJmf, test, jmfAC: 5.9, ac, ...extra });
+  const gradSubCases = [
+    [gradSub({ s12_5: 100, s9_5: 95, s4_75: 60, s2_36: 30, s0_075: 12.4 }, 6.55, { isFirstSublot: false, position: 0 })],
+    [gradSub({ s12_5: 100, s9_5: 97, s4_75: 63, s2_36: 44, s0_075: 6.4 }, 5.9, { isFirstSublot: true, position: 0 })],
+    [gradSub({ s12_5: 100, s9_5: 97, s4_75: 63, s2_36: 70, s0_075: 6.4 }, 5.9, { isFirstSublot: true, position: 0 })],
+    [gradSub({}, null, { position: 2 })],
+    [{ ...gradSub({ s4_75: 60, s2_36: 80, s1_18: 70, s0_6: 55, s0_3: 30, s0_15: 10, s0_075: 4 }, 6.1, {}),
+       mixTypeCode: 7, jmf: { s4_75: 100, s2_36: 85, s1_18: 72, s0_6: 58, s0_3: 32, s0_15: 11, s0_075: 4.5 } }],
+    [undefined], [{}],
+  ];
+  sweep('gradationSublotPay()', P.gradationSublotPay, M.gradationSublotPay, gradSubCases);
+  sweep('gradationLotPay()', P.gradationLotPay, M.gradationLotPay,
+        [[{ sublots: gradSubCases.slice(0, 3).map(([c]) => M.gradationSublotPay(c)) }], [{ sublots: [] }], [undefined]]);
+
   const density = [null, 80, 88, 89, 89.9, 90, 90.1, 91, 92, 92.5, 93, 94, 95, 96, 97, 98, 99, 100, 101, 'MCL'];
   sweep('laneCorePay()', P.laneCorePay, M.laneCorePay,
         density.flatMap((d) => [1, 2, 3, 4, null].flatMap((esalClass) => [5, 14].map((mixTypeCode) => [d, { esalClass, mixTypeCode }]))));
@@ -750,6 +788,24 @@ namespace('PB_PAY', '4. PB_PAY vs scripts/amaw/pay.mjs + payview.mjs');
     },
     firstLot: null, partial: null, mcl: null,
     empty: { sublots: [], laneCores: [], jointCores: [], lotNumber: 1, esalClass: 3, mixTypeCode: 5, tonnage: 0, unitPrice: 0 },
+    // Gradation acceptance (2026-09-22): a leveling-and-wedging lot on a 0.38
+    // design - two sublots scored, one of them outside the control points on
+    // two sieves, one clean, and two sublots not yet weighed.
+    gradation: null,
+  };
+  SYNTH.gradation = {
+    sublots: [{ jmfAC: 5.9, ac: 6.55 }, { jmfAC: 5.9, ac: 5.95 }, { jmfAC: 5.9 }, { jmfAC: 5.9 }],
+    laneCores: [[], [], [], []], jointCores: [[], [], [], []],
+    jointDensityFlag: 2, densityOption: 1, acceptanceOption: 1,
+    lotNumber: 1, esalClass: 3, mixTypeCode: 5, tonnage: 3950, unitPrice: 50, wedgeTons: 0,
+    gradation: {
+      jmf: { s12_5: 100, s9_5: 96, s4_75: 62, s2_36: 45, s1_18: 33, s0_6: 24, s0_3: 17, s0_15: 11, s0_075: 6.0 },
+      sublots: [
+        { test: { s12_5: 100, s9_5: 95, s4_75: 60, s2_36: 30, s1_18: 22, s0_6: 16, s0_3: 11, s0_15: 8, s0_075: 12.4 } },
+        { test: { s12_5: 100, s9_5: 97, s4_75: 63, s2_36: 44, s1_18: 32, s0_6: 23, s0_3: 16, s0_15: 10, s0_075: 6.4 } },
+        { test: {} }, { test: {} },
+      ],
+    },
   };
   SYNTH.firstLot = { ...SYNTH.full, lotNumber: 1 };
   SYNTH.partial = { ...SYNTH.full, sublots: SYNTH.full.sublots.slice(0, 2), laneCores: SYNTH.full.laneCores.slice(0, 2), jointCores: SYNTH.full.jointCores.slice(0, 2) };
@@ -784,7 +840,7 @@ namespace('PB_PAY', '4. PB_PAY vs scripts/amaw/pay.mjs + payview.mjs');
     lane: (input.laneCores || []).map((cs, i) => cs.map((pct, k) => ({ id: `${i + 1}-${k}`, air: 1250, water: 720, ssd: 1255, bsg: 2.336, density: 145.8, msg: 2.469, pctSolid: pct }))),
     joint: (input.jointCores || []).map((cs, i) => cs.map((pct, k) => ({ id: `${i + 1}-J${k}`, air: 1250, water: 690, ssd: 1255, bsg: 2.212, density: 138, msg: 2.469, pctSolid: pct }))),
   });
-  const OPEN = ['prop.av', 'sub.av.1', 'prop.laneDensity', 'core.laneDensity.1', 'prop.jointDensity', 'final', 'tons', 'money'];
+  const OPEN = ['prop.av', 'sub.av.1', 'prop.laneDensity', 'core.laneDensity.1', 'prop.jointDensity', 'final', 'tons', 'money', 'grad.0', 'grad.1'];
   let htmlBad = 0, headBad = 0, warnBad = 0, notesBad = 0, bytes = 0, xBad = 0, xBytes = 0;
   for (const [label, input] of lotInputs) {
     const rp = P.lotPay(input), rm = M.lotPay(input);
@@ -1043,8 +1099,20 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
              [{ layer: 'SURF' }], [{}], [null], [undefined]]);
   sweep('jointDensityFor()', P.jointDensityFor, M.jointDensityFor, mixes);
   sweep('densityOptionFor()', P.densityOptionFor, M.densityOptionFor, mixes);
-  sweep('acceptanceMethodFor()', P.acceptanceMethodFor, M.acceptanceMethodFor, mixes);
+  // The course (2026-09-22) decides the acceptance method for a Superpave
+  // type, and a specialty TYPE decides it alone.
+  const courseMixes = mixes.concat(
+    ['mainline', 'leveling', 'scratch', 'wedge', 'base_repair', 'temporary', 'bogus', null]
+      .flatMap((course) => ['0.38A', 'OGFC', 'SAND ASPHALT 1', 'WEDGE', 'NO.4B', ''].map((nominal_size) => [{ nominal_size, course }])));
+  sweep('acceptanceMethodFor()', P.acceptanceMethodFor, M.acceptanceMethodFor, courseMixes);
   same('ACCEPTANCE_METHODS is identical', P.ACCEPTANCE_METHODS, M.ACCEPTANCE_METHODS);
+  same('COURSES is identical', P.COURSES.map((c) => ({ ...c, match: String(c.match) })), M.COURSES.map((c) => ({ ...c, match: String(c.match) })));
+  same('DEFAULT_COURSE is identical', P.DEFAULT_COURSE, M.DEFAULT_COURSE);
+  sweep('courseFor()', P.courseFor, M.courseFor, ['mainline', 'LEVELING', ' scratch ', 'bogus', '', null, undefined].map((k) => [k]));
+  sweep('specialtyCourseOf()', P.specialtyCourseOf, M.specialtyCourseOf,
+        ['LEVELING & WEDGING PG64-22', 'LEVELING AND WEDGING PG76-22', 'ASPHALT SCRATCH COURSE (0.38-IN.) PG64-22',
+         'ASPHALT WEDGE CURB', 'ASPH MIX FOR PAVEMENT WEDGE', 'MICROSURFACING-LEVELING COURSE', 'BASE FAILURE REPAIR',
+         'ASPHALT MIXTURE FOR TEMPORARY APPLICATIONS', 'CL3 ASPH SURF 0.38A PG64-22', '', null, undefined].map((d) => [d]));
   sweep('esalClassFor()', P.esalClassFor, M.esalClassFor,
         mixes.flatMap(([mix]) => [null, '2', 3, 'CL4', 'CL9', ''].map((c) => [mix, c])));
   sweep('isDepartmentBlock()', P.isDepartmentBlock, M.isDepartmentBlock,
