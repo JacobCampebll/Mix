@@ -4942,3 +4942,107 @@ commit where possible.
   always-100 is its bug. Note the "0.85 or less" second half is the
   Engineer's call and is not computed anywhere - the volumetric allowance
   cells (D13/G13/K13) do not compute it either.
+
+- **REVERSED 2026-09-22, one day later: PlantBook lot data IS stored in
+  Supabase, and deleted a week after submission.** Jake: "I think the idea of
+  the information of the plantbook data is deleted once the project is over or
+  a week after is the best way to do this. Along the way contractors will still
+  be downloading the pdf as a back up. Storage has to be the way. Lets build it
+  out." The ledger-only entry above stands as the reasoning that got here; what
+  follows is what was built. **DesignBook is untouched** - a mix design is still
+  filled in one sitting and the file is still its record (2026-09-04). What
+  changed is only what a lot needed and a design never did: several people,
+  several days, and a plant with no signal.
+  **THREE SHAPES, THREE LIFETIMES** (`supabase/amaw_lots.sql`, written and
+  **NOT APPLIED** - Andrew applies it): `amaw_lots` is the ledger, small and
+  PERMANENT; `amaw_lot_data` is the whole envelope and is PURGED; and
+  `amaw_lot_events` is a handful of audit rows per lot, permanent. Splitting
+  the envelope out of the ledger is what makes the purge a DELETE rather than a
+  blanking - a ledger row physically cannot carry stale test data, and a purged
+  lot stays distinguishable from a lot nobody has typed into yet, which a
+  `values = '{}'` row would not be.
+  **THE RETENTION SWEEP DOES NOTHING UNTIL pg_cron IS ENABLED AND THE JOB
+  SCHEDULED.** The statement is in section 8 of that file, commented, because
+  enabling an extension is a separate decision from applying a schema. Until
+  then the rule is a statement of intent rather than a fact - say so rather
+  than assuming it. `amaw_purge_contract()` is KYTC's explicit close-out and is
+  reviewer-only; neither sweep ever touches an Open lot, however old.
+  **THE KEY IS A CLIENT-MINTED UUID AND IT IS DERIVED FROM THE NATURAL KEY, NOT
+  RANDOM.** Both halves were corrections. Client-minted because a lot is
+  started at a plant that may have no signal and needs an id before it reaches
+  a server. DERIVED because two people who each start lot 3 offline - the day
+  shift on the tablet, the night shift on a laptop - would otherwise produce
+  two rows carrying one identity, and the second to get a signal is refused by
+  the unique index with nothing a technician can do about it; derived, they are
+  one lot and the second sees an ordinary revision conflict, which is a
+  sentence the page can say. It is fixed at BIRTH, so the two identity parts
+  that legitimately move later (a change order renumbering the line item, the
+  district switching the compaction option) cannot move the lot out from under
+  a week of work. The narrow case it cannot tell apart is two genuinely
+  different lots both started before their option was known; the front door
+  looks for an existing lot on the key rather than merging silently.
+  **`restampIdentity()` is the one definition** of re-deriving those two parts,
+  called by `normaliseLot()` and by both of `intake.mjs`'s builders - a lot
+  whose key disagreed with its own contents would be filed under a line item it
+  was not produced on the first time anybody saved it.
+  **THE CHAIN IS NOT THE CLIENT'S TO WRITE.** status, the two hashes, the
+  submitted/accepted stamps and `purge_after` are written by `amaw_seal_lot()`
+  and nowhere else; `amaw_lots_guard()` pins them on any other update and the
+  only thing that lifts it is a transaction-local GUC no client can reach
+  through PostgREST. Without that trigger a contractor marks their own lot
+  Accepted with a hash of their choosing - watched happening.
+  **THE CLIENT IS LOCAL FIRST** (`scripts/amaw/storage.mjs`, `syncedLotStore`).
+  A save lands on this machine and returns; the network happens afterwards.
+  **THE QUEUE IS NOT A QUEUE**: every lot carries three counters and the outbox
+  is DERIVED from them, so it cannot drift, go stale or outlive a lot. Three
+  rather than two was itself a bug - the local save counter and the server's
+  are independent sequences, and presenting one where the other is expected
+  reads as "a colleague saved first" on a lot nobody else has touched.
+  **THE DATA GOES BEFORE THE SEAL**, always: a lot's data is writable only
+  while the server still considers it Open, so sealing first gets everything
+  typed since the last sync refused by the write policy, silently, as a
+  permission error - which is exactly the case of a technician who filled a lot
+  offline all week and then pressed Submit.
+  **THE STORE OWNS THE BOOKKEEPING AND THE STATUS, THE CALLER OWNS THE
+  CONTENT**, and this is the trap most likely to be reintroduced. The page
+  hands in the FORM's view of a lot, carrying whatever revision counters it was
+  opened with - and a background flush moves all three on disk without touching
+  the copy on screen, so letting the incoming envelope win rolls them back.
+  Worse, `submitLotToKYTC()` moves the stage to Submitted BEFORE it builds the
+  payload, so the next autosave wrote that status locally and `seal()` then
+  refused its own submission as "already Submitted". Both surfaced as Submit
+  quietly not sealing. `syncedLotStore.save()` takes status and all three
+  counters from what it already holds; only `seal()` moves them.
+  **THREE CHECKERS, EACH ANSWERING A DIFFERENT QUESTION.**
+  `scripts/supabase/check_amaw_lots.py` is 38 impersonation cases against a
+  REAL Postgres 16 - a contractor, the night shift, another company, a lapsed
+  certification and a KYTC reviewer, each in a rolled-back transaction, with a
+  fixture standing in for the identity tables and `auth.uid()`. It needs a
+  scratch cluster (`scripts/supabase/run_amaw_lots_check.sh`, and `PERTURB=` is
+  how you watch it fail); it must NEVER be pointed at the live project, since
+  it inserts, seals and purges. `scripts/amaw/check_storage.mjs` is 84 cases
+  against a fake browser and a fake server reproducing the four behaviours the
+  client branches on. `harness/checks/lotstore.mjs` is 23 cases in a real
+  browser, and it is the only one that can say the page is wired.
+  **TWO DRAFTS OF THAT BROWSER CHECK PASSED WHILE TESTING NOTHING**, which is
+  worth more than the check: it called `sealLotSubmitted()` directly, so
+  deleting the call from the real Submit button changed nothing; and
+  `adoptLotIntoStore()` is not awaited, so its write landed after the marker
+  was typed and carried it, which let the check pass with the autosave hook
+  deleted. It drives `submitLotToKYTC()` now, and asserts the ledger row exists
+  before any input event has happened at all. **A check that cannot be watched
+  failing on each hook it claims to cover is not covering them.**
+  **`harness/lib/stub.mjs` models the three amaw_* relations and the seal RPC**
+  rather than throwing on every write. Writes to any other table still throw,
+  because design content is still never stored.
+  **Open, and Tate's:** whether KYTC wants the retention window at seven days,
+  and whether Central Office reading a contractor's in-progress QC data before
+  submission is acceptable - the read policy is plant-scoped and `all_plants`
+  reaches every lot, which Jake has answered ("its not a bad idea to let kytc
+  into the file") but KYTC has not.
+  **Still NOT modelled, deliberately: there is no `amaw_lot_records` table.**
+  One row per MEDL block exists to let a KYTC district technician write QA01
+  without touching the contractor's four sublots, and district scoping has no
+  representation in this schema at all. A table nothing writes is a table that
+  rots; the envelope's `records` map is stored inside `amaw_lot_data` for when
+  that question is answered.

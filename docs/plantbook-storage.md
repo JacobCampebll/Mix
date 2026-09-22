@@ -1,12 +1,38 @@
 # PlantBook: where does a lot live?
 
-**Status: undecided. Both models are being built.** Jake, 2026-09-13: "let's
-build it both ways for now until I talk with Tate and Andrew." This document
-is the argument, not the answer. It exists so that conversation starts from
-the real failure modes rather than from taste.
+**Status: SETTLED 2026-09-22 — a lot IS stored, and its data is deleted a
+week after submission.** Jake: "I think the idea of the information of the
+plantbook data is deleted once the project is over or a week after is the best
+way to do this. Along the way contractors will still be downloading the pdf as
+a back up. Storage has to be the way. Lets build it out."
 
-Nothing in here has been applied to the live database.
-`supabase/amaw_lots.sql` is written for Andrew to apply, or not.
+Everything below this line is the argument as it stood while the question was
+open, and it is kept because the failure modes it names are the ones the built
+thing has to keep answering. **What was actually built, and the traps found
+building it, are in CLAUDE.md** under the 2026-09-22 entry; the schema is
+`supabase/amaw_lots.sql` and the client is `scripts/amaw/storage.mjs`.
+
+Four things the decision changed about the sketch below:
+
+1. **The ledger and the data are separate tables**, with separate lifetimes.
+   `amaw_lots` is small and permanent — identity, status, who, when, and the
+   submittal hash. `amaw_lot_data` is the whole envelope and is deleted on the
+   retention rule. That split is what makes the purge a DELETE rather than a
+   blanking, so a purged lot stays distinguishable from a lot nobody filled in.
+2. **The client is local-first**, not "Supabase instead of localStorage". A
+   save lands on this machine and returns; the network happens afterwards.
+   Jake: "we need it to work offline too."
+3. **There is no `amaw_lot_records` table.** The seven-block split exists for a
+   department write path that district scoping cannot support yet, and a table
+   nothing writes is a table that rots. The `records` map lives inside
+   `amaw_lot_data` until that question is answered.
+4. **The lot PDF is still the permanent copy.** Nothing about the file model's
+   deliverables changed — the generated AMAW is still what KYTC loads into
+   MEDL, and the contractor still downloads a PDF at every step.
+
+`supabase/amaw_lots.sql` is still **NOT APPLIED** — Andrew applies it — and the
+retention sweep does nothing at all until `pg_cron` is enabled and the job
+scheduled.
 
 ---
 
