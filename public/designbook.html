@@ -160,6 +160,15 @@
   .pill.draft{background:var(--flag-soft); color:var(--ink); border-color:var(--gold);}
   .pill.review{background:var(--accent-soft); color:var(--accent); border-color:var(--accent);}
   .pill.released,.pill.approved{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
+  /* PlantBook's sync chip. Deliberately quieter than .pill: the stage is
+     what the lot IS and this is only where its bytes are, so it reads as a
+     footnote to the lot number it follows rather than as a second status. */
+  .syncchip{font-family:'Roboto Mono',monospace; font-size:10px; text-transform:uppercase;
+            letter-spacing:.05em; padding:3px 8px; border-radius:20px; white-space:nowrap;
+            border:1px solid var(--line); color:var(--muted); cursor:default;}
+  .syncchip.ok{color:var(--ok); border-color:var(--ok); background:var(--ok-soft);}
+  .syncchip.warn{color:var(--flag); border-color:var(--gold); background:var(--flag-soft);}
+  .syncchip.bad{color:var(--bad); border-color:var(--bad);}
   .spacer{flex:1;}
   .savedstate{font-size:12px; color:var(--muted);}
   .savedstate.warn{color:var(--flag);}
@@ -188,13 +197,14 @@
     .book{font-size:12px; padding:4px 11px;}
     .mixid{font-size:11px;}
     .pill{font-size:10px; padding:3px 8px;}
+    .syncchip{font-size:9px; padding:2px 6px;}
     .savedstate{font-size:11px;}
     .whoami{font-size:11px; gap:10px;}
     .spacer{display:none;}
     /* Row 1 identity, row 2 what this design is and whether it is saved,
        row 3 who is signed in. */
     .logo{order:1;} .bookswitch{order:2;} .pill{order:3;}
-    .mixid{order:4;} .savedstate{order:5;} .whoami{order:6;}
+    .mixid{order:4;} .syncchip{order:4;} .savedstate{order:5;} .whoami{order:6;}
     .jobstrip{flex-wrap:nowrap; align-items:baseline; gap:0 8px; padding:0 14px 7px;}
     .jobchip{flex:0 0 auto; min-width:0; border:0; background:none; padding:0; border-radius:0;}
     .jobchip + .jobchip{padding-left:8px; border-left:1px solid var(--line);}
@@ -1431,6 +1441,26 @@
   .legend{font-size:12px; color:var(--muted); margin-top:14px; line-height:1.6;}
   .skip{margin-top:14px; background:none; border:none; color:var(--accent);
         font-family:inherit; font-size:12.5px; cursor:pointer; text-decoration:underline;}
+
+  /* PlantBook's "lots you already have". A row is a button because opening a
+     lot is the only thing it does; a PURGED row is a div, because it is a
+     record that a lot existed and there is nothing left to open. */
+  .lotlist{margin-top:26px; border-top:1px solid var(--line); padding-top:18px;}
+  .lotlist h3{font-size:13px; text-transform:uppercase; letter-spacing:.05em;
+              color:var(--muted); margin:0;}
+  .lotlist .legend{margin-top:6px; margin-bottom:12px;}
+  .lotrow{display:flex; align-items:center; justify-content:space-between; gap:12px;
+          width:100%; text-align:left; font-family:inherit; background:#FCFCFA;
+          border:1px solid var(--line); border-radius:var(--radius);
+          padding:11px 14px; margin-bottom:8px; cursor:pointer; min-height:44px;}
+  .lotrow:hover{border-color:var(--accent); background:var(--accent-soft);}
+  .lotrow.gone{cursor:default; background:transparent; opacity:.65;}
+  .lotrow.gone:hover{border-color:var(--line); background:transparent;}
+  .lotrow strong{display:block; font-size:13.5px; color:var(--ink);}
+  .lotrow span{display:block; font-size:11.5px; color:var(--muted); margin-top:2px;}
+  .lotflag{flex:0 0 auto; font-size:10px; text-transform:uppercase; letter-spacing:.05em;
+           color:var(--muted); border:1px solid var(--line); border-radius:20px; padding:2px 7px;}
+  .lotflag.warn{color:var(--flag); border-color:var(--gold); background:var(--flag-soft);}
   details{margin-top:16px;}
   summary{cursor:pointer; font-size:12px; color:var(--muted);}
   pre{background:#FCFCFA; border:1px solid var(--line); border-radius:var(--radius);
@@ -1462,6 +1492,9 @@
               title="PlantBook is the second view of this page — it opens once your certifications load."><span>Plant</span>Book</button>
     </div>
     <div class="mixid" id="mixid">MIX ID · —</div>
+    <!-- PlantBook only: is this lot on this device, with KYTC, or waiting?
+         Hidden on DesignBook, whose designs are deliberately not stored. -->
+    <div class="syncchip hidden" id="syncChip"></div>
     <div class="pill draft" id="statuspill">Draft</div>
     <div class="spacer"></div>
     <div class="savedstate" id="savedstate"></div>
@@ -1510,6 +1543,9 @@
   <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls,.pdf,application/pdf">
   <div class="msg" id="uploadMsg"></div>
   <button class="skip" id="skipUpload">Skip — start from a blank design instead</button>
+  <!-- PlantBook only: the lots this technician already has. Empty and hidden
+       on DesignBook, whose designs are not stored at all. -->
+  <div id="lotListWrap" class="lotlist hidden"></div>
 </div>
 <!-- ===== END LEGACY UPLOAD ===== -->
 
@@ -2090,6 +2126,32 @@ const CONFIG = {
     PROJECT_ITEMS: { firstRow: 6, maxRows: 100, cols: { project: "A", line: "B", qty: "C", unit: "D" }, UNIT: "TON" },
     POLISH: { cols: ["B", "C", "D", "E", "F", "G"], PR_ROW: 17, sieveRows: { s50: 21, s37_5: 22, s25: 23, s19: 24, s12_5: 25, s9_5: 26, s4_75: 27, s2_36: 28, s1_18: 29, s0_6: 30, s0_3: 31, s0_15: 32, s0_075: 33 } },
     SUBMITTAL_TYPES: { "New Mix Design": "New Mix Design", "Reference Mix Design": "Ref. Mix Design (project change only)" },
+  },
+
+  // ---- PlantBook lot storage -----------------------------------------
+  // SETTLED 2026-09-22 (Jake): "Storage has to be the way." A lot lives on
+  // this machine AND in Supabase while it is being produced, and the data is
+  // deleted a week after submission - the ledger row survives, and the
+  // contractor's own lot PDF is the permanent copy. See
+  // supabase/amaw_lots.sql and docs/plantbook-storage.md.
+  //
+  // DesignBook is untouched by any of this. A mix design is still filled in
+  // one sitting and the file is still the record (2026-09-04); what changed
+  // is only the thing a lot needed and a design never did - several people,
+  // several days, and a plant with no signal.
+  STORAGE: {
+    // 'synced' is local-first with Supabase behind it. 'local' drops the
+    // server half entirely, which is what an unapplied schema already
+    // behaves like, so this is a switch for testing rather than a fallback.
+    BACKEND: "synced",
+    // How long after the last keystroke a lot is written. Long enough that
+    // typing a four-figure weight is one save and not four; short enough that
+    // a closed tab loses nothing worth naming.
+    AUTOSAVE_MS: 1500,
+    // The retention rule the server enforces, repeated here ONLY to say it on
+    // screen. amaw_retention_days() is the authority and this is a caption -
+    // if they ever disagree, the database is right.
+    RETENTION_DAYS: 7,
   },
 
   SUBMIT: {
@@ -8915,6 +8977,7 @@ function paintLotDenominator() {
   // painted together rather than at two different moments.
   const chip = $("mixid");
   if (chip) chip.textContent = designLabel();
+  paintSyncChip();
   const e = lotExpectation();
   if (e && e.lots) {
     const where = [e.project, e.line ? `line ${e.line}` : null].filter(Boolean).join(" ");
@@ -9247,6 +9310,10 @@ function recompute() {
   // Last, because everything above may have changed which steps are visible.
   paintStepChrome();
   paintSublotLocks();
+  // A lot is durable, a design is not - see CONFIG.STORAGE. This is debounced
+  // and reads nothing; recompute() runs on every keystroke and must not be
+  // made to wait on a disk or a network.
+  scheduleLotSave();
 }
 
 // Go to the step a section is on, and put the cursor where the item points.
@@ -19256,7 +19323,40 @@ const PB_LOT = (() => {
        * because a save that succeeded on this machine did succeed.
        */
       async save(lot, { by = null, sync = true } = {}) {
-        const saved = await local.save(lot, { by });
+        // THE CALLER'S SYNC BOOKKEEPING IS NOT TO BE TRUSTED, and this cost a
+        // silent failure to find. A page hands in the FORM's view of the lot,
+        // carrying whatever `revision` / `server_revision` / `synced_revision`
+        // it was opened with — and a flush that succeeded in the background
+        // since then moved all three on disk without touching the copy on
+        // screen. Letting the incoming envelope win rolls them back, so the very
+        // next push presents a token the server has already moved past, and the
+        // answer is a stale-revision conflict on a lot nobody else has touched.
+        // It surfaced as Submit quietly not sealing.
+        //
+        // So those four fields come from the store, never from the caller. The
+        // caller owns the lot's CONTENT; the store owns where that content has
+        // got to.
+        let held = null;
+        try { held = await local.load(lot.uid); } catch (_) { /* first save */ }
+        const incoming = held ? {
+          ...lot,
+          // THE STATUS IS CHAIN STATE, and the chain is not the client's to
+          // write — the same rule amaw_lots_guard() enforces server-side, here
+          // so the two cannot disagree. It matters more than it looks:
+          // submitLotToKYTC() moves the stage to Submitted BEFORE it builds the
+          // payload, so the very next autosave would write that status locally
+          // and seal() would then refuse its own submission as "already
+          // Submitted". Only seal() moves it, and it writes through local.save()
+          // rather than through here.
+          status: held.status,
+          revision: held.revision,
+          server_revision: held.server_revision,
+          synced_revision: held.synced_revision,
+          // A seal the caller is making wins; otherwise one already waiting on
+          // disk must not be dropped by an ordinary save.
+          pending_seal: lot.pending_seal || held.pending_seal || null,
+        } : lot;
+        const saved = await local.save(incoming, { by });
         if (sync && remote) {
           try {
             await pushOne(saved, by);
@@ -22952,6 +23052,11 @@ async function submitLotToKYTC() {
 
     state.history = payload.history;
     state.submitted = frozen;
+    // The one-way door, and the hash of the very bytes that just downloaded -
+    // so KYTC can check the PDF in their inbox against what was sealed here.
+    // Awaited, unlike every other store call on this page: the whole point of
+    // the seal is that it happened before the lot stopped being editable.
+    await sealLotSubmitted(frozen);
     renderLotStage();
     audit(`${CONFIG.SUBMIT.ACTION.submitted} - ${who}`);
     msg($("saveMsg"),
@@ -23013,6 +23118,10 @@ function openLotEnvelope(raw, label, opening) {
       (v ? ` The approval it was opened under was ${v.state}.` : ""),
       v && PB_LOT.isVerified(v) ? "ok" : "warn");
   audit(`${opening ? opening.audit : `Lot reopened from ${label}`} - ${state.tech ? state.tech.sm_id : ""}`);
+  // LAST, and not awaited. Every door lands here, so this is the one place a
+  // lot becomes durable - but a store that is slow, absent or disagreeing must
+  // not stand between a technician and the form they came to fill in.
+  adoptLotIntoStore(lot);
 }
 /* ---------- the upload card, in each book's words ----------
  *
@@ -23051,6 +23160,324 @@ function paintUploadCard() {
   if (skip) skip.classList.add("hidden");
 }
 /* ===== END PLANTBOOK — THE PAGE SIDE ===== */
+
+/* ===== PLANTBOOK — THE LOT STORE (page side) =====
+ *
+ * PB_LOT carries the store; this is what the page does with it. Four things
+ * and no more:
+ *
+ *   * a lot writes itself as it is filled in          scheduleLotSave()
+ *   * a lot you already have is one click, not a file paintLotList()
+ *   * Submit seals it so nobody can quietly rewrite it sealLotSubmitted()
+ *   * and the page says where all that stands          paintSyncChip()
+ *
+ * NOTHING HERE IS ON THE CRITICAL PATH OF FILLING A LOT. Every call is
+ * fire-and-forget or debounced, every failure is reported rather than thrown,
+ * and the form works exactly as it did before any of it when the network,
+ * Supabase and localStorage are all missing at once. That is not defensive
+ * habit: a lot is typed beside a drum mixer, and a page that stops to talk to
+ * a server is a page that gets abandoned for a paper AMAW.
+ *
+ * DESIGNBOOK IS NOT TOUCHED BY ANY OF IT. `isPlantBook()` gates every entry
+ * point, because a mix design is still filled in one sitting and the file is
+ * still its record (2026-09-04).
+ */
+
+// One store for the session. Built lazily rather than at boot, so a page that
+// never opens a lot never probes localStorage or Supabase at all.
+function lotStore() {
+  if (state.store === undefined) {
+    try {
+      state.store = PB_LOT.createLotStore({
+        backend: CONFIG.STORAGE.BACKEND,
+        client: typeof sb === "undefined" ? null : sb,
+      });
+      if (state.store.onChange) state.store.onChange(paintSyncChip);
+    } catch (err) {
+      // A store that cannot be built is not a reason the page cannot run.
+      state.store = null;
+      state.storeError = err && err.message;
+    }
+  }
+  return state.store;
+}
+
+function storeWho() {
+  const t = state.tech;
+  return t ? { sm_id: t.sm_id, name: `${t.first_name} ${t.last_name}` } : null;
+}
+
+/* ---------- the submittal hash ----------
+ *
+ * What the ledger records, and the only thing on the row a contractor could
+ * otherwise change after the fact: KYTC can take the PDF in their inbox, hash
+ * its embedded payload the same way, and see whether it is the lot that was
+ * sealed. That makes these two functions a CONTRACT rather than an
+ * implementation detail - a verifier has to canonicalise identically or every
+ * comparison fails. If one is ever written, it reuses these, the same rule
+ * that makes trimFlatCoarseEnd() and niceTicks() shared.
+ *
+ * Keys are sorted at every depth because JSON.stringify preserves insertion
+ * order, and the insertion order of a payload assembled from a form depends
+ * on the order a person filled it in. Arrays are NOT sorted: their order is
+ * data (sublot 1 is not sublot 3).
+ */
+function stableJSON(v) {
+  if (v === null || typeof v !== "object") return JSON.stringify(v === undefined ? null : v);
+  if (Array.isArray(v)) return "[" + v.map(stableJSON).join(",") + "]";
+  return "{" + Object.keys(v).sort()
+    .map((k) => JSON.stringify(k) + ":" + stableJSON(v[k])).join(",") + "}";
+}
+
+async function lotPayloadHash(payload) {
+  try {
+    const subtle = (globalThis.crypto && globalThis.crypto.subtle) || null;
+    if (!subtle) return null;         // insecure context: no hash rather than a wrong one
+    const bytes = new TextEncoder().encode(stableJSON(payload));
+    const digest = await subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest))
+      .map((b) => (b + 0x100).toString(16).slice(1)).join("");
+  } catch (_) { return null; }
+}
+
+/* ---------- autosave ---------- */
+
+// Debounced. recompute() calls this on every keystroke, so the work has to
+// happen once the typing stops rather than forty times while it is going on.
+let lotSaveTimer = null;
+function scheduleLotSave() {
+  if (!isPlantBook() || !state.lot) return;
+  // A submitted lot is frozen: its data is what the hash on the PDF covers,
+  // and the server refuses the write anyway. Saving it would be the page
+  // arguing with a door that is already shut.
+  if (state.lot.status && state.lot.status !== "Open") return;
+  if (lotSaveTimer) clearTimeout(lotSaveTimer);
+  lotSaveTimer = setTimeout(() => { lotSaveTimer = null; saveLotNow(); }, CONFIG.STORAGE.AUTOSAVE_MS);
+}
+
+async function saveLotNow() {
+  const store = lotStore();
+  if (!store || !state.lot) return null;
+  let snap;
+  // collectForm() walks the DOM, so a failure here is a rendering problem and
+  // not something to retry silently for ever.
+  try { snap = lotSnapshot(); } catch (_) { return null; }
+  try {
+    const saved = await store.save(snap, { by: storeWho() });
+    // Keep the in-memory lot's bookkeeping in step, and ONLY that: overwriting
+    // state.lot wholesale would throw away anything typed while the save was
+    // in flight.
+    if (state.lot && state.lot.uid === saved.uid) {
+      state.lot.uid = saved.uid;
+      state.lot.revision = saved.revision;
+      state.lot.synced_revision = saved.synced_revision;
+      state.lot.server_revision = saved.server_revision;
+      state.lot.conflict = saved.conflict || null;
+    }
+    paintSyncChip();
+    return saved;
+  } catch (err) {
+    // Local failed, which is the one that matters - out of space, or a window
+    // that cannot store anything. It is said out loud, in the place the lot's
+    // own messages go, because the remedy is to download the working copy NOW.
+    state.storeError = err && err.message;
+    msg($("saveMsg"), `This lot could not be saved on this device: ${err.message}`, "error");
+    paintSyncChip();
+    return null;
+  }
+}
+
+/* ---------- opening ---------- */
+
+// Called by openLotEnvelope() for every door: the approval, a lot PDF, a
+// .json, a roll-forward, and the list below. It reconciles the lot that just
+// arrived with whatever the store already holds for it, and it is deliberately
+// the LAST thing that happens rather than a gate in front of the form - a lot
+// opens whether or not any of this works.
+async function adoptLotIntoStore(lot) {
+  const store = lotStore();
+  if (!store || !lot) return;
+  try {
+    const held = await store.load(lot.uid);
+    if (held && held.conflict) {
+      // Both sides moved. Nothing is overwritten and nothing is merged.
+      msg($("saveMsg"),
+          `Careful - ${esc(held.conflict)} Download your working copy from the Submit step before you carry on.`,
+          "warn");
+    } else if (held && Number(held.revision || 0) > 0 && !lot.revision) {
+      // The file is a starting point and the store has a later copy of the
+      // same lot: say so rather than silently taking either. A file somebody
+      // emailed on Tuesday should not quietly undo Wednesday.
+      msg($("saveMsg"),
+          `This lot is already open on this account, last saved ${esc(String(held.saved_at || "").slice(0, 16).replace("T", " "))}. ` +
+          `The file you just opened has been loaded; saving will overwrite the stored copy.`, "warn");
+    }
+  } catch (_) { /* a store that cannot answer does not stop a lot opening */ }
+  // Register it either way, so the lot is durable from the moment it opens
+  // rather than from the first keystroke.
+  saveLotNow();
+  paintSyncChip();
+}
+
+/* ---------- submitting ---------- */
+
+// The one-way door. Called from submitLotToKYTC() with the frozen payload -
+// the same bytes the PDF carries - so the hash on the ledger is the hash of
+// the file KYTC receives.
+async function sealLotSubmitted(frozen) {
+  const store = lotStore();
+  if (!store || !state.lot) return null;
+  try {
+    // Everything typed since the last autosave has to reach the server BEFORE
+    // the seal: a submitted lot's data is frozen server-side, so a save after
+    // this point is refused. pushOne() orders the two correctly on its own,
+    // but only for what it has been given.
+    await saveLotNow();
+    const hash = await lotPayloadHash(frozen);
+    const sealed = await store.seal(state.lot.uid, "Submitted", {
+      sha256: hash,
+      // Lot 8 provably followed the lot 7 that was submitted. rollForwardLot()
+      // is what carries this across, so a lot cannot be quietly inserted into
+      // or removed from a contract's sequence after the fact.
+      prev: state.lot.prev_sha256 || null,
+      by: storeWho(),
+    });
+    state.lot.status = "Submitted";
+    state.lot.submittal_sha256 = hash;
+    paintSyncChip();
+    return sealed;
+  } catch (err) {
+    // The PDF has already downloaded and the technician will email it, so the
+    // submission is real whatever happened here. This is the RECORD of it
+    // failing, which is worth a sentence and is not worth undoing the
+    // download over.
+    state.storeError = err && err.message;
+    paintSyncChip();
+    return null;
+  }
+}
+
+/* ---------- saying where it stands ---------- */
+
+// A chip in the appbar, beside the lot number. Four states and no spinner:
+// "saved", "saving" is invisible because it takes 30ms, "offline · n waiting"
+// and "not synced". Silence would be worse than any of them - a technician
+// needs to know whether closing the laptop loses the afternoon.
+function syncChipState() {
+  if (!isPlantBook() || !state.lot) return null;
+  const store = state.store;
+  if (!store) return { cls: "warn", text: "on this device only", title: "Storage is not available in this browser, so this lot lives only in the file you download." };
+  if (state.lot.status && state.lot.status !== "Open") {
+    return { cls: "ok", text: state.lot.status.toLowerCase(),
+             title: `This lot was ${state.lot.status.toLowerCase()} and is no longer editable. KYTC holds the copy the PDF's hash covers.` };
+  }
+  const st = store.state ? store.state() : {};
+  if (state.lot.conflict) return { cls: "bad", text: "edited elsewhere", title: state.lot.conflict };
+  if (st.online === false) {
+    const n = st.pending || 1;
+    return { cls: "warn", text: `offline · ${n} waiting`,
+             title: `Saved on this device. ${n === 1 ? "This lot" : `${n} lots`} will reach KYTC when you are back online. ${st.lastError || ""}`.trim() };
+  }
+  if (PB_LOT.isUnsynced(state.lot)) return { cls: "warn", text: "saving", title: "Saved on this device, going to KYTC now." };
+  return { cls: "ok", text: "saved",
+           title: `Saved on this device and with KYTC. The data is deleted ${CONFIG.STORAGE.RETENTION_DAYS} days after this lot is submitted - your downloaded PDF is the permanent copy.` };
+}
+
+function paintSyncChip() {
+  const el = $("syncChip");
+  if (!el) return;
+  const s = syncChipState();
+  if (!s) { el.classList.add("hidden"); el.textContent = ""; return; }
+  el.classList.remove("hidden");
+  el.className = `syncchip ${s.cls}`;
+  el.textContent = s.text;
+  el.title = s.title || "";
+}
+
+/* ---------- the front door's list ---------- */
+
+// Every lot this technician can open, without hunting for a file. It is the
+// single most visible thing storage buys, and the reason it is worth having a
+// server at all: a lot started on the tablet at the plant opens on the laptop
+// in the office.
+//
+// A purged lot is LISTED AND NOT OPENABLE, which is the honest shape of the
+// retention rule: "lot 7 existed and was submitted on the 4th" outlives its
+// test data by design.
+async function paintLotList() {
+  const wrap = $("lotListWrap");
+  if (!wrap || !isPlantBook()) return;
+  const store = lotStore();
+  if (!store) return;
+  let rows = [];
+  try { rows = await store.list({ limit: 50 }); }
+  catch (_) { return; }
+  if (!rows.length) { wrap.classList.add("hidden"); wrap.innerHTML = ""; return; }
+
+  const when = (t) => (t ? String(t).slice(0, 16).replace("T", " ") : "");
+  const items = rows.map((r) => {
+    const purged = !!r.purged_at || r.has_data === false;
+    const label = `Lot ${esc(String(r.lot_number))} · ${esc(r.mix_signature || r.mix_id)}`;
+    const sub = [esc(r.contract_id), esc(r.plant_name || r.amp_number),
+                 r.status === "Open" ? `${r.sublots_entered || 0} of 4 sublots` : esc(r.status),
+                 when(r.saved_at)].filter(Boolean).join(" · ");
+    const flag = purged ? `<span class="lotflag">data purged</span>`
+               : r.unsynced ? `<span class="lotflag warn">not yet sent</span>` : "";
+    return purged
+      ? `<div class="lotrow gone"><div><strong>${label}</strong><span>${sub}</span></div>${flag}</div>`
+      : `<button type="button" class="lotrow" data-lot-uid="${esc(r.uid)}">
+           <div><strong>${label}</strong><span>${sub}</span></div>${flag}
+         </button>`;
+  }).join("");
+
+  wrap.innerHTML =
+    `<h3>Lots you already have</h3>
+     <p class="legend">Open one to carry on. A lot's data is kept for
+        ${CONFIG.STORAGE.RETENTION_DAYS} days after it is submitted and then deleted &mdash;
+        the PDF you downloaded is the permanent copy.</p>
+     ${items}`;
+  wrap.classList.remove("hidden");
+  wrap.querySelectorAll("[data-lot-uid]").forEach((b) => {
+    b.addEventListener("click", () => openLotFromStore(b.dataset.lotUid));
+  });
+}
+
+async function openLotFromStore(uid) {
+  const store = lotStore();
+  if (!store) return;
+  try {
+    const lot = await store.load(uid);
+    if (!lot) { msg($("uploadMsg"), "That lot is no longer on this device or on the server.", "error"); return; }
+    if (!Object.keys(lot.values || {}).length) {
+      msg($("uploadMsg"),
+          `Lot ${lot.lot_number}'s data was deleted ${CONFIG.STORAGE.RETENTION_DAYS} days after it was submitted, ` +
+          `which is the retention rule. Open the lot PDF you downloaded instead - it carries the whole lot inside it.`,
+          "warn");
+      return;
+    }
+    show("uploadCard", false);
+    openLotEnvelope(lot, "your stored lots");
+  } catch (err) {
+    msg($("uploadMsg"), err.message || "Couldn't open that lot.", "error");
+  }
+}
+
+/* ---------- catching up ---------- */
+
+// Called at boot and whenever the browser says the connection is back. Safe
+// to call often: with an empty outbox it does nothing at all.
+async function flushLots() {
+  const store = state.store;                 // NOT lotStore() - never build one just to flush
+  if (!store || !store.flush) return;
+  try { await store.flush({ by: storeWho() }); } catch (_) { /* it will try again */ }
+  paintSyncChip();
+  paintLotList();
+}
+
+if (typeof window !== "undefined" && window.addEventListener) {
+  window.addEventListener("online", flushLots);
+}
+/* ===== END PLANTBOOK — THE LOT STORE ===== */
 
 /* ---------- the MixPack for SiteManager ----------
  *
@@ -24541,6 +24968,11 @@ async function boot(session) {
       show("gateCard", false);
       show("uploadCard", true);
       paintUploadCard();
+      // Two things storage buys, both here rather than behind a menu: the
+      // lots this technician already has, and anything a previous session
+      // left unsent. Neither is awaited - the door opens either way.
+      paintLotList();
+      flushLots();
       return;
     }
 

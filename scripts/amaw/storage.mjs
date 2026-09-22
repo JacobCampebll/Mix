@@ -857,7 +857,40 @@ export function syncedLotStore(opts = {}) {
      * because a save that succeeded on this machine did succeed.
      */
     async save(lot, { by = null, sync = true } = {}) {
-      const saved = await local.save(lot, { by });
+      // THE CALLER'S SYNC BOOKKEEPING IS NOT TO BE TRUSTED, and this cost a
+      // silent failure to find. A page hands in the FORM's view of the lot,
+      // carrying whatever `revision` / `server_revision` / `synced_revision`
+      // it was opened with — and a flush that succeeded in the background
+      // since then moved all three on disk without touching the copy on
+      // screen. Letting the incoming envelope win rolls them back, so the very
+      // next push presents a token the server has already moved past, and the
+      // answer is a stale-revision conflict on a lot nobody else has touched.
+      // It surfaced as Submit quietly not sealing.
+      //
+      // So those four fields come from the store, never from the caller. The
+      // caller owns the lot's CONTENT; the store owns where that content has
+      // got to.
+      let held = null;
+      try { held = await local.load(lot.uid); } catch (_) { /* first save */ }
+      const incoming = held ? {
+        ...lot,
+        // THE STATUS IS CHAIN STATE, and the chain is not the client's to
+        // write — the same rule amaw_lots_guard() enforces server-side, here
+        // so the two cannot disagree. It matters more than it looks:
+        // submitLotToKYTC() moves the stage to Submitted BEFORE it builds the
+        // payload, so the very next autosave would write that status locally
+        // and seal() would then refuse its own submission as "already
+        // Submitted". Only seal() moves it, and it writes through local.save()
+        // rather than through here.
+        status: held.status,
+        revision: held.revision,
+        server_revision: held.server_revision,
+        synced_revision: held.synced_revision,
+        // A seal the caller is making wins; otherwise one already waiting on
+        // disk must not be dropped by an ordinary save.
+        pending_seal: lot.pending_seal || held.pending_seal || null,
+      } : lot;
+      const saved = await local.save(incoming, { by });
       if (sync && remote) {
         try {
           await pushOne(saved, by);
