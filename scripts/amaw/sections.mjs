@@ -836,7 +836,7 @@ const SUBLOT_VOLUMETRICS_SPEC = {
     // from Gse and the sublot's Gmm, less the moisture correction - see
     // volumetrics.mjs.
     { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
-    { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
+    { key: "gmb", label: "G<sub>mb</sub> (BSG)", type: "number", req: false, mono: true, readonly: true },
     { key: "gmm", label: "G<sub>mm</sub> (MSG)", type: "number", req: false, mono: true, readonly: true },
     { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
     { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
@@ -1256,7 +1256,7 @@ const VERIFY_VOLUMETRICS_SPEC = {
     { key: "record", label: "Record", type: "text", readonly: true },
     { key: "sublot", label: "Sublot", type: "text", mono: true, readonly: true, chipHide: true },
     { key: "binder_pct", label: "%AC", type: "number", req: false, mono: true, readonly: true },
-    { key: "gmb", label: "Gmb (BSG)", type: "number", req: false, mono: true, readonly: true },
+    { key: "gmb", label: "G<sub>mb</sub> (BSG)", type: "number", req: false, mono: true, readonly: true },
     { key: "gmm", label: "G<sub>mm</sub> (MSG)", type: "number", req: false, mono: true, readonly: true },
     { key: "va", label: "Va (%)", type: "number", req: false, mono: true, readonly: true },
     { key: "pbe", label: "Pbe (%)", type: "number", req: false, mono: true, readonly: true },
