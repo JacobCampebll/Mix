@@ -135,7 +135,8 @@ function logoDataUri() {
  * Central Office reviewer sees Approve and the two reviewer-only lookups. They
  * are different markup, so both are worth sweeping.
  */
-export async function openPage(browser, { width = 1440, height = 1000, canReview = false, query = "" } = {}) {
+export async function openPage(browser,
+    { width = 1440, height = 1000, canReview = false, query = "", unapplied = false } = {}) {
   const { file } = rewrittenPage();
   const ctx = await browser.newContext({ viewport: { width, height } });
   const page = await ctx.newPage();
@@ -143,6 +144,9 @@ export async function openPage(browser, { width = 1440, height = 1000, canReview
   page.on("pageerror", (e) => errs.push("pageerror: " + String(e)));
   page.on("console", (m) => { if (m.type() === "error") errs.push("console: " + m.text()); });
   await page.addInitScript((v) => { window.__HARNESS_CAN_REVIEW = v; }, canReview);
+  // supabase/amaw_lots.sql unapplied — what every deploy looks like until
+  // Andrew runs it, and a state the page has to be indistinguishable in.
+  await page.addInitScript((v) => { window.__HARNESS_UNAPPLIED = v; }, unapplied);
   const q = `?mode=new&cid=${JOB.cid}&letting=${JOB.letting}&plant=${JOB.plant}${query}`;
   await page.goto(`file://${file}${q}`);
   // Wait on a fact, not a timer: the sections exist only once enterForm() has

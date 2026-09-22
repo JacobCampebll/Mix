@@ -164,6 +164,40 @@ const READ = async ({ approval }) => {
   };
 };
 
+/* THE STATE THE LIVE SITE IS IN TODAY, and the one every deploy passes
+ * through: the page shipped, supabase/amaw_lots.sql has not been applied, and
+ * PostgREST answers every query about a relation that does not exist with
+ * PGRST205/42P01. That has to be indistinguishable from a plant with no signal
+ * - a lot saves, opens and submits out of localStorage exactly as before - and
+ * boot() now calls paintLotList() and flushLots(), so it is boot that would
+ * break if it were not. */
+const UNAPPLIED = async ({ approval }) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+  openLotEnvelope(out.lot, "the harness");
+  const uid = state.lot.uid;
+  const el = document.querySelector('[data-field="lot_tons"]');
+  el.value = "4123";
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  await sleep(CONFIG.STORAGE.AUTOSAVE_MS + 900);
+
+  const local = JSON.parse(localStorage.getItem("amaw_lot:" + uid) || "null");
+  const avail = await state.store.available();
+  // The front door still has to render, and its list still has to be honest.
+  show("uploadCard", true);
+  await paintLotList();
+  await flushLots();
+  return {
+    savedLocally: !!local,
+    localTons: local ? (local.values || {}).lot_tons : undefined,
+    serverEmpty: Object.keys(window.__HARNESS_AMAW.amaw_lots).length === 0,
+    availLocal: avail.ok, availRemote: avail.remote, availReason: avail.reason,
+    listRows: document.querySelectorAll("#lotListWrap [data-lot-uid]").length,
+    chip: $("syncChip").textContent,
+    formAlive: document.querySelectorAll("#sections .section").length,
+  };
+};
+
 export async function run({ browser, results }) {
   const ok = (what, cond, detail) => results.add(id, BOOK, what, cond ? "PASS" : "FAIL", detail);
 
@@ -233,4 +267,26 @@ export async function run({ browser, results }) {
 
   ok("no console errors through any of it",
      out.value.errs.length === 0, out.value.errs.slice(0, 3).join(" | ") || "clean");
+
+  // ---- and the same page on a project without the schema ----
+  const un = await withBook(browser, PLANT,
+    { width: 1440, height: 1000, query: "&sublots=open", unapplied: true },
+    async (h) => {
+      const r = await h.page.evaluate(UNAPPLIED, { approval: APPROVAL });
+      return { r, errs: realErrors(h.errors || []) };
+    });
+  if (un.skipped) { results.skip(id, BOOK, "with the schema unapplied", un.skipped); return; }
+  const u = un.value.r;
+
+  ok("unapplied: the form still renders", u.formAlive > 0, `${u.formAlive} sections`);
+  ok("unapplied: a lot still saves on this device",
+     u.savedLocally && String(u.localTons) === "4123", `lot_tons=${JSON.stringify(u.localTons)}`);
+  ok("unapplied: nothing reached the server", u.serverEmpty, u.serverEmpty);
+  ok("unapplied: available() says local is fine and remote is not",
+     u.availLocal === true && u.availRemote === false, `local=${u.availLocal} remote=${u.availRemote}`);
+  ok("unapplied: …naming the missing migration rather than a stack trace",
+     /has not been applied/.test(u.availReason || ""), u.availReason);
+  ok("unapplied: the lot still lists, out of localStorage", u.listRows === 1, `${u.listRows} rows`);
+  ok("unapplied: no console errors at all",
+     un.value.errs.length === 0, un.value.errs.slice(0, 3).join(" | ") || "clean");
 }

@@ -116,8 +116,13 @@ export function stubScript() {
     api.then = function (res, rej) {
       var d = table === "technicians" ? TECH
             : table === "technician_capabilities" ? CAPS
-            : AMAW[table] ? amawRead(table, api._eq)
+            : AMAW[table] ? (function () {
+                var v = amawRead(table, api._eq);
+                if (amawRead.err) return { __error: amawRead.err };
+                return v;
+              })()
             : (DATA[table] || []);
+      if (d && d.__error) return Promise.resolve({ data: null, error: d.__error }).then(res, rej);
       if (single && Array.isArray(d)) d = d.length ? d[0] : null;
       return Promise.resolve({ data: d, error: null }).then(res, rej);
     };
@@ -134,9 +139,19 @@ export function stubScript() {
    * window.__HARNESS_OFFLINE flips the whole thing to "no signal", which is
    * the state a plant is in often enough to be worth a check of its own. */
   var AMAW = { amaw_lots: {}, amaw_lot_data: {}, amaw_lot_summaries: {} };
-  function offline() { if (window.__HARNESS_OFFLINE) throw new Error("Failed to fetch"); }
+  function offline() {
+    if (window.__HARNESS_OFFLINE) throw new Error("Failed to fetch");
+    // supabase/amaw_lots.sql unapplied - what the live site looks like until
+    // Andrew runs it, and the one state every deploy passes through.
+    if (window.__HARNESS_UNAPPLIED) {
+      var e = new Error("relation does not exist"); e.pgrst = { code: "42P01",
+        message: 'relation "public.amaw_lots" does not exist' }; throw e;
+    }
+  }
   function amawRead(table, eq) {
-    offline();
+    try { offline(); }
+    catch (e) { if (e.pgrst) { amawRead.err = e.pgrst; return null; } throw e; }
+    amawRead.err = null;
     var out;
     if (table === "amaw_lot_data") {
       out = Object.keys(AMAW.amaw_lot_data).map(function (k) { return AMAW.amaw_lot_data[k]; });
@@ -159,8 +174,11 @@ export function stubScript() {
   }
   function amawWrite(table, op, row, eq) {
     var res = { data: null, error: null };
-    try { offline(); } catch (e) { var pr = Promise.reject(e); pr.select = function () { return pr; };
-                                   pr.single = function () { return pr; }; return pr; }
+    try { offline(); }
+    catch (e) {
+      var pr = e.pgrst ? Promise.resolve({ data: null, error: e.pgrst }) : Promise.reject(e);
+      pr.select = function () { return pr; }; pr.single = function () { return pr; }; return pr;
+    }
     if (op === "delete") {
       Object.keys(eq || {}).forEach(function (k) {
         Object.keys(AMAW.amaw_lots).forEach(function (id) {
