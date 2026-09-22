@@ -10846,7 +10846,18 @@ async function buildReviewPDF(payload) {
       if (!lotPay) return;
       const W = [["Joint density", "jointDensity"], ["Lane density", "laneDensity"],
                  ["%AC", "ac"], ["Air voids", "av"], ["VMA", "vma"]];
-      const body = W.map(([label, key]) => {
+      // Gradation acceptance (2026-09-22): the five properties are not in
+      // force, so the printed table is the sublots - each pays the lowest
+      // factor over its sieves and its %AC, and the lot pays their average
+      // ('Pay Values'!E37:E41). Same shape the readout uses on screen.
+      const grad = lotPay.gradation;
+      const head = grad ? ["Sublot", "Pay (%)", "Lowest factor"] : ["Property", "Pay (%)", "Weight"];
+      const weights = grad ? [0.8, 0.6, 1.6] : [1.4, 0.8, 0.6];
+      const body = grad ? (grad.sublots || []).map((s, i) => [`Sublot ${i + 1}`, payText(s.pay, 2),
+        !s.factors.length ? "nothing scored yet"
+          : s.allowance ? `${s.lowest.join(", ")} at ${payText(s.min, 2)}; forgiven on the setup sublot`
+          : s.min === 100 ? "every factor paid 100" : s.lowest.join(", ")])
+      : W.map(([label, key]) => {
         const prop = (lotPay.byProperty || {})[key] || {};
         const w = (lotPay.weights || {})[key];
         return [label, payText(prop.value, 2), w == null ? "-" : `x${w}%`];
@@ -10859,7 +10870,7 @@ async function buildReviewPDF(payload) {
         ["Pay adjustment ($)", payText(lotPay.dollarAdj, 2)],
       ].filter((pr) => pr[1] !== "-" && pr[1] !== "\u2014");
       sectionHead(section.label, RW.headH + (body.length + 1) * RW.rowH + 24);
-      table({ head: ["Property", "Pay (%)", "Weight"], body, weights: [1.4, 0.8, 0.6] });
+      table({ head, body, weights });
       if (totals.length) pairs(totals, { cols: 3 });
       // Said once, where the numbers are, rather than left to be discovered:
       // a weight of x0% means the property does not count on this lot.
