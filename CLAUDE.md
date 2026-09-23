@@ -5046,3 +5046,88 @@ commit where possible.
   representation in this schema at all. A table nothing writes is a table that
   rots; the envelope's `records` map is stored inside `amaw_lot_data` for when
   that question is answered.
+
+- **A demo-only `johndoe` technician account exists in the live Supabase
+  project, built 2026-09-22 for a task force meeting Andrew is giving on
+  the contractor-side view of both books.** Jake's framing: CO Materials
+  reviewers can see everything, but a contractor demo should show exactly a
+  contractor's own view, nothing from the reviewer/approval side. SM ID
+  `johndoe`, company "Demo Contractor (Task Force Preview)", both certs, no
+  `can_review`, no `all_plants`, onboarded straight through with a
+  **dedicated password, never the shared rollout temp password** - that
+  password is written down in this file and would otherwise be shown on a
+  shared screen to the whole task force. `technician_plant_access` carries
+  all five Eaton plants (AMP060302 Verona, 060307 Richwood, 060308
+  Sanfordtown, 060309 Butler, 090303 Maysville - the last one's name had a
+  real typo, "Ashpalt", fixed in `plants` the same day, checked and not
+  duplicated anywhere else) plus a Boonesboro placeholder (AMP070302) kept
+  from before Eaton's design was in hand. **Remove the Boonesboro row once
+  the demo no longer needs a fallback with real approved data behind it** -
+  it was never Eaton's, it was just the one plant with a real approved
+  design and two real AMAW lots already in the system to fall back on.
+  **DesignBook's half of the demo is real, PlantBook's is fabricated on
+  purpose** (Andrew: "I won't be using any actual production data for this
+  mix to demo PlantBook, so we'll need to make something up"). The real
+  half is Eaton's own `#404PA.xlsm` (contract 261118, Gallatin County,
+  AMP060302 Verona, CL3 ASPH SURF 0.38D PG64-22, permission granted by
+  Eaton for this specific demo) - imported exactly as a contractor would,
+  nothing about the design invented. The fabricated half is the lot itself:
+  solved against the design's own real Gsb-blend (2.6705) and Gmm (~2.47)
+  with `scripts/amaw/volumetrics.mjs` - the same pure module the page
+  itself runs - rather than picked at random, so it lands near the 3.5%
+  production air-void target and computes a real, non-error pay verdict
+  ("Bonus") instead of something that reads as broken on screen.
+  **The approval is signed with a demo key, never
+  `APPROVAL_SIGNING_SECRET`, and that is not a shortcut - it is the whole
+  point.** Eaton's design has not actually finished KYTC's real review;
+  signing it for real, even for a one-off demo click, would mint a
+  genuinely verifiable KYTC approval of a design nobody has actually
+  approved. Same convention `scripts/demo/demo.mjs` already established for
+  the #467PA film (`netlify/lib/canonical.mjs` imported and run for real,
+  only the signing key and the Supabase auth check stood in for) - reused
+  here rather than invented a second way. `verify-approval` correctly
+  reports this approval as unverified if anyone ever actually checks it.
+  `scripts/demo/build_404pa_demo.mjs` is the driver, adapted from
+  `demo.mjs` with the cinematic/video parts stripped out: import, submit,
+  approve, open PlantBook on that approval with **`?sublots=open`** (a
+  fresh lot locks after sublot 1, and a demo needs all four filled - see
+  the sublot-lock entries above), fill the fabricated weights, download the
+  approval PDF and the finished lot as both a PDF and a `.json` working
+  copy, into the git-ignored `scripts/demo/out/404pa/`: `approval.pdf`
+  (upload this to demo starting a fresh lot live), `demo-lot-404.pdf` /
+  `.json` (the finished one, ready to open as-is).
+  **Re-run 2026-09-23 against Jake's lot-storage page, and three things
+  changed.** Its Supabase stand-in answers the four `amaw_lot*` relations
+  with Postgres `42P01`, exactly as production does while `amaw_lots.sql`
+  is unapplied - and NOT `amaw_types`, which IS live (a first cut that
+  failed every `amaw_*` name put a false "failed: amaw_types" line on the
+  Submit step). Unapplied, the Submit step shows no missing-migration
+  warning; it simply says the file is how you save. The lot is **1,141
+  tons**, not 4,000: contract 261118's line 0025 (this mix) is 1,141 tons
+  on the live pay estimate 0005, smaller than one lot, so this is the short
+  final lot and its dollars agree with the real contract. And the saved lot
+  carries the REAL project item, fetched from the live `kytc-items` and
+  handed to the page's own `applyProjectItems()` - a file:// page cannot
+  reach KYTC itself, and a saved lot does not re-run the lookup on reopen,
+  so without this the table would open blank in front of the room. Worth a
+  look before showing it: Eaton's MixPack names project item `(0050)` while
+  KYTC's current estimate carries this mix on line **0025** - exactly the
+  stale-project-items case the lookup exists for, on a real file.
+  **A file built under `?sublots=open` opens LOCKED again from a plain
+  URL** - the flag only unlocks the session it was loaded in, it does not
+  travel with the file (only a `sublots_unlocked` marker does, and nothing
+  reads that marker back on open) - so reopening `demo-lot-404.pdf` normally
+  shows sublots 2-4 read-only, still fully computed, just not editable.
+  Add `&sublots=open` back to the PlantBook URL before uploading it to edit
+  them live in front of the room.
+  **`supabase/amaw_lots.sql` (issue #28) is held until after the
+  2026-09-24 demo, and `johndoe` is retired before it is applied**
+  (Andrew, 2026-09-23). The ledger and its events are permanent and the
+  purge does nothing until pg_cron is scheduled, so with the tables live
+  every lot `johndoe` started on screen would become a permanent ledger
+  row on Eaton's REAL contract 261118 at their real plant AMP060302 - a
+  fabricated lot on a real job, visible to anyone who later "pulls up a
+  contract and sees how many lots are on a mix". Unapplied, the page runs
+  local-first, which is exactly the mode a demo wants. So the order is:
+  demo, then delete the `johndoe` account and its plant access, then
+  apply. Anyone reading this before the demo: do not apply it early.
