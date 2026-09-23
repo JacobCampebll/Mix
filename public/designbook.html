@@ -23422,6 +23422,16 @@ async function paintLotList() {
   catch (_) { return; }
   if (!rows.length) { wrap.classList.add("hidden"); wrap.innerHTML = ""; return; }
 
+  // Same reasoning as syncChipState(): until amaw_lots.sql is applied the
+  // lots here live only in this browser, so "not yet sent" (it never will be)
+  // and the retention sentence (nothing is kept to delete) are both untrue.
+  // The list itself stays - reopening a lot kept on this device is real.
+  let notSetUp = false;
+  try {
+    const a = await store.available();
+    notSetUp = !!a && a.remote === false && /has not been applied/.test(a.reason || "");
+  } catch (_) { /* cannot tell: keep the full wording */ }
+
   const when = (t) => (t ? String(t).slice(0, 16).replace("T", " ") : "");
   const items = rows.map((r) => {
     const purged = !!r.purged_at || r.has_data === false;
@@ -23430,7 +23440,7 @@ async function paintLotList() {
                  r.status === "Open" ? `${r.sublots_entered || 0} of 4 sublots` : esc(r.status),
                  when(r.saved_at)].filter(Boolean).join(" · ");
     const flag = purged ? `<span class="lotflag">data purged</span>`
-               : r.unsynced ? `<span class="lotflag warn">not yet sent</span>` : "";
+               : r.unsynced && !notSetUp ? `<span class="lotflag warn">not yet sent</span>` : "";
     return purged
       ? `<div class="lotrow gone"><div><strong>${label}</strong><span>${sub}</span></div>${flag}</div>`
       : `<button type="button" class="lotrow" data-lot-uid="${esc(r.uid)}">
@@ -23440,9 +23450,9 @@ async function paintLotList() {
 
   wrap.innerHTML =
     `<h3>Lots you already have</h3>
-     <p class="legend">Open one to carry on. A lot's data is kept for
+     <p class="legend">Open one to carry on.${notSetUp ? "" : ` A lot's data is kept for
         ${CONFIG.STORAGE.RETENTION_DAYS} days after it is submitted and then deleted &mdash;
-        the PDF you downloaded is the permanent copy.</p>
+        the PDF you downloaded is the permanent copy.`}</p>
      ${items}`;
   wrap.classList.remove("hidden");
   wrap.querySelectorAll("[data-lot-uid]").forEach((b) => {
