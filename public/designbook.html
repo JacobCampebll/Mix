@@ -23367,6 +23367,14 @@ function syncChipState() {
   if (!isPlantBook() || !state.lot) return null;
   const store = state.store;
   if (!store) return { cls: "warn", text: "on this device only", title: "Storage is not available in this browser, so this lot lives only in the file you download." };
+  // Storage not SET UP is not the same as no signal. Until amaw_lots.sql is
+  // applied every push fails with the store's "has not been applied" reason
+  // (a wording harness/checks/lotstore.mjs already asserts), and isTransient()
+  // treats that as offline - so without this the chip told every contractor
+  // "offline · 1 waiting" while they were online. No chip at all is the honest
+  // state: the site is the file-is-the-record model it was before storage.
+  const st0 = store.state ? store.state() : {};
+  if (/has not been applied/.test(st0.lastError || "")) return null;
   if (state.lot.status && state.lot.status !== "Open") {
     return { cls: "ok", text: state.lot.status.toLowerCase(),
              title: `This lot was ${state.lot.status.toLowerCase()} and is no longer editable. KYTC holds the copy the PDF's hash covers.` };
