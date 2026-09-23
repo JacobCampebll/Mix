@@ -10248,6 +10248,10 @@ function wireForm() {
       // others simply step - a lot is not signed, and Accepted is KYTC
       // recording that they took it.
       if (next.key === "Submitted") return submitLotToKYTC();
+      if (next.key === "Accepted" && !state.canReview) {
+        msg($("saveMsg"), "Only KYTC accepts a lot. It is with KYTC now - there is nothing more to do here.", "warn");
+        return;
+      }
       state.stageIdx += 1;
       state.history = (state.history || []).concat([custodyEntry(`Lot ${next.key.toLowerCase()}`)]);
       renderLotStage();
@@ -22545,6 +22549,11 @@ function renderLotStage() {
   if (btn) {
     btn.textContent = s.next || "Accepted";
     btn.disabled = !s.next;
+    // Accepting a lot is KYTC's act, the same power as approving a design
+    // (can_review). A contractor's lot is "with KYTC" once submitted, so the
+    // button is not theirs to see. The click handler refuses too - hiding a
+    // button is UX, not a gate, on a page anyone can link to.
+    btn.classList.toggle("hidden", s.key === "Submitted" && !state.canReview);
   }
   if (note) note.textContent = s.note || "";
   const pib = $("itemsLookupBtnStatus");
