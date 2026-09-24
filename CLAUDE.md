@@ -5375,8 +5375,8 @@ commit where possible.
   badges and, under them, a navy "Open <book> →" button per book held: two
   things saying one fact. `#bookDoors` now holds a `button.door` per
   `CONFIG.BOOKS` entry, side by side at 56px. A book this account can open is
-  green and navigates to its Portal. A book it cannot open is dashed, struck
-  through and `disabled`, with `needs` under the name ("Needs Mix Design
+  green and navigates to its Portal. A book it cannot open is dashed grey and
+  `disabled` (no strike-through; Jake asked for it off), with `needs` under the name ("Needs Mix Design
   Tech") and `needsLong` as the hover text. It says "current" because
   `technician_capabilities` gates on an unexpired cert. **A green tile must
   always go somewhere**, so the refused state is a different shape, not a
