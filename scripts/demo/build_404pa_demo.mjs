@@ -50,38 +50,30 @@ function findLibs() {
 }
 
 /* ---------- the offline Supabase stand-in, tailored to #404PA ---------- */
+// The reference tables are a SNAPSHOT of the live project, not a hand-typed
+// list. A hand-typed one was tried first and it was wrong in a way that showed
+// on screen: it carried placeholder AGP numbers and the MixPack's own freehand
+// spellings, so the importer could not resolve a producer by its real AGP
+// number, the approval carried names KYTC's list does not have, and PlantBook
+// then found no AGP number for three of the four blend rows. The live upload
+// resolves them, so the pre-built files disagreed with the demo's own first
+// step. The snapshot is git-ignored; refresh it on project
+// iwysxhcmvhkcjxmjarkd with one json_build_object over aggregates,
+// aggregate_types, binder_terminals, binder_grades, plants (ordered
+// `amp_number <> 'AMP060302', amp_number`), polish_resistant_sources,
+// kytc_district_labs, and producer_supplier_labs limited to johndoe's
+// plants - the rows RLS shows that account - saved as that file.
+// `plants` must lead with AMP060302: this stub ignores filters, so a
+// maybeSingle() plant lookup takes the first row.
+const REFERENCE = `${OUT}/live_reference.json`;
 function stubScript(tech) {
-  const rows = (cols, data) => data.map((r) => Object.fromEntries(cols.map((c, i) => [c, r[i]])));
-  const AGGREGATES = [
-    ["AGP-BOONE", "Boone Quarry @ Verona, KY.", "crushed_stone"],
-    ["AGP-MELVIN", "Melvin Stone @ Wilmington, KY", "crushed_stone"],
-    ["AGP-NUGENT", "Nugent Sand @ Warsaw, KY.", "sand_gravel"],
-  ];
-  const AGGREGATE_TYPES = [
-    ["Limestone #8's", "10395", null],
-    ["Dol. #10's Washed", "10290", null],
-    ["Natural Sand", "10436", null],
-    ["Fine RAP", "24033", null],
-  ];
-  const BINDER_TERMINALS = [["LAP100702", "Greater Cin. Asphalt Term II @ Cin., OH"]];
-  const BINDER_GRADES = [["PG64-22", "31001"]];
-  const PLANTS = [
-    ["AMP060302", "Eaton Asphalt Paving @ Verona"],
-    ["AMP060307", "Eaton Asphalt Paving @ Richwood"],
-    ["AMP060308", "Eaton Asphalt Paving @ Sanfordtown"],
-    ["AMP060309", "Eaton Asphalt Paving @ Butler"],
-    ["AMP090303", "Eaton Asphalt Paving @ Maysville"],
-  ];
-  const DATA = {
-    aggregates: rows(["agp_number", "producer_name", "category"], AGGREGATES),
-    aggregate_types: rows(["type_name", "mat_code", "polish_resistant_class"], AGGREGATE_TYPES),
-    binder_terminals: rows(["lap_number", "terminal_name"], BINDER_TERMINALS),
-    binder_grades: rows(["grade", "sitemanager_code"], BINDER_GRADES),
-    plants: rows(["amp_number", "name"], PLANTS),
-    polish_resistant_sources: [],
-    producer_supplier_labs: [],
-    kytc_district_labs: [],
-  };
+  if (!fs.existsSync(REFERENCE)) {
+    throw new Error(`No reference snapshot at ${REFERENCE} - export the live reference tables first (see the comment above stubScript).`);
+  }
+  const DATA = JSON.parse(fs.readFileSync(REFERENCE, "utf8"));
+  if (!DATA.plants || !DATA.plants.length || DATA.plants[0].amp_number !== "AMP060302") {
+    throw new Error("reference snapshot: plants must lead with AMP060302 (the stub's maybeSingle() takes the first row)");
+  }
   const CAPS = { can_access_plantbook: true, can_access_designbook: true };
   return `<script>
 (function () {
