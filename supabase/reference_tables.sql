@@ -124,21 +124,44 @@ create policy "authenticated can read binder_grades"
   using (true);
 
 -- ---------------------------------------------------------------------
--- Grants. What is LIVE: none of these four tables had the plants.sql
+-- Grants. These are EXPLICIT as of 2026-09-24, and they are a deliberate
+-- divergence from what is live rather than a description of it.
+--
+-- What is LIVE: none of these four tables had the plants.sql
 -- `revoke all ... / grant select ... to authenticated` step run. They carry
 -- Supabase's default privileges (relacl: anon, authenticated and
--- service_role all = arwdDxtm, i.e. full DML). A plain `create table` in
--- public reproduces that, so nothing further is needed to match live.
--- RLS with a select-only policy still makes the effective access read-only
--- for authenticated and nothing at all for anon; the grants only matter if
--- RLS is ever switched off. To bring them in line with plants.sql (worth
--- doing — it is a one-line defence against exactly that), run:
+-- service_role all = arwdDxtm, i.e. full DML), which a plain `create table`
+-- in public has always reproduced. RLS with a select-only policy makes the
+-- effective access read-only for authenticated and nothing at all for anon
+-- either way, so the difference only bites if RLS is ever switched off.
 --
---   revoke all on aggregates, aggregate_types, binder_terminals, binder_grades
---     from anon, authenticated;
---   grant select on aggregates, aggregate_types, binder_terminals, binder_grades
---     to authenticated;
+-- Why they are written out now: from 2026-10-30 Supabase stops granting
+-- Data API access to NEW tables in public automatically, and a migration
+-- that creates a table without grants leaves it unreachable through
+-- PostgREST. Applied tables keep the privileges they already hold, so the
+-- live project is unaffected -- but this file is also what a new project, a
+-- preview branch or a `supabase db reset` would run, and there it would
+-- silently produce four tables the page cannot read. `loadReferenceData()`
+-- degrades rather than breaking (each dropdown falls back to a free-text
+-- input, with the failure named on the Status step), which is exactly the
+-- kind of failure that reads as a data problem instead of a grant one.
+--
+-- Nothing is granted to `anon` on purpose: the app reads as an authenticated
+-- technician, never as anon, the same as plants.sql. So once this has been
+-- run, an anon PostgREST probe of these four answers 42501 ("exists,
+-- refusing this role") where today it answers with an empty array. CLAUDE.md
+-- records that 42501-vs-PGRST205 distinction and the false accusation that
+-- came of reading one as the other; this is one more table set moving onto
+-- the 42501 side of it.
+--
+-- Running it against the live project is Andrew's call and is safe either
+-- way, since nothing in the app reads these as anon.
 -- ---------------------------------------------------------------------
+
+revoke all on aggregates, aggregate_types, binder_terminals, binder_grades
+  from anon, authenticated;
+grant select on aggregates, aggregate_types, binder_terminals, binder_grades
+  to authenticated;
 
 -- No table or column comments exist on any of the four tables. Only the
 -- primary-key index exists on each.

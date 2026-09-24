@@ -5208,3 +5208,60 @@ commit where possible.
   written out for a person to send. The durable half of anything said there
   still belongs in this file, as it does above; the issue is the notification,
   not the record.
+
+- **From 2026-10-30 Supabase stops granting Data API access to NEW tables in
+  `public` automatically, so every migration here now writes its grants out.
+  Nothing live is affected and nothing needs applying.** Announced by email
+  2026-09-24 (forwarded by Jake). An applied table keeps the privileges it
+  already holds, so `kytcmix.netlify.app` is untouched; what changes is that a
+  `create table` in a migration no longer implies the grant, and a table
+  created without one is unreachable through PostgREST with the error naming
+  the exact GRANT to run.
+  **`supabase/amaw_lots.sql` was already compliant** - section 4 does
+  `revoke all ... / grant select, insert, update, delete ... to authenticated`
+  over all three tables and grants select on the view - written to follow
+  `plants.sql` rather than because of this, which is the argument for the
+  convention rather than for the announcement. So the demo-then-apply order
+  above is unaffected whichever side of 10-30 it lands on.
+  **Two files were NOT, and both are applied-and-seeded already, so the
+  liability was the FILE rather than the database**: `reference_tables.sql`
+  (all four of Andrew's reference tables) and `polish_resistant_sources.sql`
+  created their tables and granted nothing, relying on the auto-grant. They
+  carry explicit grants now, on `plants.sql`'s pattern - `authenticated` gets
+  select, `anon` gets nothing, no write policy anywhere.
+  **Which means those two files now DIVERGE from what is live, deliberately**,
+  and both say so in their own headers. `reference_tables.sql` has always been
+  a reconstruction of the live structure and recorded, correctly, that the
+  `revoke all / grant select` step was never run on those four - so they still
+  carry Supabase's default full-DML privileges for `anon`, `authenticated` and
+  `service_role`. Running the new statements against the live project narrows
+  what is granted rather than widening it and is safe, but it is Andrew's call
+  and nothing needs it.
+  **Why it mattered at all, given the live rows are fine:** these files are
+  what a new project, a preview branch or a `supabase db reset` would run.
+  That is not hypothetical here - this file already says the sandbox would
+  need its own Supabase project if it ever needed schema changes, and a
+  session has already queried the wrong project confidently. And the failure
+  would have been quiet in the worst way: `loadReferenceData()` is
+  `Promise.allSettled` per table, so the four reference tables would have
+  degraded to free-text inputs, and `polish_resistant_sources` going
+  unreadable is worse still - `polishFactsFor()` would fall back to
+  `aggregate_types`' generic answer, which is a WRONG polish class rather than
+  a missing one (a LAM Class A dolomite reading as "not polish-resistant"),
+  with nothing on screen saying so.
+  **Watched failing, on a scratch Postgres 16 with `anon` / `authenticated` /
+  `service_role` created and NO default privileges on `public` - which is what
+  10-30 looks like.** The committed files give all five tables
+  `has_table_privilege('authenticated', ..., 'select')` true and `anon` false,
+  identical to `plants`; the versions at `HEAD` before this give
+  `authenticated` FALSE on all five. Re-run it that way rather than reading
+  the diff - a grant that is present and a grant that is inherited look the
+  same in a file.
+  **One diagnostic consequence**: an `anon` PostgREST probe of those five now
+  answers `42501` where it used to answer with an empty array. CLAUDE.md
+  already records `42501` ("exists, refusing this role") against `PGRST205`
+  ("does not exist") as the pair that settled the two-projects confusion, and
+  this moves five more tables onto the `42501` side of it.
+  No `service_role` grants anywhere, checked rather than assumed: nothing in
+  this repo uses that key - `netlify/lib/auth.mjs` calls with the caller's own
+  token and RLS is what limits it.

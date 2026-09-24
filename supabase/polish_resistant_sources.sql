@@ -54,6 +54,30 @@ create policy "polish_resistant_sources_select_authenticated"
   using (true);
 
 -- ---------------------------------------------------------------------
+-- Grants. EXPLICIT as of 2026-09-24, on the plants.sql pattern: read-all
+-- reference data for authenticated, nothing at all for anon, and no write
+-- policy anywhere so seeding stays an admin action through the SQL Editor.
+--
+-- The table was applied live 2026-09-11 without these, carrying Supabase's
+-- default privileges the way the four reference_tables.sql tables do, so
+-- running this against the live project narrows what is granted rather than
+-- widening it and is safe. It is Andrew's call whether to.
+--
+-- Written out now because from 2026-10-30 Supabase stops granting Data API
+-- access to NEW tables in public automatically: an applied table keeps what
+-- it has, but a migration that creates one without grants leaves it
+-- unreachable through PostgREST. This file is what a new project, a preview
+-- branch or a `supabase db reset` would run, and polishFactsFor()'s LAM
+-- override needs this table -- with it unreadable, every component would
+-- silently fall back to aggregate_types' generic answer, which is a WRONG
+-- polish class rather than a missing one (a Class A dolomite reading as
+-- "not polish-resistant"), and nothing on screen would say so.
+-- ---------------------------------------------------------------------
+
+revoke all on polish_resistant_sources from anon, authenticated;
+grant select on polish_resistant_sources to authenticated;
+
+-- ---------------------------------------------------------------------
 -- Seed rows, from LAM pp. 37-51. Idempotent via ON CONFLICT DO NOTHING so
 -- this can be re-run without duplicating rows already live.
 -- ---------------------------------------------------------------------
