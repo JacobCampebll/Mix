@@ -5147,6 +5147,21 @@ commit where possible.
   this account. Supabase would send mail there. **The password is
   deliberately not written here.** This repo is on GitHub and the account
   is live. The password is on Andrew's printed demo checklist.
+  **RETIRED 2026-09-24, after the demo. `supabase/amaw_lots.sql` (issue
+  #28) is no longer held.** Checked first: the account had written
+  nothing. It had no `designs` rows, and the `amaw_lot*` tables do not
+  exist, so every demo lot lived only in a browser. Deleted in one
+  transaction: its 5 `technician_plant_access` rows (the Boonesboro
+  placeholder had already gone that morning, so the demo showed Eaton's
+  plants only), its 2 `technician_certifications`, its `technicians` row,
+  and the `auth.users` row, which took its identity and both open sessions
+  with it. Confirmed by a real sign-in against the token endpoint, which
+  now answers `invalid_credentials`. The Maysville spelling fix in
+  `plants` stays, because it was a real correction. What is left is
+  Andrew's: apply `amaw_lots.sql` against `iwysxhcmvhkcjxmjarkd`, run the
+  post-apply checks on issue #28, and treat pg_cron as its own decision.
+  `scripts/demo/build_404pa_demo.mjs` still names `johndoe`, but only
+  inside its offline Supabase stand-in, so it needs no account to run.
 
 - **"Not set up" is a third state beside online and offline, and for a day the
   page called it offline** (Andrew, 2026-09-23, found demoing against the
