@@ -5544,7 +5544,22 @@ function msg(el, text, kind) {
 }
 function show(id, on) { $(id).classList.toggle("hidden", !on); }
 function toLogin() { location.replace(CONFIG.LOGIN_URL); }
-function toPortal() { location.href = CONFIG.PORTAL_URL; }
+// Each book's Portal. DesignBook's is portal.html, the wizard that sets up a
+// contract, a plant and a mix. PlantBook's IS the Start a lot page this same
+// file opens on ?book=plantbook (Jake, 2026-09-24), so "← Portal" from inside
+// a lot comes back to the approval upload and the lot list. The open lot is
+// saved first: autosave is debounced, and the last keystroke before the click
+// would otherwise still be waiting on its timer when the page unloads.
+async function toPortal() {
+  if (isPlantBook()) {
+    if (state.lot && (!state.lot.status || state.lot.status === "Open")) {
+      try { await saveLotNow(); } catch (_) { /* the lot store says so itself */ }
+    }
+    location.href = "designbook.html?book=plantbook";
+    return;
+  }
+  location.href = CONFIG.PORTAL_URL;
+}
 
 /* ---------- field helpers ---------- */
 // Legacy importer still calls this with old-style labels; new gradation

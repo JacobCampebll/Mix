@@ -5312,3 +5312,25 @@ commit where possible.
   there is no safe shortcut short of reading every page. The issue's fix #4,
   parsing in a Netlify function where this cap does not apply, is the real
   answer if those contracts matter. Open on #29 for Andrew and Jake.
+
+- **PlantBook's Portal IS its Start a lot page, and there is no PlantBook
+  card on `portal.html` any more** (Jake, 2026-09-24: "when you click on
+  plantbook it should take you to the page I just sent and call that the
+  portal"). `login.html`'s Open PlantBook door went to
+  `portal.html?book=plantbook`, which showed a card explaining that PlantBook
+  starts with an approval and offering one "Open PlantBook" link - a page
+  whose only job was to be clicked through, since a lot inherits its
+  contract, plant and mix from the approval and there is nothing for a portal
+  to ask. Now every way in lands on `designbook.html?book=plantbook` directly:
+  **login's door** (`CONFIG.BOOKS.<book>.portal`, so each book names its own
+  Portal rather than both being `portal.html?book=`), **the DesignBook
+  Portal's "PlantBook →" link**, and **`portal.html?book=plantbook` itself**,
+  which forwards with `location.replace()` so a bookmark still works and Back
+  does not bounce. The card and its two handlers are deleted rather than left
+  unreachable. Inside PlantBook, **"← Portal" returns to that same Start a lot
+  page** (the approval upload and the lot list), saving an open lot first,
+  because autosave is debounced and the last keystroke would otherwise still
+  be on its timer when the page unloads. DesignBook's Portal is unchanged -
+  it is still the four-step wizard, because a design does need a contract, a
+  plant and a mix established before the form opens. Browser-checked all
+  five routes; harness 388 / 0 / 3.

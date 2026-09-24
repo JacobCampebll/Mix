@@ -377,22 +377,13 @@
 <!-- ===== END SUBMIT ===== -->
 
 <!-- ===== PLANTBOOK ===== -->
-<!-- One door, not a wizard. DesignBook's four steps exist to establish a
-     contract, a plant and a mix before the form opens; a lot inherits all
-     three from the approved design it is produced under, so asking for them
-     here would be asking twice and letting the two answers disagree.
-     PlantBook's front door is the approval upload, and it is in the book
-     itself (Jake, 2026-09-13). -->
-<div class="card hidden" id="plantbookView">
-  <h2>Start a lot</h2>
-  <p class="lead">A lot is produced under an approved mix design, so PlantBook starts
-    with that approval. The PDF KYTC issued carries the whole design inside it and is
-    signed &mdash; the contract, plant, mix, blend and Gsb arrive with it, along with the
-    three figures the lot pay is measured against. A lot&rsquo;s own working copy
-    (.json) reopens the same way.</p>
-  <div class="linkrow"><a id="pbStart">Open PlantBook &rarr;</a></div>
-  <div class="linkrow"><a id="pbToDesign" class="hidden">Go to the DesignBook Portal →</a></div>
-</div>
+<!-- PlantBook has no card on this page. Its Portal is its own Start a lot
+     page, designbook.html?book=plantbook (Jake, 2026-09-24): a lot inherits
+     its contract, plant and mix from the approval it opens with, so there is
+     nothing for a portal to ask. This used to be a card that explained that
+     and offered one "Open PlantBook" link - a page whose only job was to be
+     clicked through. portal.html?book=plantbook forwards there on load, so a
+     bookmark or an older link still lands in the right place. -->
 <!-- ===== END PLANTBOOK ===== -->
 
 </div>
@@ -451,8 +442,9 @@
       buildNew: "designbook",
     },
 
-    // Which book this portal is fronting. Read from ?book=. PlantBook is not
-    // built: `built:false` shows an honest message instead of the wizard.
+    // Which book this portal is fronting. Read from ?book=. Only DesignBook
+    // is actually fronted here: ?book=plantbook forwards to ROUTES.plantbook
+    // on load, because PlantBook's Portal is its own Start a lot page.
     BOOKS: {
       designbook: { label: "DesignBook", crumb: "Portal", built: true },
       plantbook:  { label: "PlantBook",  crumb: "Portal", built: true },
@@ -533,11 +525,11 @@
     el.className = "status" + (kind ? " " + kind : "");
   }
   function showOnly(view) {
-    ["bootView", "submitView", "plantbookView"].forEach((v) =>
+    ["bootView", "submitView"].forEach((v) =>
       $(v).classList.toggle("hidden", v !== view)
     );
     const inSubmit = view === "submitView";
-    $("navSubmit").classList.toggle("hidden", !state.tech || inSubmit || view === "plantbookView");
+    $("navSubmit").classList.toggle("hidden", !state.tech || inSubmit);
   }
   function toLogin() {
     // login.html honours ?next= for same-site pages, query included, so a
@@ -677,7 +669,8 @@
     link.classList.toggle("hidden", !allowed);
     if (allowed) {
       link.textContent = `${ob.label} →`;
-      link.onclick = () => { location.href = `portal.html?book=${other}`; };
+      // PlantBook's Portal is its Start a lot page, not this one.
+      link.onclick = () => { location.href = other === "plantbook" ? CONFIG.ROUTES.plantbook : `portal.html?book=${other}`; };
     }
     $("signOutLink").classList.remove("hidden");
   }
@@ -1047,15 +1040,6 @@
       restoreJob();
       renderSteps();
 
-      // PlantBook is a door rather than a wizard - see the card's own comment.
-      // A book that is not built at all would land here too and say so; both
-      // are `built: true` now, so this branch is only about which flow the
-      // book has.
-      if (bookKey === "plantbook") {
-        $("pbToDesign").classList.toggle("hidden", !state.caps.can_access_designbook);
-        showOnly("plantbookView");
-        return;
-      }
       // Everyone lands on the wizard now. There is no queue to land on: a
       // reviewer receives a submission as a file, and opens it through the
       // KYTC Approval door, which for a reviewer is the first thing on the card.
@@ -1093,11 +1077,14 @@
     if (n < state.step) goStep(n);      // completed steps are revisitable; step 4 lives in DesignBook
   }));
   $("navSubmit").addEventListener("click", openSubmit);
-  $("pbStart").addEventListener("click", () => { location.href = CONFIG.ROUTES.plantbook; });
-  $("pbToDesign").addEventListener("click", () => { location.href = "portal.html?book=designbook"; });
   $("signOutLink").addEventListener("click", signOut);
 
-  sb.auth.getSession().then(({ data }) => boot(data.session));
+  // PlantBook's Portal is its Start a lot page, so a visit here for it goes
+  // straight there. replace() rather than assign(), so Back does not return
+  // to a page that would only forward again. designbook.html runs its own
+  // sign-in and certification gate, so nothing is skipped by not booting.
+  if (bookKey === "plantbook") location.replace(CONFIG.ROUTES.plantbook);
+  else sb.auth.getSession().then(({ data }) => boot(data.session));
   // Catches sign-out in another tab so this page doesn't sit on stale data.
   sb.auth.onAuthStateChange((event, session) => {
     if (event === "SIGNED_OUT" || !session) toLogin();

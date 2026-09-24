@@ -269,9 +269,16 @@
     NEXT_ALLOW: ["portal.html", "designbook.html"],
     // Which books exist as pages today. A granted cert for a book that is
     // not built yet shows as "coming soon", not as a link to nowhere.
+    // `portal` is where each book's door leads, and the two differ on
+    // purpose (Jake, 2026-09-24): DesignBook's Portal is the four-step
+    // wizard that establishes a contract, a plant and a mix; PlantBook's
+    // Portal IS its Start a lot page, because a lot inherits all three from
+    // the approval it opens with and a page in between asked for nothing.
     BOOKS: {
-      designbook: { label: "DesignBook", capability: "can_access_designbook", built: true },
-      plantbook:  { label: "PlantBook",  capability: "can_access_plantbook",  built: true },
+      designbook: { label: "DesignBook", capability: "can_access_designbook", built: true,
+                    portal: "portal.html?book=designbook" },
+      plantbook:  { label: "PlantBook",  capability: "can_access_plantbook",  built: true,
+                    portal: "designbook.html?book=plantbook" },
     },
     SUPABASE_URL: "https://iwysxhcmvhkcjxmjarkd.supabase.co",
     SUPABASE_ANON_KEY:
@@ -326,7 +333,7 @@
     if (CONFIG.NEXT_ALLOW.includes(page) && !next.includes("//") && !next.startsWith("/")) return next;
     const key = Object.keys(CONFIG.BOOKS)
       .find((k) => CONFIG.BOOKS[k].built && caps && caps[CONFIG.BOOKS[k].capability]) || "designbook";
-    return `${CONFIG.PORTAL_URL}?book=${key}`;
+    return CONFIG.BOOKS[key].portal;
   }
 
   const statusEl = document.getElementById("status");
@@ -492,7 +499,7 @@
         const btn = document.createElement("button");
         btn.className = "primary";
         btn.textContent = `Open ${b.label} →`;
-        btn.addEventListener("click", () => location.assign(`${CONFIG.PORTAL_URL}?book=${key}`));
+        btn.addEventListener("click", () => location.assign(b.portal));
         bookDoors.appendChild(btn);
       });
       sessionHint.hidden = false;
