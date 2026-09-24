@@ -1,10 +1,17 @@
 -- amaw_lots + amaw_lot_data + amaw_lot_events: PlantBook storage.
 --
--- *** NOT APPLIED YET. Andrew applies this. ***
+-- *** APPLIED 2026-09-24 to iwysxhcmvhkcjxmjarkd (issue #28), as migrations
+-- `amaw_lots` and `amaw_lot_summaries_grants`. ***
+-- The second is the view revoke now in section 10: this file originally
+-- granted select on amaw_lot_summaries without first revoking Supabase's
+-- automatic grants, so anon and authenticated held full privileges on the
+-- view. That exposed nothing (security_invoker, and a join view is not
+-- updatable), but it was not the intent. Undo: supabase/amaw_lots_undo.sql.
 --
--- Run it in the SQL Editor as one transaction, then run the database linter
--- (get_advisors) as CLAUDE.md requires after any DDL change - not just once.
--- The verification block at the foot of this file is what to run afterwards.
+-- To apply to another project: run it in the SQL Editor as one transaction,
+-- then run the database linter (get_advisors) as CLAUDE.md requires after
+-- any DDL change - not just once. The verification block at the foot of
+-- this file is what to run afterwards.
 --
 -- ---------------------------------------------------------------------
 -- The decision this file implements
@@ -724,6 +731,11 @@ as
     left join amaw_lot_data d on d.lot_id = l.id
     left join plants p        on p.amp_number = l.amp_number;
 
+-- Revoke first, as section 4 does for the tables. Supabase grants every new
+-- relation in public to anon and authenticated automatically (until
+-- 2026-10-30), so a bare grant leaves those in place - which is what the first
+-- apply did.
+revoke all on amaw_lot_summaries from anon, authenticated;
 grant select on amaw_lot_summaries to authenticated;
 
 -- =====================================================================

@@ -5297,6 +5297,50 @@ commit where possible.
   this repo uses that key - `netlify/lib/auth.mjs` calls with the caller's own
   token and RLS is what limits it.
 
+- **`supabase/amaw_lots.sql` is APPLIED, as of 2026-09-24 (Andrew, issue
+  #28): PlantBook lot storage is live.** It was applied after the task force
+  demo and after `johndoe` was retired, in that order. Signed-in technicians'
+  lots now save to Supabase, and the sync chip, the "not yet sent" flags and
+  the 7-day retention line show on the live site. pg_cron is NOT enabled, so
+  nothing is purged yet: the seven days are intent until the section 8 job is
+  scheduled, which is its own decision.
+  **CORRECTION to the entry above, which said this file was already compliant
+  with the 10-30 change.** The three tables were, but the view was not. Section
+  10 granted select on `amaw_lot_summaries` without first revoking Supabase's
+  automatic grants, so live, `anon` and `authenticated` both held full
+  privileges on the view. That exposed nothing: the view is
+  `security_invoker`, so an anon read hits `amaw_lots`' own refusal (probed:
+  `42501`), and a join view is not updatable (probed: `55000`). It was
+  narrowed the same day by a second migration, `amaw_lot_summaries_grants`,
+  and the file now carries the revoke. The general point: **a view needs the
+  revoke too**, and only comparing the live ACL against a scratch apply
+  caught it, because the file read as correct.
+  **How it was checked, all against the live project.**
+  - **Right project:** `iwysxhcmvhkcjxmjarkd` (376 technicians, 130 plants),
+    matching `CONFIG.SUPABASE_URL`.
+  - **Faithful copy:** a catalog fingerprint of the live objects matched a
+    scratch Postgres built from the file. That covers every function body,
+    the view definition, and the counts of columns, constraints, indexes,
+    policies and triggers. It matters because the SQL was sent with its
+    comments stripped.
+  - **Security Advisor:** two new WARNs, both intended. `amaw_seal_lot` and
+    `amaw_purge_contract` are SECURITY DEFINER and callable by signed-in
+    users on purpose, and each re-checks authority itself. They are the same
+    class as the known `claim_technician` / `mark_technician_onboarded` ones.
+  - **Impersonation, 11/11:** a transaction ending in `raise exception`, so
+    nothing was recorded. It signed in as real accounts: a Boonesboro
+    contractor (`aholt`), another company's technician (`bdeweese`) and a
+    reviewer (`adenmark`). The contractor starts a lot, cannot write its
+    status directly, submits, cannot accept, and cannot edit after
+    submission. The other company sees nothing and cannot start a lot there.
+    The reviewer sees the lot through the view and accepts it. `anon` is
+    refused.
+  - **Left behind:** 0 rows in all three tables.
+  **The way back is tested**: `supabase/amaw_lots_undo.sql` (`859b53a`),
+  with its database test and the `lotremoved` harness check. Tate's two policy
+  questions, the retention window and Central Office reading in-progress
+  lots, are each a one-line change rather than a reason to undo.
+
 - **`kytc-lookup` (Andrew's Supabase Edge Function) has its source in the repo
   now, at `supabase/functions/kytc-lookup/index.ts`, and it is version 7**
   (2026-09-24, issue #29). Until this it lived only in the Supabase project,
