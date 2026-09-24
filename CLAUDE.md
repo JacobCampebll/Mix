@@ -5131,6 +5131,22 @@ commit where possible.
   local-first, which is exactly the mode a demo wants. So the order is:
   demo, then delete the `johndoe` account and its plant access, then
   apply. Anyone reading this before the demo: do not apply it early.
+  **The sign-in is `johndoe@contractor.com` since 2026-09-24, not the SM
+  ID** (Andrew: so the demo shows how a technician signs in once their
+  email is verified). `auth.users.email` and the email identity's
+  `identity_data.email` were both changed, and the password was reset at
+  the same time. Checked with a real sign-in against Supabase Auth's token
+  endpoint: the new pair works and `johndoe@technicians.mix.local` is
+  refused. Typing plain `johndoe` now fails too, which is correct: it is
+  what an onboarded technician's SM ID does (see "Sign-in identifier
+  changes after onboarding"). The SM ID in `technicians` and
+  `technician_plant_access` is still `johndoe`. **When retiring the
+  account, look the auth row up by the new email**, because the old
+  address no longer exists. `contractor.com` is a real domain that
+  someone else owns, so never trigger a password reset or email change on
+  this account. Supabase would send mail there. **The password is
+  deliberately not written here.** This repo is on GitHub and the account
+  is live. The password is on Andrew's printed demo checklist.
 
 - **"Not set up" is a third state beside online and offline, and for a day the
   page called it offline** (Andrew, 2026-09-23, found demoing against the
