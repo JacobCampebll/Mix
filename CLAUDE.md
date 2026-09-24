@@ -5189,3 +5189,22 @@ commit where possible.
   row's, not the account's. Order: demo, remove `johndoe` and its plant access,
   confirm the project ref, apply, run the post-apply checks, then pg_cron as
   its own step.
+
+- **The migration hand-off and everything said about it live on GitHub issue
+  #28** (https://github.com/JacobCampebll/Mix/issues/28, assigned to
+  `agdenmak`), which is worth knowing because this project has no other
+  cross-session channel: the two collaborators work from separate Claude
+  accounts and cannot see each other's chats, so a decision that stays in a
+  reply is a decision the other side's next session never meets. The issue
+  carries the SQL to apply, the post-apply checks, the hold until after the
+  2026-09-24 demo, and - as of 2026-09-23 - the reply covering the three
+  things Andrew raised: the store's own `notSetUp` flag replacing his
+  wording-matched page read (his own offer, taken up), his Accept fix being a
+  real hole rather than a cosmetic one, and the retention copy already having
+  been fixed in `a016b65` before his message. **Email is not available from
+  here** - the Microsoft 365 connector holds read-only mail scopes
+  (`Mail.Read`, `Mail.ReadBasic`, `Mail.Read.Shared`; no `Mail.Send`), so an
+  issue comment is the working channel and a mail-shaped hand-off has to be
+  written out for a person to send. The durable half of anything said there
+  still belongs in this file, as it does above; the issue is the notification,
+  not the record.
