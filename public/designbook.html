@@ -1332,6 +1332,8 @@
   .handoff{margin-top:18px; padding-top:16px; border-top:1px solid var(--line);}
   .handoff .stagebtn{margin-top:0;}
   .handoffnote{font-size:12px; color:var(--muted); margin-top:8px; max-width:62ch; line-height:1.5;}
+  /* DesignBook's save note is one sentence (Jake, 2026-09-24) and reads on one line on a desktop. */
+  .handoffnote.one{max-width:none;}
   .refstatus{font-family:'Roboto Mono',monospace; font-size:11px; color:var(--muted); margin-top:6px;}
   .refstatus.error{color:var(--bad);}
   .auditrow.local .ts{color:var(--muted);}
@@ -6373,10 +6375,7 @@ function designStatusHTML() {
       <button class="stagebtn hidden" id="mixpackBtn">Download MixPack for SiteManager</button>
       <button class="stagebtn hidden" id="submittalPdfBtn">Download submittal PDF</button>
       <button class="stagebtn" id="pdfBtn">Download review PDF</button>
-      <div class="handoffnote">This is how you save. Nothing about this design is
-        kept on the site &mdash; the PDF is the only copy, and it carries every value
-        inside it. Download it to keep your work or to send it to your supervisor,
-        then upload it on the way back in to return to exactly this point.</div>
+      <div class="handoffnote one">This PDF is your only saved copy &mdash; upload it later to pick up where you left off.</div>
     </div>
     <div class="refstatus" id="refStatus"></div>
     <div class="auditlog" id="auditlog"></div>`;
@@ -24000,18 +23999,26 @@ function refFieldLabel(el) {
   return `${def ? def.label : el.dataset.col}${n ? ` (${el.dataset.row} row ${n})` : ""}`;
 }
 
-// "Reference lists: 178 aggregates, 115 types, 26 terminals, 12 grades" -
-// or what failed. Lives in the Status section (rendered by statusHTML).
+// Silent unless a reference list FAILED to load (Jake, 2026-09-24: the row of
+// counts - "188 aggregates, 115 types, ..." - was noise under the save button
+// on every design). A failure still names the tables, because it turns their
+// dropdowns into free text and a person should know why. Lives in the Status
+// section (rendered by statusHTML); the counts are one console line below.
 function renderRefStatus() {
   const el = $("refStatus");
   if (!el) return;
-  if (!state.ref.loaded) { el.textContent = "Reference lists: loading…"; el.className = "refstatus"; return; }
-  const counts = Object.entries(CONFIG.REFERENCE.TABLES)
-    .filter(([k]) => (state.ref[k] || []).length)
-    .map(([k, d]) => `${state.ref[k].length} ${d.noun}`);
-  el.textContent = "Reference lists: " + (counts.length ? counts.join(", ") : "none loaded") +
-    (state.ref.error ? ` · failed: ${state.ref.error} — those fields accept any value` : "");
-  el.className = "refstatus" + (state.ref.error ? " error" : "");
+  const failed = state.ref.loaded && state.ref.error;
+  el.textContent = failed
+    ? `Couldn't load: ${state.ref.error} — those fields accept any value`
+    : "";
+  el.className = "refstatus" + (failed ? " error" : "");
+  el.hidden = !failed;
+  if (state.ref.loaded && !renderRefStatus.logged) {
+    renderRefStatus.logged = true;
+    console.info("Reference lists: " + Object.entries(CONFIG.REFERENCE.TABLES)
+      .filter(([k]) => (state.ref[k] || []).length)
+      .map(([k, d]) => `${state.ref[k].length} ${d.noun}`).join(", "));
+  }
 }
 
 // Rebuild one sourced control from its schema def, keeping the value, the

@@ -5385,3 +5385,12 @@ commit where possible.
   hint, so a fully certified technician is never shown two refusals because
   the network dropped. Browser-checked for both certs, Plant Tech only, none,
   a failed lookup and 360px; a disabled tile's click goes nowhere.
+
+- **DesignBook's Status step says one line under Download review PDF**
+  (Jake, 2026-09-24): "This PDF is your only saved copy — upload it later to
+  pick up where you left off." The four-sentence version and the row of
+  reference-list counts ("188 aggregates, 115 types, ...") are gone.
+  `renderRefStatus()` is now silent unless a table FAILED to load, and then it
+  names the table in red, because a failed table turns its dropdowns into
+  free text and a person should know why. The counts go to the console once.
+  The audit log below it stays: it is the design's history, not help text.
