@@ -22716,9 +22716,7 @@ function renderLotStage() {
     if (canNext) nl.textContent = `Start lot ${Number(state.lot.lot_number) + 1}`;
   }
   if (nn) nn.innerHTML = canNext
-    ? ` <strong>Start lot ${Number(state.lot.lot_number) + 1}</strong> opens the next lot on this
-        same design: the contract, plant, mix, approval, blend and project items
-        carry over and every measurement is cleared. Save this one first.`
+    ? ` <strong>Start lot ${Number(state.lot.lot_number) + 1}</strong> carries this design over and clears the measurements.`
     : "";
   const medl = $("medlNote");
   if (medl) medl.innerHTML = state.canReview
@@ -23530,7 +23528,7 @@ async function sealLotSubmitted(frozen) {
 // file wording, because that one is never false. Repainted from
 // paintSyncChip(), which runs on every store outcome.
 const LOT_SAVE_NOTE = {
-  file: "The lot PDF (or the .json) is your saved copy &mdash; upload it later to pick up where you left off.",
+  file: "The lot PDF is your saved copy &mdash; upload it to carry on.",
   live: "Your lot saves as you go; the lot PDF is your backup copy.",
 };
 function paintLotSaveNote() {

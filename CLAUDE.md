@@ -5409,13 +5409,14 @@ commit where possible.
 
 - **PlantBook's Submit step save note is one sentence, and it says whichever
   is true** (Jake, 2026-09-24). Before `supabase/amaw_lots.sql` is applied it
-  reads "The lot PDF (or the .json) is your saved copy — upload it later to
-  pick up where you left off." Once the store has answered and is set up, it
+  reads "The lot PDF is your saved copy — upload it to carry on." Once the store has answered and is set up, it
   reads "Your lot saves as you go; the lot PDF is your backup copy."
   `paintLotSaveNote()` decides, from the store's own `notSetUp` flag (never
   the error wording, same rule as the sync chip), and `paintSyncChip()`
   repaints it on every store outcome. An unknown state, before the store has
   answered, gets the file wording, because that one is never false. So the
   sentence changes by itself on the day the migration lands. The contractor's
-  submittal sentence and the "Start lot n+1" sentence still follow it.
+  submittal sentence ("Submit downloads the submittal PDF to email to KYTC.")
+  and "Start lot n+1 carries this design over and clears the measurements."
+  still follow it, all three on one line at 1440px.
   Browser-checked against the harness stub both ways.
