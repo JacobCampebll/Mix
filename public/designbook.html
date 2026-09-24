@@ -10498,6 +10498,11 @@ function wireDrop() {
 // actually use and drop anything else.
 function wa(v) {
   return String(v == null ? "" : v)
+    // The 2026-09-21 notation pass put real <sub> markup (and a
+    // .notransform span around "µm") into labels. pdf-lib has no rich text,
+    // so a PDF printed the tags literally ("G<sub>mb</sub>"). Strip them so
+    // it reads "Gmb" until the PDF gets a subscript helper. Issue #32.
+    .replace(/<\/?(sub|sup)>|<span[^>]*>|<\/span>/g, "")
     .replace(/[‘’]/g, "'")
     .replace(/[“”]/g, '"')
     .replace(/→/g, "->")
@@ -10852,8 +10857,15 @@ async function buildReviewPDF(payload) {
     // The band flows across every sieve, guided by the control points; the
     // caps mark where a real M323 limit actually sits.
     const at = (px, a, b, k) => a[k] + (b[k] - a[k]) * ((px - p45(a.mm)) / (p45(b.mm) - p45(a.mm)));
-    for (let i = 0; i < cpts.length - 1; i++) {
-      const a = cpts[i], b = cpts[i + 1], xa = X(a.mm), xb = X(b.mm);
+    // Shade only through points with a real MINIMUM. A max-only point (M 323's
+    // "90 max" on the #4 for a 0.38) would otherwise read its missing minimum
+    // as 0% and pull the band to the floor of the chart - hidden until the
+    // 2026-09-22 control-point correction put that point on the right sieve.
+    // Its limit still prints as a cap below, which is how drawGradChart() on
+    // the page already treats a one-sided point. Issue #32.
+    const shade = cpts.filter((c) => c.rawLo != null);
+    for (let i = 0; i < shade.length - 1; i++) {
+      const a = shade[i], b = shade[i + 1], xa = X(a.mm), xb = X(b.mm);
       const steps = Math.max(2, Math.round(Math.abs(xb - xa) * 2));
       for (let s = 0; s < steps; s++) {
         const px = p45(a.mm) + (p45(b.mm) - p45(a.mm)) * (s / steps);
