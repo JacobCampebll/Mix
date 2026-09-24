@@ -5369,3 +5369,18 @@ commit where possible.
   `openLotEnvelope()`. Harness 391 / 0 / 3, page checker 214 / 0; the legacy
   upload card, opening a lot from the door, and a page started on PlantBook
   were browser-probed separately.
+
+- **The signed-in login card has one tile per book, and the tile is the way
+  in** (Jake, 2026-09-24). It used to show a row of small green certification
+  badges and, under them, a navy "Open <book> →" button per book held: two
+  things saying one fact. `#bookDoors` now holds a `button.door` per
+  `CONFIG.BOOKS` entry, side by side at 56px. A book this account can open is
+  green and navigates to its Portal. A book it cannot open is dashed, struck
+  through and `disabled`, with `needs` under the name ("Needs Mix Design
+  Tech") and `needsLong` as the hover text. It says "current" because
+  `technician_capabilities` gates on an unexpired cert. **A green tile must
+  always go somewhere**, so the refused state is a different shape, not a
+  paler green. A failed capabilities lookup draws no tiles at all, only the
+  hint, so a fully certified technician is never shown two refusals because
+  the network dropped. Browser-checked for both certs, Plant Tech only, none,
+  a failed lookup and 360px; a disabled tile's click goes nowhere.

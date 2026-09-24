@@ -138,29 +138,40 @@
   .steps .bar{flex:1; height:2px; background:var(--line);}
   .steps .bar.done{background:var(--ok);}
 
-  /* Welcome card, shown when arriving already signed in. Two groups with one
-     rhythm between them: who you are (name, company, what you hold) sits
-     tight, then 20px to the ways in, then 10px between every button - the
-     doors AND Sign out, so the last gap reads like the others. It used to be
-     30px between the two doors and 10px to Sign out, because each door's own
-     button.primary margin-top stacked on the flex gap (measured 2026-09-24). */
+  /* Welcome card, shown when arriving already signed in: who you are (name,
+     company), then 16px to the book tiles, then 12px to Sign out. */
   .who{text-align:center;}
   .who .name{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:20px; line-height:1.2;}
   .who .meta{color:var(--muted); font-size:13px; margin-top:3px;}
-  .badges{display:flex; justify-content:center; gap:8px; flex-wrap:wrap; margin:12px 0 0;}
-  .badge{font-family:'Roboto Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em;
-         padding:4px 10px; border-radius:20px; border:1px solid;}
-  .badge.granted{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
-  .badge.soon{background:var(--flag-soft); color:var(--ink); border-color:var(--gold);}
-  .badge.denied{background:transparent; color:var(--muted); border-color:var(--line); text-decoration:line-through;}
   .badge-hint{color:var(--muted); font-size:12.5px; text-align:center; margin:10px 0 0;}
-  /* One door per book. They stack, and each is the full-width primary button
-     the single "Open the Portal" used to be - so a technician who holds one
-     certification sees exactly what they saw before, and one who holds both
-     sees both ways in rather than being sent to whichever we guessed. */
-  #bookDoors{display:flex; flex-direction:column; gap:10px; margin-top:20px;}
-  #bookDoors button.primary{margin-top:0;}
-  #bookDoors:empty{display:none;}
+  /* One tile per book, and the tile IS the way in (Jake, 2026-09-24). There
+     used to be a row of small certification badges and, under it, a navy
+     "Open <book>" button per book held - two things saying one fact. A tile
+     now says both: green and clickable for a book this account can open,
+     dashed, struck through and disabled for one it cannot, with the
+     certification it needs written under the name. A tile that is green must
+     always go somewhere, which is why the disabled one is a different shape
+     and not just a paler green. Side by side, because two 56px tiles are a
+     generous target on a phone and stacking only makes the card taller. */
+  .doors{display:flex; gap:10px; margin:16px 0 0;}
+  .doors:empty{display:none;}
+  .door{flex:1; min-width:0; display:flex; align-items:center; justify-content:center; gap:10px;
+        min-height:56px; padding:12px 14px; border-radius:var(--radius); border:1.5px solid var(--ok);
+        background:var(--ok-soft); color:var(--ok);
+        font-family:'Roboto Mono',monospace; font-size:13px; font-weight:600;
+        text-transform:uppercase; letter-spacing:.06em;
+        transition:background .12s, color .12s, box-shadow .12s;}
+  .door .arrow{font-family:'Public Sans',sans-serif; font-size:18px; line-height:1;}
+  .door:hover, .door:focus-visible{background:var(--ok); color:#fff; box-shadow:0 2px 8px rgba(0,0,0,.12);}
+  .door:focus-visible{outline:2px solid var(--ok); outline-offset:2px;}
+  .door:disabled{background:transparent; color:var(--muted); border-color:var(--line); border-style:dashed;
+                 cursor:not-allowed; box-shadow:none; flex-direction:column; gap:2px;}
+  .door:disabled .nm{text-decoration:line-through;}
+  .door .why{font-family:'Public Sans',sans-serif; font-size:11px; font-weight:400;
+             text-transform:none; letter-spacing:0;}
+  .door.soon:disabled{border-color:var(--gold); background:var(--flag-soft); color:var(--ink);}
+  .door.soon:disabled .nm{text-decoration:none;}
+  #signOutBtn{margin-top:12px;}
 
   .foot{padding:0 28px 22px; font-size:12px; color:var(--muted); text-align:center;}
 </style>
@@ -242,15 +253,11 @@
       <div class="name" id="sessionWho"></div>
       <div class="meta" id="sessionMeta"></div>
     </div>
-    <div class="badges" id="sessionAccess"></div>
+    <!-- One tile per book, rendered by refreshView(): a way in for a book
+         this account holds a current certification for, a disabled tile
+         naming the certification for one it does not. -->
+    <div class="doors" id="bookDoors"></div>
     <p class="badge-hint" id="sessionHint" hidden></p>
-    <!-- One button per book this account can open, rendered by refreshView().
-         There used to be a single "Open the Portal" here, which was right
-         while DesignBook was the only book and became a dead end the moment
-         it was not: a Plant Tech saw a green PLANTBOOK badge and had no way
-         to reach it. The badges above say what you hold; these say where you
-         can go, and the two must not be confused for each other. -->
-    <div id="bookDoors"></div>
     <button class="secondary" id="signOutBtn">Sign out</button>
   </div>
 </div>
@@ -275,10 +282,18 @@
     // Portal IS its Start a lot page, because a lot inherits all three from
     // the approval it opens with and a page in between asked for nothing.
     BOOKS: {
+      // `needs` is what a disabled tile prints when this account cannot open
+      // the book - kept short enough for one line on a phone - and `needsLong`
+      // is its hover text. "Current", because technician_capabilities gates
+      // on an UNEXPIRED certificate, so a lapsed one lands here too.
       designbook: { label: "DesignBook", capability: "can_access_designbook", built: true,
-                    portal: "portal.html?book=designbook" },
+                    portal: "portal.html?book=designbook",
+                    needs: "Needs Mix Design Tech",
+                    needsLong: "Opening DesignBook needs a current (unexpired) Mix Design Tech certification." },
       plantbook:  { label: "PlantBook",  capability: "can_access_plantbook",  built: true,
-                    portal: "designbook.html?book=plantbook" },
+                    portal: "designbook.html?book=plantbook",
+                    needs: "Needs Plant Tech",
+                    needsLong: "Opening PlantBook needs a current (unexpired) Plant Tech certification." },
     },
     SUPABASE_URL: "https://iwysxhcmvhkcjxmjarkd.supabase.co",
     SUPABASE_ANON_KEY:
@@ -356,7 +371,6 @@
   const sessionView = document.getElementById("sessionView");
   const sessionWho = document.getElementById("sessionWho");
   const sessionMeta = document.getElementById("sessionMeta");
-  const sessionAccess = document.getElementById("sessionAccess");
   const sessionHint = document.getElementById("sessionHint");
   const bookDoors = document.getElementById("bookDoors");
   const form = document.getElementById("authForm");
@@ -489,43 +503,54 @@
       showOnly(sessionView);
       sessionWho.textContent = `${tech.first_name} ${tech.last_name}`;
       sessionMeta.textContent = `${tech.company} · SM ID ${tech.sm_id}`;
-      sessionAccess.innerHTML = "";
-      // A door per book, in CONFIG.BOOKS order, and only for a book this
-      // account actually holds a current certification for. One book means
-      // one button, which reads exactly as the old single button did.
+      // One tile per book, in CONFIG.BOOKS order. Built and held -> a way
+      // in; held but not built -> "coming soon"; not held -> disabled, with
+      // the certification it needs. One tile does the job the badge row and
+      // the door buttons used to split between them.
       bookDoors.innerHTML = "";
-      Object.entries(CONFIG.BOOKS).forEach(([key, b]) => {
-        if (!b.built || !caps || !caps[b.capability]) return;
-        const btn = document.createElement("button");
-        btn.className = "primary";
-        btn.textContent = `Open ${b.label} →`;
-        btn.addEventListener("click", () => location.assign(b.portal));
-        bookDoors.appendChild(btn);
-      });
       sessionHint.hidden = false;
 
       if (capsError) {
-        // Not "no certification" - the lookup failed. Denied badges here would
-        // tell a fully certified technician they have nothing.
+        // Not "no certification" - the lookup failed. Disabled tiles here
+        // would tell a fully certified technician they have nothing.
         sessionHint.textContent = `Could not load your certifications: ${capsError.message}. Reload to try again.`;
         return;
       }
 
-      // One badge per book: granted and built -> the way in; granted but not
-      // built -> "coming soon"; not granted -> struck through.
       Object.entries(CONFIG.BOOKS).forEach(([key, b]) => {
         const granted = !!(caps && caps[b.capability]);
-        const el = document.createElement("span");
-        el.className = "badge " + (granted ? (b.built ? "granted" : "soon") : "denied");
-        el.textContent = granted && !b.built ? `${b.label} · coming soon` : b.label;
-        sessionAccess.appendChild(el);
+        const open = granted && b.built;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "door" + (granted && !b.built ? " soon" : "");
+        btn.disabled = !open;
+        const nm = document.createElement("span");
+        nm.className = "nm";
+        nm.textContent = b.label;
+        btn.appendChild(nm);
+        if (open) {
+          const arrow = document.createElement("span");
+          arrow.className = "arrow";
+          arrow.textContent = "→";
+          arrow.setAttribute("aria-hidden", "true");
+          btn.appendChild(arrow);
+          btn.setAttribute("aria-label", `Open ${b.label}`);
+          btn.addEventListener("click", () => location.assign(b.portal));
+        } else {
+          const why = document.createElement("span");
+          why.className = "why";
+          why.textContent = granted ? "Coming soon" : b.needs;
+          btn.appendChild(why);
+          btn.title = granted ? `${b.label} is coming soon.` : b.needsLong;
+        }
+        bookDoors.appendChild(btn);
       });
 
       // Both books are built now, so "granted" and "can open" are the same
       // question and the middle branch this used to have - "PlantBook is
       // being built; there is nothing to open yet" - is gone rather than left
       // unreachable. If a third book is ever added unbuilt, put it back.
-      // Silent when all is well: the name, the badges and a Sign out button
+      // Silent when all is well: the name, the tiles and a Sign out button
       // already say "you're signed in", so the old "Pick up where you left
       // off" line was a fourth way of saying it. It speaks only when there is
       // something to act on - no certification here, a failed lookup above.
