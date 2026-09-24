@@ -3223,7 +3223,9 @@ const CONFIG = {
     },
     {
       id: "gradation", label: "Gradation", step: "Gradation", tag: "% passing by sieve · 0.45 power chart", type: "sieves",
-      cites: ["ctrlpts", "jmftol", "km421jmf"],
+      // No JMF tolerance band here (Jake, 2026-09-24): it belongs to the
+      // lot 1, sublot 1 setup chart on PlantBook, not to the design.
+      cites: ["ctrlpts", "km421jmf"],
       // `key` is explicit (fraction labels don't survive a slug), `mm` drives
       // the 0.45 power chart x-position. Full KYTC set, 2" → #200; the target
       // band will trim to the mix's nominal max size in a later pass.
@@ -4590,7 +4592,12 @@ const verifySpecimenOf4 = (n) =>
         id: `sublot-${n}-gradation`, label: "Gradation", into: `sublot-${n}`, banded: true,
         tag: "cumulative grams retained · % passing computed",
         type: "sieves",
-        cites: ["ctrlpts", "jmftol"],
+        // KM 64-421 §4.4's JMF tolerance band is drawn on the SETUP sublot
+        // only - lot 1, sublot 1, where the JMF is being established (Jake,
+        // 2026-09-24). drawGradChart() also checks the lot number, so this
+        // flag on sublot 1 is half the rule; the cite chip follows the band.
+        jmfTolerance: n === 1,
+        cites: n === 1 ? ["ctrlpts", "jmftol"] : ["ctrlpts"],
         sieves: AMAW_SIEVES,
         // ORDER IS RAW WEIGHTS, THEN THIS SUBLOT'S % PASSING, THEN THE JMF
       // TARGET, THEN THE DIFFERENCE (Jake, 2026-09-17: "Make the order the
@@ -7128,7 +7135,11 @@ function drawGradChart(sec) {
   // are simply absent from `env`, so the shape stops at the 1" sieve rather
   // than being extended by analogy. It needs two sieves to be a polygon, so
   // a chart trimmed down to one tolerance-bearing sieve draws nothing.
-  const TOL = CONFIG.JMF_TOLERANCE || {};
+  // ONLY ON LOT 1, SUBLOT 1 (Jake, 2026-09-24): the schema flags the setup
+  // sublot's chart, and a blank lot number reads as lot 1 as it does
+  // everywhere else. DesignBook's chart carries no flag, so it never draws.
+  const drawTol = !!sec.jmfTolerance && isPlantBook() && lotNumberNow() === 1;
+  const TOL = drawTol ? (CONFIG.JMF_TOLERANCE || {}) : {};
   const env = all.filter((p) => p.p != null && keep.has(p.mm) && TOL[p.key] != null)
     .map((p) => ({
       mm: p.mm,

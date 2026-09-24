@@ -1112,7 +1112,12 @@ function buildSublotGradationSections() {
       id: `sublot-${n}-gradation`, label: "Gradation", into: `sublot-${n}`, banded: true,
       tag: "cumulative grams retained · % passing computed",
       type: "sieves",
-      cites: ["ctrlpts", "jmftol"],
+      // KM 64-421 §4.4's JMF tolerance band is drawn on the SETUP sublot
+      // only - lot 1, sublot 1, where the JMF is being established (Jake,
+      // 2026-09-24). drawGradChart() also checks the lot number, so this
+      // flag on sublot 1 is half the rule; the cite chip follows the band.
+      jmfTolerance: n === 1,
+      cites: n === 1 ? ["ctrlpts", "jmftol"] : ["ctrlpts"],
       sieves: AMAW_SIEVES,
       // ORDER IS RAW WEIGHTS, THEN THIS SUBLOT'S % PASSING, THEN THE JMF
       // TARGET, THEN THE DIFFERENCE (Jake, 2026-09-17: "Make the order the

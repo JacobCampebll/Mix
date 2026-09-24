@@ -5394,3 +5394,15 @@ commit where possible.
   names the table in red, because a failed table turns its dropdowns into
   free text and a person should know why. The counts go to the console once.
   The audit log below it stays: it is the design's history, not help text.
+
+- **The red KM 64-421 §4.4 JMF tolerance band is drawn on ONE chart only: lot
+  1, sublot 1** (Jake, 2026-09-24). This narrows the 2026-09-18 entry, which
+  drew it on both books' charts. DesignBook's gradation chart no longer draws
+  it, and its `jmftol` chip is gone. On PlantBook it is the setup sublot's
+  band, where the JMF is being established. `buildSublotGradationSections()`
+  sets `jmfTolerance: n === 1`, in both `sections.mjs` and the page's copy,
+  and gives only that section the `jmftol` chip. `drawGradChart()` also
+  requires `isPlantBook()` and `lotNumberNow() === 1`, so lot 2's sublot 1
+  draws nothing. A blank lot number reads as lot 1, as it does everywhere else
+  on the page. Browser-checked: lot 1 draws it on sublot 1 only, lot 2 draws
+  it nowhere, and DesignBook draws it nowhere.
