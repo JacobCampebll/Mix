@@ -91,13 +91,14 @@
   .brand img{width:min(250px, 100%); height:auto; display:block;}
   .brand .rule{width:100%; height:4px; border-radius:2px;
                background:linear-gradient(90deg, var(--sky) 0 35%, var(--gold) 80% 100%);}
-  /* Brand stack: what this is, then the two books it covers, then the caveat. */
+  /* Brand stack: what this is, then the two books it covers. There used to be
+     a third line, "Mix designs and plant lots", which only restated the two
+     book names above it in smaller type (Jake, 2026-09-24). */
   .wordmark{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:23px; letter-spacing:.01em;
             line-height:1.15; text-align:center;}
   .booknames{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:16px; letter-spacing:.01em;
              margin-top:-6px;}
   .booknames span{color:var(--accent);}
-  .books{font-size:11px; color:var(--muted); letter-spacing:.05em; text-transform:uppercase; margin-top:-8px;}
 
   .view{padding:8px 28px 28px;}
   .view h1{font-size:20px; margin-bottom:4px;}
@@ -137,22 +138,28 @@
   .steps .bar{flex:1; height:2px; background:var(--line);}
   .steps .bar.done{background:var(--ok);}
 
-  /* Welcome card, shown when arriving already signed in */
-  .who{text-align:center; margin-bottom:6px;}
-  .who .name{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:20px;}
-  .who .meta{color:var(--muted); font-size:13px; margin-top:2px;}
-  .badges{display:flex; justify-content:center; gap:8px; flex-wrap:wrap; margin:14px 0 6px;}
+  /* Welcome card, shown when arriving already signed in. Two groups with one
+     rhythm between them: who you are (name, company, what you hold) sits
+     tight, then 20px to the ways in, then 10px between every button - the
+     doors AND Sign out, so the last gap reads like the others. It used to be
+     30px between the two doors and 10px to Sign out, because each door's own
+     button.primary margin-top stacked on the flex gap (measured 2026-09-24). */
+  .who{text-align:center;}
+  .who .name{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:20px; line-height:1.2;}
+  .who .meta{color:var(--muted); font-size:13px; margin-top:3px;}
+  .badges{display:flex; justify-content:center; gap:8px; flex-wrap:wrap; margin:12px 0 0;}
   .badge{font-family:'Roboto Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em;
          padding:4px 10px; border-radius:20px; border:1px solid;}
   .badge.granted{background:var(--ok-soft); color:var(--ok); border-color:var(--ok);}
   .badge.soon{background:var(--flag-soft); color:var(--ink); border-color:var(--gold);}
   .badge.denied{background:transparent; color:var(--muted); border-color:var(--line); text-decoration:line-through;}
-  .badge-hint{color:var(--muted); font-size:12.5px; text-align:center; margin:0 0 6px;}
+  .badge-hint{color:var(--muted); font-size:12.5px; text-align:center; margin:10px 0 0;}
   /* One door per book. They stack, and each is the full-width primary button
      the single "Open the Portal" used to be - so a technician who holds one
      certification sees exactly what they saw before, and one who holds both
      sees both ways in rather than being sent to whichever we guessed. */
-  #bookDoors{display:flex; flex-direction:column; gap:10px;}
+  #bookDoors{display:flex; flex-direction:column; gap:10px; margin-top:20px;}
+  #bookDoors button.primary{margin-top:0;}
   #bookDoors:empty{display:none;}
 
   .foot{padding:0 28px 22px; font-size:12px; color:var(--muted); text-align:center;}
@@ -166,7 +173,6 @@
     <div class="rule"></div>
     <div class="wordmark">Asphalt Mixtures</div>
     <div class="booknames">Design<span>Book</span> · Plant<span>Book</span></div>
-    <div class="books">Mix designs and plant lots</div>
   </div>
 
   <!-- Sign in -->
@@ -512,8 +518,13 @@
       // question and the middle branch this used to have - "PlantBook is
       // being built; there is nothing to open yet" - is gone rather than left
       // unreachable. If a third book is ever added unbuilt, put it back.
+      // Silent when all is well: the name, the badges and a Sign out button
+      // already say "you're signed in", so the old "Pick up where you left
+      // off" line was a fourth way of saying it. It speaks only when there is
+      // something to act on - no certification here, a failed lookup above.
+      sessionHint.hidden = canOpen;
       sessionHint.textContent = canOpen
-        ? "You're signed in. Pick up where you left off."
+        ? ""
         : "No current certification grants access to either book. Contact an admin.";
     }
 
