@@ -671,7 +671,9 @@ export function roundToHalf(v) {
 // One ladder, on an already-rounded deviation. `rule` names the band in the
 // schedule's own words so the readout never re-derives it.
 function ladderPay(ladder, d, dp) {
-  const f = (x) => (dp === 2 ? x.toFixed(2) : String(x));
+  // Every ladder is judged on a deviation already rounded to `dp` places, so
+  // its edges print to the same places: "|dev| 2.0 – 2.5", not "2 – 2.5".
+  const f = (x) => x.toFixed(dp);
   let lo = null;
   for (const [top, pay] of ladder) {
     const band = lo == null ? `|dev| ≤ ${f(top)}` : `|dev| ${f(lo)} – ${f(top)}`;
@@ -710,8 +712,19 @@ export function sievePay({ sieve, jmf, test, mixTypeCode } = {}) {
   if (!band) {
     return { ...base, rule: { band: `not scored - Calculations!W14:AX30 has no column for mixture type ${mixTypeCode ?? '(blank)'}`, pay: null } };
   }
-  const starred = test < band[0] || test > band[1];
-  let shown = starred ? xlRound(test, 0) : test;
+  // Gradation!D is not the bare quotient: when the quotient rounded to a
+  // whole falls outside the control points, the sheet stores it rounded to a
+  // TENTH (`IF(OR(ROUND(100-C,0)<AY, ROUND(100-C,0)>AZ), ROUND(100-C,1),
+  // 100-C)`), and 'Accept. Grad.'!C then stars and rounds THAT to a whole.
+  // Rounding the quotient straight to a whole skips the middle step and can
+  // land a point away - 89.45 is 89.5 then 90 on the sheet, 89 without it -
+  // which is a different deviation and can be a different pay band. A value
+  // read off a real AMAW has already been through it; doing it again is a
+  // no-op there.
+  const r0 = xlRound(test, 0);
+  const d = r0 < band[0] || r0 > band[1] ? xlRound(test, 1) : test;
+  const starred = d < band[0] || d > band[1];
+  let shown = starred ? xlRound(d, 0) : d;
   if (sv.key === 's0_075') shown = roundToHalf(shown);              // F20 = Calculations!Q124
   const dev = Math.abs(jmf - shown);
   const rounded = xlRound(dev, 1);

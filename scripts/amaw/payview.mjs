@@ -386,7 +386,7 @@ function sublotsHTML(result, esc) {
     const vma = s && s.vma ? s.vma : {};
     const cells = [
       `<td class="mono">${payCell(ac.pay, esc)}${sub(isNum(ac.dev) ? `dev ${sign(ac.dev)}${trim(Math.abs(ac.dev), 3)}` : '')}</td>`,
-      `<td class="mono">${payCell(av.pay, esc)}${sub(isNum(av.rounded) ? `${trim(av.rounded)}%` : '')}</td>`,
+      `<td class="mono">${payCell(av.pay, esc)}${sub(isNum(av.rounded) ? `${fx(av.rounded, 1)}%` : '')}</td>`,
       `<td class="mono">${payCell(vma.pay, esc)}${sub(isNum(vma.dev) ? `dev ${sign(vma.dev)}${trim(Math.abs(vma.dev), 3)}` : '')}</td>`,
     ];
     if (showLane) cells.push(`<td class="mono">${payCell(lane[i], esc)}</td>`);
@@ -761,17 +761,22 @@ const GRAD_HEAD = ['Sieve', 'JMF → test', 'Control points', 'Deviation → ban
 
 function gradationWhy(s, i, ctx, esc) {
   const rows = [subGrid(esc, GRAD_HEAD.map(esc), 'head')];
-  const f1 = (v, key) => (isNum(v) ? (key === 's0_075' ? v.toFixed(1) : trim(v, 1)) : '—');
+  // A gradation's percent passing prints to the #200's tenth and every other
+  // sieve's whole percent (Andrew, 2026-09-24). The "(as ...)" is what the
+  // sheet scored when that differs from what prints - the #200's nearest
+  // half, which a tenth can still show; a whole-percent sieve's own rounding
+  // already IS what prints, so it adds nothing there.
+  const f1 = (v, key) => (isNum(v) ? v.toFixed(key === 's0_075' ? 1 : 0) : '—');
   (s.sieves || []).forEach((sv) => {
     if (!isNum(sv.jmf) && !isNum(sv.test)) return;
     const jt = `${f1(sv.jmf, sv.key)} → ${f1(sv.test, sv.key)}`
-      + (sv.starred && isNum(sv.shown) && sv.shown !== sv.test ? ` (as ${f1(sv.shown, sv.key)})` : '');
+      + (sv.starred && isNum(sv.shown) && f1(sv.shown, sv.key) !== f1(sv.test, sv.key) ? ` (as ${f1(sv.shown, sv.key)})` : '');
     const cp = sv.band ? `${sv.band[0]}–${sv.band[1]} · ${sv.starred ? 'OUTSIDE' : 'inside'}` : '—';
     let band;
     if (!sv.rule) band = '<span class="prsub">—</span>';
     else if (sv.rule.gate) band = `<span class="payband">${esc('inside the control points → 100 whatever the deviation')}</span>`;
     else if (!isNum(sv.pay)) band = `<span class="prsub">${esc(sv.rule.band)}</span>`;
-    else band = `<span class="mono">${esc(trim(sv.rounded))}</span> <span class="payband">${esc(sv.rule.band)}</span>`;
+    else band = `<span class="mono">${esc(fx(sv.rounded, 1))}</span> <span class="payband">${esc(sv.rule.band)}</span>`;
     rows.push(subGrid(esc, [esc(sv.label), `<span class="mono">${esc(jt)}</span>`, `<span class="mono">${esc(cp)}</span>`, band, payBadge(sv.pay, esc)]));
   });
   const ac = s.ac || {};
