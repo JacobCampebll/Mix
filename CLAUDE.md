@@ -5281,3 +5281,34 @@ commit where possible.
   No `service_role` grants anywhere, checked rather than assumed: nothing in
   this repo uses that key - `netlify/lib/auth.mjs` calls with the caller's own
   token and RLS is what limits it.
+
+- **`kytc-lookup` (Andrew's Supabase Edge Function) has its source in the repo
+  now, at `supabase/functions/kytc-lookup/index.ts`, and it is version 7**
+  (2026-09-24, issue #29). Until this it lived only in the Supabase project,
+  which is why earlier notes here call it Andrew's and out of reach. **Nothing
+  deploys that file**: Supabase runs whatever was last deployed to
+  `iwysxhcmvhkcjxmjarkd`, so an edit in git changes nothing live until it is
+  deployed by hand. It stays Andrew's to deploy, and the header's version
+  history is the changelog and gets an entry with each deploy.
+  **The limit that kills it is edge CPU time, not memory**, which is worth
+  knowing before guessing at the next failure. `WORKER_RESOURCE_LIMIT` is the
+  same message for both; the function logs say which, as shutdown `reason`
+  `CPUTime` beside `cpu_time_used`. v6 used about 1.95 s of CPU on 261118 when
+  it worked and 2.8-3.6 s when it did not, against a cap of roughly 2 s, so it
+  passed about one call in three. Memory peaked around 140 MB. v7 reads each
+  page once, finds the bid items from the proposal's last page ("Page n of n"
+  in the bid section's own footer, checked three ways, with v6's full scan as
+  the fallback), and uses about 150-300 ms on 261118. It was byte-identical to
+  v6 on all 108 contracts on the 02/19, 05/21 and 09/03/2026 lettings.
+  **`unpdf` is pinned (`npm:unpdf@1.8.1`)** and has to stay pinned: v1-v6
+  imported it bare, so every redeploy quietly took the newest pdf.js, which
+  can move text runs and so the output with no code change. Bump it on
+  purpose and re-run the v6/v7 comparison when you do.
+  **Still failing: contracts with very large addenda** - 261122 (a 254-page
+  Addendum 2), 261503 and 261514 hit the CPU cap on v7 as on v6. An
+  addendum's bid pages can come after its cover, at its end or between plan
+  sheets, and its cover's "(N) Revised -" list does not reliably mention them
+  (264202's Addendum 2 reprints two bid pages its cover never lists), so
+  there is no safe shortcut short of reading every page. The issue's fix #4,
+  parsing in a Netlify function where this cap does not apply, is the real
+  answer if those contracts matter. Open on #29 for Andrew and Jake.
