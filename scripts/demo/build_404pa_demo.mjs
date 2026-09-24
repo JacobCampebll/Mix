@@ -239,8 +239,9 @@ console.log("5. filling fabricated lot data...");
 // step is showing.
 
 // Fabricated but plausible weights, solved against this mix's real Gsb-blend
-// (2.6705) and Gmm (~2.473-2.475) with volumetrics.mjs so Va lands near the
-// 3.5% pay target rather than at a random number.
+// (2.6705) and Gmm (~2.473-2.475) with volumetrics.mjs so the lot computes a
+// real verdict rather than a random one: BSG 2.377-2.378, Va 4.0-4.1% (the
+// 103 air-void band), VMA ~16.0, and "Bonus" at 100.75% on 1,141 tons.
 const FILL = () => {
   const set = (el, v) => {
     if (!el || el.readOnly || el.disabled) return;
@@ -259,11 +260,23 @@ const FILL = () => {
     set(cell(r, "calibration"), 7400);
     set(cell(r, "final_wt"), i ? 8591.4 : 8591.3);
   });
+  // [air, water, SSD] per specimen, two per sublot. The SSD weight is ALWAYS
+  // a few grams above the weight in air - the specimen has taken on surface
+  // water - and the first draft here had it below, on every row (Andrew,
+  // 2026-09-24). Sublot 1's first row is exactly what Andrew types live in
+  // the demo (4798.0 / 2785.0 / 4802.6 -> vol 2017.6 -> BSG 2.378), so the
+  // "week later" lot carries the same figures he entered.
+  const BSG = [
+    [4798.0, 2785.0, 4802.6], [4796.4, 2784.1, 4801.3],
+    [4801.2, 2786.3, 4805.9], [4799.5, 2785.6, 4804.0],
+    [4795.8, 2782.9, 4800.1], [4797.3, 2784.4, 4801.7],
+    [4802.5, 2788.1, 4807.4], [4800.1, 2786.0, 4804.8],
+  ];
   rows("sublot_bsg").forEach((r, i) => {
-    const s = Math.floor(i / 2);
-    set(cell(r, "wt_air"), i % 2 ? 4786.0 + s : 4785.0 + s);
-    set(cell(r, "wt_water"), i % 2 ? 2780.5 + s * 0.5 : 2780.0 + s * 0.5);
-    set(cell(r, "wt_ssd"), i % 2 ? 4784.5 + s : 4783.5 + s);
+    const [a, w, s] = BSG[i];
+    set(cell(r, "wt_air"), a);
+    set(cell(r, "wt_water"), w);
+    set(cell(r, "wt_ssd"), s);
   });
   rows("sublot_msg").forEach((r, i) => {
     const s = Math.floor(i / 2);
@@ -271,15 +284,22 @@ const FILL = () => {
     set(cell(r, "calibration"), 7400);
     set(cell(r, "final_wt"), i % 2 ? 8593.6 + s : 8591.9 + s);
   });
+  // Cores follow the same rule: SSD 2-3 g above air. Solved for core Gmb
+  // 2.300-2.312 (mat) and 2.252-2.255 (joint) - the same densities the
+  // first draft produced, so density pay is unchanged by the correction.
+  const core = (a, gmb, extra) => {
+    const s = Math.round((a + extra) * 10) / 10;
+    return [a, Math.round((s - a / gmb) * 10) / 10, s];
+  };
   rows("mat_cores").forEach((r, i) => {
-    set(cell(r, "wt_air"), 1250);
-    set(cell(r, "wt_water"), 700 + (i % 4) * 2);
-    set(cell(r, "wt_ssd"), 1243 + (i % 4) * 2);
+    const k = i % 4, a = Math.round((1250 + k * 1.6 + Math.floor(i / 4) * 0.8) * 10) / 10;
+    const [air, water, ssd] = core(a, 2.300 + k * 0.004, 2.2 + k * 0.3);
+    set(cell(r, "wt_air"), air); set(cell(r, "wt_water"), water); set(cell(r, "wt_ssd"), ssd);
   });
   rows("joint_cores").forEach((r, i) => {
-    set(cell(r, "wt_air"), 1250);
-    set(cell(r, "wt_water"), 690 + (i % 2) * 3);
-    set(cell(r, "wt_ssd"), 1244.9 + (i % 2) * 3);
+    const k = i % 2, a = Math.round((1250 + k * 1.6 + Math.floor(i / 2) * 0.8) * 10) / 10;
+    const [air, water, ssd] = core(a, 2.252 + k * 0.003, 2.2 + k * 0.3);
+    set(cell(r, "wt_air"), air); set(cell(r, "wt_water"), water); set(cell(r, "wt_ssd"), ssd);
   });
   // Contract 261118's line 0025 (this mix) is only 1,141 tons on the live pay
   // estimate - smaller than one 4,000-ton lot - so the demo lot is that short
@@ -317,6 +337,12 @@ const verdict = await page.evaluate(() => {
            handmixPct: (document.querySelector('[data-field="lot_handmix_binder_pct"]')||{}).value };
 });
 console.log("   verdict:", JSON.stringify(verdict));
+console.log("   BSG / Va / VMA / pay lines:", JSON.stringify(await page.evaluate(() => ({
+  bsg: Array.from(document.querySelectorAll('[data-rowlist="sublot_bsg"] [data-col="bsg"]')).map((e) => e.value),
+  va: Array.from(document.querySelectorAll('[data-rowlist="sublot_volumetrics"] [data-col="va"]')).map((e) => e.value),
+  vma: Array.from(document.querySelectorAll('[data-rowlist="sublot_volumetrics"] [data-col="vma"]')).map((e) => e.value),
+  pay: Array.from(document.querySelectorAll('.section.active details > summary')).slice(0, 9).map((e) => e.innerText.replace(/\s+/g, " ").trim()),
+}))));
 
 console.log("7. downloading lot PDF + working copy...");
 await page.click('#railnav .railstep[data-target="lot-status"]').catch(() => {});
