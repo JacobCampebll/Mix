@@ -5334,3 +5334,38 @@ commit where possible.
   it is still the four-step wizard, because a design does need a contract, a
   plant and a mix established before the form opens. Browser-checked all
   five routes; harness 388 / 0 / 3.
+
+- **The PlantBook button in the book switch opens the Start a lot page when
+  no lot is open, in place** (Jake, 2026-09-24: clicking PlantBook while in
+  DesignBook "should take me to this page"). It used to draw an EMPTY lot
+  form, which `paintUploadCard()`'s own comment already says should not
+  exist: a lot with no approval behind it has no JMF %AC, no air-void target
+  and no minimum VMA, so it is a form that cannot do its one job.
+  **It is shown in place rather than by navigating** to
+  `designbook.html?book=plantbook`, because the switch is a re-render and a
+  navigation would throw away the design being worked on. DesignBook is
+  stashed on the way in exactly as before; `state.doorReturn` records which of
+  DesignBook's screens was up (form, legacy upload card or gate) so the way
+  back restores that screen, and `paintUploadCard()` now snapshots DesignBook's
+  own wording so the shared card reads right in both books. With a lot already
+  open the switch still brings the lot back, never the door. A page that
+  STARTED on PlantBook has no design to return to, so switching to DesignBook
+  from its door goes to DesignBook's Portal.
+  **Worth knowing about the guard, because a check proved the first comment
+  wrong**: `if (!state.bookDoor) bookStash()` looks like what protects the
+  design, and it is not. `bookStash()` runs before `state.book` changes, so it
+  only ever writes the book being LEFT - removing the guard writes junk under
+  `plantbook`, which nothing reads while no lot is open, and the round-trip
+  check stays green. Kept as hygiene and said so in the code rather than
+  claimed as protection.
+  **`harness/lib/books.mjs`'s `enterBook()` now opens the empty PlantBook form
+  itself**, on purpose and nowhere in the page. Every PlantBook case in the
+  suite reached PlantBook by clicking the switch, and those cases measure the
+  renderer (ids, steps, clipping, headings, round trip), not the way in; left
+  alone they would have measured the door with DesignBook's hidden sections
+  still in `#sections`. The door is asserted in `checks/bookswitch.mjs`
+  (three new cases, watched failing with the door removed), and the checks
+  that care about the real front door already open their own lot through
+  `openLotEnvelope()`. Harness 391 / 0 / 3, page checker 214 / 0; the legacy
+  upload card, opening a lot from the door, and a page started on PlantBook
+  were browser-probed separately.

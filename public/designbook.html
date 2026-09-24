@@ -5517,6 +5517,10 @@ const state = {
   // a switch away and back is byte-identical rather than approximately so.
   // Keyed by book: { extracted, sources, legacy, stageIdx, step, history }.
   books: {},
+  // PlantBook's Start a lot door is up with no lot open (switchBook), and the
+  // DesignBook screen to put back when the switch returns from it.
+  bookDoor: false,
+  doorReturn: null,
   caps: null,        // technician_capabilities - which books this account may open
   // PlantBook only. The lot envelope storage.mjs defines, built by the intake
   // from a signed DesignBook approval - it carries the design this lot was
@@ -6605,14 +6609,86 @@ function paintBookSwitch() {
   });
   document.title = `Mix — ${activeBook().label}`;
 }
+// PlantBook with no lot open is its Start a lot page, not an empty form (Jake,
+// 2026-09-24: clicking PlantBook from inside DesignBook "should take me to
+// this page"). A lot with no approval behind it has no JMF %AC, no air-void
+// target and no minimum VMA - see paintUploadCard() - so the blank lot form
+// the switch used to draw here was a form that could not do its one job.
+// The door is shown IN PLACE rather than by navigating to
+// designbook.html?book=plantbook, because the switch is a re-render and a
+// navigation would throw away the design being worked on: DesignBook is
+// stashed exactly as before, and switching back puts it back byte for byte.
+//
+// What keeps the design safe is that DesignBook is stashed on the way IN and
+// nothing overwrites that copy on the way back: bookStash() runs before
+// state.book changes, so it only ever writes the book being left. The
+// `state.bookDoor` guard is hygiene rather than that protection - on the way
+// out of the door there is no PlantBook form, and stashing would read
+// DesignBook's hidden DOM through PlantBook's schema and hold junk as
+// PlantBook's copy. Nothing reads that copy while no lot is open (the switch
+// shows the door instead), which is why removing the guard fails no check;
+// it is kept so a later caller of bookRestore("plantbook") cannot meet it.
+// `state.doorReturn` records which of DesignBook's screens was showing (its
+// form, its legacy upload card, its gate), so coming back restores that
+// screen rather than assuming the form. Opening an approval or a lot from the
+// door goes through enterForm(), which closes it.
 function switchBook(key) {
   if (!CONFIG.BOOKS[key] || key === state.book || !bookAllowed(key)) return;
-  bookStash();
+  if (!state.bookDoor) bookStash();
+  const from = state.book;
   state.book = key;
-  bookRestore(key);
   paintBookSwitch();
+  if (key === "plantbook" && !state.lot) { showLotDoor(from); return; }
+  if (state.bookDoor) {
+    const back = state.doorReturn;
+    closeLotDoor();
+    // DesignBook never showed in this session (the page opened on
+    // ?book=plantbook), so there is no design here to return to - only its
+    // Portal, which is where a design starts.
+    if (!back) { location.href = CONFIG.PORTAL_URL; return; }
+    show("gateCard", back.gate);
+    show("uploadCard", back.upload);
+    show("dbLayout", back.layout);
+    show("actionBar", back.actionBar);
+    $("jobStrip").hidden = !back.jobStrip;
+    if (!back.layout) { $("mixid").textContent = designLabel(); return; }
+  }
+  bookRestore(key);
   renderForm();
   $("mixid").textContent = designLabel();
+}
+function showLotDoor(from) {
+  // Only the first time in: a second switch while the door is already up has
+  // no DesignBook screen showing to remember, and would overwrite the real one.
+  if (!state.bookDoor) {
+    state.doorReturn = from === "designbook" ? {
+      gate: !$("gateCard").classList.contains("hidden"),
+      upload: !$("uploadCard").classList.contains("hidden"),
+      layout: !$("dbLayout").classList.contains("hidden"),
+      actionBar: !$("actionBar").classList.contains("hidden"),
+      jobStrip: !$("jobStrip").hidden,
+    } : null;
+  }
+  state.bookDoor = true;
+  show("gateCard", false);
+  show("dbLayout", false);
+  show("actionBar", false);
+  $("jobStrip").hidden = true;
+  show("uploadCard", true);
+  msg($("uploadMsg"), "", "");
+  paintUploadCard();
+  $("mixid").textContent = designLabel();
+  paintSyncChip();
+  paintLotList();
+  flushLots();
+  window.scrollTo(0, 0);
+}
+function closeLotDoor() {
+  state.bookDoor = false;
+  paintUploadCard();        // back to DesignBook's own wording, if it shows
+  const wrap = $("lotListWrap");
+  if (wrap) { wrap.classList.add("hidden"); wrap.innerHTML = ""; }
+  paintSyncChip();
 }
 
 /* ---------- the step rail + the action bar ----------
@@ -23186,7 +23262,26 @@ function openLotEnvelope(raw, label, opening) {
 function paintUploadCard() {
   const plant = isPlantBook();
   const set = (id, html) => { const el = $(id); if (el) el.innerHTML = html; };
-  if (!plant) return;   // the markup is already DesignBook's
+  // DesignBook's wording is the markup's own, so it is captured the first time
+  // through and put back when the book switch returns from PlantBook's door -
+  // the one path on which this card is repainted for one book and then shown
+  // for the other.
+  const fi0 = $("fileInput"), skip0 = $("skipUpload");
+  if (!paintUploadCard.designbook) {
+    const txt = (id) => ($(id) || {}).innerHTML;
+    paintUploadCard.designbook = {
+      uploadTitle: txt("uploadTitle"), uploadLegend: txt("uploadLegend"),
+      dropTitle: txt("dropTitle"), dropHint: txt("dropHint"),
+      accept: fi0 ? fi0.accept : "",
+    };
+  }
+  if (!plant) {
+    const d = paintUploadCard.designbook;
+    ["uploadTitle", "uploadLegend", "dropTitle", "dropHint"].forEach((id) => set(id, d[id]));
+    if (fi0) fi0.accept = d.accept;
+    if (skip0) skip0.classList.remove("hidden");
+    return;
+  }
   set("uploadTitle", "Start a lot");
   set("uploadLegend",
     "A lot is produced under an approved mix design, so PlantBook starts with " +
@@ -24897,6 +24992,9 @@ async function lookupCompaction() {
 }
 
 function enterForm() {
+  // Opening a lot from the Start a lot door (see switchBook) is the door's
+  // way out: from here on there is a form, and a form is stashed on a switch.
+  state.bookDoor = false;
   show("gateCard", false);
   show("uploadCard", false);
   show("dbLayout", true);
@@ -25039,6 +25137,8 @@ async function boot(session) {
     // produced under, so there is no job to bring from the Portal and
     // nothing sensible to show before the file arrives (Jake, 2026-09-13).
     if (isPlantBook()) {
+      state.bookDoor = true;      // a door, not a form - see switchBook()
+      state.doorReturn = null;    // DesignBook has not shown in this session
       show("gateCard", false);
       show("uploadCard", true);
       paintUploadCard();

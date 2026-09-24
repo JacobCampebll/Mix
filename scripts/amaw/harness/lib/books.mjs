@@ -31,6 +31,25 @@ export async function enterBook(page, book) {
   // The only thing the harness may assume about a view it has not seen: the
   // switch is a button and clicking it switches. Everything else is measured.
   await page.click("#bookPlant");
+  // With no lot open the switch now shows PlantBook's Start a lot door rather
+  // than an empty lot form (switchBook, Jake 2026-09-24), and DesignBook's
+  // sections stay in #sections, hidden. The checks that call this measure the
+  // RENDERER - ids, steps, clipping, headings, the round trip - not the way
+  // in, so they get the empty PlantBook form the switch used to draw, opened
+  // here on purpose and nowhere in the page. The door itself is asserted by
+  // checks/bookswitch.mjs, and lotstore/compaction/nextlot/sublotlocks each
+  // open their own lot through openLotEnvelope(), the real front door.
+  await page.evaluate(() => {
+    if (!state.bookDoor) return;
+    state.bookDoor = false;
+    show("uploadCard", false);
+    show("dbLayout", true);
+    show("actionBar", true);
+    document.getElementById("jobStrip").hidden = false;
+    bookRestore("plantbook");
+    renderForm();
+    document.getElementById("mixid").textContent = designLabel();
+  });
   await page.waitForFunction(() => document.querySelectorAll("#sections .section").length > 0,
                              null, { timeout: 10000 }).catch(() => {});
   const after = await page.evaluate(bookProbe);

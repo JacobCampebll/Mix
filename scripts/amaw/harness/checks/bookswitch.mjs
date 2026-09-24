@@ -24,9 +24,15 @@
  * from, and comes back to find the lot blank will not file a bug, they will
  * stop using it.
  *
- * TODAY: #bookPlant is disabled, so everything past the standing-invariant
- * case SKIPS. The standing invariants are checked anyway, because the disabled
- * button is itself a claim the page makes and it can rot.
+ * AND THE DOOR (2026-09-24). With no lot open, #bookPlant shows PlantBook's
+ * Start a lot card IN PLACE rather than an empty lot form - a lot with no
+ * approval behind it has nothing to pay against (Jake: clicking PlantBook
+ * from DesignBook "should take me to this page"). The round trip below now
+ * goes through that door rather than through a PlantBook form, and the door
+ * restores DesignBook's screen from its own record rather than re-rendering
+ * what a form switch would - so the design coming back byte-identical is
+ * asserted through the door, not assumed from the old path. Watched failing:
+ * with the door removed, both door cases fail and name what shows instead.
  */
 import { bookProbe, domAudit, fillForm } from "../lib/inpage.mjs";
 import { enterBook, PLANT } from "../lib/books.mjs";
@@ -63,6 +69,9 @@ export async function run({ browser, results }) {
     const entered = await enterBook(page, PLANT);
     if (!entered.ok) {
       for (const kase of [
+        "PlantBook with no lot open is the Start a lot page",
+        "the door takes an approval or a saved lot, never a blank",
+        "back from the door is DesignBook's form, in DesignBook's words",
         "switching preserves the #valBlock node",
         "switching keeps #vallist/#saveMsg inside it",
         "switching leaves no duplicate ids",
@@ -86,6 +95,22 @@ export async function run({ browser, results }) {
 
     await page.click("#bookPlant");
     await page.waitForTimeout(400);
+    const door = await page.evaluate(() => {
+      const vis = (id) => { const el = document.getElementById(id); return !!el && !el.classList.contains("hidden"); };
+      return {
+        upload: vis("uploadCard"), layout: vis("dbLayout"), bar: vis("actionBar"),
+        title: (document.getElementById("uploadTitle") || {}).textContent || "",
+        skipHidden: !vis("skipUpload"),
+        accept: (document.getElementById("fileInput") || {}).accept || "",
+        plantOn: document.getElementById("bookPlant").classList.contains("on"),
+      };
+    });
+    results.ok(id, BOOK, "PlantBook with no lot open is the Start a lot page",
+               door.upload && !door.layout && !door.bar && /start a lot/i.test(door.title) && door.plantOn,
+               `upload=${door.upload} form=${door.layout} bar=${door.bar} title="${door.title}" plant.on=${door.plantOn}`);
+    results.ok(id, BOOK, "the door takes an approval or a saved lot, never a blank",
+               door.skipHidden && /\.pdf/.test(door.accept) && /\.json/.test(door.accept),
+               `skip hidden=${door.skipHidden} accept="${door.accept}"`);
     const mid = await page.evaluate(domAudit);
     const kept = await page.evaluate(() => {
       const v = document.getElementById("valBlock");
@@ -103,6 +128,14 @@ export async function run({ browser, results }) {
 
     await page.click("#bookDesign");
     await page.waitForTimeout(400);
+    const back = await page.evaluate(() => {
+      const vis = (id) => { const el = document.getElementById(id); return !!el && !el.classList.contains("hidden"); };
+      return { upload: vis("uploadCard"), layout: vis("dbLayout"),
+               title: (document.getElementById("uploadTitle") || {}).textContent || "" };
+    });
+    results.ok(id, BOOK, "back from the door is DesignBook's form, in DesignBook's words",
+               back.layout && !back.upload && !/start a lot/i.test(back.title),
+               `form=${back.layout} upload=${back.upload} card title="${back.title}"`);
     const designAfter = await page.evaluate(() => JSON.stringify(collectForm()));
     results.ok(id, BOOK, "DesignBook's values survive a round trip through PlantBook",
                designBefore === designAfter,
