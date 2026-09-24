@@ -156,7 +156,7 @@
   .doors{display:flex; gap:10px; margin:16px 0 0;}
   .doors:empty{display:none;}
   .door{flex:1; min-width:0; display:flex; align-items:center; justify-content:center; gap:10px;
-        min-height:56px; padding:12px 14px; border-radius:var(--radius); border:1.5px solid var(--ok);
+        min-height:56px; padding:12px 18px; border-radius:999px; border:1.5px solid var(--ok);
         background:var(--ok-soft); color:var(--ok);
         font-family:'Roboto Mono',monospace; font-size:13px; font-weight:600;
         text-transform:uppercase; letter-spacing:.06em;
@@ -169,7 +169,10 @@
   .door .why{font-family:'Public Sans',sans-serif; font-size:11px; font-weight:400;
              text-transform:none; letter-spacing:0;}
   .door.soon:disabled{border-color:var(--gold); background:var(--flag-soft); color:var(--ink);}
-  #signOutBtn{margin-top:12px;}
+  /* Pill-shaped like the certification badges they replaced (Jake picked
+     it from five radii, 2026-09-24), and Sign out matches so the card's three
+     buttons read as one set. The sign-in form's buttons stay square. */
+  #signOutBtn{margin-top:12px; border-radius:999px;}
 
   .foot{padding:0 28px 22px; font-size:12px; color:var(--muted); text-align:center;}
 </style>

@@ -5374,7 +5374,8 @@ commit where possible.
   in** (Jake, 2026-09-24). It used to show a row of small green certification
   badges and, under them, a navy "Open <book> →" button per book held: two
   things saying one fact. `#bookDoors` now holds a `button.door` per
-  `CONFIG.BOOKS` entry, side by side at 56px. A book this account can open is
+  `CONFIG.BOOKS` entry, side by side at 56px, pill-shaped like the
+  badges they replaced, with Sign out rounded to match. A book this account can open is
   green and navigates to its Portal. A book it cannot open is dashed grey and
   `disabled` (no strike-through; Jake asked for it off), with `needs` under the name ("Needs Mix Design
   Tech") and `needsLong` as the hover text. It says "current" because
