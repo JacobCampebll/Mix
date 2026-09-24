@@ -445,8 +445,46 @@ head('a project where the schema has not been applied');
   ok('...naming the missing migration rather than a stack trace',
      /has not been applied/.test(avail.reason || ''), avail.reason);
 
+  // THE DISTINCTION THE PAGE ACTUALLY NEEDS, and the reason this is a code and
+  // a flag rather than a sentence to match on. A project with no lot storage is
+  // REACHABLE: saying "offline" there told every contractor they had no signal
+  // while they were online (Andrew, 2026-09-23). The page reads `notSetUp`;
+  // `online` stays the network's own answer.
+  ok('...and says NOT SET UP rather than offline', avail.notSetUp === true, avail);
+  ok('the store carries it as state, so nothing has to read the wording',
+     store.state().notSetUp === true && store.state().online === true, store.state());
+  ok('the error carries its own code', (await raises(
+     () => store.remote.push(blankLot(IDENT), { by: BY }), 'not_set_up')).ok);
+  ok('...which is still transient, so the lot waits rather than being discarded',
+     isTransient(new StorageError('not_set_up', 'x')));
+
   server.net.unapplied = false;
   ok('applying it later catches everything up', (await store.flush({ by: BY })).pushed === 1);
+  ok('...and the flag clears, because the migration has landed',
+     store.state().notSetUp === false, store.state());
+}
+
+// =====================================================================
+head('offline is not the same as not set up');
+// =====================================================================
+{
+  // Both stop a push and both keep the lot in the outbox. They are opposite
+  // sentences on screen, and for a day the page said the wrong one.
+  const server = fakeServer();
+  const store = newStore(server);
+  await store.save(blankLot(IDENT), { by: BY });
+
+  server.net.up = false;
+  await store.save({ ...blankLot(IDENT), values: { a: 1 } }, { by: BY });
+  ok('a dropped connection sets online false', store.state().online === false, store.state());
+  ok('...and does NOT claim the project has no storage', store.state().notSetUp === false, store.state());
+
+  server.net.up = true; server.net.unapplied = true;
+  await store.save({ ...blankLot(IDENT), values: { a: 2 } }, { by: BY });
+  ok('an unapplied schema sets notSetUp', store.state().notSetUp === true, store.state());
+  ok('...and leaves online alone, because the network is fine',
+     store.state().online === true, store.state());
+  ok('either way the lot is still waiting', (await store.local.outbox()).length === 1);
 }
 
 // =====================================================================

@@ -5131,3 +5131,61 @@ commit where possible.
   local-first, which is exactly the mode a demo wants. So the order is:
   demo, then delete the `johndoe` account and its plant access, then
   apply. Anyone reading this before the demo: do not apply it early.
+
+- **"Not set up" is a third state beside online and offline, and for a day the
+  page called it offline** (Andrew, 2026-09-23, found demoing against the
+  unapplied schema). Until `supabase/amaw_lots.sql` is applied every push fails,
+  `isTransient()` counts that as no signal - correctly, for RETRY: the lot
+  should wait in the outbox and catch up the day the migration lands - and the
+  appbar chip therefore told every contractor **"offline · 1 waiting" while
+  they were online**, with a tooltip naming a migration that means nothing to
+  them. The same reasoning made the front door promise a seven-day retention
+  that nothing was enforcing, and flag lots "not yet sent" when nothing would
+  ever send them.
+  **Andrew's fix read the error's WORDING (`/has not been applied/`) and he
+  flagged it as the half-measure it was; the store carries `notSetUp` now.**
+  That is the part worth keeping: a sentence is not an API. Rephrase that
+  message - and it is a sentence written to be read by a person, so somebody
+  will - and the chip silently starts lying again, in the direction that looks
+  like a network problem. `fail()` returns its own code `not_set_up` for
+  `42P01`/`PGRST205`, still transient so the outbox is unchanged, and
+  `syncedLotStore` reports it as state.
+  **`online` stays the NETWORK's answer and `notSetUp` is its own flag**, which
+  is the distinction the page actually needed: a project with no lot storage is
+  perfectly reachable. `check_storage.mjs` asserts the two apart directly -
+  a dropped connection sets `online` false and leaves `notSetUp` false; an
+  unapplied schema does the opposite; and either way the lot is still waiting.
+  **`noteOk()` / `noteFailure()` are one place deciding what an outcome means**,
+  because there were seven call sites setting `state.online` by hand and a flag
+  set in six of them is a flag that is wrong somewhere. That is the same shape
+  as every other "one producer" rule in this file.
+  Watched failing both ways: putting the code back to the shared `backend`
+  reports 5 checker failures and 3 harness failures; making the page ignore the
+  flag brings the chip back in front of a contractor.
+
+- **Only a KYTC reviewer can Accept a lot - a real hole, closed 2026-09-23
+  (Andrew).** After Submit the stage button offered "Accept" to anyone, and
+  pressing it marked the lot Accepted with the CONTRACTOR recorded as having
+  accepted it. The server was never the problem: `amaw_seal_lot()` raises "only
+  KYTC accepts a lot" for a non-reviewer and `check_storage.mjs` has asserted
+  that since the schema was written. **The page was reachable without the
+  server** - with the schema unapplied the seal never leaves the browser, so
+  the local stage moved and the file said so. Worth carrying as a class: **a
+  server-side gate that has been proven does not cover a page that can run
+  without the server**, which is exactly the state every deploy is in between
+  shipping a page and applying its migration. `renderLotStage()` hides the
+  button and the click handler refuses as well, per this file's own rule that
+  hiding a button is UX rather than a gate.
+
+- **The demo comes before the migration, and the reason is stronger than it
+  looks** (Andrew, 2026-09-23). PlantBook is being demoed to the task force as
+  a contractor account (`johndoe`) with a made-up lot on Eaton's real contract
+  261118, and the tables are held until afterwards so the fake lot cannot
+  become a permanent ledger row on a real job. That is right, and note what
+  makes it more than tidiness: **there is no way to delete it afterwards.**
+  `amaw_lots`' only delete policy is the author's own lot while it is still
+  Open, and a demo that reaches Submit is sealed one-way by design. Deleting
+  the technician would not help either - `sm_id` and `author_user_id` are the
+  row's, not the account's. Order: demo, remove `johndoe` and its plant access,
+  confirm the project ref, apply, run the post-apply checks, then pg_cron as
+  its own step.

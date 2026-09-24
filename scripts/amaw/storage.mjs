@@ -369,7 +369,8 @@ export class StorageError extends Error {
   constructor(code, message, cause) {
     super(message);
     this.name = 'StorageError';
-    // unavailable | quota | conflict | offline | not_found | denied | invalid | backend | sealed
+    // unavailable | quota | conflict | offline | not_found | denied |
+    // invalid | backend | not_set_up | sealed
     this.code = code;
     if (cause) this.cause = cause;
   }
@@ -377,9 +378,16 @@ export class StorageError extends Error {
 
 // A failure that means "the network, not the data". These are retried from the
 // outbox; everything else is a real answer and is surfaced.
+//
+// `not_set_up` is in here because the OUTBOX should behave the same way — a lot
+// waits rather than being discarded, and catches up the day the migration is
+// applied. It is NOT the same thing to a person, though, and that is the
+// distinction `state().notSetUp` exists to carry: "no signal" and "this project
+// has no lot storage" want opposite sentences on screen, and for a while the
+// page told every contractor they were offline while they were online.
 export function isTransient(err) {
   if (!err) return false;
-  if (err.code === 'offline' || err.code === 'backend') return true;
+  if (err.code === 'offline' || err.code === 'backend' || err.code === 'not_set_up') return true;
   const m = String(err.message || '').toLowerCase();
   return m.indexOf('failed to fetch') >= 0 || m.indexOf('networkerror') >= 0 ||
          m.indexOf('load failed') >= 0 || m.indexOf('timeout') >= 0;
@@ -599,7 +607,7 @@ export function supabaseLotStore(opts = {}) {
     const code = err.code || '';
     const msg = String(err.message || '');
     if (code === '42P01' || code === 'PGRST205') {
-      return new StorageError('backend',
+      return new StorageError('not_set_up',
         'PlantBook storage is not set up on this project yet (supabase/amaw_lots.sql has not been applied)', err);
     }
     if (code === '40001' || /stale revision/i.test(msg)) {
@@ -621,10 +629,13 @@ export function supabaseLotStore(opts = {}) {
     async available() {
       try {
         const { error } = await sb.from(V_SUMMARIES).select('id').limit(1);
-        if (error) { const e = fail(error, 'PlantBook storage'); return { ok: false, reason: e.message, cause: error }; }
+        if (error) {
+          const e = fail(error, 'PlantBook storage');
+          return { ok: false, code: e.code, reason: e.message, cause: error };
+        }
         return { ok: true };
       } catch (err) {
-        return { ok: false, reason: 'could not reach Supabase', cause: err };
+        return { ok: false, code: 'offline', reason: 'could not reach Supabase', cause: err };
       }
     },
 
@@ -780,12 +791,31 @@ export function syncedLotStore(opts = {}) {
   const remote = opts.remote || (opts.client ? supabaseLotStore(opts) : null);
   // Reported to the page so it can say where a lot stands, rather than
   // guessing from a spinner.
-  const state = { online: null, lastError: null, lastSyncAt: null, pending: 0 };
+  // `notSetUp` is a THIRD state beside online and offline: the network is fine
+  // and the project simply has no lot storage. Reading it off the error's
+  // wording works and is what the page did first, but a sentence is not an API —
+  // rephrase that message and the chip silently starts lying again. The code is.
+  const state = { online: null, notSetUp: false, lastError: null, lastSyncAt: null, pending: 0 };
   const listeners = [];
 
   function announce() {
-    state.online = state.online;
     for (const fn of listeners) { try { fn({ ...state }); } catch (_) {} }
+  }
+
+  // ONE place decides what an outcome means for the reported state. There are
+  // seven call sites, and a flag set in six of them is a flag that is wrong
+  // somewhere — which is the whole reason the page was reading an error's
+  // wording instead.
+  function noteOk() {
+    state.online = true; state.notSetUp = false; state.lastError = null;
+  }
+  function noteFailure(err) {
+    state.notSetUp = !!err && err.code === 'not_set_up';
+    // A project with no lot storage IS reachable, so `online` stays true and
+    // the page reads the flag. Saying "offline" there is what put "offline ·
+    // 1 waiting" in front of contractors who had a perfectly good connection.
+    state.online = state.notSetUp ? true : !isTransient(err);
+    state.lastError = err && err.message;
   }
   function online() {
     try {
@@ -843,12 +873,13 @@ export function syncedLotStore(opts = {}) {
       const l = await local.available();
       if (!remote) return l;
       const r = await remote.available();
-      state.online = r.ok;
-      state.lastError = r.ok ? null : r.reason;
+      if (r.ok) noteOk();
+      else noteFailure(new StorageError(r.code || 'backend', r.reason, r.cause));
       announce();
       // Local alone is a working PlantBook. Remote alone is not, because the
       // page reads what it just wrote.
-      return l.ok ? { ok: true, remote: r.ok, reason: r.ok ? null : r.reason } : l;
+      return l.ok ? { ok: true, remote: r.ok, notSetUp: state.notSetUp,
+                      reason: r.ok ? null : r.reason } : l;
     },
 
     /**
@@ -895,18 +926,13 @@ export function syncedLotStore(opts = {}) {
         try {
           await pushOne(saved, by);
           await local.save(saved, { by, bump: false });   // record synced_revision
-          state.online = true; state.lastError = null; state.lastSyncAt = saved.synced_at;
+          noteOk(); state.lastSyncAt = saved.synced_at;
         } catch (err) {
-          state.lastError = err && err.message;
-          if (!isTransient(err) && err && err.code === 'conflict') {
-            // A real disagreement, not a dropped connection. The local copy is
-            // kept — it is this person's work — and the caller is told, so it
-            // can offer the download before anything is overwritten.
-            state.online = true;
-            saved.conflict = err.message;
-          } else {
-            state.online = false;
-          }
+          noteFailure(err);
+          // A real disagreement, not a dropped connection. The local copy is
+          // kept — it is this person's work — and the caller is told, so it
+          // can offer the download before anything is overwritten.
+          if (err && err.code === 'conflict') saved.conflict = err.message;
         }
         state.pending = (await local.outbox()).length;
         announce();
@@ -919,8 +945,8 @@ export function syncedLotStore(opts = {}) {
       const mine = await local.load(uid);
       if (!remote || !online()) return mine;
       let theirs = null;
-      try { theirs = await remote.load(uid); state.online = true; }
-      catch (err) { state.online = !isTransient(err); state.lastError = err && err.message; announce(); return mine; }
+      try { theirs = await remote.load(uid); noteOk(); }
+      catch (err) { noteFailure(err); announce(); return mine; }
       if (!theirs) return mine;
       if (!mine) { await local.save(theirs, { bump: false }); return theirs; }
 
@@ -948,8 +974,8 @@ export function syncedLotStore(opts = {}) {
       const mine = await local.list(filter);
       if (!remote || !online()) return mine;
       let theirs = [];
-      try { theirs = await remote.list(filter); state.online = true; }
-      catch (err) { state.online = !isTransient(err); state.lastError = err && err.message; return mine; }
+      try { theirs = await remote.list(filter); noteOk(); }
+      catch (err) { noteFailure(err); return mine; }
       const byUid = new Map();
       for (const r of theirs) byUid.set(r.uid, r);
       for (const m of mine) {
@@ -988,10 +1014,9 @@ export function syncedLotStore(opts = {}) {
         try {
           await pushOne(saved, by);
           await local.save(saved, { by, bump: false });
-          state.online = true; state.lastError = null;
+          noteOk();
         } catch (err) {
-          state.lastError = err && err.message;
-          state.online = !isTransient(err);
+          noteFailure(err);
           if (!isTransient(err)) throw err;   // "only KYTC accepts a lot" is an answer, not a delay
         }
         state.pending = (await local.outbox()).length;
@@ -1021,7 +1046,8 @@ export function syncedLotStore(opts = {}) {
       }
       state.pending = (await local.outbox()).length;
       state.lastSyncAt = new Date().toISOString();
-      if (pushed) { state.online = true; state.lastError = null; }
+      if (pushed) noteOk();
+      else if (failures.length) noteFailure(failures[0].error);
       announce();
       return { pushed, pending: state.pending, failures };
     },

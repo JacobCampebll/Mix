@@ -187,13 +187,19 @@ const UNAPPLIED = async ({ approval }) => {
   show("uploadCard", true);
   await paintLotList();
   await flushLots();
+  const listText = ($("lotListWrap") || {}).textContent || "";
   return {
     savedLocally: !!local,
     localTons: local ? (local.values || {}).lot_tons : undefined,
     serverEmpty: Object.keys(window.__HARNESS_AMAW.amaw_lots).length === 0,
     availLocal: avail.ok, availRemote: avail.remote, availReason: avail.reason,
+    availNotSetUp: avail.notSetUp, stateNotSetUp: state.store.state().notSetUp,
+    stateOnline: state.store.state().online,
     listRows: document.querySelectorAll("#lotListWrap [data-lot-uid]").length,
+    chipHidden: $("syncChip").classList.contains("hidden"),
     chip: $("syncChip").textContent,
+    listSaysRetention: /kept for/.test(listText),
+    listSaysNotYetSent: /not yet sent/.test(listText),
     formAlive: document.querySelectorAll("#sections .section").length,
   };
 };
@@ -286,6 +292,20 @@ export async function run({ browser, results }) {
      u.availLocal === true && u.availRemote === false, `local=${u.availLocal} remote=${u.availRemote}`);
   ok("unapplied: …naming the missing migration rather than a stack trace",
      /has not been applied/.test(u.availReason || ""), u.availReason);
+
+  // NOT SET UP IS NOT OFFLINE, and for a day the page said it was: the chip
+  // read "offline · 1 waiting" to contractors who were online, because the
+  // failure is transient for RETRY purposes (Andrew, 2026-09-23). These three
+  // assert the honest version, off the store's own flag rather than the
+  // wording of its error.
+  ok("unapplied: the store says NOT SET UP, and leaves online alone",
+     u.availNotSetUp === true && u.stateNotSetUp === true && u.stateOnline === true,
+     `notSetUp=${u.stateNotSetUp} online=${u.stateOnline}`);
+  ok("unapplied: …so there is no sync chip at all", u.chipHidden === true, `chip="${u.chip}"`);
+  ok("unapplied: …and the list does not promise a retention nothing enforces",
+     u.listSaysRetention === false && u.listSaysNotYetSent === false,
+     `retention=${u.listSaysRetention} notYetSent=${u.listSaysNotYetSent}`);
+
   ok("unapplied: the lot still lists, out of localStorage", u.listRows === 1, `${u.listRows} rows`);
   ok("unapplied: no console errors at all",
      un.value.errs.length === 0, un.value.errs.slice(0, 3).join(" | ") || "clean");
