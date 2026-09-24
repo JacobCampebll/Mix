@@ -5406,3 +5406,16 @@ commit where possible.
   draws nothing. A blank lot number reads as lot 1, as it does everywhere else
   on the page. Browser-checked: lot 1 draws it on sublot 1 only, lot 2 draws
   it nowhere, and DesignBook draws it nowhere.
+
+- **PlantBook's Submit step save note is one sentence, and it says whichever
+  is true** (Jake, 2026-09-24). Before `supabase/amaw_lots.sql` is applied it
+  reads "The lot PDF (or the .json) is your saved copy — upload it later to
+  pick up where you left off." Once the store has answered and is set up, it
+  reads "Your lot saves as you go; the lot PDF is your backup copy."
+  `paintLotSaveNote()` decides, from the store's own `notSetUp` flag (never
+  the error wording, same rule as the sync chip), and `paintSyncChip()`
+  repaints it on every store outcome. An unknown state, before the store has
+  answered, gets the file wording, because that one is never false. So the
+  sentence changes by itself on the day the migration lands. The contractor's
+  submittal sentence and the "Start lot n+1" sentence still follow it.
+  Browser-checked against the harness stub both ways.

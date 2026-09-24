@@ -1332,7 +1332,7 @@
   .handoff{margin-top:18px; padding-top:16px; border-top:1px solid var(--line);}
   .handoff .stagebtn{margin-top:0;}
   .handoffnote{font-size:12px; color:var(--muted); margin-top:8px; max-width:62ch; line-height:1.5;}
-  /* DesignBook's save note is one sentence (Jake, 2026-09-24) and reads on one line on a desktop. */
+  /* Both books' save notes are one sentence (Jake, 2026-09-24) and run the full width on a desktop. */
   .handoffnote.one{max-width:none;}
   .refstatus{font-family:'Roboto Mono',monospace; font-size:11px; color:var(--muted); margin-top:6px;}
   .refstatus.error{color:var(--bad);}
@@ -22663,13 +22663,7 @@ function lotStatusHTML() {
       <button class="stagebtn" id="lotPdfBtn">Download lot PDF</button>
       <button class="stagebtn ghost" id="lotFileBtn">Download working copy (.json)</button>
       <button class="stagebtn ghost" id="nextLotBtn">Start the next lot</button>
-      <div class="handoffnote">This is how you save. Nothing about this lot is
-        kept on the site &mdash; the file is the only copy, and it carries every
-        value inside it. Download the <strong>lot PDF</strong> at any point to
-        keep your work; upload it on the way back in to return to exactly this
-        point. The <strong>.json</strong> holds the same lot and is the same
-        door &mdash; take it if you would rather have the raw record.
-        <span id="medlNote"></span><span id="nextLotNote"></span></div>
+      <div class="handoffnote one"><span id="lotSaveNote">${LOT_SAVE_NOTE.file}</span><span id="medlNote"></span><span id="nextLotNote"></span></div>
     </div>
     <div class="refstatus" id="refStatus"></div>
     <div class="auditlog" id="auditlog"></div>`;
@@ -23530,6 +23524,26 @@ async function sealLotSubmitted(frozen) {
 // "saved", "saving" is invisible because it takes 30ms, "offline · n waiting"
 // and "not synced". Silence would be worse than any of them - a technician
 // needs to know whether closing the laptop loses the afternoon.
+// PlantBook's one-line save note (Jake, 2026-09-24), which says whichever
+// is TRUE right now. Until supabase/amaw_lots.sql is applied a lot lives only
+// in the files a technician downloads, and "saves as you go" would be a
+// promise nothing keeps. Once the store has answered and is set up, the PDF
+// becomes the backup. Unknown (no answer from the store yet) reads as the
+// file wording, because that one is never false. Repainted from
+// paintSyncChip(), which runs on every store outcome.
+const LOT_SAVE_NOTE = {
+  file: "The lot PDF (or the .json) is your saved copy &mdash; upload it later to pick up where you left off.",
+  live: "Your lot saves as you go; the lot PDF is your backup copy.",
+};
+function paintLotSaveNote() {
+  const el = $("lotSaveNote");
+  if (!el) return;
+  const store = state.store;
+  const st = store && store.state ? store.state() : {};
+  const live = !!store && st.online != null && !st.notSetUp;
+  el.innerHTML = live ? LOT_SAVE_NOTE.live : LOT_SAVE_NOTE.file;
+}
+
 function syncChipState() {
   if (!isPlantBook() || !state.lot) return null;
   const store = state.store;
@@ -23563,6 +23577,7 @@ function syncChipState() {
 }
 
 function paintSyncChip() {
+  paintLotSaveNote();
   const el = $("syncChip");
   if (!el) return;
   const s = syncChipState();
