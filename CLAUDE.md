@@ -5479,3 +5479,26 @@ commit where possible.
   and "Start lot n+1 carries this design over and clears the measurements."
   still follow it, all three on one line at 1440px.
   Browser-checked against the harness stub both ways.
+
+- **Rounding is for DISPLAY; a box holds the full value, as KYTC's
+  workbooks do** (Andrew, 2026-09-24, checked against #486PA, #489PA and two
+  District 7 AMAWs). A cell formatted `0.00` shows 2.70 and calculates on
+  2.696848, and the workbooks' arithmetic depends on it: the combined Gsb
+  and every VMA use unrounded component Gsb values, the polish tab's
+  retained-on-#4 uses unrounded gradations, and the AMAW pays on the
+  unrounded Va, VMA and %AC and rounds them once, in the pay schedule. So a
+  box SHOWS `CONFIG.DP` and HOLDS the full value in `data-raw`, and anything
+  that calculates or saves reads `heldValue()`, never `.value`. `putCell()`
+  writes both for every computed cell. **Do not "tidy" a calculation to read
+  `.value`**: that rounds twice, which can move a pay band (Va 3.849 is 3.85
+  and then 3.9; the workbook gets 3.8). This REVERSES the old "combined Gsb
+  is rounded to 0.01 at the source, KY practice" note in `autoFpInputs()`,
+  which put #486PA's first trial VMA 0.05 under the workbook's.
+  Gradations: the JMF is ROUNDED (whole, with the #200 to 0.1), because
+  that precision is the definition of a JMF (KM 64-421). The polish tab's
+  component gradations display by the same rule and are held in full. A
+  lot's computed sublot % passing shows 0.1 on every sieve, as the AMAW's
+  `Gradation!D` does. Gradation pay reproduces the sheet's two-step
+  rounding (to a tenth outside the control points, then to a whole).
+  Full status table and the questions still open for Tate:
+  `docs/rounding-conventions.md`.

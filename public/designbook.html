@@ -2989,13 +2989,15 @@ const CONFIG = {
     gsb: 2,
     s50: 0, s37_5: 0, s25: 0, s19: 0, s12_5: 0, s9_5: 0, s4_75: 0,
     s2_36: 0, s1_18: 0, s0_6: 0, s0_3: 0, s0_15: 0, s0_075: 1,
-    // The Polish-Resistant tab's per-component gradations are NOT the JMF
-    // column and do not share its precision. KYTC formats the JMF cells as
-    // whole percents, but the polish tab carries tenths and its own
-    // arithmetic depends on them: #467PA's composite retained-on-#4 is
-    // 24.69% from 17.7 on the #4, and 24.60% from 18. Rounding these to the
-    // JMF's 0 dp moved every total in the section.
-    polish_sieve: 1,
+    // These sieve entries are how EVERY gradation DISPLAYS, in both books:
+    // the JMF, a lot's JMF column and the Polish-Resistant tab's component
+    // gradations (Andrew, 2026-09-24). A lot's computed sublot % passing is
+    // the one exception and shows a tenth on every sieve, as the AMAW's own
+    // Gradation!D does - see computeGradation().
+    //
+    // DISPLAY, not storage. Like every CONFIG.DP entry this says how many
+    // places a figure SHOWS; where KYTC's workbook calculates on more than it
+    // shows, the page holds the full value too - see heldValue().
     // PlantBook: a core's % solid density. Calculations!E22:T22 and E56:L56
     // are ROUND(Cores!I..,1) and the pay bands are laid out against that
     // tenth, so it is the schema's precision and not a display choice.
@@ -3068,11 +3070,19 @@ const CONFIG = {
     hamburg_left_maxdef: 3, hamburg_right_maxdef: 3,
     // Four-point trial sweep, and the values computed from it.
     pb: 1, gmb: 3, gmm: 3,
+    // Four Points' own inputs: the air-void target (3.5) and the #200 it
+    // auto-fills from the gradation, both tenths like the #200 itself.
+    fp_vatgt: 1, fp_p075: 1, fp_gsb: 2,
     design_pb: 1, gmm_design: 3, gmb_design: 3, va_design: 1, vma_design: 1,
     vfa_design: 1, gse: 3, pbe: 1, dust_pbe: 1, density: 1,
     // Legacy keys still referenced by the sheet.
     air_voids: 1, index: 1,
   },
+
+  // Imported workbook values kept at full precision rather than rounded to
+  // CONFIG.DP on the way in - they are shown rounded and calculated on in
+  // full, as the MixPack does (see heldValue()).
+  HELD_IMPORT: ["gsb"],
 
   // RAP -> required virgin binder, per the MixPack v12.1 Recycle Data tab
   // (screenshot supplied 2026-09-04; cite the exact R35 recycle-spec section
@@ -5747,7 +5757,8 @@ function inputFor(f, value, src) {
   }
   const type = f.type === "date" ? "date" : "text";
   const im = f.type === "number" ? ' inputmode="decimal"' : "";
-  return `<input type="${type}"${im} class="${cls}" ${attrs} value="${esc(value == null ? "" : value)}">`;
+  const shown = f.type === "number" ? padTenthFor(f.key, value) : value;
+  return `<input type="${type}"${im} class="${cls}" ${attrs} value="${esc(shown == null ? "" : shown)}">`;
 }
 
 /* ---------- a section-head lookup ----------
@@ -5862,9 +5873,12 @@ function rowHTML(spec, values, idx) {
     // before CONFIG.DP reached its importer, or rehydrated from a review PDF
     // that carries the raw float, still prints to the right place.
     // roundTo() passes anything with no DP entry straight through.
-    const v = c.type === "number"
-      ? roundTo(values && values[c.key] != null ? values[c.key] : "", CONFIG.DP[c.key])
-      : (values ? values[c.key] : "");
+    // `raw` is what the row holds; `v` is what it shows. They differ only
+    // for a number column whose stored value has more places than CONFIG.DP
+    // shows, and then the box holds the full value (heldValue()).
+    const raw = values && values[c.key] != null ? values[c.key] : "";
+    const v = c.type === "number" ? roundTo(raw, CONFIG.DP[c.key]) : (values ? values[c.key] : "");
+    const held = c.type === "number" && String(raw) !== String(v) ? ` data-raw="${esc(raw)}"` : "";
     const cls = "box" + (c.mono ? " mono" : "") + (c.req ? " req" : "");
     const attrs = `data-row="${spec.key}" data-col="${c.key}"`;
     const ro = c.readonly ? " readonly tabindex=\"-1\"" : "";
@@ -5887,7 +5901,7 @@ function rowHTML(spec, values, idx) {
       : c.type === "select"
         ? selectHTML(cls, attrs, (c.options || []).map((o) =>
             (typeof o === "string" ? { value: o, label: o } : o)), v, c.readonly)
-        : `<input type="text"${ro}${wt} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
+        : `<input type="text"${ro}${wt}${held} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
     // `num` is what lets a phone pack three figures onto one line instead of
     // giving each its own. A number column holds a figure - four or five
     // characters - where a text column can hold a 48-character producer name,
@@ -6113,11 +6127,11 @@ function sievesHTML(section) {
     // never diverge from each other the way four editable ones could.
     if (col.readonly) {
       return `<td><input type="text" class="mono" data-field="${key}" readonly tabindex="-1"
-             value="${esc(val(key))}" placeholder="—"></td>`;
+             value="${esc(sieveShown(s.key, val(key)))}" placeholder="—"></td>`;
     }
     const req = col.department ? "" : " req";
     return `<td><input type="text" inputmode="decimal" class="${req.trim()}" data-field="${key}"
-           data-mm="${s.mm}" value="${esc(val(key))}" placeholder="—"></td>`;
+           data-mm="${s.mm}" value="${esc(sieveShown(s.key, val(key)))}" placeholder="—"></td>`;
   };
 
   const rows = section.sieves.map((s) => `<tr>
@@ -6236,10 +6250,10 @@ function fourpointHTML(section) {
     `<div class="field">
       <label>${c.label}${c.auto ? ` <span class="opt">(auto)</span>` : ""}</label>
       <input type="text" inputmode="decimal" class="box mono${c.auto ? "" : " req"}"
-             data-fp="const:${c.key}" value="${esc(c.value || "")}" placeholder="—">
+             data-fp="const:${c.key}" ${heldAttrs(padTenthFor(c.key, c.value || ""), roundTo(padTenthFor(c.key, c.value || ""), CONFIG.DP[c.key]))} placeholder="—">
     </div>`).join("");
   const rows = points.map((p, i) => `<tr data-fprow="${i}">
-      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:pb"  value="${esc(p.pb || "")}"></td>
+      <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:pb"  value="${esc(padTenthFor("pb", p.pb || ""))}"></td>
       <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmb" value="${esc(p.gmb || "")}" placeholder="—"></td>
       <td><input type="text" inputmode="decimal" class="req" data-fp="pt:${i}:gmm" value="${esc(p.gmm || "")}" placeholder="—"></td>
       <td class="calc" data-fpout="va:${i}">—</td>
@@ -6933,7 +6947,13 @@ function computeGradation() {
       // through (coerceField() in the legacy importer); this readout had
       // never been taught to read it and printed every sieve to a tenth.
       for (const sv of sec.sieves) {
-        const dp = CONFIG.DP[sv.key] ?? 1;
+        // A TENTH ON EVERY SIEVE, not CONFIG.DP's whole-percent rule - the
+        // AMAW's own Gradation!D shows a sublot's % passing to 0.0 over the
+        // unrounded quotient (both District 7 lots, 2026-09-24), and this is
+        // the lot's copy of that column. The JMF beside it keeps the JMF's
+        // rule. state.gradPassing, what everything calculates on, is never
+        // rounded at all.
+        const dp = 1;
         const el = document.querySelector(`[data-gpct="${col.key}_${sv.key}"]`);
         if (el) el.textContent = byKey[sv.key] == null ? "—" : `${fmt(byKey[sv.key], dp)}%`;
         // THE DEVIATION FROM THE JMF TARGET (Jake, 2026-09-17), painted here
@@ -7334,7 +7354,7 @@ function autoFpInputs() {
   let wsum = 0, gsum = 0;
   document.querySelectorAll('[data-rowlist="aggregate"] .rowitem').forEach((row) => {
     const pct = num(row.querySelector('[data-col="pct_blend"]')?.value);
-    const gsb = num(row.querySelector('[data-col="gsb"]')?.value);
+    const gsb = num(heldValue(row.querySelector('[data-col="gsb"]')));
     if (pct != null && gsb != null && pct > 0) { wsum += pct; gsum += pct / gsb; }
   });
   const gsb = wsum > 0 && gsum > 0 ? wsum / gsum : null;
@@ -7342,10 +7362,15 @@ function autoFpInputs() {
   const p075 = p200El ? num(p200El.value) : null;
   const set = (k, v) => {
     const el = document.querySelector(`[data-fp="const:${k}"]`);
-    // Combined Gsb is rounded to the nearest 0.01 here, at the source, not
-    // just for display — KY practice rounds it before it feeds Va/VMA/Gse/
-    // Pbe below, so the calculator matches a reviewer doing it by hand.
-    if (el && document.activeElement !== el && v != null) el.value = v.toFixed(k === "fp_p075" ? 1 : k === "fp_gsb" ? 2 : 3);
+    // Combined Gsb SHOWS to 0.01 and is HELD in full: the MixPack's O23 is
+    // formatted 0.00 over the unrounded blend and every VMA reads it
+    // unrounded (Andrew, 2026-09-24: "match the workbook"). This used to
+    // round it at the source as "KY practice", which put the page's VMA
+    // 0.04 under #486PA's own on its first trial point.
+    if (el && document.activeElement !== el && v != null) {
+      if (k === "fp_gsb") { el.dataset.raw = String(v); el.value = v.toFixed(2); }
+      else el.value = v.toFixed(k === "fp_p075" ? 1 : 3);
+    }
   };
   set("fp_gsb", gsb);
   set("fp_p075", p075);
@@ -7373,7 +7398,7 @@ function isRapRow(values) {
 // The values of one rendered row, keyed by column - what isRapRow reads.
 function rowValuesOf(row) {
   const out = {};
-  if (row) row.querySelectorAll("[data-col]").forEach((el) => { out[el.dataset.col] = el.value; });
+  if (row) row.querySelectorAll("[data-col]").forEach((el) => { out[el.dataset.col] = heldValue(el); });
   return out;
 }
 // A column whose list depends on its row resolves here. Everything
@@ -7476,7 +7501,7 @@ function computeFourPoint() {
   if (!sec || !$("fpResults")) return null;
   autoFpInputs();
   updateFpDefaultNote(sec);
-  const cv = (k) => num(document.querySelector(`[data-fp="const:${k}"]`)?.value);
+  const cv = (k) => num(heldValue(document.querySelector(`[data-fp="const:${k}"]`)));
   const gsb = cv("fp_gsb"), gb = cv("fp_gb"), p075 = cv("fp_p075"), vaTgt = cv("fp_vatgt");
 
   const pbs = [], vas = [], vmas = [], vfas = [], denss = [];
@@ -8191,7 +8216,7 @@ function harvestPolishGrid() {
     const s = prSplit(el.dataset.pr), id = s && prGridIds[s.idx];
     if (!id) return;
     const bag = prHeld.get(id) || {};
-    bag[s.sub] = el.type === "checkbox" ? (el.checked ? el.value || "1" : "") : el.value;
+    bag[s.sub] = el.type === "checkbox" ? (el.checked ? el.value || "1" : "") : heldValue(el);
     prHeld.set(id, bag);
   });
 }
@@ -8305,7 +8330,7 @@ function renderPolishGrid(force) {
 
   const sieveRows = sieves.map((sv) => `<tr><th class="prrowhead mono">${esc(sv.label)}</th>` + comps.map((c, i) =>
     `<td><input type="text" inputmode="decimal" class="box mono${sv.key === P.RETAINED_SIEVE ? " prkey" : ""}"
-        data-pr="g:${i}:${sv.key}" value="${esc(val(`g:${i}:${sv.key}`, ""))}" placeholder="—"></td>`).join("") + `</tr>`).join("");
+        data-pr="g:${i}:${sv.key}" ${heldAttrs(val(`g:${i}:${sv.key}`, ""), sieveShown(sv.key, val(`g:${i}:${sv.key}`, "")))} placeholder="—"></td>`).join("") + `</tr>`).join("");
 
   // RAP credit % removed from the grid (Jake, 2026-09-10). It is applied for
   // through the Division of Materials rather than declared on a design, so it
@@ -8328,7 +8353,7 @@ function reguessPolishRoles() {
   document.querySelectorAll('[data-pr^="role:"][data-guess]').forEach((sel) => {
     const i = sel.dataset.pr.split(":")[1];
     const el = document.querySelector(`[data-pr="g:${i}:${P.RETAINED_SIEVE}"]`);
-    const p4 = parseFloat((el && el.value) || "");
+    const p4 = parseFloat((el && heldValue(el)) || "");
     if (!Number.isFinite(p4)) return;
     sel.value = p4 > P.FINE_SOURCE_PASSING_4 ? "fine" : "coarse";
   });
@@ -8340,7 +8365,7 @@ function polishComponents() {
   const P = CONFIG.POLISH;
   const rows = polishAggregateRows();
   const get = (k) => { const el = document.querySelector(`[data-pr="${k}"]`); return el ? el : null; };
-  const txt = (k) => { const el = get(k); return el ? String(el.value || "").trim() : ""; };
+  const txt = (k) => { const el = get(k); return el ? String(heldValue(el) || "").trim() : ""; };
   // A derived cell is a hidden input carrying "1" or "", not a checkbox, so
   // read whichever this column turned out to be.
   const chk = (k) => {
@@ -8711,7 +8736,7 @@ function drawFpChart(pbs, vas, vaFit, vaTgt, designPb) {
   // collides with it the moment the solve lands over there - which is exactly
   // where an extrapolated one does, and its label is the longest.
   const tgt = vaTgt != null ? `<line x1="${x0}" y1="${yp(vaTgt).toFixed(1)}" x2="${x1}" y2="${yp(vaTgt).toFixed(1)}" stroke="var(--flag)" stroke-width="1" stroke-dasharray="4 3"/>
-     <text x="${x0 + 4}" y="${(yp(vaTgt) - 5).toFixed(1)}" font-size="9" fill="var(--flag)">target ${vaTgt}%</text>` : "";
+     <text x="${x0 + 4}" y="${(yp(vaTgt) - 5).toFixed(1)}" font-size="9" fill="var(--flag)">target ${fmt(vaTgt, 1)}%</text>` : "";
   // <title> is a native hover tooltip - the numbers without the clutter of
   // printing them beside every dot.
   const dots = pbs.map((pb, i) =>
@@ -8932,9 +8957,9 @@ function tsrSummary(rows) {
 function tsrTargetsHTML() {
   const T = CONFIG.TSR;
   return `<div class="tsrtargets mono">` +
-    `<span>compacted to <b>${T.THICKNESS_MM} mm</b></span>` +
-    `<span>air voids <b>${T.AIR_VOIDS} ± ${T.AIR_VOIDS_TOL} %</b></span>` +
-    `<span>initial saturation <b>${T.SATURATION} ± ${T.SATURATION_TOL} %</b></span>` +
+    `<span>compacted to <b>${fmt(T.THICKNESS_MM, 1)} mm</b></span>` +
+    `<span>air voids <b>${fmt(T.AIR_VOIDS, 1)} ± ${fmt(T.AIR_VOIDS_TOL, 1)} %</b></span>` +
+    `<span>initial saturation <b>${fmt(T.SATURATION, 1)} ± ${fmt(T.SATURATION_TOL, 1)} %</b></span>` +
     `<span>${specLinkify(T.CITE)}</span></div>`;
 }
 
@@ -8983,7 +9008,7 @@ function computeTSR() {
       st.dataset.autofilled = "1";
       st.classList.add("autofilled");
       st.title = `computed from the load at ${fmt(num(rowValuesOf(row).thickness), 1)} mm ` +
-                 `and ${CONFIG.TSR.DIAMETER_MM} mm diameter`;
+                 `and ${fmt(CONFIG.TSR.DIAMETER_MM, 1)} mm diameter`;
     }
   });
   const s = tsrSummary(list ? Array.from(list.children).map(rowValuesOf) : []);
@@ -9601,6 +9626,10 @@ function roundTo(v, dp) {
 function coerceField(key, v, type) {
   const out = coerce(v, type);
   if (type !== "number" || out === "") return out;
+  // A component Gsb is kept in full: the MixPack's combined Gsb and every
+  // trial point's VMA are computed on it unrounded (#486PA's RAP row holds
+  // 2.696848 and shows 2.70). It displays at CONFIG.DP.gsb (heldValue()).
+  if (CONFIG.HELD_IMPORT.includes(key)) return out;
   return roundTo(out, CONFIG.DP[key]);
 }
 
@@ -9855,11 +9884,12 @@ function extractLegacy(wb, ctx) {
         Object.entries(PR.sieveRows).forEach(([key, row]) => {
           const r = legacyCell(ws, `${col}${row}`);
           if (r.status !== "found") return;
-          // Deliberately not coerceField(key, ...): that would apply the JMF
-          // column's decimal places (see CONFIG.DP.polish_sieve).
+          // Held in FULL: #486PA's natural sand carries 97.39233962919593 on
+          // the #4 and the tab's own "% Passing #4" row calculates on it.
+          // The grid shows it by the sieve's rule (heldValue()).
           const n = Number(r.value);
           if (!Number.isFinite(n)) return;
-          polish[`g:${i}:${key}`] = String(roundTo(n, CONFIG.DP.polish_sieve)); cells++;
+          polish[`g:${i}:${key}`] = String(n); cells++;
         });
         // Cross-check only, never imported - see the note on CONFIG.LEGACY.POLISH.
         const says = legacyCell(ws, `${col}${PR.kytcSaysPR}`);
@@ -10202,7 +10232,7 @@ function collectForm() {
   // Four Points inputs (const:… / pt:i:field) and the computed Design Values.
   const fourpoint = {};
   document.querySelectorAll("[data-fp]").forEach((el) => {
-    fourpoint[el.dataset.fp] = String(el.value || "").trim() || null;
+    fourpoint[el.dataset.fp] = String(heldValue(el) || "").trim() || null;
   });
   const design_values = {};
   document.querySelectorAll("[data-dv]").forEach((el) => {
@@ -10213,7 +10243,7 @@ function collectForm() {
     // A checkbox's .value is its "1" attribute whether or not it is ticked,
     // so reading .value blindly saved every flag as set - and a reopened
     // design came back with natural sand and dolomite ticked on every column.
-    const v = el.type === "checkbox" ? (el.checked ? el.value || "1" : "") : el.value;
+    const v = el.type === "checkbox" ? (el.checked ? el.value || "1" : "") : heldValue(el);
     polish[el.dataset.pr] = String(v || "").trim() || null;
   });
   values.fourpoint = fourpoint;
@@ -10233,7 +10263,7 @@ function collectForm() {
     const key = list.dataset.rowlist;
     const got = Array.from(list.children).map((row) => {
       const o = {};
-      row.querySelectorAll("[data-col]").forEach((el) => { o[el.dataset.col] = String(el.value || "").trim() || null; });
+      row.querySelectorAll("[data-col]").forEach((el) => { o[el.dataset.col] = String(heldValue(el) || "").trim() || null; });
       return o;
     }).filter((o) => Object.values(o).some((v) => v !== null));
     rows[key] = (rows[key] || []).concat(got);
@@ -10375,6 +10405,10 @@ function wireForm() {
   // Any edit: recompute completeness, drop the "prefilled" marker. A cell a
   // person types into stops being auto-filled - it is theirs from then on.
   $("sections").addEventListener("input", (e) => {
+    // A held box holds what is typed; the rounded display is put back when
+    // the person leaves it (padTenth). A polish gradation cell is always one.
+    if (e.target.dataset && ("raw" in e.target.dataset || /^g:/.test(e.target.dataset.pr || "")))
+      e.target.dataset.raw = e.target.value;
     // data-pr is the Polish-Resistant matrix. It was missing here, so typing
     // a class, a #4 or a natural-sand tick into that section left its own
     // verdicts showing the answer from before the keystroke - the section
@@ -10416,6 +10450,11 @@ function wireForm() {
   // refreshReferenceControls) arrives already wired. Kept separate from the
   // input handler above so the two concerns stay readable.
   $("sections").addEventListener("focusin", (e) => {
+    // A held box shows its rounded figure until you edit it, then the value
+    // it actually holds - the way an Excel cell formatted to 0.00 shows
+    // 2.696848 in the formula bar.
+    if (e.target.dataset && "raw" in e.target.dataset && !e.target.readOnly)
+      e.target.value = e.target.dataset.raw;
     // 2026-09-15b: a readonly/disabled reference control (AGG_BLEND_SPEC's
     // mirrored producer/type & size on Sublots 2-4) can still receive focus -
     // `readonly` only blocks typing, not focus or a click - so without this
@@ -10434,7 +10473,7 @@ function wireForm() {
     if (e.target.dataset && e.target.dataset.weight) {
       const n = parseFloat(e.target.value);
       if (Number.isFinite(n)) e.target.value = n.toFixed(1);
-    }
+    } else padTenth(e.target);
     if (e.target !== combo.input) return;
     // Let the popup's own click land first; it prevents the blur, so by the
     // next tick focus is either back on the input or genuinely gone.
@@ -10552,6 +10591,125 @@ function hdNum(v, dp) {
   // No explicit rule: leave short values alone, trim long ones.
   return /^-?\d*\.\d{4,}$/.test(t)
     ? String(parseFloat(n.toFixed(CONFIG.HANDOFF.DEFAULT_DP))) : t;
+}
+// A gradation percent-passing control's sieve key, or null. A sieve field is
+// keyed by the sieve itself ("s0_075", DesignBook) or ends in it
+// ("jmf_s0_075", a lot's JMF column); a Polish-Resistant component
+// gradation is data-pr "g:<column>:<sieve>". A gram weight ("..._wt_s4_75")
+// is not a percentage and is not one.
+function sieveKeyOf(el) {
+  const d = el && el.dataset;
+  if (d && d.pr && /^g:/.test(d.pr)) {
+    const k = d.pr.split(":")[2];
+    return CONFIG.DP[k] != null ? k : null;
+  }
+  const f = d && d.field;
+  if (!f || /_wt_/.test(f)) return null;
+  const m = /(?:^|_)(s\d[\d_]*)$/.exec(f);
+  return m && CONFIG.DP[m[1]] != null ? m[1] : null;
+}
+// The CONFIG.DP entry behind a form control, whichever way the control is
+// keyed: a row column (data-col), a scalar (data-field), a sieve (see
+// sieveKeyOf, which also covers a Polish-Resistant gradation cell) or a
+// Four Points input (data-fp). Null where no precision is declared.
+function dpOfControl(el) {
+  const d = el && el.dataset;
+  if (!d) return null;
+  const dp = (k) => (k != null && CONFIG.DP[k] != null ? CONFIG.DP[k] : null);
+  if (d.col) return dp(d.col);
+  if (d.field) return dp(d.field) ?? dp(sieveKeyOf(el));
+  if (d.fp) {
+    const [kind, a, b] = d.fp.split(":");
+    return dp(kind === "pt" ? b : a);
+  }
+  if (d.pr && /^g:/.test(d.pr)) return dp(sieveKeyOf(el));
+  return null;
+}
+// Round half away from zero to `dp` places, as Excel's ROUND does. Scaled
+// before rounding so 6.25 goes to 6.3 rather than wherever its binary
+// float happens to sit.
+function roundHalfUp(n, dp) {
+  const f = 10 ** dp;
+  return (Math.sign(n) * Math.round(Math.abs(n) * f + 1e-9) / f).toFixed(dp);
+}
+function padTenthValue(v) {
+  const t = v == null ? "" : String(v).trim();
+  return /^-?\d+\.?$/.test(t) ? `${parseInt(t, 10)}.0` : v;
+}
+// The same, for a value about to be rendered into a control keyed `key` -
+// so a design or lot saved with a bare "5" reopens showing "5.0" too.
+function padTenthFor(key, v) { return CONFIG.DP[key] === 1 ? padTenthValue(v) : v; }
+// A gradation's percent passing, as it is rendered: the #200 to a tenth and
+// every other sieve to a whole percent (Andrew, 2026-09-24), whatever was
+// typed or saved. Blank and non-numeric values pass through untouched.
+function sieveShown(sieveKey, v) {
+  const t = v == null ? "" : String(v).trim();
+  const n = t === "" ? NaN : Number(t);
+  const dp = CONFIG.DP[sieveKey];
+  return Number.isFinite(n) && dp != null ? roundHalfUp(n, dp) : v;
+}
+// HELD VALUES - a control that SHOWS a rounded figure and HOLDS the full one,
+// the way an Excel cell formatted to 0.00 shows 2.70 and calculates on
+// 2.696848. KYTC's workbooks do this throughout and their arithmetic depends
+// on it (Andrew, 2026-09-24, checked against #486PA and two District 7
+// AMAWs): the combined Gsb and every VMA are computed on unrounded component
+// Gsb values, the polish tab's retained-on-#4 on unrounded gradations, and
+// the AMAW pays on the unrounded Va, VMA and %AC and rounds them once, in
+// the pay schedule itself. Rounding a figure before it is used again rounds
+// it twice, which can move a pay band (Va 3.849 -> 3.85 -> 3.9, not 3.8).
+//
+// The held value lives in data-raw and the rounded one in `value`. Anything
+// that CALCULATES or SAVES reads heldValue(); only the eye reads `value`.
+// Three writers: putCell() for every computed cell, rowHTML()/fourpointHTML()
+// /the polish grid when they render a stored value with more places than it
+// shows, and the input handlers when a person types (the box shows the full
+// value while it has focus, and rounds again when they leave it).
+function heldValue(el) {
+  if (!el) return null;
+  return el.dataset && "raw" in el.dataset ? el.dataset.raw : el.value;
+}
+// A stored value as the attributes of the box that shows it: held in full,
+// shown at `shown`. No data-raw when the two already agree, so a box that
+// was never more precise than it looks stays an ordinary box.
+function heldAttrs(held, shown) {
+  const h = held == null ? "" : String(held), sh = shown == null ? "" : String(shown);
+  return (h !== sh ? `data-raw="${esc(h)}" ` : "") + `value="${esc(sh)}"`;
+}
+// What a held box shows for `held`: a polish gradation cell by its sieve's
+// rule, anything else at its CONFIG.DP precision.
+function shownOf(el, held) {
+  if (el.dataset.pr && /^g:/.test(el.dataset.pr)) return sieveShown(el.dataset.pr.split(":")[2], held);
+  const dp = dpOfControl(el);
+  return dp == null ? held : roundTo(held, dp);
+}
+// What a box does when the person leaves it. A gradation percent passing is
+// ROUNDED to its sieve's rule - 94.3 on the #4 becomes 94, 6.25 on the #200
+// becomes 6.3 - because that precision is the definition of the figure, not
+// a display choice. Any other tenth-precision box only has a whole number
+// PADDED ("5" -> "5.0"): a value typed to more places is left as typed,
+// because rewriting 5.25 to 5.3 under someone's cursor is changing their
+// measurement, not its notation.
+function padTenth(el) {
+  if (!el || el.readOnly || el.disabled || el.tagName !== "INPUT") return;
+  // A held box: keep what was typed, show it rounded (heldValue()). No
+  // input event - the held value, which is all anything reads, has not
+  // changed. A polish gradation cell is always a held box, so a value typed
+  // there is kept in full rather than rounded to its sieve's rule.
+  if ("raw" in el.dataset || (el.dataset.pr && /^g:/.test(el.dataset.pr))) {
+    const held = el.value.trim();
+    el.dataset.raw = held;
+    el.value = shownOf(el, held);
+    return;
+  }
+  const sk = sieveKeyOf(el);
+  const next = sk ? sieveShown(sk, el.value)
+    : dpOfControl(el) === 1 ? padTenthValue(el.value) : el.value;
+  if (next !== el.value) {
+    el.value = next;
+    // A rounded value is a changed value: let everything downstream (the
+    // chart, the deviation column, the rail) see it the way a keystroke does.
+    if (sk) el.dispatchEvent(new Event("input", { bubbles: true }));
+  }
 }
 function hdOmit(sectionId, key) {
   return Object.prototype.hasOwnProperty.call(CONFIG.HANDOFF.OMIT, `${sectionId}.${key}`);
@@ -14105,7 +14263,9 @@ function roundToHalf(v) {
 // One ladder, on an already-rounded deviation. `rule` names the band in the
 // schedule's own words so the readout never re-derives it.
 function ladderPay(ladder, d, dp) {
-  const f = (x) => (dp === 2 ? x.toFixed(2) : String(x));
+  // Every ladder is judged on a deviation already rounded to `dp` places, so
+  // its edges print to the same places: "|dev| 2.0 – 2.5", not "2 – 2.5".
+  const f = (x) => x.toFixed(dp);
   let lo = null;
   for (const [top, pay] of ladder) {
     const band = lo == null ? `|dev| ≤ ${f(top)}` : `|dev| ${f(lo)} – ${f(top)}`;
@@ -14144,8 +14304,19 @@ function sievePay({ sieve, jmf, test, mixTypeCode } = {}) {
   if (!band) {
     return { ...base, rule: { band: `not scored - Calculations!W14:AX30 has no column for mixture type ${mixTypeCode ?? '(blank)'}`, pay: null } };
   }
-  const starred = test < band[0] || test > band[1];
-  let shown = starred ? xlRound(test, 0) : test;
+  // Gradation!D is not the bare quotient: when the quotient rounded to a
+  // whole falls outside the control points, the sheet stores it rounded to a
+  // TENTH (`IF(OR(ROUND(100-C,0)<AY, ROUND(100-C,0)>AZ), ROUND(100-C,1),
+  // 100-C)`), and 'Accept. Grad.'!C then stars and rounds THAT to a whole.
+  // Rounding the quotient straight to a whole skips the middle step and can
+  // land a point away - 89.45 is 89.5 then 90 on the sheet, 89 without it -
+  // which is a different deviation and can be a different pay band. A value
+  // read off a real AMAW has already been through it; doing it again is a
+  // no-op there.
+  const r0 = xlRound(test, 0);
+  const d = r0 < band[0] || r0 > band[1] ? xlRound(test, 1) : test;
+  const starred = d < band[0] || d > band[1];
+  let shown = starred ? xlRound(d, 0) : d;
   if (sv.key === 's0_075') shown = roundToHalf(shown);              // F20 = Calculations!Q124
   const dev = Math.abs(jmf - shown);
   const rounded = xlRound(dev, 1);
@@ -14813,7 +14984,7 @@ function sublotsHTML(result, esc) {
     const vma = s && s.vma ? s.vma : {};
     const cells = [
       `<td class="mono">${payCell(ac.pay, esc)}${sub(isNum(ac.dev) ? `dev ${sign(ac.dev)}${trim(Math.abs(ac.dev), 3)}` : '')}</td>`,
-      `<td class="mono">${payCell(av.pay, esc)}${sub(isNum(av.rounded) ? `${trim(av.rounded)}%` : '')}</td>`,
+      `<td class="mono">${payCell(av.pay, esc)}${sub(isNum(av.rounded) ? `${fx(av.rounded, 1)}%` : '')}</td>`,
       `<td class="mono">${payCell(vma.pay, esc)}${sub(isNum(vma.dev) ? `dev ${sign(vma.dev)}${trim(Math.abs(vma.dev), 3)}` : '')}</td>`,
     ];
     if (showLane) cells.push(`<td class="mono">${payCell(lane[i], esc)}</td>`);
@@ -15173,17 +15344,22 @@ const GRAD_HEAD = ['Sieve', 'JMF → test', 'Control points', 'Deviation → ban
 
 function gradationWhy(s, i, ctx, esc) {
   const rows = [subGrid(esc, GRAD_HEAD.map(esc), 'head')];
-  const f1 = (v, key) => (isNum(v) ? (key === 's0_075' ? v.toFixed(1) : trim(v, 1)) : '—');
+  // A gradation's percent passing prints to the #200's tenth and every other
+  // sieve's whole percent (Andrew, 2026-09-24). The "(as ...)" is what the
+  // sheet scored when that differs from what prints - the #200's nearest
+  // half, which a tenth can still show; a whole-percent sieve's own rounding
+  // already IS what prints, so it adds nothing there.
+  const f1 = (v, key) => (isNum(v) ? v.toFixed(key === 's0_075' ? 1 : 0) : '—');
   (s.sieves || []).forEach((sv) => {
     if (!isNum(sv.jmf) && !isNum(sv.test)) return;
     const jt = `${f1(sv.jmf, sv.key)} → ${f1(sv.test, sv.key)}`
-      + (sv.starred && isNum(sv.shown) && sv.shown !== sv.test ? ` (as ${f1(sv.shown, sv.key)})` : '');
+      + (sv.starred && isNum(sv.shown) && f1(sv.shown, sv.key) !== f1(sv.test, sv.key) ? ` (as ${f1(sv.shown, sv.key)})` : '');
     const cp = sv.band ? `${sv.band[0]}–${sv.band[1]} · ${sv.starred ? 'OUTSIDE' : 'inside'}` : '—';
     let band;
     if (!sv.rule) band = '<span class="prsub">—</span>';
     else if (sv.rule.gate) band = `<span class="payband">${esc('inside the control points → 100 whatever the deviation')}</span>`;
     else if (!isNum(sv.pay)) band = `<span class="prsub">${esc(sv.rule.band)}</span>`;
-    else band = `<span class="mono">${esc(trim(sv.rounded))}</span> <span class="payband">${esc(sv.rule.band)}</span>`;
+    else band = `<span class="mono">${esc(fx(sv.rounded, 1))}</span> <span class="payband">${esc(sv.rule.band)}</span>`;
     rows.push(subGrid(esc, [esc(sv.label), `<span class="mono">${esc(jt)}</span>`, `<span class="mono">${esc(cp)}</span>`, band, payBadge(sv.pay, esc)]));
   });
   const ac = s.ac || {};
@@ -21439,7 +21615,9 @@ function paintLotReadouts() {
   const show = (key, v, sub) => {
     const out = document.querySelector(`[data-out="${key}"]`);
     const os = document.querySelector(`[data-outsub="${key}"]`);
-    if (out) out.textContent = v == null || v === "" ? "—" : String(v);
+    // All three are tenth-precision figures (the JMF %AC carries two places
+    // only when a setup adjustment is in play), so a whole one reads "5.0".
+    if (out) out.textContent = v == null || v === "" ? "—" : String(padTenthValue(v));
     if (os && sub) os.textContent = sub;
   };
   const from = d ? d.source : "no approval opened yet";
@@ -21449,7 +21627,7 @@ function paintLotReadouts() {
   // approval's own figure stays where it was - in `values.design`, signed.
   const adj = setupAcAdjust();
   show("jmf_ac", effectiveJmfAc(), !d ? from : adj
-    ? `${from} · ${d.jmf_ac} ${adj > 0 ? "+" : "−"} ${fmt(Math.abs(adj), 2)} setup adjustment (402.03.02 C))`
+    ? `${from} · ${padTenthValue(d.jmf_ac)} ${adj > 0 ? "+" : "−"} ${fmt(Math.abs(adj), 2)} setup adjustment (402.03.02 C))`
     : from);
   show("target_va", d ? d.target_va : null, from);
   show("min_vma", d ? d.min_vma : null, from);
@@ -21697,10 +21875,19 @@ function rowsOfList(key) {
   const lists = document.querySelectorAll(`[data-rowlist="${key}"]`);
   return Array.from(lists).flatMap((list) => Array.from(list.children));
 }
+// A computed cell SHOWS `value` at `dp` places and HOLDS it in full, so
+// whatever reads it back (cellValue(), the lot pay, the saved file) gets the
+// figure the arithmetic produced rather than its rounding - see heldValue().
 function putCell(row, col, value, dp) {
   const el = row && row.querySelector(`[data-col="${col}"]`);
   if (!el) return null;
-  el.value = value == null ? "" : (typeof value === "number" ? fmt(value, dp) : String(value));
+  if (typeof value === "number" && Number.isFinite(value)) {
+    el.dataset.raw = String(value);
+    el.value = fmt(value, dp);
+  } else {
+    delete el.dataset.raw;
+    el.value = value == null ? "" : String(value);
+  }
   return el;
 }
 /* ---------- Blend identity mirrors, painted onto each sublot's own copy of
@@ -22370,7 +22557,7 @@ function rawDet(row) {
 /** One cell of a repeating row, by column key. */
 function cellValue(row, col) {
   const el = row && row.querySelector(`[data-col="${col}"]`);
-  return el ? el.value : null;
+  return el ? heldValue(el) : null;
 }
 
 /* ---------- each core, from its own three weighings ----------
