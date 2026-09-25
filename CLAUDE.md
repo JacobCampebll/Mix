@@ -5479,3 +5479,21 @@ commit where possible.
   and "Start lot n+1 carries this design over and clears the measurements."
   still follow it, all three on one line at 1440px.
   Browser-checked against the harness stub both ways.
+
+- **Supabase roles: Andrew is the only Owner of the org that holds
+  `iwysxhcmvhkcjxmjarkd`, and Jake is a Developer** (changed 2026-09-25,
+  agreed with Jake). Supabase counts a free project against every member
+  who is an Owner or Administrator of an org, so Jake's Owner seat was using
+  one of his two free-project slots. Administrator would still have used it.
+  Developer is the highest role that doesn't.
+  **What Developer can do:** work with the project's contents. That covers
+  the SQL and table editors, migrations, edge function deploys and logs, and
+  a Claude session's Supabase connector still works for him.
+  **What it can't do:** change project settings. So Auth settings (Site URL,
+  redirect URLs, SMTP), API key rotation, pausing or deleting the project,
+  billing and inviting members are Andrew's to change. If a session of
+  Jake's is refused on one of those, that is this role and not a bug. Ask
+  Andrew rather than working around it.
+  None of this touches the site. Pages and Netlify functions use only the
+  URL and the anon key, which are in each page's `CONFIG` and Netlify's
+  environment variables.
