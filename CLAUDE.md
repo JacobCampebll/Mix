@@ -5774,7 +5774,11 @@ commit where possible.
   file with a submission in its history satisfies. A reviewer opening the
   submittal they were emailed was told to email it to themselves, the row
   stayed up after Approve, and a contractor reopening an approval was told
-  to send it again. "Email it now" is a mailto, so the server stays
+  to send it again. The row reads "Email <file> to <addresses>", which is
+  one line beside its two controls at 1366 and 1440 (measured: the first
+  wording, addresses first and "the file that just downloaded", was two).
+  The file name breaks only at a `<wbr>` after each underscore, never
+  inside the date. "Email it now" is a mailto, so the server stays
   out of the mail path (2026-09-10). A mailto cannot attach, so the body
   starts "Attached: <file>". With `CONFIG.SUBMIT.KYTC_EMAIL` null nothing
   new renders. **The note before Submit names both addresses on DesignBook
