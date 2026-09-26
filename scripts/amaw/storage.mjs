@@ -1186,11 +1186,15 @@ export function syncedLotStore(opts = {}) {
       // over a seal of this device's own that is still waiting: that seal's
       // answer decides it (pushOne()).
       if (!mine.pending_seal && statusRank(theirs.status) >= statusRank(mine.status)) {
-        const before = JSON.stringify(chainOf(mine));
+        const was = JSON.stringify([chainOf(mine), mine.seal_refused || null]);
         takeChain(mine, theirs);
-        // A refusal the record has since overtaken says nothing any more.
+        // A refusal the record has since overtaken says nothing any more -
+        // and is dropped on disk as well, even when the chain itself did not
+        // move, or the page would read it back and say it.
         if (mine.seal_refused && statusRank(mine.status) >= statusRank(mine.seal_refused.status)) mine.seal_refused = null;
-        if (JSON.stringify(chainOf(mine)) !== before) { try { await local.save(mine, { bump: false }); } catch (_) {} }
+        if (JSON.stringify([chainOf(mine), mine.seal_refused || null]) !== was) {
+          try { await local.save(mine, { bump: false }); } catch (_) {}
+        }
       }
 
       const localMoved = isUnsynced(mine);

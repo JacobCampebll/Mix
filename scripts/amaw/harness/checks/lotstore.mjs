@@ -481,8 +481,21 @@ const NEVER_PRESSED = async ({ approval }) => {
   window.__HARNESS_OFFLINE = false;
   await flushLots();
   await sleep(600);
-  return { msg: $("saveMsg").textContent, cls: $("saveMsg").className,
-           stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key };
+  const first = { msg: $("saveMsg").textContent, cls: $("saveMsg").className,
+                  stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key };
+  // A refusal of an Accept kept on a lot this device already holds as
+  // Accepted - the record got there anyway (another press, or its own chain).
+  // "The Accept did not go through" over an Accepted lot is the page
+  // contradicting itself, so it is not said.
+  const held = await state.store.local.load(uid);
+  held.status = "Accepted";
+  held.seal_refused = { status: "Accepted", reason: "only KYTC accepts a lot", code: "sealed", record: null, at: new Date().toISOString() };
+  await state.store.local.save(held, { bump: false });
+  await flushLots();
+  await sleep(400);
+  const stale = { msg: $("saveMsg").textContent, stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key,
+                  refusedLine: (state.history || []).some((h) => h.action === "Accept refused by KYTC's lot record") };
+  return { ...first, stale };
 };
 
 /* TWO DEVICES - the production reviewer path. A contractor submits on device
@@ -837,6 +850,9 @@ export async function run({ browser, results }) {
     const n = np.value.v;
     ok("a device that never pressed Accept is never told its Accept was refused",
        !/did not take/.test(n.msg) && n.stage === "Accepted", `stage=${n.stage} msg="${n.msg}"`);
+    ok("…and a kept Accept refusal is never said over a lot this device holds as Accepted",
+       !/did not take/.test(n.stale.msg) && n.stale.stage === "Accepted" && !n.stale.refusedLine,
+       `stage=${n.stale.stage} history line=${n.stale.refusedLine} msg="${n.stale.msg}"`);
   }
 
   // ---- the production reviewer path: a submittal opened on another device ----

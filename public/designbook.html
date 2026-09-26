@@ -20333,11 +20333,15 @@ const PB_LOT = (() => {
         // over a seal of this device's own that is still waiting: that seal's
         // answer decides it (pushOne()).
         if (!mine.pending_seal && statusRank(theirs.status) >= statusRank(mine.status)) {
-          const before = JSON.stringify(chainOf(mine));
+          const was = JSON.stringify([chainOf(mine), mine.seal_refused || null]);
           takeChain(mine, theirs);
-          // A refusal the record has since overtaken says nothing any more.
+          // A refusal the record has since overtaken says nothing any more -
+          // and is dropped on disk as well, even when the chain itself did not
+          // move, or the page would read it back and say it.
           if (mine.seal_refused && statusRank(mine.status) >= statusRank(mine.seal_refused.status)) mine.seal_refused = null;
-          if (JSON.stringify(chainOf(mine)) !== before) { try { await local.save(mine, { bump: false }); } catch (_) {} }
+          if (JSON.stringify([chainOf(mine), mine.seal_refused || null]) !== was) {
+            try { await local.save(mine, { bump: false }); } catch (_) {}
+          }
         }
 
         const localMoved = isUnsynced(mine);
@@ -24761,9 +24765,7 @@ async function adoptLotIntoStore(lot) {
     if (held) takeHeldChain(held);
     // An Accept this device made with no signal, refused by the record at a
     // flush when no lot was open: said now, where the lot is.
-    if (held && held.seal_refused && held.seal_refused.status === "Accepted" && state.lot && state.lot.uid === held.uid) {
-      await sayAcceptRefused(held);
-    }
+    if (acceptRefusalToSay(held) && state.lot && state.lot.uid === held.uid) await sayAcceptRefused(held);
   } catch (_) { /* a store that cannot answer does not stop a lot opening */ }
   // Register it either way, so the lot is durable from the moment it opens
   // rather than from the first keystroke.
@@ -25199,7 +25201,7 @@ async function reconcileLotSeal(failures) {
   const wasWaiting = !!state.lot.sealPending;
   state.lot.sealPending = !!held.pending_seal;
   state.lot.sealRefused = submitRefusalOf(held);
-  if (held.seal_refused && held.seal_refused.status === "Accepted") { await sayAcceptRefused(held); return; }
+  if (acceptRefusalToSay(held)) { await sayAcceptRefused(held); return; }
   // A seal this page said was waiting has gone through: the gold "there is
   // no signal" sentence would otherwise stay up over a sealed lot.
   if (wasWaiting && !held.pending_seal && state.lot.waitingSaid) {
@@ -25210,6 +25212,15 @@ async function reconcileLotSeal(failures) {
     state.lot.waitingSaid = null;
   }
   takeHeldChain(held);
+}
+
+// Whether this device holds an Accept refusal that is still worth saying: one
+// the store kept (seal_refused) on a lot this device does NOT hold as
+// Accepted. Held as Accepted, the lot got there anyway (the record's own
+// chain, or a second press), and "the Accept did not go through" over an
+// Accepted lot would be the page contradicting itself.
+function acceptRefusalToSay(held) {
+  return !!held && !!held.seal_refused && held.seal_refused.status === "Accepted" && held.status !== "Accepted";
 }
 
 // THIS device's own Accept, refused by the record once it could be asked (an

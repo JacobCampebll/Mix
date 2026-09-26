@@ -732,6 +732,20 @@ head('the chain is the record\'s, and it moves without the data moving');
   ok('a refusal the record has since overtaken is dropped',
      gotD.status === 'Accepted' && gotD.accepted_name === 'Tate Salle' && gotD.seal_refused == null,
      [gotD.status, gotD.accepted_name, gotD.seal_refused]);
+  ok('…on disk too', (await d.local.load(lotD.uid)).seal_refused == null);
+  // The same, when this device ALREADY held it as Accepted - so the chain
+  // itself does not move, and only the refusal changes. Cleared in memory
+  // and not on disk, the page would read it back off this device and say it.
+  const e = newStore(server, fakeStorage());
+  const lotE = normaliseLot({ ...blankLot({ ...IDENT, lot_number: 6 }), status: 'Accepted',
+    accepted_name: 'Tate Salle', accepted_at: '2026-09-26T07:00:00.000Z',
+    seal_refused: { status: 'Accepted', reason: 'only KYTC accepts a lot', record: null } });
+  await e.local.save(lotE, { by: BY });
+  server.db.lots.set(lotE.uid, { id: lotE.uid, ...IDENT, lot_number: 6, status: 'Accepted',
+    accepted_name: 'Tate Salle', accepted_at: '2026-09-26T07:00:00.000Z' });
+  await e.load(lotE.uid);
+  ok('…including when only the refusal changed, not the chain', (await e.local.load(lotE.uid)).seal_refused == null,
+     (await e.local.load(lotE.uid)).seal_refused);
 }
 
 // =====================================================================
