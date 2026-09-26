@@ -10712,15 +10712,19 @@ function wireForm() {
     if (isPlantBook()) {
       const next = CONFIG.LOT_STAGES[state.stageIdx + 1];
       if (!next) return;
-      // One of the four steps is a real action rather than a relabelled
-      // counter: submitting stamps the lot, freezes what was stamped, builds
-      // the PDF and hands it over to be emailed (Jake, 2026-09-13). The
-      // others simply step - a lot is not signed, and Accepted is KYTC
-      // recording that they took it.
+      // Two of the four steps are real actions rather than a relabelled
+      // counter. Submitting stamps the lot, freezes what was stamped, builds
+      // the PDF and hands it over to be emailed (Jake, 2026-09-13), and seals
+      // the ledger row; accepting is KYTC recording that they took it, and
+      // seals the same row Accepted. Closed simply steps - it is a local step
+      // only (see CONFIG.LOT_STAGES).
       if (next.key === "Submitted") return submitLotToKYTC();
-      if (next.key === "Accepted" && !state.canReview) {
-        msg($("saveMsg"), "Only KYTC accepts a lot. It is with KYTC now - there is nothing more to do here.", "warn");
-        return;
+      if (next.key === "Accepted") {
+        if (!state.canReview) {
+          msg($("saveMsg"), "Only KYTC accepts a lot. It is with KYTC now - there is nothing more to do here.", "warn");
+          return;
+        }
+        return acceptLotForKYTC();
       }
       state.stageIdx += 1;
       state.history = (state.history || []).concat([custodyEntry(`Lot ${next.key.toLowerCase()}`)]);
@@ -24043,6 +24047,66 @@ async function submitLotToKYTC() {
   }
 }
 
+/* Accepting a lot - KYTC's act, and the one thing a reviewer does to a lot.
+ *
+ * IT SEALS, the way Submit does. Until 2026-09-26 it was a local stage change:
+ * the pill read Accepted while the ledger row stayed Submitted with no
+ * accepted_at, the contractor's lot list still said Submitted, nothing reached
+ * the audit log, and the question the ledger exists to answer - which lots on
+ * this mix has KYTC accepted - could not be answered. amaw_seal_lot() had its
+ * Accepted branch all along; nothing called it.
+ *
+ * REVIEWER-ONLY, twice (Andrew, 2026-09-23): renderLotStage() hides the button
+ * from anyone else and the click handler refuses before this is reached, and
+ * this refuses again for the reason downloadAmaw() does - hiding a button is
+ * UX, not a gate, on a page anyone can link to. The server refuses a third
+ * time ("only KYTC accepts a lot"), which is the one that counts.
+ *
+ * THE RECORD DECIDES, NOT THIS PAGE. Refused, the stage goes back and the
+ * reason is printed (the store has already taken its own stamp off -
+ * storage.mjs's pushOne()). With no signal the lot is Accepted here, the seal
+ * waits in the outbox, and the sentence says so. With lot storage not set up
+ * the file is the only record, and the sentence says that. */
+async function acceptLotForKYTC() {
+  if (!state.lot) { msg($("saveMsg"), "There is no lot open.", "error"); return; }
+  if (!state.canReview) {
+    msg($("saveMsg"), "Only KYTC accepts a lot. It is with KYTC now - there is nothing more to do here.", "warn");
+    return;
+  }
+  const btn = $("advanceStage"), was = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Accepting..."; }
+  const n = state.lot.lot_number;
+  try {
+    const out = await sealLotAccepted();
+    if (out.kind === "refused") {
+      // Nothing moved: the stage was never advanced, and the store put its
+      // own stamp back.
+      msg($("saveMsg"), `The Accept did not go through: ${out.reason}. Lot ${n} is still Submitted.`, "error");
+      return;
+    }
+    state.stageIdx = CONFIG.LOT_STAGES.findIndex((x) => x.key === "Accepted");
+    state.lot.status = "Accepted";
+    // The same history action this step has always written. A history string
+    // is the record once it is in a file, so it is not reworded.
+    state.history = (state.history || []).concat([custodyEntry("Lot accepted")]);
+    audit(`Lot accepted - ${state.tech ? state.tech.sm_id : ""}`);
+    const said = {
+      sealed:  [`Lot ${n} is Accepted, and KYTC's lot record now says so.`, "ok"],
+      waiting: [`Lot ${n} is Accepted on this device. There is no signal, so KYTC's lot record will be ` +
+                `sealed Accepted when the connection is back.`, "warn"],
+      unset:   [`Lot ${n} is Accepted. Lot storage is not set up here, so the site keeps nothing - ` +
+                `download the lot PDF to keep a record of it.`, "ok"],
+    }[out.kind];
+    msg($("saveMsg"), said[0], said[1]);
+    // The accept line into this device's own copy, so the lot reopens from
+    // the list with it. Not awaited: the seal above is what mattered.
+    saveLotNow();
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = was; }
+    renderLotStage();
+  }
+}
+
 // Coming back in. Same shape as a fresh intake, minus the approval check -
 // the verification the lot was opened under travelled inside the file, and
 // re-checking it here would need the approval PDF that is not in front of us.
@@ -24357,6 +24421,44 @@ async function sealLotSubmitted(frozen) {
   }
 }
 
+// KYTC's side of the same door, called from acceptLotForKYTC(), which has
+// already refused anyone who is not a reviewer.
+//
+// THE LOT IS SAVED FIRST, while it still reads Submitted. store.seal() works on
+// this device's copy, and a reviewer who presses Accept the moment a submittal
+// opens can beat adoptLotIntoStore()'s own save to it. A first save made after
+// the stage had moved would write Accepted as the copy's status, which is the
+// seal's to write and nobody else's.
+async function sealLotAccepted() {
+  const store = lotStore();
+  if (!store || !state.lot) return sealOutcome(null, null);
+  try {
+    await saveLotNow();
+    const sealed = await store.seal(state.lot.uid, "Accepted", { by: storeWho() });
+    return sealOutcome(sealed, null);
+  } catch (err) {
+    state.storeError = err && err.message;
+    return sealOutcome(null, err);
+  } finally {
+    paintSyncChip();
+  }
+}
+
+/* What became of a seal, as one of the four things the page can truthfully
+ * say about it:
+ *   sealed   KYTC's lot record took it
+ *   waiting  stamped on this device, waiting in the outbox for a signal
+ *   unset    lot storage is not live here, so nothing will send it and the
+ *            file is the only record
+ *   refused  the record, or this device, said no - and `reason` says why
+ * A thrown error is always an answer: storage.mjs swallows a lost signal
+ * (isTransient()) and throws only for a refusal. */
+function sealOutcome(saved, err) {
+  if (err) return { kind: "refused", reason: String((err && err.message) || "no reason was given") };
+  if (saved && !saved.pending_seal) return { kind: "sealed" };
+  return { kind: saved && lotStorageLive() ? "waiting" : "unset" };
+}
+
 /* ---------- saying where it stands ---------- */
 
 // A chip in the appbar, beside the lot number. Four states and no spinner:
@@ -24374,13 +24476,25 @@ const LOT_SAVE_NOTE = {
   file: "The lot PDF is your saved copy &mdash; upload it to carry on.",
   live: "Your lot saves as you go; the lot PDF is your backup copy.",
 };
+// ONE ANSWER to "is this lot being kept with KYTC as it is typed?" - the gate
+// the save note below has used since 2026-09-24, factored out so that nothing
+// else keeps a second copy of it: the saved-state line in the appbar, what a
+// seal's outcome is called, and every sentence that says where a lot is kept
+// all read this. Those sentences used to say "the site keeps nothing" whatever
+// was true. Offline still counts as live - the lot is kept on this device and
+// catches up - and not set up does not, which is the distinction the store's
+// own `notSetUp` flag exists to carry (never the error's wording). Unknown -
+// the store has not answered yet - reads as not live, because the file wording
+// is the one that is never false.
+function lotStorageLive() {
+  const store = state.store;
+  const st = store && store.state ? store.state() : {};
+  return !!store && st.online != null && !st.notSetUp;
+}
 function paintLotSaveNote() {
   const el = $("lotSaveNote");
   if (!el) return;
-  const store = state.store;
-  const st = store && store.state ? store.state() : {};
-  const live = !!store && st.online != null && !st.notSetUp;
-  el.innerHTML = live ? LOT_SAVE_NOTE.live : LOT_SAVE_NOTE.file;
+  el.innerHTML = lotStorageLive() ? LOT_SAVE_NOTE.live : LOT_SAVE_NOTE.file;
 }
 
 function syncChipState() {
