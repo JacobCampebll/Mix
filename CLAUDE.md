@@ -5757,9 +5757,16 @@ commit where possible.
   the full text and the long reports. **The echo is the only live region**.
   Put `aria-live` on `#saveMsg` too and a screen reader says everything
   twice. A refused Accept already in `#stageWarn` is echoed `.sronly`.
-  The send row is gated on `submittedFor(book)` and names
-  `handoffFileName()` / `lotFileName()` of the frozen submittal, so it is
-  the file that downloaded. "Email it now" is a mailto, so the server stays
+  The send row names `handoffFileName()` / `lotFileName()` of the frozen
+  submittal, and **it is only for a Submit pressed on this page**:
+  `state.justSubmitted` names the book, `applyHandoff()`,
+  `openLotEnvelope()` and `openApprovalForLot()` clear it, and the stage
+  must still be Submitted, so Approve, Accept and Send back put it away.
+  The first cut gated on `submittedFor(book)` alone, which every reopened
+  file with a submission in its history satisfies. A reviewer opening the
+  submittal they were emailed was told to email it to themselves, the row
+  stayed up after Approve, and a contractor reopening an approval was told
+  to send it again. "Email it now" is a mailto, so the server stays
   out of the mail path (2026-09-10). A mailto cannot attach, so the body
   starts "Attached: <file>". With `CONFIG.SUBMIT.KYTC_EMAIL` null nothing
   new renders. **Trap for the harness**: Submit re-renders the stage in its

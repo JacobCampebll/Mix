@@ -16,7 +16,7 @@
  * And the refusal: with CONFIG.SUBMIT.KYTC_EMAIL null, none of the new
  * controls may render - the CONFIG comment's "never invent an address".
  */
-import { withBook, DESIGN, PLANT } from "../lib/books.mjs";
+import { withBook, enterBook, DESIGN, PLANT } from "../lib/books.mjs";
 import { openPage, realErrors } from "../lib/page.mjs";
 
 export const id = "stagemsg";
@@ -292,6 +292,49 @@ async function custodyCases(browser, results) {
          r.stage === "Approved" && !r.shown && r.mails === 0,
          `stage=${r.stage} shown=${r.shown} mailtos=${r.mails}`);
       ok("clean console", realErrors(h.errs).length === 0, realErrors(h.errs).join(" | ") || "clean");
+    } finally { await h.close(); }
+  }
+
+  // 4. A reviewer submits a lot on this page and then accepts it: the row
+  //    was right after Submit and is not after Accept - the stage gate.
+  {
+    const h = await openPage(browser, { width: 1366, height: 768, canReview: true });
+    const pk = (what, cond, detail) => results.ok(id, "PlantBook", `custody ${what}`, !!cond, detail);
+    try {
+      const entered = await enterBook(h.page, PLANT);
+      if (!entered.ok) { results.skip(id, "PlantBook", "custody", entered.why); return; }
+      await h.page.addStyleTag({ content: ANIM });
+      await h.page.evaluate((approval) => {
+        const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+        openLotEnvelope(out.lot, "the harness");
+      }, APPROVAL);
+      await h.page.waitForTimeout(500);
+      await h.page.evaluate(TO_STATUS);
+      await h.page.waitForTimeout(250);
+      await h.page.evaluate(() => {
+        window.__dl = null;
+        window.confirm = () => true;
+        window.saveBytes = (bytes, name) => { window.__dl = name; };
+      });
+      await h.page.evaluate(CENTRE);
+      await h.page.click("#advanceStage");                    // Open -> Closed
+      await h.page.waitForTimeout(200);
+      await h.page.evaluate(CENTRE);
+      await h.page.click("#advanceStage");                    // Submit
+      await h.page.waitForFunction(() => window.__dl && /downloaded/.test(document.getElementById("saveMsg").textContent),
+                                   null, { timeout: 30000 }).catch(() => {});
+      await h.page.waitForTimeout(300);
+      const sub = await h.page.evaluate(rowOf);
+      pk("a reviewer's own lot Submit shows the send row", sub.stage === "Submitted" && sub.shown && sub.mails === 1,
+         `stage=${sub.stage} shown=${sub.shown} mailtos=${sub.mails}`);
+      await h.page.evaluate(CENTRE);
+      await h.page.click("#advanceStage");                    // Accept
+      await h.page.waitForFunction(() => state.lot && state.lot.status === "Accepted", null, { timeout: 15000 }).catch(() => {});
+      await h.page.waitForTimeout(300);
+      const acc = await h.page.evaluate(rowOf);
+      pk("after Accept, no send row and no mailto", acc.stage === "Accepted" && !acc.shown && acc.mails === 0,
+         `stage=${acc.stage} shown=${acc.shown} mailtos=${acc.mails}`);
+      pk("clean console", realErrors(h.errs).length === 0, realErrors(h.errs).join(" | ") || "clean");
     } finally { await h.close(); }
   }
 }

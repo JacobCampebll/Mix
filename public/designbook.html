@@ -5747,6 +5747,8 @@ const state = {
   submitted: null,   // the payload EXACTLY as sent to KYTC - the submittal PDF
                      // renders from this, never from the live form, so editing
                      // afterwards can never change what the submittal says
+  justSubmitted: null, // the book whose Submit ran on THIS page - the send row's
+                       // gate, since a reopened file fills `submitted` too
   savedExtractedFrom: null, // extracted_from as carried in a reopened review PDF
   downloadedAt: null, // when the last review PDF was taken - the only "saved" there is
   canReview: false,  // technicians.can_review - may move past Internal Review, send back to Draft
@@ -12073,9 +12075,18 @@ function submittalMail(book, payload, name) {
   };
 }
 
+// "The file that just downloaded" is true only of a Submit pressed on this
+// page, so that is the gate - not merely a submittal in hand. applyHandoff()
+// fills state.submitted from any reopened file whose history carries a
+// submission, which would tell a reviewer opening the file they were emailed
+// to email it to themselves, and a contractor reopening an approval to send
+// it again. And only while the stage is still Submitted: after Approve,
+// Accept or Send back the file has moved on and the instruction with it.
 function sendRowHTML(book) {
   const payload = submittedFor(book), to = kytcAddresses();
-  if (!payload || !to.length) return "";
+  if (!payload || !to.length || state.justSubmitted !== book) return "";
+  const stages = book === "plantbook" ? CONFIG.LOT_STAGES : CONFIG.STAGES;
+  if ((stages[state.stageIdx] || {}).key !== "Submitted") return "";
   const name = book === "plantbook" ? lotFileName(payload) : handoffFileName(payload);
   const m = submittalMail(book, payload, name);
   const href = `mailto:${to.join(",")}?subject=${encodeURIComponent(m.subject)}&body=${encodeURIComponent(m.body)}`;
@@ -12084,8 +12095,8 @@ function sendRowHTML(book) {
     `<button type="button" class="sendbtn" id="sendCopyBtn">Copy address</button>` +
     `<a class="sendbtn" id="sendMailLink" href="${esc(href)}">Email it now</a>`;
 }
-// Gated on submittedFor(book), so it is gone whenever there is no submittal
-// of THIS book in hand. Rewritten only when its content changed, so a
+// Gated in sendRowHTML(), so it is gone whenever this page did not just
+// submit THIS book's file. Rewritten only when its content changed, so a
 // re-render does not wipe a "Copied" the person just saw. Returns whether it
 // is showing.
 function paintSendRow(book) {
@@ -12466,6 +12477,8 @@ function applyHandoff(payload) {
   // design would lose the ability to reprint what was sent.
   const wasSubmitted = (payload.history || []).some((h) => h.action === CONFIG.SUBMIT.ACTION.submitted);
   state.submitted = wasSubmitted ? freezeSubmittal(payload) : null;
+  // ...but nothing downloaded here, so the send row stays away (sendRowHTML()).
+  state.justSubmitted = null;
   const at = CONFIG.STAGES.findIndex((x) => x.key === payload.stage);
   state.stageIdx = at < 0 ? 0 : at;
 }
@@ -24147,6 +24160,7 @@ async function openApprovalForLot(payload, label) {
    * never seeds another (startNextLot()). */
   if (verification.state === PB_LOT.VERIFICATION.INVALID) throw new Error(invalidApprovalRefusal(verification));
   if (submittedFor("plantbook")) state.submitted = null;   // see openLotEnvelope()
+  if (state.justSubmitted === "plantbook") state.justSubmitted = null;
   state.lot = out.lot;
   state.lotReport = out.report;
   // Derived, never typed - see approvalSampleId(). Onto `values.design` so it
@@ -24584,6 +24598,7 @@ async function submitLotToKYTC() {
 
     state.history = payload.history;
     state.submitted = frozen;
+    state.justSubmitted = "plantbook";
     // The one-way door, and the hash of the very bytes that just downloaded -
     // so KYTC can check the PDF in their inbox against what was sealed here.
     // Awaited, unlike every other store call on this page: the whole point of
@@ -24764,6 +24779,7 @@ function openLotEnvelope(raw, label, opening) {
   // the button: this page does not hold that document, and pretending to
   // would be worse than saying nothing.
   if (submittedFor("plantbook")) state.submitted = null;
+  if (state.justSubmitted === "plantbook") state.justSubmitted = null;
   state.lot = lot;
   state.lotReport = null;
   // A lot reopened from the store with its seal still waiting says so from the
@@ -25754,6 +25770,7 @@ async function submitToKYTC() {
 
     state.history = payload.history;
     state.submitted = frozen;
+    state.justSubmitted = "designbook";
     state.dirty = false;
     renderStage();
     audit(`${CONFIG.SUBMIT.ACTION.submitted} - ${who}`);
