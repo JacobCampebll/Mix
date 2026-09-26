@@ -5785,8 +5785,12 @@ commit where possible.
   to send it again. The row reads "Email <file> to <addresses>", which is
   one line beside its two controls at 1366 and 1440 (measured: the first
   wording, addresses first and "the file that just downloaded", was two).
-  The file name breaks only at a `<wbr>` after each underscore, never
-  inside the date. "Email it now" is a mailto, so the server stays
+  The file name breaks only after an underscore, never inside the date:
+  each piece up to its underscore is an inline-block, with a `<wbr>`
+  between. A `<wbr>` alone was not enough - it adds break opportunities
+  and removes none, and Chrome still broke after a hyphen in the date at
+  415-476, 527-588 and 630-691px (430 is an iPhone Pro Max). Swept 320-1500
+  afterwards: no piece splits. "Email it now" is a mailto, so the server stays
   out of the mail path (2026-09-10). A mailto cannot attach, so the body
   starts "Attached: <file>". With `CONFIG.SUBMIT.KYTC_EMAIL` null nothing
   new renders. **The note before Submit names both addresses on DesignBook

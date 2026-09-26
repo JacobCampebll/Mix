@@ -119,6 +119,30 @@ async function submitCase(browser, book, w, h, { nullEmail = false } = {}) {
     await page.waitForTimeout(300);
     const after = await page.evaluate(MEASURE);
     const downloaded = await page.evaluate(() => window.__dl);
+    // The file name may break only after an underscore. A <wbr> alone left
+    // Chrome breaking after a hyphen in the date at 415-476, 527-588 and
+    // 630-691px, so on a phone sweep widths inside those bands: every piece
+    // of the name (up to its underscore) has to sit on one line.
+    let wrap = null;
+    if (w <= 700 && after.rowShown) {
+      wrap = { pieces: 0, split: [] };
+      for (const sw of [430, 450, 470, 540, 580, 640, 680]) {
+        await page.setViewportSize({ width: sw, height: h });
+        const r = await page.evaluate(() => {
+          const f = document.getElementById("sendFile");
+          const toks = f ? [...f.querySelectorAll(".tok")] : [];
+          const lines = (el) => { const rg = document.createRange(); rg.selectNodeContents(el);
+            return new Set([...rg.getClientRects()].filter((x) => x.width > 0).map((x) => Math.round(x.top / 5))).size; };
+          return { pieces: toks.length, split: toks.filter((t) => lines(t) > 1).map((t) => t.textContent),
+                   text: f ? f.textContent : "" };
+        });
+        wrap.pieces = r.pieces;
+        if (r.split.length) wrap.split.push(`${sw}: ${r.split.join(" ")}`);
+        if (r.text !== downloaded) wrap.split.push(`${sw}: text ${r.text}`);
+      }
+      await page.setViewportSize({ width: w, height: h });
+      await page.waitForTimeout(150);
+    }
     let copied = null;
     if (after.copyBtn) {
       await page.click("#sendCopyBtn");
@@ -141,7 +165,7 @@ async function submitCase(browser, book, w, h, { nullEmail = false } = {}) {
     await page.waitForTimeout(200);
     const rerender = await page.evaluate(MEASURE);
     await page.evaluate(() => { window.confirm = window.__realConfirm; window.saveBytes = window.__realSave; });
-    return { before, after, redownload, rerender, downloaded, copied, errs: realErrors(errs) };
+    return { before, after, redownload, rerender, downloaded, copied, wrap, errs: realErrors(errs) };
   });
 }
 
@@ -392,6 +416,12 @@ export async function run({ browser, results }) {
       ok("the send row names the file that downloaded, exactly", !!downloaded && after.file === downloaded,
          `row=${after.file} downloaded=${downloaded}`);
       ok("Copy address answers", copied === "Copied", copied);
+      if (phone) {
+        const wr = out.value.wrap;
+        ok("the file name breaks only after an underscore, never inside the date (430-680px)",
+           !!wr && wr.pieces > 1 && wr.split.length === 0,
+           wr ? `pieces=${wr.pieces} ${wr.split.join(" | ") || "none split"}` : "no send row");
+      }
       const rd = out.value.redownload;
       ok("re-downloading the submittal is echoed too, by msg() alone",
          !!rd.saveText && /downloaded/.test(rd.saveText) && rd.stageText === rd.saveText,
