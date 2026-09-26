@@ -275,8 +275,9 @@ export async function run({ browser, results }) {
     ok("no signal: the readout reads not checked, in the warning colour, the reason under it",
        nr.text === L["not-checked"] && /\bwarn\b/.test(nr.cls || "") && /could not be reached/.test(nr.caption || ""),
        clip(`"${nr.text}" [${nr.cls}] ${nr.caption}`));
-    ok("no signal: the rail says so, on Contract & Mix",
-       n.rail.some((t) => t.startsWith("Contract & Mix") && t.includes(`${L["not-checked"]} - `)),
+    ok("no signal: the rail says so, on Contract & Mix - and that the lot keeps that answer, not that verify.html clears it",
+       n.rail.some((t) => t.startsWith("Contract & Mix") && t.includes(`${L["not-checked"]} - `)
+         && /keeps that answer/.test(t) && /neither changes what the lot shows/.test(t)),
        clip(n.rail.filter((t) => /Approval/.test(t)).join(" | ") || "no approval warning on the rail"));
     ok("no signal: the lot PDF header prints the label, not the token",
        headerValue(n.pdf) === L["not-checked"], `header "Approval signature" -> ${JSON.stringify(headerValue(n.pdf))}`);

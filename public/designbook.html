@@ -22590,7 +22590,14 @@ function ticketDateTimeWarnings() {
  *  against came off an approval nothing here has confirmed KYTC signed, and
  *  that belongs in the list a reviewer reads, not only on step one. Focus is
  *  the readout itself, so a click lands on the answer rather than in the
- *  step's first empty box. */
+ *  step's first empty box.
+ *
+ *  NOTHING ON THE LOT CLEARS IT, and the text says so rather than promising
+ *  otherwise: the lot carries the approval's summary, not its payload, so a
+ *  lot opened with no signal is "not checked" for its life and for every lot
+ *  rolled from it. verify.html checks the PDF for the PERSON; it does not
+ *  write back here. A re-check (dropping the approval on an open lot) is a
+ *  question for Jake, given his requirement that lots work offline. */
 function approvalVerificationWarnings() {
   const d = lotDesign();
   const a = d && d.approval;
@@ -22604,8 +22611,9 @@ function approvalVerificationWarnings() {
       + `approval or from Start lot n+1; this one reopens so its measurements are not lost. Check with `
       + `KYTC Central Office before submitting it.`
     : `${PB_LOT.verificationText(v)} The JMF %AC, air-void target and minimum VMA this lot is paid against `
-      + `come from that approval, and nothing here has confirmed KYTC signed it. Check the approval PDF on the `
-      + `site's verify page (verify.html), or ask KYTC Central Office.`;
+      + `come from that approval, and nothing here has confirmed KYTC signed it. This lot keeps that answer: `
+      + `it holds no copy of the approval to check again. Before submitting, check the approval PDF yourself on `
+      + `the site's verify page (verify.html) or ask KYTC Central Office - neither changes what the lot shows.`;
   return [{ sectionId: "lot", text, ...(focus ? { focus } : {}) }];
 }
 

@@ -5619,3 +5619,10 @@ commit where possible.
   INVALID; harness `approvalgate` asserts the request body equals the file.
   check_page_plantbook.mjs now holds PB_LOT's surface to the two modules'
   exports exactly, as it already did PB_VOL's and PB_PAY's.
+  **Nothing on a lot clears a not-checked verification**: the lot carries the
+  approval's summary, not its payload, so a lot opened with no signal reads
+  "not checked" for its life and for every lot rolled from it, and the rail
+  line says so rather than suggesting verify.html fixes it (that checks the
+  PDF for the person and writes nothing back). **Open for Jake**: whether a
+  lot should be re-checkable - say by dropping the approval PDF on an open
+  lot once there is a signal - given lots must work offline.
