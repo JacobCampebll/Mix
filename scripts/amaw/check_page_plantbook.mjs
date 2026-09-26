@@ -1014,6 +1014,80 @@ namespace('PB_AMAW', '5. PB_AMAW vs scripts/amaw/addresses.mjs + mapper.mjs + ge
   ];
   sweep('lotRecords()', P.lotRecords, MOD_MAPPER.lotRecords, recordCases);
 
+  // amawCells() WHOLE, on lots built here rather than read off a workbook
+  // (2026-09-26). The comparison below needs the uncommitted real AMAW lots,
+  // so on every other machine the page's copy of the mapper body - the code a
+  // reviewer's "AMAW for MEDL" download actually runs - was compared with
+  // nothing: a page-only change to writeWhen()'s report passed 214/0. These
+  // are check_bridge.mjs's shapes: an ISO ticket, the paper formats the mapper
+  // refuses and reports, a record's own gradation and polish dates, and a lot
+  // filled from the schema so every route runs. The same template stub as
+  // there (every cell exists; these few are formulas, so write() and
+  // writeOver() both run), and each copy gets its own deep copy of the lot so
+  // a mutation in one cannot leak into the other's input.
+  const TPL_FORMULAS = new Set([
+    'Gradation!C10', 'Gradation!D10', 'Gradation!C23', 'Gradation!D23',
+    "'Super Verify'!C33", "'Super Verify'!D33",
+    'Cores!H10', 'Superpave!H12', 'Superpave!G12', 'Superpave!F12',
+    'Calculations!O1', 'Calculations!O2',
+  ]);
+  const synthTpl = { has: () => true, formulaAt: (addr) => (TPL_FORMULAS.has(addr) ? '=…' : null) };
+  const ticketLot = (over) => ({
+    values: { lot_number: '1', lot_nominal_size: '0.38B' }, records: {},
+    rows: { sublot_tickets: [1, 2, 3, 4].map((s) => ({
+      sublot: `1-${s}`, date: '2026-09-24', time: '14:15', truck: `T${s}`, tons_cum: 1000 * s,
+      ...(s === 1 ? over : {}),
+    })) },
+  });
+  const schemaLot = () => {
+    let n = 0;
+    const val = (c) => (Array.isArray(c.options) && c.options.length
+      ? (typeof c.options[0] === 'string' ? c.options[0] : c.options[0].value)
+      : c.type === 'number' ? 1000 + (++n) : c.type === 'date' ? '2026-09-02'
+        : c.type === 'time' ? '09:30' : `${c.key}-${++n}`);
+    const values = { lot_number: '1', lot_nominal_size: '0.38B', lot_tons: 4000, lot_esal_class: 3,
+      lot_density_option: 'A', lot_joint_density: '1', design: { jmf_ac: 5.9, target_va: 3.5, min_vma: 15 } };
+    const rows = {};
+    for (const s of MOD_SECTIONS.default) {
+      for (const f of s.fields || []) if (!f.readonly && values[f.key] === undefined) values[f.key] = val(f);
+      for (const t of (Array.isArray(s.rows) ? s.rows : s.rows ? [s.rows] : [])) {
+        if (rows[t.key]) continue;
+        const seed = Array.isArray(t.seed) && t.seed.length ? t.seed : [{}];
+        rows[t.key] = seed.map((r) => {
+          const o = { ...r };
+          for (const c of t.columns || []) if (o[c.key] == null || o[c.key] === '') o[c.key] = val(c);
+          return o;
+        });
+      }
+    }
+    return { values, rows, records: {} };
+  };
+  const SYNTH = [
+    ['an ISO ticket', ticketLot({})],
+    ["paper-format ticket values ('9/24/26', '2:15 PM')", ticketLot({ date: '9/24/26', time: '2:15 PM' })],
+    ["paper-format ticket values ('09/24/2026', '1415')", ticketLot({ date: '09/24/2026', time: '1415' })],
+    ["a two-digit year off the picker ('0026-09-24')", ticketLot({ date: '0026-09-24' })],
+    ["a day the calendar lacks ('2026-02-30')", ticketLot({ date: '2026-02-30' })],
+    ["a record's own dates, one of them refused", { values: { lot_number: '1', lot_nominal_size: '0.38B' }, rows: {},
+      records: { QC01: { values: { date: 46289, time: 0.9125, gradation_date: 46290, polish_date: '9/25/26' }, rows: {} } } }],
+    ['a lot filled from the schema', schemaLot()],
+  ];
+  let synthCells = 0, synthRefusals = 0;
+  for (const [label, lot] of SYNTH) {
+    const a = call(P.amawCells, [JSON.parse(JSON.stringify(lot)), synthTpl, {}]);
+    const b = call(MOD_MAPPER.amawCells, [JSON.parse(JSON.stringify(lot)), synthTpl, {}]);
+    if (!a.ok || !b.ok) { ok(`amawCells() runs on ${label}`, false, `page ${trunc(a.v)} / module ${trunc(b.v)}`); continue; }
+    same(`amawCells().values on ${label} (${Object.keys(b.v.values).length} cells)`, a.v.values, b.v.values);
+    same(`amawCells().evalOnly on ${label}`, a.v.evalOnly, b.v.evalOnly);
+    same(`amawCells().report on ${label}`, a.v.report, b.v.report);
+    synthCells += Object.keys(b.v.values).length;
+    synthRefusals += ((b.v.report || {}).missing || []).filter((m) => /is not in a form the workbook can hold/.test(String(m))).length;
+  }
+  // A lot that maps to nothing compares equal on both copies, so say that
+  // these wrote cells and exercised the refusal branch.
+  ok(`…and the synthetic lots wrote cells (${synthCells}) and reported refused dates or times (${synthRefusals})`,
+     synthCells > 300 && synthRefusals >= 5, { synthCells, synthRefusals });
+
   if (!AMAW_LOTS.length) {
     skip('amawCells() on a real completed lot',
          'no AMAW workbook passed — pass the two completed lots as arguments');
