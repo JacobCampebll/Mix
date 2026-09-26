@@ -71,6 +71,9 @@
        same pair the nav card and the validation rail already use by hand. */
     --navy-dim:rgba(255,255,255,.72); --navy-hairline:rgba(255,255,255,.30);
     --flag:#A56F00; --flag-soft:#FDF1C7; --ok:#3F7A56; --ok-soft:#E3EFE7;
+    /* --ok darkened for normal-weight text on a tint: --ok on --accent-soft
+       is 4.45:1, under WCAG AA's 4.5; this is 6.15:1 there, 7.0:1 on white. */
+    --ok-ink:#2F6344;
     --bad:#9B2C2C;
     --radius:6px;
     /* "Plates" (chosen 2026-09-10): a control is a filled plate rather than
@@ -637,7 +640,9 @@
      a check nobody could make, stays in ink behind a warning glyph rather
      than the page's amber - on this ledger amber-and-gold means "still to fill
      in", and nobody can fill this in. The glyph is ::before, so it is not in
-     textContent. The 16px below 700 matches the ledger's own values there. */
+     textContent. The 16px below 700 matches the ledger's own values there.
+     .ok takes --ok-ink rather than --ok: at weight 400 on the wash, --ok is
+     4.45:1, just under AA; .bad's --bad is 6.6:1 there already. */
   .section[data-layout="ledger"] .field.readout .rvalue,
   .section[data-layout="ledger"] .field.readout .rsub{grid-column:2;}
   @media (max-width:560px){
@@ -648,6 +653,7 @@
        line-height:1.35; letter-spacing:0; margin:4px 0 0; padding:4px 8px; border-radius:4px;
        background-color:var(--accent-soft);}
   @media (max-width:700px){ .section[data-layout="ledger"] .field.readout .rvalue{font-size:16px;} }
+  .section[data-layout="ledger"] .field.readout .rvalue.ok{color:var(--ok-ink);}
   .section[data-layout="ledger"] .field.readout .rvalue.warn{color:var(--ink);}
   .section[data-layout="ledger"] .field.readout .rvalue.warn::before{content:"\26A0\FE0E\00A0";}
   .section[data-layout="ledger"] .field.readout .rsub{padding:2px 8px 3px;}

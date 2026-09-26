@@ -5618,7 +5618,8 @@ commit where possible.
   not `lot_`-prefixed (check_sections.mjs holds every `lot_` scalar to an AMAW
   alias), and on the ledger it needs its own `.field.readout` rule or its
   caption lands in column one. It is SHADED like every other value read from
-  the approval, in the ledger's own weight, and a check nobody could make is
+  the approval, in the ledger's own weight (verified in `--ok-ink`, since
+  `--ok` at weight 400 on that wash is 4.45:1, under AA), and a check nobody could make is
   ink behind a warning glyph rather than the page's amber, because on the
   ledger amber-and-gold means "still to fill in" and nobody can fill this in.
   Checked rather than assumed: `readHandoffPDF()` returns the embedded JSON as

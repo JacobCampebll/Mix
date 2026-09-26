@@ -190,6 +190,15 @@ const headerValue = (drawn) => {
   return i >= 0 ? drawn[i + 1] : null;
 };
 
+/* WCAG contrast ratio of two computed "rgb(r, g, b)" colours. */
+const contrast = (a, b) => {
+  const lum = (c) => { const v = (c.match(/\d+(\.\d+)?/g) || []).slice(0, 3).map((x) => Number(x) / 255)
+    .map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+  const x = lum(a), y = lum(b);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+};
+
 /* A fresh page on PlantBook's door - the Start a lot card, no lot open. */
 async function atTheDoor(browser, width = 1440) {
   const h = await openPage(browser, { width, height: 1000 });
@@ -260,6 +269,10 @@ export async function run({ browser, results }) {
        ro.text === L.verified && /\bok\b/.test(ro.cls || "") && /KYTC signed this approval/.test(ro.caption || "")
          && /Checked when the lot was opened \(/.test(ro.caption || ""),
        clip(`"${ro.text}" [${ro.cls}] ${ro.caption}`));
+    // AA for normal text: the readout is 14px/16px at weight 400 on the wash,
+    // where --ok itself is 4.45:1 - the state a reviewer most needs to trust.
+    ok("verified: the readout's green on its wash meets WCAG AA (4.5:1) at normal weight",
+       ro.color && contrast(ro.color, ro.bg) >= 4.5, `${ro.color} on ${ro.bg}: ${ro.color ? contrast(ro.color, ro.bg).toFixed(2) : "-"}:1`);
     ok("the readout's value and caption sit in the ledger's value column, not under its label",
        ro.value && ro.value.l >= ro.label.r && ro.cap.l === ro.value.l && ro.cap.t >= ro.value.b,
        ro.value ? `label ${ro.label.l}-${ro.label.r}, value from ${ro.value.l}, caption from ${ro.cap.l} (top ${ro.cap.t} vs value bottom ${ro.value.b})` : "no readout");
