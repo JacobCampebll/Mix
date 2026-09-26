@@ -6913,6 +6913,11 @@ function bookStash() {
     stageIdx: state.stageIdx,
     step: state.step,
     history: state.history,
+    // Per book, because "downloaded at 10:32" is a claim about ONE document:
+    // shared, a lot PDF taken on PlantBook made DesignBook read "Downloaded"
+    // for a design edited since, and an edit to the lot marked the design.
+    dirty: state.dirty,
+    downloadedAt: state.downloadedAt,
   };
 }
 function bookRestore(key) {
@@ -6923,6 +6928,8 @@ function bookRestore(key) {
   state.stageIdx  = held ? held.stageIdx : 0;
   state.step      = held ? held.step : 0;
   state.history   = held ? held.history : [];
+  state.dirty        = held ? !!held.dirty : false;
+  state.downloadedAt = held ? held.downloadedAt || null : null;
 }
 // Whether the signed-in technician may open a book at all. The cert gate,
 // same source as login.html's badges: Plant Tech alone is PlantBook only,
@@ -6994,6 +7001,7 @@ function switchBook(key) {
   bookRestore(key);
   renderForm();
   $("mixid").textContent = designLabel();
+  renderSavedState();       // the book coming in says its own saved state, not the last one's
 }
 function showLotDoor(from) {
   // Only the first time in: a second switch while the door is already up has
@@ -10641,9 +10649,22 @@ function custodyEntry(action, extra) {
 // The top-bar indicator. With no save, the only thing worth telling someone
 // is whether the work in front of them exists in a file yet - so it tracks
 // the last review PDF they took, and warns once they edit past it.
+//
+// PLANTBOOK HAS A SAVE NOW, which is the whole difference (2026-09-26). With
+// lot storage live the store IS the save and the sync chip beside this says
+// where the lot stands, so this line has nothing to add and is hidden - a gold
+// "Not downloaded yet" beside a green "saved" was two answers to one
+// question, on every scroll of every lot, and taught people to ignore the
+// bar. Without it (lotStorageLive(), the save note's own gate) the file is the
+// save again, and a lot PDF, .json or submittal marks it downloaded - which
+// nothing used to, so it said "Not downloaded yet" after every download. The
+// Start a lot door is neither a design nor a lot, and shows nothing.
+// `hidden` rather than the .hidden class, because className is set wholesale.
 function renderSavedState() {
   const el = $("savedstate");
   if (!el) return;
+  if (state.bookDoor || (isPlantBook() && (!state.lot || lotStorageLive()))) { el.hidden = true; return; }
+  el.hidden = false;
   if (!state.downloadedAt) { el.textContent = "Not downloaded yet"; el.className = "savedstate warn"; return; }
   const t = state.downloadedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   el.textContent = state.dirty ? `Edited since ${t} download` : `Downloaded ${t}`;
@@ -23656,6 +23677,8 @@ async function openApprovalForLot(payload, label) {
   state.sources = out.lot.extracted_from || {};
   state.history = out.lot.history || [];
   state.stageIdx = 0;
+  // A new lot has not been downloaded, whatever the last one was.
+  state.dirty = false; state.downloadedAt = null;
   enterForm();
 
   // The report, in the block that can hold it. The generator's list of what a
@@ -23813,17 +23836,29 @@ function lotPayForFile() {
   catch (_) { return null; }
 }
 
-// The working copy. Nothing about this lot is kept on the site, so a file is
-// the only copy - the same rule DesignBook's review PDF follows, and the
-// same warning. A lot is JSON rather than a PDF because there is no one-page
-// document a lot IS: its document is the AMAW, and half-finished is exactly
-// when you cannot generate one yet.
+// The working copy. Written when nothing about a lot was kept on the site, so
+// a file was the only copy - the same rule DesignBook's review PDF follows.
+// Where lot storage is live (lotStorageLive()) the store is the save and this
+// is the backup; where it is not, this is still the only copy. (A lot has a
+// PDF too now - downloadLotPdf() below; the .json is the envelope both doors
+// read.)
 function downloadLotFile() {
   if (!state.lot) { msg($("saveMsg"), "There is no lot open.", "error"); return; }
   const lot = lotSnapshot();
   const name = `Lot_${lot.lot_number}_${lot.mix_id}_${lot.contract_id}.json`.replace(/[^A-Za-z0-9_.-]/g, "");
   saveBytes(new TextEncoder().encode(JSON.stringify(lot, null, 2)), name, "application/json");
+  markLotDownloaded();
   msg($("saveMsg"), `${name} downloaded. Open it from the Portal to come back to exactly this point.`, "ok");
+}
+
+// A lot file on disk is the save whenever lot storage is not live, so taking
+// one is what the appbar's saved-state line tracks (renderSavedState()). The
+// .json, the lot PDF and the submittal all carry the whole lot and all reopen
+// through the front door, so all three count.
+function markLotDownloaded() {
+  state.downloadedAt = new Date();
+  state.dirty = false;
+  renderSavedState();
 }
 
 /* From a figure on Lot Pay to the box it was measured in.
@@ -23941,12 +23976,13 @@ function startNextLot() {
   });
 }
 
-// The lot as a PDF, and this is the SAVE. Same rule DesignBook's review PDF
-// follows, and the same argument: nothing about this lot is kept on the site,
-// so a file is the only copy, and a file a person can read is worth more than
-// one only this page can. Jake, 2026-09-13: "if you want to save you can
-// generate a pdf at any point and save what you have similar to the design
-// book".
+// The lot as a PDF, and this was the SAVE: written when nothing about a lot
+// was kept on the site, so a file was the only copy, and a file a person can
+// read is worth more than one only this page can. Jake, 2026-09-13: "if you
+// want to save you can generate a pdf at any point and save what you have
+// similar to the design book". Where lot storage is live the store is the save
+// and this is the backup - "the lot PDF is your backup copy", as the save note
+// under these buttons says; where it is not, this is still the save.
 //
 // The .json stays, and is not redundant: it is the ENVELOPE, which is what
 // both doors actually read. The PDF carries that same envelope as an
@@ -23968,6 +24004,7 @@ async function downloadLotPdf() {
     const name = lotFileName(payload);
     saveBytes(bytes, name, "application/pdf");
     state.history = payload.history;
+    markLotDownloaded();
     msg($("saveMsg"),
         `${name} downloaded. It carries the whole lot inside it - upload it from the ` +
         `Portal to come back to exactly this point.`, "ok");
@@ -24047,6 +24084,7 @@ async function submitLotToKYTC() {
     const bytes = await buildReviewPDF(frozen);
     const name = lotFileName(frozen);
     saveBytes(bytes, name, "application/pdf");
+    markLotDownloaded();
 
     state.history = payload.history;
     state.submitted = frozen;
@@ -24182,6 +24220,9 @@ function openLotEnvelope(raw, label, opening) {
   state.history = lot.history || [];
   const at = CONFIG.LOT_STAGES.findIndex((x) => x.key === lot.status);
   state.stageIdx = at < 0 ? 0 : at;
+  // A lot just opened has not been downloaded in this session - the same
+  // answer DesignBook gives a review PDF it has just reopened.
+  state.dirty = false; state.downloadedAt = null;
   enterForm();
   const d = lotDesign();
   const v = d && d.approval ? d.approval.verification : null;
@@ -24603,6 +24644,10 @@ function syncChipState() {
 
 function paintSyncChip() {
   paintLotSaveNote();
+  // The saved-state line follows the same store outcomes: the moment lot
+  // storage answers live it steps aside for this chip (renderSavedState()).
+  // PlantBook only - DesignBook's line is its own review PDF's business.
+  if (isPlantBook()) renderSavedState();
   const el = $("syncChip");
   if (!el) return;
   const s = syncChipState();
