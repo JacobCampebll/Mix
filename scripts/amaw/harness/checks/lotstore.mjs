@@ -294,6 +294,8 @@ const REVIEW = async ({ approval }) => {
   await pressAccept();
   const accepted = snap(u1);
   accepted.listStatus = ((await state.store.list()).find((r) => r.uid === u1) || {}).status || null;
+  await paintLotList();
+  accepted.listRow = listRow(u1);
 
   // Refused by the record: nothing moves, and it says why.
   const u2 = await open(2);
@@ -383,7 +385,7 @@ const SUBMIT_ON_A = async ({ approval, offline }) => {
            msg: $("saveMsg").textContent, chip: $("syncChip").textContent,
            server: JSON.parse(JSON.stringify(window.__HARNESS_AMAW)), local: keep };
 };
-const REVIEW_ON_B = async ({ submitted, server, ledgerPatch, ledgerPatchAfterOpen, stalePending, offline }) => {
+const REVIEW_ON_B = async ({ submitted, server, ledgerPatch, ledgerPatchAfterOpen, stalePending, offline, reopen }) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const S = window.__HARNESS_AMAW;
   if (server) { Object.assign(S.amaw_lots, server.amaw_lots); Object.assign(S.amaw_lot_data, server.amaw_lot_data); }
@@ -437,7 +439,37 @@ const REVIEW_ON_B = async ({ submitted, server, ledgerPatch, ledgerPatchAfterOpe
     await sleep(300);
     flushed = facts();
   }
-  return { opened, accepted, flushed };
+  // The same submittal opened again on the device that accepted it - which
+  // is how a reviewer builds the AMAW - once the record reads Accepted.
+  let reopened = null;
+  if (reopen) {
+    openLotEnvelope(JSON.parse(JSON.stringify(submitted.lot)), "the submittal");
+    await sleep(1500);
+    reopened = facts();
+  }
+  return { opened, accepted, flushed, reopened, server: JSON.parse(JSON.stringify(S)) };
+};
+
+/* The contractor's own device, later: its localStorage as it was left, and
+ * the server as KYTC left it after accepting. The list and the lot it opens
+ * have to agree - the list said Accepted and the lot opened as Submitted. */
+const CONTRACTOR_LATER = async ({ local, server, uid }) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  for (const k of Object.keys(local || {})) localStorage.setItem(k, local[k]);
+  const S = window.__HARNESS_AMAW;
+  Object.assign(S.amaw_lots, server.amaw_lots);
+  Object.assign(S.amaw_lot_data, server.amaw_lot_data);
+  await paintLotList();
+  const el = document.querySelector(`#lotListWrap [data-lot-uid="${uid}"]`);
+  const row = el ? el.textContent.replace(/\s+/g, " ").trim() : null;
+  state.lot = null;
+  await openLotFromStore(uid);
+  await sleep(1500);
+  return { row, stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key, pill: $("statuspill").textContent,
+           chip: $("syncChip").classList.contains("hidden") ? null : $("syncChip").textContent,
+           chipTitle: $("syncChip").title || "",
+           acceptHidden: $("advanceStage").classList.contains("hidden") || $("advanceStage").disabled,
+           local: (JSON.parse(localStorage.getItem("amaw_lot:" + uid) || "null") || {}).status || null };
 };
 
 export async function run({ browser, results }) {
@@ -546,6 +578,8 @@ export async function run({ browser, results }) {
          && a.local === "Accepted" && a.pending === null && a.listStatus === "Accepted",
        `stage=${a.stage} pill=${a.pill} chip="${a.chip}" local=${a.local} pending=${JSON.stringify(a.pending)} list=${a.listStatus}`);
     ok("…and the audit log carries the accept line", /Lot accepted/.test(a.audit), a.audit.slice(0, 120));
+    ok("…and the list row says when and by whom, not when it was last saved",
+       /· Accepted \d{4}-\d\d-\d\d \d\d:\d\d by Harness Runner/.test(a.listRow || ""), a.listRow);
     ok("…and the sentence says the record took it", /record now says so/.test(a.msg) && /\bok\b/.test(a.cls), a.msg);
 
     ok("…and the chip's title says who accepted it", /by Harness Runner/.test(a.chipTitle || ""), a.chipTitle);
@@ -567,8 +601,8 @@ export async function run({ browser, results }) {
        v.retried.ledger === "Accepted" && v.retried.stage === "Accepted" && v.retried.warn === null,
        `ledger=${v.retried.ledger} stage=${v.retried.stage} warn=${JSON.stringify(v.retried.warn)}`);
 
-    ok("a lot known only from the server shows no sublot count rather than “0 of 4”",
-       !!v.listServerOnly && !/of 4 sublots/.test(v.listServerOnly), v.listServerOnly);
+    ok("a lot known only from the server shows no sublot count rather than “0 of 4” - it says Open",
+       !!v.listServerOnly && !/of 4 sublots/.test(v.listServerOnly) && /· Open ·/.test(v.listServerOnly), v.listServerOnly);
     ok("the reviewer's run is clean", rv.value.errs.length === 0, rv.value.errs.slice(0, 3).join(" | ") || "clean");
   }
 
@@ -608,7 +642,7 @@ export async function run({ browser, results }) {
     const A = pa.value.a;
     const rowA = A.server.amaw_lots[A.uid] || {};
     const pb = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true },
-      async (h) => ({ b: await h.page.evaluate(REVIEW_ON_B, { submitted: A.submitted, server: A.server }),
+      async (h) => ({ b: await h.page.evaluate(REVIEW_ON_B, { submitted: A.submitted, server: A.server, reopen: true }),
                       errs: realErrors(h.errs || []) }));
     if (pb.skipped) { results.skip(id, BOOK, "a reviewer on another device", pb.skipped); }
     else {
@@ -626,6 +660,44 @@ export async function run({ browser, results }) {
            && acc.local === "Accepted" && acc.pending === null && /Lot accepted/.test(acc.audit)
            && /record now says so/.test(acc.msg),
          `stage=${acc.stage} chip=${acc.chip} local=${acc.local} msg="${acc.msg}"`);
+      // The reviewer reopens that same submittal to build the AMAW. The file
+      // says Submitted; this device and the record say Accepted - and it used
+      // to offer Accept again, which the record then refused.
+      const re = pb.value.b.reopened || {};
+      ok("reopening the submittal on the device that accepted it opens Accepted, and offers no Accept",
+         re.stage === "Accepted" && re.pill === "Accepted" && re.btnDisabled === true && !/Accept →/.test(re.btn || "")
+           && /was accepted in KYTC's lot record \(by Harness Runner/.test(re.msg || ""),
+         `stage=${re.stage} btn="${re.btn}" disabled=${re.btnDisabled} msg="${re.msg}"`);
+
+      // The contractor, later, on their own device: the list and the lot it
+      // opens agree, and both say who accepted it and when.
+      const cl = await withBook(browser, PLANT, { width: 1440, height: 1000, query: "&sublots=open" },
+        async (h) => ({ c: await h.page.evaluate(CONTRACTOR_LATER, { local: A.local, server: pb.value.b.server, uid: A.uid }),
+                        errs: realErrors(h.errs || []) }));
+      if (cl.skipped) { results.skip(id, BOOK, "the contractor's device after KYTC accepted", cl.skipped); }
+      else {
+        const c = cl.value.c;
+        ok("the contractor's list says Accepted, with when and by whom",
+           /· Accepted \d{4}-\d\d-\d\d \d\d:\d\d by Harness Runner/.test(c.row || ""), c.row);
+        ok("…and the lot it opens says Accepted too - not Submitted",
+           c.stage === "Accepted" && c.pill === "Accepted" && /accepted/.test(c.chip || "")
+             && /by Harness Runner/.test(c.chipTitle) && c.local === "Accepted",
+           `stage=${c.stage} pill=${c.pill} chip=${c.chip} local=${c.local}`);
+        ok("…with the contractor's run clean", cl.value.errs.length === 0, cl.value.errs.slice(0, 3).join(" | ") || "clean");
+      }
+    }
+
+    // A second reviewer who opens it AFTER the first accepted: the page takes
+    // the record's chain on open, so Accept is never offered at all.
+    const po = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true },
+      async (h) => ({ b: await h.page.evaluate(REVIEW_ON_B, { submitted: A.submitted, server: A.server,
+                        ledgerPatch: { status: "Accepted", accepted_at: "2026-09-26T06:03:53.000Z", accepted_name: "Tate Salle" } }),
+                      errs: realErrors(h.errs || []) }));
+    if (!po.skipped) {
+      const o = po.value.b.opened;
+      ok("a reviewer opening a lot another reviewer already accepted sees it Accepted, and no Accept button",
+         o.stage === "Accepted" && o.btnDisabled === true && /was accepted in KYTC's lot record \(by Tate Salle/.test(o.msg || ""),
+         `stage=${o.stage} btn="${o.btn}" disabled=${o.btnDisabled} msg="${o.msg}"`);
     }
 
     // A SECOND reviewer: both Andrew and Tate get the submittal email, and

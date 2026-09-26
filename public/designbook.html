@@ -24724,10 +24724,35 @@ async function adoptLotIntoStore(lot) {
           `This lot is already open on this account, last saved ${esc(String(held.saved_at || "").slice(0, 16).replace("T", " "))}. ` +
           `The file you just opened has been loaded; saving will overwrite the stored copy.`, "warn");
     }
+    if (held) takeHeldChain(held);
   } catch (_) { /* a store that cannot answer does not stop a lot opening */ }
   // Register it either way, so the lot is durable from the moment it opens
   // rather than from the first keystroke.
   saveLotNow();
+  paintSyncChip();
+}
+
+// WHERE THE RECORD HAS THE LOT, onto the page. The stage a lot opens on comes
+// from the file or the list it was opened from, and the record can be further
+// along: KYTC accepted it on its own device (the contractor's list said
+// Accepted and the lot opened as Submitted), a second reviewer accepted it
+// first, or this very device accepted it and is reopening the submittal -
+// which offered Accept again. The chain only moves forward, so the page only
+// ever follows it forward; the who and when come with it.
+function takeHeldChain(held) {
+  if (!held || !state.lot || state.lot.uid !== held.uid) return;   // another lot opened meanwhile
+  const at = CONFIG.LOT_STAGES.findIndex((x) => x.key === held.status);
+  takeRecordStamps(held);
+  if (at > state.stageIdx) {
+    const n = state.lot.lot_number;
+    state.stageIdx = at;
+    state.lot.status = held.status;
+    msg($("saveMsg"), held.status === "Accepted"
+      ? `Lot ${n} was accepted in KYTC's lot record${sealedByWhen(held.accepted_name, held.accepted_at)}.`
+      : `Lot ${n} was submitted to KYTC's lot record${sealedByWhen(held.submitted_name, held.submitted_at)}, ` +
+        `so it can no longer be changed here.`, "ok");
+    renderLotStage();
+  }
   paintSyncChip();
 }
 
@@ -25011,7 +25036,6 @@ async function paintLotList() {
     notSetUp = !!a && a.notSetUp === true;
   } catch (_) { /* cannot tell: keep the full wording */ }
 
-  const when = (t) => (t ? String(t).slice(0, 16).replace("T", " ") : "");
   const items = rows.map((r) => {
     const purged = !!r.purged_at || r.has_data === false;
     const label = `Lot ${esc(String(r.lot_number))} · ${esc(r.mix_signature || r.mix_id)}`;
@@ -25019,11 +25043,19 @@ async function paintLotList() {
     // on a sublot (sections.mjs's rowHoldsMeasurement()) - it read "4 of 4" on
     // every lot opened from an approval. A lot this device knows only from the
     // server has no count at all (amaw_lot_summaries has no such column), and
-    // prints none rather than a "0 of 4" that may be a finished lot.
-    const count = r.sublots_entered == null ? "" : `${esc(String(r.sublots_entered))} of 4 sublots`;
-    const sub = [esc(r.contract_id), esc(r.plant_name || r.amp_number),
-                 r.status === "Open" ? count : esc(r.status),
-                 esc(when(r.saved_at))].filter(Boolean).join(" · ");
+    // prints the word Open rather than a "0 of 4" that may be a finished lot -
+    // or nothing, which left that one row with no stage at all.
+    const count = r.sublots_entered == null ? "Open" : `${esc(String(r.sublots_entered))} of 4 sublots`;
+    // A sealed lot says who moved it along the chain and when, off the
+    // record's own stamps ("Accepted 2026-09-26 06:03 by Tate Salle"); the
+    // time it was last saved says neither, and printed beside "Accepted" it
+    // read as though it were.
+    const [sAt, sBy] = r.status === "Accepted" ? [r.accepted_at, r.accepted_name]
+                     : r.status === "Submitted" ? [r.submitted_at, r.submitted_name] : [null, null];
+    const stage = r.status === "Open" ? count
+      : [esc(r.status), sAt ? esc(lotWhen(sAt)) : "", sBy ? `by ${esc(sBy)}` : ""].filter(Boolean).join(" ");
+    const sub = [esc(r.contract_id), esc(r.plant_name || r.amp_number), stage,
+                 sAt || sBy ? "" : esc(lotWhen(r.saved_at))].filter(Boolean).join(" · ");
     const flag = purged ? `<span class="lotflag">data purged</span>`
                : r.unsynced && !notSetUp ? `<span class="lotflag warn">not yet sent</span>` : "";
     return purged
