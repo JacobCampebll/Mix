@@ -248,7 +248,11 @@ export async function run({ browser, results, books }) {
             const kinds = Array.from(document.querySelectorAll(
               '[data-rowlist="sublot_tickets"] [data-col="date"], [data-rowlist="sublot_tickets"] [data-col="time"]'))
               .map((el) => el.type);
-            return { before: pick(b.rows), after: pick(a.rows), kinds };
+            // A date picker's year is bounded to what a workbook date can be
+            // (NATIVE_DATE_LIMITS): max caps the year at four digits.
+            const bounds = Array.from(document.querySelectorAll('[data-rowlist="sublot_tickets"] input[type="date"]'))
+              .map((el) => `${el.getAttribute("min")}..${el.getAttribute("max")}`);
+            return { before: pick(b.rows), after: pick(a.rows), kinds, bounds };
           });
           return { reach, held, rt, errs: realErrors(e3) };
         });
@@ -263,6 +267,9 @@ export async function run({ browser, results, books }) {
                    whole && JSON.stringify(rt.before) === JSON.stringify(rt.after)
                      && rt.kinds.length === 8 && rt.kinds.every((k) => k === "date" || k === "time"),
                    `before ${JSON.stringify(rt.before)} | after ${JSON.stringify(rt.after)} | reopened as ${rt.kinds.join(",")}`);
+        results.ok(id, book.label, "every ticket date picker is bounded 1900-01-01..9999-12-31",
+                   rt.bounds.length === 4 && rt.bounds.every((x) => x === "1900-01-01..9999-12-31"),
+                   rt.bounds.join(" ") || "no date pickers");
         results.ok(id, book.label, "sublots-open pass: clean console", e3.length === 0, e3.slice(0, 2).join(" | ") || "0 errors");
       }
     }

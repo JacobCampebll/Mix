@@ -5808,6 +5808,17 @@ function nativeInputType(type, value) {
 // Where a browser has no picker a date/time input is a text box, so it says
 // what shape to type. Browsers with a picker ignore a placeholder on one.
 const NATIVE_PLACEHOLDER = { date: "YYYY-MM-DD", time: "HH:MM" };
+// A date picker's year, bounded to what a workbook date can be (2026-09-26).
+// `max` is what does the work: it caps Chromium's year field at four digits,
+// where without it a fifth keystroke makes "20266-09-24", which is not
+// YYYY-MM-DD and which the AMAW mapper then refuses. `min` marks a year
+// before 1900 invalid and keeps the calendar out of it, but it CANNOT stop a
+// short year being typed - Chromium keeps "0026-09-24", which is what copying
+// the paper's "9/24/26" into the picker gives - so a year before 1900 is
+// still refused downstream by amDateSerial() rather than here. Measured
+// typing into the ticket's picker, with and without these. Only on a real
+// picker: a stored value shown in a text box (nativeInputType()) gets none.
+const NATIVE_DATE_LIMITS = ' min="1900-01-01" max="9999-12-31"';
 
 function inputFor(f, value, src) {
   const cls = "box req-marker" + (f.mono ? " mono" : "") + (f.req ? " req" : "");
@@ -5835,12 +5846,13 @@ function inputFor(f, value, src) {
   // browser would blank - then a text box showing it as typed (above).
   const type = nativeInputType(f.type, value);
   const ph = NATIVE_PLACEHOLDER[f.type] ? ` placeholder="${NATIVE_PLACEHOLDER[f.type]}"` : "";
+  const lim = type === "date" ? NATIVE_DATE_LIMITS : "";
   // The number pad for a figure - except a `signed` one: iOS's decimal pad
   // has no minus key, so a field that can go negative (the setup AC
   // adjustment, -0.10 to +0.3) keeps the full keyboard, whose number layer
   // has the minus sign.
   const im = f.type === "number" && !f.signed ? ' inputmode="decimal"' : "";
-  return `<input type="${type}"${im}${ph} class="${cls}" ${attrs} value="${esc(value == null ? "" : value)}">`;
+  return `<input type="${type}"${im}${ph}${lim} class="${cls}" ${attrs} value="${esc(value == null ? "" : value)}">`;
 }
 
 /* ---------- a section-head lookup ----------
@@ -6037,11 +6049,12 @@ function rowHTML(spec, values, idx) {
     // next autosave would save. Never the number pad - `im` needs `number`.
     const kind = nativeInputType(c.type, v);
     const ph = NATIVE_PLACEHOLDER[c.type] ? ` placeholder="${NATIVE_PLACEHOLDER[c.type]}"` : "";
+    const lim = kind === "date" ? NATIVE_DATE_LIMITS : "";
     const ctrl = c.source ? refControlHTML(c, cls, attrs, v, c.readonly)
       : c.type === "select"
         ? selectHTML(cls, attrs, (c.options || []).map((o) =>
             (typeof o === "string" ? { value: o, label: o } : o)), v, c.readonly)
-        : `<input type="${kind}"${im}${ph}${ro}${wt} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
+        : `<input type="${kind}"${im}${ph}${lim}${ro}${wt} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
     // `num` is what lets a phone pack three figures onto one line instead of
     // giving each its own. A number column holds a figure - four or five
     // characters - where a text column can hold a 48-character producer name,
