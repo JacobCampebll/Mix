@@ -341,6 +341,29 @@ export async function run({ browser, results }) {
        land === "sublot-1|sublot_tickets|date|9/24/26", land || "nothing focused");
   }
 
+  // The same values seen by a REVIEWER, to whom no sublot is locked: both
+  // sublots can be corrected, and they are on two tabs, not "the" tab.
+  const rv = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true }, async (h) => {
+    await h.page.evaluate(async (approval) => {
+      const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+      const t = out.lot.rows.sublot_tickets;
+      t[0] = { ...t[0], date: "9/24/26", time: "14:15" };
+      t[1] = { ...t[1], date: "09/25/2026", time: "1415" };
+      openLotEnvelope(out.lot, "the harness");
+      await new Promise((res) => setTimeout(res, 400));
+    }, APPROVAL);
+    await h.page.waitForTimeout(200);
+    return h.page.evaluate(() => Array.from(document.querySelectorAll("#vallist .vitem"))
+      .map((v) => v.textContent.replace(/\s+/g, " ").trim()).find((t) => /will not reach the AMAW/.test(t)) || "");
+  });
+  if (rv.skipped) results.skip(id, BOOK, "a reviewer's ticket line, values on two sublots", rv.skipped);
+  else {
+    const line = rv.value;
+    ok("…and for a reviewer, with values on two open sublots, it says to correct each on its own tab",
+       /Correct them on each sublot's tab/.test(line) && !/locked/.test(line),
+       line.slice(0, 260) || "no ticket line on the rail");
+  }
+
   /* ...AND THE BOX IS ON SCREEN, which focus alone does not make it. Below
    * 700px go() scrolls to the section's START and focuses without scrolling,
    * and a sublot's ticket sits under six Aggregate Blend cards on a phone -

@@ -22457,9 +22457,13 @@ function ticketDateTimeWarnings() {
   const nums = (list) => Array.from(new Set(list.map((b) => b.n)));
   const and = (a) => (a.length > 1 ? `${a.slice(0, -1).join(", ")} and ${a[a.length - 1]}` : String(a[0]));
   const open = bad.filter((b) => !b.locked), shut = nums(bad.filter((b) => b.locked));
+  // Several open sublots is a reviewer's lot, or one built under
+  // ?sublots=open - a contractor has only sublot 1 of lot 1 open - and the
+  // values are then on more than one tab.
+  const openN = nums(open), many = openN.length > 1;
   const fix = !open.length ? ""
-    : shut.length ? ` Correct sublot ${and(nums(open))}'s on its tab, e.g. 2026-09-24, 14:15.`
-    : ` Correct ${open.length > 1 ? "them" : "it"} on the sublot's tab, e.g. 2026-09-24, 14:15.`;
+    : shut.length ? ` Correct sublot${many ? "s" : ""} ${and(openN)}'s on ${many ? "their tabs" : "its tab"}, e.g. 2026-09-24, 14:15.`
+    : ` Correct ${open.length > 1 ? "them" : "it"} on ${many ? "each sublot's tab" : "the sublot's tab"}, e.g. 2026-09-24, 14:15.`;
   const ro = !shut.length ? ""
     : ` Sublot${shut.length > 1 ? "s" : ""} ${and(shut)} ${shut.length > 1 ? "are" : "is"} locked, so `
       + `${shut.length > 1 ? "their values are" : "its values are"} read-only here until ${shut.length > 1 ? "they open" : "it opens"}.`;
