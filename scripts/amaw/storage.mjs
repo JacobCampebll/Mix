@@ -1027,6 +1027,12 @@ export function syncedLotStore(opts = {}) {
         if (seal.status === 'Accepted') {
           lot.status = seal.was || 'Submitted';
           lot.pending_seal = null;
+          // Put back on a lot the record holds sealed, there is nothing left
+          // to send - its data window shut when it was submitted - so it
+          // leaves the outbox now, rather than sitting "not yet sent" until a
+          // later flush finds it frozen. (An offline Accept's own trailing
+          // save is what moved the revision.)
+          if (lot.status !== 'Open') lot.synced_revision = Number(lot.revision || 0);
         }
         await keep(lot, by);
         if (err && typeof err === 'object') err.record = rec;

@@ -20169,6 +20169,12 @@ const PB_LOT = (() => {
           if (seal.status === 'Accepted') {
             lot.status = seal.was || 'Submitted';
             lot.pending_seal = null;
+            // Put back on a lot the record holds sealed, there is nothing left
+            // to send - its data window shut when it was submitted - so it
+            // leaves the outbox now, rather than sitting "not yet sent" until a
+            // later flush finds it frozen. (An offline Accept's own trailing
+            // save is what moved the revision.)
+            if (lot.status !== 'Open') lot.synced_revision = Number(lot.revision || 0);
           }
           await keep(lot, by);
           if (err && typeof err === 'object') err.record = rec;
@@ -23693,9 +23699,10 @@ function renderLotStage() {
   }
   if (note) note.textContent = s.note || "";
   // A refused Accept, directly under the button that was pressed (it is set
-  // by acceptLotForKYTC() and belongs to this lot on screen only - not an
-  // envelope field). The same red line DesignBook's Status step uses for its
-  // own warning, already in this step's markup.
+  // by acceptLotForKYTC() and, for an Accept made with no signal and refused
+  // later, by sayAcceptRefused(); it belongs to this lot on screen only - not
+  // an envelope field). The same red line DesignBook's Status step uses for
+  // its own warning, already in this step's markup.
   const warn = $("stageWarn");
   if (warn) {
     const w = state.lot && state.lot.stageWarn;
@@ -24351,6 +24358,8 @@ async function submitLotToKYTC() {
         `${name} downloaded and stamped as submitted by ${who}. Email it to ` +
         `${to || "KYTC Central Office Materials"} - that file is the submission. ` +
         `${seal[0]} You can download it again at any time.`, seal[1]);
+    // So the flush that finally seals it can replace the "no signal" line.
+    state.lot.waitingSaid = sealed.kind === "waiting" || null;
   } catch (err) {
     state.stageIdx = prevIdx;          // nothing left the machine, so nothing moved
     renderLotStage();
@@ -24431,6 +24440,8 @@ async function acceptLotForKYTC() {
                 `download the lot PDF to keep a record of it.`, "ok"],
     }[out.kind];
     msg($("saveMsg"), said[0], said[1]);
+    // So the flush that finally seals it can replace the "no signal" line.
+    state.lot.waitingSaid = out.kind === "waiting" || null;
     // The accept line into this device's own copy, so the lot reopens from
     // the list with it. Not awaited: the seal above is what mattered.
     saveLotNow();
@@ -24725,6 +24736,11 @@ async function adoptLotIntoStore(lot) {
           `The file you just opened has been loaded; saving will overwrite the stored copy.`, "warn");
     }
     if (held) takeHeldChain(held);
+    // An Accept this device made with no signal, refused by the record at a
+    // flush when no lot was open: said now, where the lot is.
+    if (held && held.seal_refused && held.seal_refused.status === "Accepted" && state.lot && state.lot.uid === held.uid) {
+      await sayAcceptRefused(held);
+    }
   } catch (_) { /* a store that cannot answer does not stop a lot opening */ }
   // Register it either way, so the lot is durable from the moment it opens
   // rather than from the first keystroke.
@@ -24875,14 +24891,18 @@ function takeRecordStamps(from) {
 // "Lot n is still Submitted" whatever the record said - including over a
 // ledger reading Open (the submission had not reached it).
 function acceptRefusedText(n, out) {
-  const rec = out.record;
-  if (!rec && out.code === "not_found") {
+  if (!out.record && out.code === "not_found") {
     return `The Accept did not go through: lot ${n}'s submission has not reached KYTC's lot record.`;
   }
-  const where = !rec ? ""
+  return `The Accept did not go through: ${out.reason}.${recordWhere(n, out.record)}`;
+}
+// Where the record has the lot, as a sentence - or nothing when it could not
+// be asked. One wording for a refusal met at the button and one met at a
+// later flush.
+function recordWhere(n, rec) {
+  return !rec ? ""
     : rec.status === "Open" ? ` KYTC's lot record still has lot ${n} Open - its submission has not reached the record yet.`
     : ` KYTC's lot record still reads lot ${n} as ${rec.status}.`;
-  return `The Accept did not go through: ${out.reason}.${where}`;
 }
 
 // Why a submission was not sealed, in words a technician can act on. The
@@ -25104,21 +25124,28 @@ async function openLotFromStore(uid) {
 async function flushLots() {
   const store = state.store;                 // NOT lotStore() - never build one just to flush
   if (!store || !store.flush) return;
-  try { await store.flush({ by: storeWho() }); } catch (_) { /* it will try again */ }
-  await reconcileLotSeal();
+  let res = null;
+  try { res = await store.flush({ by: storeWho() }); } catch (_) { /* it will try again */ }
+  await reconcileLotSeal(res && res.failures);
   paintSyncChip();
   paintLotList();
 }
 
-// After a flush, where the lot on screen now stands with the record. A seal
-// that was waiting may have gone (the chip stops saying "waiting"), and an
-// Accept made with no signal may have been REFUSED once it could be asked -
-// the store has already taken that stamp off (storage.mjs's pushOne()), so the
-// page puts its own stage back and says so, rather than reading Accepted over
-// a ledger row that still says Submitted.
-async function reconcileLotSeal() {
+// After a flush, where the lot on screen now stands with the record - and,
+// with no lot open, what the door should say.
+//
+// THE STORE'S OWN RECORD OF A REFUSAL DECIDES IT: `seal_refused`, which
+// pushOne() keeps on the lot it refused. This used to put the page back
+// whenever the page read Accepted and this device's copy did not - which
+// reported a refused offline Accept on a device that had never pressed Accept
+// (it opened a lot PDF made after KYTC accepted) - and printed the store's
+// lastError as the reason, which is the FIRST failing lot's, whichever lot that
+// was. Now only this device's own refused Accept is put back, with its own
+// reason.
+async function reconcileLotSeal(failures) {
   const store = state.store;
-  if (!isPlantBook() || !state.lot || !store || !store.local) return;
+  if (!isPlantBook() || !store || !store.local) return;
+  if (!state.lot) { await sayDoorRefusals(failures); return; }
   const uid = state.lot.uid;
   let held = null;
   try { held = await store.local.load(uid); } catch (_) { return; }
@@ -25129,18 +25156,71 @@ async function reconcileLotSeal() {
   state.lot.revision = held.revision;
   state.lot.synced_revision = held.synced_revision;
   state.lot.server_revision = held.server_revision;
+  const wasWaiting = !!state.lot.sealPending;
   state.lot.sealPending = !!held.pending_seal;
   if (!held.pending_seal) state.lot.sealRefused = null;
-  if (state.lot.status === "Accepted" && held.status !== "Accepted") {
-    const at = CONFIG.LOT_STAGES.findIndex((x) => x.key === held.status);
-    state.stageIdx = at < 0 ? CONFIG.LOT_STAGES.findIndex((x) => x.key === "Submitted") : at;
-    state.lot.status = held.status;
-    renderLotStage();
-    const why = (store.state && store.state().lastError) || "";
-    msg($("saveMsg"),
-        `KYTC's lot record did not take the Accept made without a signal${why ? `: ${why}` : ""}. ` +
-        `Lot ${state.lot.lot_number} is still ${held.status}.`, "error");
+  if (held.seal_refused && held.seal_refused.status === "Accepted") { await sayAcceptRefused(held); return; }
+  // A seal this page said was waiting has gone through: the gold "there is
+  // no signal" sentence would otherwise stay up over a sealed lot.
+  if (wasWaiting && !held.pending_seal && state.lot.waitingSaid) {
+    const n = state.lot.lot_number;
+    msg($("saveMsg"), held.status === "Accepted"
+      ? `Lot ${n}'s Accept is now sealed in KYTC's lot record.`
+      : `Lot ${n} is now sealed in KYTC's lot record as submitted.`, "ok");
+    state.lot.waitingSaid = null;
   }
+  takeHeldChain(held);
+}
+
+// THIS device's own Accept, refused by the record once it could be asked (an
+// Accept made with no signal). Said where the lot is: the stage goes back to
+// where this device now has it (the store already put its own stamp back),
+// the lot's own reason is printed beside the button and in the rail, and a
+// history line records the refusal. The "Lot accepted" line written when it
+// was pressed stays - history only grows - and this one says what became of
+// it, so a lot PDF made afterwards carries both. Then the store stops carrying
+// the refusal: after the save, so a save that fails leaves it to be said again.
+async function sayAcceptRefused(held) {
+  const r = held.seal_refused || {};
+  const n = state.lot.lot_number;
+  const reason = r.reason || "no reason was given";
+  const at = CONFIG.LOT_STAGES.findIndex((x) => x.key === held.status);
+  if (at >= 0 && at < state.stageIdx) { state.stageIdx = at; state.lot.status = held.status; }
+  const said = `KYTC's lot record did not take lot ${n}'s Accept made without a signal: ${reason}.` +
+               recordWhere(n, r.record);
+  state.lot.stageWarn = said;
+  state.lot.waitingSaid = null;
+  state.history = (state.history || []).concat([custodyEntry("Accept refused by KYTC's lot record", { reason })]);
+  audit(`Accept refused by KYTC's lot record - ${reason}`);
+  renderLotStage();
+  msg($("saveMsg"), said, "error");
+  const saved = await saveLotNow();
+  if (saved && state.store && state.store.acknowledge) {
+    try { await state.store.acknowledge(held.uid); } catch (_) { /* said again next time */ }
+  }
+  paintSyncChip();
+}
+
+// With no lot open - the Start a lot door, or boot - a flush that finds an
+// Accept refused has no lot on screen to say it on. The refusal stays on its
+// lot and is said again, with its history line, when that lot is opened; but
+// the door is where the reviewer is now, so it is said there too. It used to
+// be put back silently.
+async function sayDoorRefusals(failures) {
+  const store = state.store;
+  if (!Array.isArray(failures) || !failures.length || !store || !store.local) return;
+  const card = $("uploadCard");
+  if (!card || card.classList.contains("hidden")) return;
+  const lots = [];
+  for (const f of failures) {
+    let lot = null;
+    try { lot = await store.local.load(f.uid); } catch (_) { continue; }
+    const r = lot && lot.seal_refused;
+    if (r && r.status === "Accepted") lots.push(`lot ${lot.lot_number} on ${lot.mix_id} (${r.reason || "no reason was given"})`);
+  }
+  if (!lots.length) return;
+  msg($("uploadMsg"), `KYTC's lot record did not take the Accept made without a signal of ${lots.join("; ")}. ` +
+      `Open the lot to see where it stands.`, "error");
 }
 
 if (typeof window !== "undefined" && window.addEventListener) {

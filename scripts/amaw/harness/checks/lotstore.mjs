@@ -358,6 +358,100 @@ const OFFLINE_SUBMIT = async ({ approval }) => {
   return { offline, flushed };
 };
 
+/* A REVIEWER'S ACCEPT WITH NO SIGNAL, and what the next flush makes of it:
+ *   sealed           - the "no signal" sentence is replaced once it seals;
+ *   refused, lot open - put back, with THAT lot's reason, beside the button,
+ *                       and a history line saying what became of the Accept;
+ *   refused, door     - no lot open when the record says no: said on the door,
+ *                       then again (with the history line) when the lot opens.
+ * The record's refusal is the stub's rpc answering "only KYTC accepts a lot",
+ * the one thing stubbed besides the confirm dialog and the download. */
+const ACCEPT_OFFLINE = async ({ approval, refuse, door }) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.__HARNESS_AMAW;
+  const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+  openLotEnvelope(out.lot, "the harness");
+  const uid = state.lot.uid;
+  await sleep(CONFIG.STORAGE.AUTOSAVE_MS + 700);
+  const c = window.confirm, s = window.saveBytes;
+  window.confirm = () => true; window.saveBytes = () => {};
+  try { await submitLotToKYTC(); } finally { window.confirm = c; window.saveBytes = s; }
+  window.__HARNESS_OFFLINE = true;
+  go(stepIndexOf("lot-status"));
+  await sleep(400);
+  document.getElementById("advanceStage").click();
+  for (let i = 0; i < 60 && $("advanceStage").textContent === "Accepting..."; i++) await sleep(100);
+  await sleep(700);                               // the trailing save, made with no signal
+  const waiting = { msg: $("saveMsg").textContent, stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key };
+  const realRpc = sb.rpc;
+  if (refuse) sb.rpc = (fn, a) => (a && a.p_status === "Accepted")
+    ? Promise.resolve({ data: null, error: { code: "42501", message: "only KYTC accepts a lot" } })
+    : realRpc(fn, a);
+  window.__HARNESS_OFFLINE = false;
+  let doorMsg = null;
+  if (door) {
+    state.lot = null;
+    showLotDoor("plantbook");                     // the door flushes, with no lot open
+    for (let i = 0; i < 40 && !$("uploadMsg").textContent; i++) await sleep(100);
+    await sleep(300);
+    const doorRowEl = document.querySelector(`#lotListWrap [data-lot-uid="${uid}"]`);
+    doorMsg = { text: $("uploadMsg").textContent, cls: $("uploadMsg").className,
+                row: doorRowEl ? doorRowEl.textContent.replace(/\s+/g, " ").trim() : null };
+    sb.rpc = realRpc;
+    await openLotFromStore(uid);
+    await sleep(1500);
+  } else {
+    await flushLots();
+    await sleep(900);
+    sb.rpc = realRpc;
+  }
+  go(stepIndexOf("lot-status"));
+  await sleep(400);
+  const held = JSON.parse(localStorage.getItem("amaw_lot:" + uid) || "null") || {};
+  const w = $("stageWarn");
+  await paintLotList();
+  const rowEl = document.querySelector(`#lotListWrap [data-lot-uid="${uid}"]`);
+  return {
+    waiting, doorMsg,
+    after: { msg: $("saveMsg").textContent, cls: $("saveMsg").className, stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key,
+             warn: w && !w.classList.contains("hidden") ? w.textContent : null, chip: $("syncChip").textContent,
+             history: (state.history || []).map((h) => h.action),
+             audit: ($("auditlog") || {}).textContent || "" },
+    held: { status: held.status || null, refused: held.seal_refused || null, pending: held.pending_seal || null,
+            history: (held.history || []).map((h) => h.action) },
+    ledger: (S.amaw_lots[uid] || {}).status || null,
+    outbox: (await state.store.local.outbox()).length,
+    row: rowEl ? rowEl.textContent.replace(/\s+/g, " ").trim() : null,
+  };
+};
+
+/* A device that never pressed Accept: a contractor holding its lot as
+ * Submitted opens a lot PDF made after KYTC accepted, with no signal, then
+ * comes back online. The flush must not tell them an Accept was refused - the
+ * old test was "the page reads Accepted and this copy does not". */
+const NEVER_PRESSED = async ({ approval }) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.__HARNESS_AMAW;
+  const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+  openLotEnvelope(out.lot, "the harness");
+  const uid = state.lot.uid;
+  await sleep(CONFIG.STORAGE.AUTOSAVE_MS + 700);
+  const c = window.confirm, s = window.saveBytes;
+  window.confirm = () => true; window.saveBytes = () => {};
+  try { await submitLotToKYTC(); } finally { window.confirm = c; window.saveBytes = s; }
+  const accepted = lotSnapshot();
+  accepted.status = "Accepted";
+  Object.assign(S.amaw_lots[uid], { status: "Accepted", accepted_at: new Date().toISOString(), accepted_name: "Tate Salle" });
+  window.__HARNESS_OFFLINE = true;
+  openLotEnvelope(accepted, "the lot PDF");
+  await sleep(1200);
+  window.__HARNESS_OFFLINE = false;
+  await flushLots();
+  await sleep(600);
+  return { msg: $("saveMsg").textContent, cls: $("saveMsg").className,
+           stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key };
+};
+
 /* TWO DEVICES - the production reviewer path. A contractor submits on device
  * A and emails the submittal; a KYTC reviewer opens that file on device B,
  * which has never held the lot, and presses Accept. Each device is its own
@@ -632,6 +726,58 @@ export async function run({ browser, results }) {
        o.offline.snapshotSeal === null && o.offline.fileSeal === null,
        `snapshot=${JSON.stringify(o.offline.snapshotSeal)} .json=${JSON.stringify(o.offline.fileSeal)}`);
     ok("the offline run is clean", os.value.errs.length === 0, os.value.errs.slice(0, 3).join(" | ") || "clean");
+  }
+
+  // ---- a reviewer's Accept with no signal, and what the next flush makes of it ----
+  for (const v of [{ name: "sealed", refuse: false, door: false },
+                   { name: "refused, lot open", refuse: true, door: false },
+                   { name: "refused at the door", refuse: true, door: true }]) {
+    const r = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true, query: "&sublots=open" },
+      async (h) => ({ v: await h.page.evaluate(ACCEPT_OFFLINE, { approval: APPROVAL, refuse: v.refuse, door: v.door }),
+                      errs: realErrors(h.errs || []) }));
+    if (r.skipped) { results.skip(id, BOOK, `an Accept with no signal (${v.name})`, r.skipped); continue; }
+    const x = r.value.v;
+    ok(`offline Accept (${v.name}): it waits first, and says so`,
+       /no signal/.test(x.waiting.msg) && x.waiting.stage === "Accepted", x.waiting.msg);
+    if (!v.refuse) {
+      ok("…once it seals, the “no signal” sentence is replaced by one that says so",
+         /Accept is now sealed in KYTC's lot record/.test(x.after.msg) && x.ledger === "Accepted" && x.after.stage === "Accepted",
+         `msg="${x.after.msg}" ledger=${x.ledger}`);
+    } else {
+      const refusedAt = x.after.history.lastIndexOf("Accept refused by KYTC's lot record");
+      ok(`offline Accept (${v.name}): put back to Submitted, on the page and on this device, nothing pending`,
+         x.after.stage === "Submitted" && x.held.status === "Submitted" && x.held.pending === null && x.ledger === "Submitted",
+         `stage=${x.after.stage} held=${x.held.status} pending=${JSON.stringify(x.held.pending)} ledger=${x.ledger}`);
+      ok("…saying that lot's OWN reason, beside the button as well as in the rail",
+         /did not take lot 1's Accept made without a signal: only KYTC accepts a lot\./.test(x.after.msg)
+           && x.after.warn === x.after.msg && /error/.test(x.after.cls), x.after.msg);
+      ok("…with a history line saying what became of the Accept, after the one written when it was pressed - kept on this device too",
+         refusedAt > x.after.history.indexOf("Lot accepted") && x.after.history.indexOf("Lot accepted") >= 0
+           && x.held.history.lastIndexOf("Accept refused by KYTC's lot record") > x.held.history.indexOf("Lot accepted"),
+         `page: ${x.after.history.join(" / ")} || stored: ${x.held.history.join(" / ")}`);
+      ok("…said once: the store stops carrying it, and the lot leaves the outbox",
+         x.held.refused === null && x.outbox === 0 && !/not yet sent/.test(x.row || ""),
+         `refusal kept=${JSON.stringify(x.held.refused)} outbox=${x.outbox} row="${x.row}"`);
+      if (v.door) {
+        ok("…and the door said it, when no lot was open",
+           !!x.doorMsg && /did not take the Accept made without a signal of lot 1 on 00260467 \(only KYTC accepts a lot\)/.test(x.doorMsg.text)
+             && /error/.test(x.doorMsg.cls), x.doorMsg && x.doorMsg.text);
+        ok("…while the door's own list already shows it Submitted and nothing waiting to send",
+           !!x.doorMsg && /· Submitted/.test(x.doorMsg.row || "") && !/not yet sent/.test(x.doorMsg.row || ""),
+           x.doorMsg && x.doorMsg.row);
+      }
+    }
+    ok(`offline Accept (${v.name}): clean`, r.value.errs.length === 0, r.value.errs.slice(0, 3).join(" | ") || "clean");
+  }
+
+  // ---- a device that never pressed Accept ----
+  const np = await withBook(browser, PLANT, { width: 1440, height: 1000, query: "&sublots=open" },
+    async (h) => ({ v: await h.page.evaluate(NEVER_PRESSED, { approval: APPROVAL }), errs: realErrors(h.errs || []) }));
+  if (np.skipped) { results.skip(id, BOOK, "a device that never pressed Accept", np.skipped); }
+  else {
+    const n = np.value.v;
+    ok("a device that never pressed Accept is never told its Accept was refused",
+       !/did not take/.test(n.msg) && n.stage === "Accepted", `stage=${n.stage} msg="${n.msg}"`);
   }
 
   // ---- the production reviewer path: a submittal opened on another device ----

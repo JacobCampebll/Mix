@@ -780,6 +780,23 @@ head('an Accept the record refuses at a LATER flush');
   await store.flush({ by: BY });
   ok('…so the next flush does not ask again', server.net.rpcCalls === callsBefore,
      `${server.net.rpcCalls - callsBefore} seal call(s)`);
+
+  // The page saves the lot once more after an Accept (the history line), and
+  // with no signal that save moves the revision. Put back, the lot has
+  // nothing left to send - so it leaves the outbox at once rather than
+  // listing as "not yet sent" until some later flush finds it frozen.
+  const s2 = newStore(server);
+  const l2 = await s2.save(blankLot({ ...IDENT, lot_number: 3 }), { by: BY });
+  await s2.seal(l2.uid, 'Submitted', { sha256: 'b'.repeat(64), by: BY });
+  server.net.up = false;
+  await s2.seal(l2.uid, 'Accepted', { by: BY });
+  await s2.save(await s2.local.load(l2.uid), { by: BY });
+  server.net.up = true;
+  await s2.flush({ by: BY });
+  const b2 = await s2.local.load(l2.uid);
+  ok('…and with the trailing save, the put-back lot leaves the outbox too',
+     b2.status === 'Submitted' && b2.pending_seal === null && !isUnsynced(b2) && (await s2.local.outbox()).length === 0,
+     [b2.status, b2.revision, b2.synced_revision]);
 }
 
 // =====================================================================
