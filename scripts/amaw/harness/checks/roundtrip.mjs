@@ -420,11 +420,12 @@ export async function run({ browser, results, books }) {
         // printed "Tons ..." and "Ton...", and a reader of the submittal could
         // not tell the cumulative tonnage from the 50-ton figure; wrapped (and
         // with the ticket's `fr` sized for "sample"), every word of both is
-        // drawn whole.
-        const band = r.band || [];
+        // drawn whole. table() draws each heading's lines one after another,
+        // so the band read in order holds each heading's words in order,
+        // whether it took one line or four.
+        const band = r.band || [], read = band.join(" ");
         results.ok(id, book.label, "lot PDF: both tonnage headings read whole",
-                   band.filter((w) => w === "Tons").length === 2
-                     && ["(cum.)", "today", "before", "sample"].every((w) => band.includes(w)),
+                   read.includes("Tons (cum.)") && read.includes("Tons today before sample"),
                    band.length ? band.join(" / ") : "no heading lines found under \"Sublot ticket\"");
         results.ok(id, book.label, "lot PDF tickets: clean console", e4.length === 0, e4.slice(0, 2).join(" | ") || "0 errors");
       }
