@@ -5600,7 +5600,9 @@ commit where possible.
   door, verify-approval's reason, "check with KYTC Central Office", nothing
   saved and no ledger row. **Only INVALID refuses**: the other three
   non-verified states are checks that could not be made and open, labelled
-  (a plant with no signal must still start a lot); **a saved lot is never
+  (a plant with no signal must still start a lot) - the door's legend now
+  says so, a check that cannot be made opens "marked with what could not be
+  checked"; **a saved lot is never
   refused**, whatever it carries, **but one on an INVALID approval never seeds
   another** - Start lot n+1 is new production under the design, so
   `startNextLot()` refuses before its dialog in the door's own words
