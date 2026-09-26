@@ -5729,8 +5729,13 @@ commit where possible.
   and roll it forward as KYTC; and a reviewer who opens a submittal while the
   contractor's seal still waits adopts the server's Open copy and saves into
   it, which leaves that seal on a stale revision ("not sealed"). The Accept no
-  longer adds a second write. **Open (Andrew):** amaw_seal_lot() inserts every
-  `amaw_lot_events` row with `from_status 'Open'`, so an Accept's event reads
-  Open -> Accepted; nothing reads it yet, and a fix is a migration.
+  longer adds a second write. And that reviewer's own list then holds the
+  contractor's lot as an Open row ("0 of 4 sublots"): opened from it, the lot
+  lands at stage Open with "Close the lot →" offered - editable, so KYTC could
+  close and submit the contractor's lot - and the reopen writes into the
+  contractor's data again (revision 2 -> 4, measured). **Open (Andrew):**
+  amaw_seal_lot() inserts every `amaw_lot_events` row with `from_status
+  'Open'`, so an Accept's event reads Open -> Accepted; nothing reads it yet,
+  and a fix is a migration.
   Measured: page checker 221 pass (was 214), check_storage 192 (was 94), full
   harness 489 passed / 0 failed / 3 skipped (was 404).
