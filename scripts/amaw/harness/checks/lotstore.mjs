@@ -382,7 +382,7 @@ const OFFLINE_SUBMIT = async ({ approval }) => {
  *                       then again (with the history line) when the lot opens.
  * The record's refusal is the stub's rpc answering "only KYTC accepts a lot",
  * the one thing stubbed besides the confirm dialog and the download. */
-const ACCEPT_OFFLINE = async ({ approval, refuse, door }) => {
+const ACCEPT_OFFLINE = async ({ approval, refuse, door, beaten }) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const S = window.__HARNESS_AMAW;
   const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
@@ -399,6 +399,9 @@ const ACCEPT_OFFLINE = async ({ approval, refuse, door }) => {
   for (let i = 0; i < 60 && $("advanceStage").textContent === "Accepting..."; i++) await sleep(100);
   await sleep(700);                               // the trailing save, made with no signal
   const waiting = { msg: $("saveMsg").textContent, stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key };
+  // The other reviewer accepts it on their own device meanwhile.
+  if (beaten) Object.assign(S.amaw_lots[uid], { status: "Accepted", accepted_at: "2026-09-26T06:03:53.000Z",
+                                               accepted_name: "Tate Salle" });
   const realRpc = sb.rpc;
   if (refuse) sb.rpc = (fn, a) => (a && a.p_status === "Accepted")
     ? Promise.resolve({ data: null, error: { code: "42501", message: "only KYTC accepts a lot" } })
@@ -431,6 +434,7 @@ const ACCEPT_OFFLINE = async ({ approval, refuse, door }) => {
     waiting, doorMsg,
     after: { msg: $("saveMsg").textContent, cls: $("saveMsg").className, stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key,
              warn: w && !w.classList.contains("hidden") ? w.textContent : null, chip: $("syncChip").textContent,
+             chipTitle: $("syncChip").title || "",
              history: (state.history || []).map((h) => h.action),
              audit: ($("auditlog") || {}).textContent || "" },
     held: { status: held.status || null, refused: held.seal_refused || null, pending: held.pending_seal || null,
@@ -951,16 +955,30 @@ export async function run({ browser, results }) {
 
   // ---- a reviewer's Accept with no signal, and what the next flush makes of it ----
   for (const v of [{ name: "sealed", refuse: false, door: false },
+                   { name: "another reviewer first", refuse: false, door: false, beaten: true },
                    { name: "refused, lot open", refuse: true, door: false },
                    { name: "refused at the door", refuse: true, door: true }]) {
     const r = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true, query: "&sublots=open" },
-      async (h) => ({ v: await h.page.evaluate(ACCEPT_OFFLINE, { approval: APPROVAL, refuse: v.refuse, door: v.door }),
+      async (h) => ({ v: await h.page.evaluate(ACCEPT_OFFLINE, { approval: APPROVAL, refuse: v.refuse, door: v.door,
+                                                                 beaten: !!v.beaten }),
                       errs: realErrors(h.errs || []) }));
     if (r.skipped) { results.skip(id, BOOK, `an Accept with no signal (${v.name})`, r.skipped); continue; }
     const x = r.value.v;
     ok(`offline Accept (${v.name}): it waits first, and says so`,
        /no signal/.test(x.waiting.msg) && x.waiting.stage === "Accepted", x.waiting.msg);
-    if (!v.refuse) {
+    if (v.beaten) {
+      // Tate accepted it on his own device while this one had no signal: the
+      // record adopts rather than seals, and it is said as that.
+      const pressed = x.after.history.indexOf("Lot accepted");
+      ok("…another reviewer got there first: it says so, and whose - not “your Accept is now sealed”",
+         /already said so \(by Tate Salle on 2026-09-26 06:03\), before the Accept made on this device reached it/.test(x.after.msg)
+           && !/is now sealed/.test(x.after.msg) && x.after.stage === "Accepted" && x.ledger === "Accepted"
+           && /by Tate Salle/.test(x.after.chipTitle), `msg="${x.after.msg}" title="${x.after.chipTitle}"`);
+      ok("…and the “Lot accepted” line written when it was pressed gets one saying what became of it - on this device too",
+         pressed >= 0 && x.after.history.lastIndexOf("Lot already accepted in KYTC's lot record") > pressed
+           && x.held.history.lastIndexOf("Lot already accepted in KYTC's lot record") > x.held.history.indexOf("Lot accepted"),
+         `page: ${x.after.history.join(" / ")} || stored: ${x.held.history.join(" / ")}`);
+    } else if (!v.refuse) {
       ok("…once it seals, the “no signal” sentence is replaced by one that says so",
          /Accept is now sealed in KYTC's lot record/.test(x.after.msg) && x.ledger === "Accepted" && x.after.stage === "Accepted",
          `msg="${x.after.msg}" ledger=${x.ledger}`);

@@ -5654,7 +5654,12 @@ commit where possible.
   reply was lost, the debounced autosave after a Submit - replaces the "no
   signal" sentence and takes the record's who and when, in one place
   (`sealAnswered()`); from the flush alone, a seal a save took left "there is
-  no signal" up beside a green chip. Every PlantBook
+  no signal" up beside a green chip. An Accept made with no signal that
+  another reviewer's beat to the record is said as "already said so (by
+  ...)", like the online case, and its "Lot accepted" line gets a "Lot
+  already accepted in KYTC's lot record" line after it - whose Accept it was
+  is read off the record's `accepted_name` against this reviewer's, since the
+  view has no `accepted_by`. Every PlantBook
   sentence about where a lot is kept reads `lotStorageLive()`, the save note's
   gate; DesignBook's own still stand (2026-09-04).
   **A refusal is asked about before anything is put back.** amaw_seal_lot()

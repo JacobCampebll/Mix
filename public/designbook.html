@@ -25335,6 +25335,25 @@ async function sealAnswered(held, wasWaiting) {
   if (acceptRefusalToSay(held)) { await sayAcceptRefused(held); return true; }
   if (!wasWaiting || held.pending_seal) return false;
   takeRecordStamps(held);
+  // ANOTHER REVIEWER'S Accept reached the record first - both get the
+  // submittal email - and this device's, made with no signal, was adopted
+  // rather than sealed. Said as that, the way the online "already" branch of
+  // acceptLotForKYTC() says it, rather than as "your Accept is now sealed";
+  // and the "Lot accepted" line written in this reviewer's name when it was
+  // pressed gets a line saying what became of it (history only grows), the
+  // way sayAcceptRefused() records a refusal.
+  if (state.lot.status === "Accepted" && held.status === "Accepted" && acceptedByAnother(held)) {
+    const n = state.lot.lot_number;
+    const by = sealedByWhen(held.accepted_name, held.accepted_at);
+    state.lot.waitingSaid = null;
+    state.history = (state.history || []).concat([custodyEntry("Lot already accepted in KYTC's lot record",
+      { accepted_name: held.accepted_name || null, accepted_at: held.accepted_at || null })]);
+    audit(`Lot already accepted in KYTC's lot record${by}`);
+    msg($("saveMsg"), `Lot ${n} is Accepted - KYTC's lot record already said so${by}, before the Accept made on ` +
+        `this device reached it.`, "ok");
+    await saveLotNow();
+    return false;
+  }
   if (state.lot.waitingSaid) {
     const n = state.lot.lot_number;
     msg($("saveMsg"), held.status === "Accepted"
@@ -25343,6 +25362,17 @@ async function sealAnswered(held, wasWaiting) {
     state.lot.waitingSaid = null;
   }
   return false;
+}
+
+// Whether the record's Accept is somebody else's. Read off the record's name
+// for it against this reviewer's, because the view the record is read through
+// carries no accepted_by; both come from the technicians row (amaw_seal_lot()
+// stamps first + last name, falling back to the SM ID), so the same person
+// matches. A record with no name on it reads as this reviewer's own.
+function acceptedByAnother(held) {
+  const w = storeWho();
+  const name = held && held.accepted_name;
+  return !!name && !!w && name !== w.name && name !== w.sm_id;
 }
 
 // Whether this device holds an Accept refusal that is still worth saying: one
