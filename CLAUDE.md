@@ -5754,7 +5754,11 @@ commit where possible.
   `#saveMsg` rather than keeping a copy**, and `renderStage()` /
   `renderLotStage()` re-echo because `renderForm()` re-creates the node.
   `#valBlock` and `#saveMsg` do not move (2026-09-11), and `#saveMsg` keeps
-  the full text and the long reports. **The echo is the only live region**.
+  the full text and the long reports. **The echo is the only live region**,
+  and it stays rendered while empty (zero margin, never `display:none`):
+  hidden, it is out of the accessibility tree until its first message
+  arrives with it, and a screen reader may not announce a region that
+  appears together with its text.
   Put `aria-live` on `#saveMsg` too and a screen reader says everything
   twice. A refused Accept already in `#stageWarn` is echoed `.sronly`.
   The send row names `handoffFileName()` / `lotFileName()` of the frozen
