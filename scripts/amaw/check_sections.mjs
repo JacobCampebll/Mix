@@ -395,6 +395,16 @@ for (const s of S) {
       fail("D", `${where} ends its grid with "${tracks[tracks.length - 1]}" — the remove button's track is \`auto\``);
     else if (spec.fixed && tracks[tracks.length - 1] === "auto")
       fail("D", `${where} is fixed but ends its grid with \`auto\` — a fixed table has no remove button`);
+    // A column's own pixel floor (`minPx`, 2026-09-26) is written into the same
+    // inline template as a `minmax(<n>px, ...)` track. The renderer ignores
+    // anything but a positive number - one malformed track ("78pxpx") makes
+    // the browser drop the WHOLE inline declaration and the table silently
+    // loses its columns - so a declaration it would ignore is a typo, and a
+    // typo here is invisible on screen.
+    for (const c of spec.columns) {
+      if (c.minPx !== undefined && !(typeof c.minPx === "number" && Number.isFinite(c.minPx) && c.minPx > 0))
+        fail("D", `${where} column ${c.key} declares minPx ${JSON.stringify(c.minPx)} — a floor is a positive number of pixels`);
+    }
 
     if (spec.fixed) {
       if (!Array.isArray(spec.seed) || !spec.seed.length)

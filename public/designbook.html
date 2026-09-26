@@ -5919,17 +5919,34 @@ function gridHTML(fields) {
  * lands here rather than in the card layout. Still pixels, for the reason
  * above: the header and every row are handed the same string, so the tracks
  * cannot disagree. The `grid` string stays pure `fr` because gridWeights()
- * reads it for the review PDF and drops a track it cannot parse. */
+ * reads it for the review PDF and drops a track it cannot parse.
+ *
+ * A COLUMN CAN DECLARE ITS OWN FLOOR, `minPx: <number>` in the schema, which
+ * wins over both of the above (2026-09-26). 64px is a floor for a figure; a
+ * column that holds a known longer string - an 8-character SM ID, a seeded
+ * "Ignition Furnace" - needs more, and CLAUDE.md is explicit that when a
+ * table cannot fit, it SCROLLS rather than letting a track come out of its
+ * longest string. A declaration rather than a list of keys here, so the width
+ * a column needs lives beside the column (the same reasoning as `signed`).
+ * Screen only: gridWeights() reads `grid`, never this. Anything but a
+ * positive number is ignored rather than written into the template, because
+ * one malformed track ("78pxpx") makes the browser drop the WHOLE inline
+ * declaration and the table silently loses its columns; check_sections.mjs
+ * (D) fails such a declaration for the same reason. */
 const ROW_TRACK_MIN = "64px";
 const NATIVE_TRACK_MIN = { date: "144px", time: "124px" };
+function rowTrackMin(c) {
+  const col = c || {};
+  if (typeof col.minPx === "number" && Number.isFinite(col.minPx) && col.minPx > 0) return `${col.minPx}px`;
+  return NATIVE_TRACK_MIN[col.type] || ROW_TRACK_MIN;
+}
 function rowGridTemplate(spec) {
   // Track i is visible column i: check_sections.mjs (D) holds `grid` to one
   // track per VISIBLE column (plus `auto` for a remove button, which is not
   // an fr track and passes through), and a hidden column is display:none.
   const cols = ((spec && spec.columns) || []).filter((c) => !c.hidden);
   return String(spec && spec.grid != null ? spec.grid : "").trim().split(/\s+/).filter(Boolean)
-    .map((t, i) => (/^\d*\.?\d+fr$/.test(t)
-      ? `minmax(${NATIVE_TRACK_MIN[(cols[i] || {}).type] || ROW_TRACK_MIN},${t})` : t))
+    .map((t, i) => (/^\d*\.?\d+fr$/.test(t) ? `minmax(${rowTrackMin(cols[i])},${t})` : t))
     .join(" ");
 }
 
