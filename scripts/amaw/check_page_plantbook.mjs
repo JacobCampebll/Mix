@@ -921,10 +921,17 @@ namespace('PB_AMAW', '5. PB_AMAW vs scripts/amaw/addresses.mjs + mapper.mjs + ge
         [['Pay Values', 'B3'], ['Superpave', 'N3'], ['discipline', 'E2'], ['.45 Data', 'A1'], ['Cores', 'I10'], ['', 'A1']]);
   sweep('colShift()', P.colShift, MOD_MAPPER.colShift,
         [['A', 0], ['A', 1], ['A', 25], ['A', 26], ['Z', 1], ['AA', -1], ['R', 3], ['G', 8], ['AZ', 1], ['B', -1]]);
+  // Both helpers REFUSE a paper-format value (null, reported by the mapper's
+  // writeWhen()) where they used to parseFloat it into a wrong serial, so the
+  // refusal branches are swept as hard as the conversions: a copy that still
+  // wrote 9 for '9/24/26' would be the drift that matters most here.
   sweep('amDateSerial()', P.amDateSerial, MOD_MAPPER.amDateSerial,
-        [['2026-09-13'], ['2026-09-13T14:00:00Z'], ['9/13/2026'], [45000], ['0'], [''], [null], [undefined], ['not a date']]);
+        [['2026-09-13'], ['2026-09-13T14:00:00Z'], ['9/13/2026'], [45000], ['0'], [''], [null], [undefined], ['not a date'],
+         ['9/24/26'], ['09/24/2026'], ['24-09-2026'], ['2026-02-30'], ['2024-02-29'], ['0026-09-24'], ['1899-12-31'],
+         [' 2026-09-24 '], ['20260924'], [46267.5]]);
   sweep('amTimeFraction()', P.amTimeFraction, MOD_MAPPER.amTimeFraction,
-        [['21:54'], ['09:05'], ['2154'], [0.9125], [0], [1], [''], [null], [undefined], ['nope']]);
+        [['21:54'], ['09:05'], ['2154'], [0.9125], [0], [1], [''], [null], [undefined], ['nope'],
+         ['2:15 PM'], ['2:15pm'], ['1415'], ['2:15'], ['9:30'], ['24:00'], ['14:60'], ['23:59:59'], ['09:30:15.5'], [' 14:15 ']]);
 
   // The seam between the form's field keys and the workbook's own names.
   // Both copies have to agree about it or a lot built in the browser reaches
