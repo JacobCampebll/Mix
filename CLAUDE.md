@@ -5599,10 +5599,9 @@ commit where possible.
   unreachable server. It now throws before `state.lot` is set - red on the
   door, verify-approval's reason, "check with KYTC Central Office", nothing
   saved and no ledger row. **Only INVALID refuses**: the other three
-  non-verified states are checks that could not be made and open, labelled
-  (a plant with no signal must still start a lot) - the door's legend now
-  says so, a check that cannot be made opens "marked with what could not be
-  checked"; **a saved lot is never
+  non-verified states are checks that could not be made and open, labelled (a
+  plant with no signal must still start a lot), and the door's legend says
+  each opens "marked with what could not be checked"; **a saved lot is never
   refused**, whatever it carries, **but one on an INVALID approval never seeds
   another** - Start lot n+1 is new production under the design, so
   `startNextLot()` refuses before its dialog in the door's own words
@@ -5610,18 +5609,19 @@ commit where possible.
   so its measurements are not lost; and `lotFromApproval()` still builds a lot
   on INVALID, because refusing is the page's call. `VERIFICATION_LABELS` and
   `verificationText()` ("label - reason") in intake.mjs are the one wording -
-  anything unknown reads as not checked, never as verified - for the door,
-  the reopen and audit lines, the rail, the lot PDF header and an "Approval
+  anything unknown reads as not checked, never as verified - for the door, the
+  reopen and audit lines, the rail, the lot PDF header and an "Approval
   signature" readout on Contract & Mix. That readout is `approval_signature`,
   not `lot_`-prefixed (check_sections.mjs holds every `lot_` scalar to an AMAW
   alias), and on the ledger it needs its own `.field.readout` rule or its
   caption lands in column one. It is SHADED like every other value read from
   the approval, in the ledger's own weight, and a check nobody could make is
   ink behind a warning glyph rather than the page's amber, because on the
-  ledger amber-and-gold means "still to fill in" and nobody can fill this in. Checked rather than assumed: `readHandoffPDF()`
-  returns the embedded JSON as parsed and `verifyRequest()` passes it on by
-  reference, so no page-side change can make a genuine older approval read
-  INVALID; harness `approvalgate` asserts the request body equals the file.
+  ledger amber-and-gold means "still to fill in" and nobody can fill this in.
+  Checked rather than assumed: `readHandoffPDF()` returns the embedded JSON as
+  parsed and `verifyRequest()` passes it on by reference, so no page-side
+  change can make a genuine older approval read INVALID; harness
+  `approvalgate` asserts the request body equals the file.
   check_page_plantbook.mjs now holds PB_LOT's surface to the two modules'
   exports exactly, as it already did PB_VOL's and PB_PAY's.
   **Nothing on a lot clears a not-checked verification**: the lot carries the
@@ -5629,5 +5629,5 @@ commit where possible.
   "not checked" for its life and for every lot rolled from it, and the rail
   line says so rather than suggesting verify.html fixes it (that checks the
   PDF for the person and writes nothing back). **Open for Jake**: whether a
-  lot should be re-checkable - say by dropping the approval PDF on an open
-  lot once there is a signal - given lots must work offline.
+  lot should be re-checkable - say by dropping the approval PDF on an open lot
+  once there is a signal - given lots must work offline.
