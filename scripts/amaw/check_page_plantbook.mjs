@@ -1657,6 +1657,15 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
     trace.push(await attempt(() => store.seal(sixth.uid, 'Accepted', { by })));
     f.up = true;
     await store.flush({ by });                                                              await snap('offline accept refused by the flush', sixth.uid);
+    // An Accept CARRYING the submission it was stamped over (a project with no
+    // lot storage, seal()): the record takes the submission first and then the
+    // Accept - the same calls, in the same order, from both copies.
+    const seventh = M.normaliseLot({ ...M.blankLot({ ...identities[0], lot_number: 9 }), status: 'Accepted',
+      pending_seal: { status: 'Accepted', sha256: null, prev: null, at: '2026-09-26T00:00:00.000Z', was: 'Submitted',
+                      waited: 'not_set_up', submit: { sha256: '9'.repeat(64), prev: null, at: '2026-09-26T00:00:00.000Z' } } });
+    await store.local.save(JSON.parse(JSON.stringify(seventh)), { by });
+    f.reviewer = true;
+    await store.flush({ by });                                                              await snap('a carried submission, then its Accept', seventh.uid);
     return trace;
   };
   let pageTrace, modTrace;
@@ -1677,6 +1686,10 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
   // both copies must write it - and the trace must actually contain it.
   const waitedOn = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'accept with no signal') : null;
   const laterNo = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'offline accept refused by the flush') : null;
+  const carriedT = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'a carried submission, then its Accept') : null;
+  ok('…and an Accept carrying the submission it was stamped over sends both, the submission first',
+     !!carriedT && carriedT.ledger === 'Accepted' && carriedT.status === 'Accepted' && carriedT.pending === null
+       && carriedT.refused === null && carriedT.outbox === 0, carriedT);
   ok('…and an Accept that waits for a signal says so on its seal and on a refusal a flush meets, while one refused at once records no wait',
      !!waitedOn && !!waitedOn.pending && waitedOn.pending.waited === 'no_signal'
        && !!laterNo && !!laterNo.refused && laterNo.refused.waited === 'no_signal' && laterNo.status === 'Submitted'

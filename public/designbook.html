@@ -20125,6 +20125,7 @@ const PB_LOT = (() => {
     async function pushOne(lot, by) {
       if (!remote) return false;
       if (!online()) throw new StorageError('offline', 'no connection — this lot is saved on this device and will sync when you are back online');
+      if (lot.pending_seal && lot.pending_seal.status === 'Accepted' && lot.pending_seal.submit) return pushCarried(lot, by);
       const seal = lot.pending_seal;
       // The server treats a lot as Open until it has been sealed to SUBMITTED,
       // whatever this copy says. A pending Accept is therefore not a reopening:
@@ -20216,6 +20217,59 @@ const PB_LOT = (() => {
       lot.synced_revision = Number(lot.revision || 0);
       lot.synced_at = new Date().toISOString();
       return reached;
+    }
+
+    // An Accept CARRYING the submission it was stamped over (seal(): only on a
+    // project with no lot storage). The record accepts only a lot it holds as
+    // submitted, so the submission goes first, through exactly the path a
+    // waiting submission takes - its data, then its seal, adopted if the record
+    // already holds it - and then the Accept, as a plain one.
+    async function pushCarried(lot, by) {
+      const accept = lot.pending_seal;
+      const sub = { status: 'Submitted', sha256: accept.submit.sha256, prev: accept.submit.prev, at: accept.submit.at };
+      lot.pending_seal = sub;
+      lot.status = 'Submitted';
+      try {
+        await pushOne(lot, by);
+      } catch (err) {
+        if (isTransient(err)) {
+          // Neither went: the Accept goes back on top, still carrying it.
+          lot.pending_seal = accept;
+          lot.status = 'Accepted';
+          await keep(lot, by);
+          throw err;
+        }
+        // The record REFUSED the submission, so the Accept stamped over it
+        // cannot stand either. It comes off the way a refused Accept does - the
+        // lot back to Submitted, the refusal kept as the ACCEPT's, since that is
+        // the one the page has to put back and say - while the submission stays
+        // in the slot, waiting, as a refused submission always does, and meets
+        // its own refusal again the next time a flush sends it.
+        lot.pending_seal = sub;
+        lot.status = accept.was || 'Submitted';
+        lot.seal_refused = {
+          status: 'Accepted',
+          reason: `the submission it was stamped over was refused: ${String((err && err.message) || 'no reason was given')}`,
+          code: (err && err.code) || null,
+          record: (err && err.record) || null,
+          at: new Date().toISOString(),
+          waited: accept.waited || null,
+        };
+        await keep(lot, by);
+        throw err;
+      }
+      // The submission is in. What is left is the Accept, as a plain one - kept
+      // at once, so a signal lost from here on does not send the submission a
+      // second time. Whether the record already held the submission says
+      // nothing about the Accept, so that answer does not ride on.
+      const plain = { ...accept };
+      delete plain.submit;
+      delete lot.adopted;
+      lot.pending_seal = plain;
+      lot.status = 'Accepted';
+      await keep(lot, by);
+      await pushOne(lot, by);
+      return true;
     }
 
     const api = {
@@ -20410,15 +20464,15 @@ const PB_LOT = (() => {
           throw new StorageError('sealed', `lot ${lot.lot_number} is already ${lot.status}, and a lot is never reopened once submitted`);
         }
         const waiting = lot.pending_seal || null;
-        // ONE SLOT, so an Accept stamped over a submission still waiting for a
-        // signal would drop the submission's hash on the floor - and the record
-        // refuses to accept a lot it does not yet hold as Submitted anyway.
-        // Refused here, before anything is stamped - UNLESS this project has no
-        // lot storage at all. Then nothing will ever send the waiting
-        // submission, the file is the record (and every sentence on the page
-        // says so), and refusing would only stop a reviewer accepting a lot on
-        // the device it was submitted from - which is what the page let them do
-        // before lot storage existed.
+        // ONE SLOT, and the record refuses to accept a lot it does not yet hold
+        // as Submitted - so with no signal, an Accept over a submission still
+        // waiting is refused here, before anything is stamped: once the signal
+        // is back it could only be refused again. UNLESS this project has no lot
+        // storage at all. Then the file is the record (every sentence on the
+        // page says so), and refusing would only stop a reviewer accepting a lot
+        // on the device it was submitted from - which is what the page let them
+        // do before lot storage existed. The Accept is stamped, and CARRIES the
+        // submission (below), so both still reach the record the day it exists.
         if (status === 'Accepted' && waiting && waiting.status === 'Submitted' && !(await notSetUpHere())) {
           throw new StorageError('sealed',
             `lot ${lot.lot_number}'s submission has not reached KYTC's lot record yet, so it cannot be accepted until it has`);
@@ -20430,6 +20484,15 @@ const PB_LOT = (() => {
         // signal is refused - if it is refused - by a later flush.
         if (status === 'Accepted') {
           lot.pending_seal.was = waiting && waiting.status === 'Accepted' ? (waiting.was || 'Submitted') : lot.status;
+          // ...and the SUBMISSION it was stamped over, when one was still
+          // waiting (only on a project with no lot storage - above). It used to
+          // be dropped: "nothing will ever send it" was wrong, because a waiting
+          // submission catches up the day lot storage exists - and an Accept
+          // sent alone was refused ("no such lot") with the submission gone from
+          // the outbox, so the lot never reached the ledger at all. pushOne()
+          // sends the carried submission first, then the Accept.
+          const carried = waiting && waiting.status === 'Submitted' ? waiting : (waiting && waiting.submit) || null;
+          if (carried) lot.pending_seal.submit = { sha256: carried.sha256, prev: carried.prev || null, at: carried.at || null };
         }
         lot.status = status;
         const saved = await local.save(lot, { by, bump: false });

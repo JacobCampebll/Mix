@@ -5686,8 +5686,15 @@ commit where possible.
   <date> by <name>". A pending seal is made by `seal()` and nowhere else: a
   file's stale one is ignored, and `lotSnapshot()` keeps both it and a refusal
   out of files. **One slot:** an Accept over a submission still waiting is
-  refused with no signal, and stamped over it when the project has no lot
-  storage (nothing will ever send it; the file is the record).
+  refused with no signal. When the project has no lot storage it is stamped,
+  and CARRIES the waiting submission (`pending_seal.submit`), so the day
+  amaw_lots.sql is applied the record takes the submission first and then the
+  Accept (`pushCarried()`). An earlier cut dropped the submission on the
+  ground that "nothing will ever send it", which was wrong - a waiting
+  submission does catch up once lot storage exists - and the lone Accept was
+  then refused ("no such lot") with the submission gone from the outbox, so
+  the lot never reached the ledger. A refused carried submission takes the
+  Accept off with it and stays waiting, as any refused submission does.
   **"n of 4 sublots" is asked of the schema** - sections.mjs's
   `rowHoldsMeasurement()`, from readonly flags, seeds, the lot-level lists and
   the blend %'s new `seedFrom: "design_pct"`. It read 4 of 4 on every untouched

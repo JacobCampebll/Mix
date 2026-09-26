@@ -631,6 +631,47 @@ const REVIEW_ON_B = async ({ submitted, server, ledgerPatch, ledgerPatchAfterOpe
   return { opened, accepted, flushed, applied, reopened, listReopened, server: JSON.parse(JSON.stringify(S)) };
 };
 
+/* ONE DEVICE, NO LOT STORAGE: Submit, then Accept on the same device (a demo,
+ * or a reviewer trying the flow), then amaw_lots.sql is applied. The Accept is
+ * stamped over the waiting submission and CARRIES it, so the record takes the
+ * two in order. It used to drop the submission - "nothing will ever send it" -
+ * and the lone Accept was refused ("no such lot"), leaving the lot out of the
+ * ledger for good. */
+const UNAPPLIED_SAME_DEVICE = async ({ approval }) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.__HARNESS_AMAW;
+  const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+  openLotEnvelope(out.lot, "the harness");
+  const uid = state.lot.uid;
+  await sleep(CONFIG.STORAGE.AUTOSAVE_MS + 700);
+  const c = window.confirm, s = window.saveBytes;
+  window.confirm = () => true; window.saveBytes = () => {};
+  try { await submitLotToKYTC(); } finally { window.confirm = c; window.saveBytes = s; }
+  const hash = await lotPayloadHash(state.submitted);
+  go(stepIndexOf("lot-status"));
+  await sleep(400);
+  const before = $("saveMsg").textContent;
+  document.getElementById("advanceStage").click();
+  for (let i = 0; i < 80 && ($("saveMsg").textContent === before
+                             || $("advanceStage").textContent === "Accepting..."); i++) await sleep(100);
+  await sleep(400);
+  const held0 = JSON.parse(localStorage.getItem("amaw_lot:" + uid) || "null") || {};
+  const accepted = { msg: $("saveMsg").textContent, stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key,
+                     pending: held0.pending_seal || null, ledger: (S.amaw_lots[uid] || {}).status || null };
+  window.__HARNESS_UNAPPLIED = false;            // Andrew applies amaw_lots.sql
+  await flushLots();
+  await sleep(500);
+  const held = JSON.parse(localStorage.getItem("amaw_lot:" + uid) || "null") || {};
+  const row = S.amaw_lots[uid] || {};
+  return { hash, accepted,
+           after: { msg: $("saveMsg").textContent, stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key,
+                    warn: $("stageWarn").classList.contains("hidden") ? null : $("stageWarn").textContent,
+                    chip: $("syncChip").classList.contains("hidden") ? null : $("syncChip").textContent,
+                    ledger: row.status || null, sha: row.submittal_sha256 || null, acceptedName: row.accepted_name || null,
+                    local: held.status || null, pending: held.pending_seal || null, refused: held.seal_refused || null,
+                    outbox: (await state.store.local.outbox()).length } };
+};
+
 /* The contractor's own device, later: its localStorage as it was left, and
  * the server as KYTC left it after accepting. The list and the lot it opens
  * have to agree - the list said Accepted and the lot opened as Submitted. */
@@ -1143,4 +1184,23 @@ export async function run({ browser, results }) {
      `stage=${uap.stage} msg="${uap.msg}"`);
   ok("unapplied: both devices ran clean", ua.value.errs.length === 0 && ub.value.errs.length === 0,
      [...ua.value.errs, ...ub.value.errs].slice(0, 3).join(" | ") || "clean");
+
+  // ---- one device, no lot storage: Submit, Accept, then the migration lands ----
+  const sd = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true, query: "&sublots=open", unapplied: true },
+    async (h) => ({ v: await h.page.evaluate(UNAPPLIED_SAME_DEVICE, { approval: APPROVAL }), errs: realErrors(h.errs || []) }));
+  if (sd.skipped) { results.skip(id, BOOK, "one device, no lot storage, then the migration", sd.skipped); return; }
+  const w = sd.value.v;
+  ok("one device, no lot storage: Accept over the waiting submission is stamped, and carries it",
+     w.accepted.stage === "Accepted" && /Lot storage is not set up here/.test(w.accepted.msg)
+       && !!w.accepted.pending && w.accepted.pending.status === "Accepted" && !!w.accepted.pending.submit
+       && w.accepted.pending.submit.sha256 === w.hash && w.accepted.ledger === null,
+     `stage=${w.accepted.stage} pending=${JSON.stringify(w.accepted.pending)} msg="${w.accepted.msg}"`);
+  ok("…and once amaw_lots.sql is applied, the record takes the submission AND the Accept, under the submittal's own hash",
+     w.after.ledger === "Accepted" && w.after.sha === w.hash && w.after.acceptedName === "Harness Runner",
+     `ledger=${w.after.ledger} sha matches=${w.after.sha === w.hash} by=${w.after.acceptedName}`);
+  ok("…with this device Accepted, nothing pending or refused, nothing said as refused, and the chip live",
+     w.after.local === "Accepted" && w.after.pending === null && w.after.refused === null && w.after.outbox === 0
+       && w.after.stage === "Accepted" && w.after.warn === null && !/did not take/.test(w.after.msg) && w.after.chip === "accepted",
+     `local=${w.after.local} pending=${JSON.stringify(w.after.pending)} refused=${JSON.stringify(w.after.refused)} chip=${w.after.chip} msg="${w.after.msg}"`);
+  ok("…clean", sd.value.errs.length === 0, sd.value.errs.slice(0, 3).join(" | ") || "clean");
 }

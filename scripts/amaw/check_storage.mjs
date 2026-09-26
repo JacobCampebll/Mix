@@ -1065,9 +1065,9 @@ head('not set up, met by the seal rather than by a table');
   ok('a flush that only froze a lot does not claim lot storage is there',
      flushed.pushed === 1 && s4.state().notSetUp === true, [flushed, s4.state()]);
 
-  // The same device submitted it and now accepts it. One slot - but nothing
-  // will ever send the waiting submission, so the Accept is stamped over it
-  // rather than refused with a sentence about a record that does not exist.
+  // The same device submitted it and now accepts it. One slot - so the Accept
+  // is stamped, rather than refused with a sentence about a record that does
+  // not exist, and CARRIES the waiting submission (the next head).
   server.net.unapplied = false;
   const s2 = newStore(server);
   const lot2 = await s2.save(blankLot({ ...IDENT, lot_number: 9 }), { by: BY });
@@ -1087,6 +1087,116 @@ head('not set up, met by the seal rather than by a table');
   ok('…so it asks, finds no lot storage, and stamps',
      !asked.raised && (await s3.local.load(lot3.uid)).status === 'Accepted' && s3.state().notSetUp === true,
      [asked, s3.state()]);
+}
+
+// =====================================================================
+head('an Accept over a waiting submission, with no lot storage, carries it to the record');
+// =====================================================================
+{
+  // One slot, and an Accept stamped over a waiting submission used to DROP it:
+  // "nothing will ever send it". But a waiting submission does catch up the day
+  // amaw_lots.sql is applied - and the Accept then went up alone, was refused
+  // ("no such lot"), and left the outbox with the submission gone, so the lot
+  // never reached the ledger at all. Now the Accept carries the submission,
+  // and the record takes the two in order.
+  const order = [];
+  const setUp = (server) => {
+    const rpc = server.client.rpc;
+    server.client.rpc = async (fn, a) => { order.push(a && a.p_status); return rpc.call(server.client, fn, a); };
+  };
+  const server = fakeServer();
+  server.net.reviewer = true;
+  setUp(server);
+  const store = newStore(server);
+  const saved = await store.save(blankLot({ ...IDENT, lot_number: 12 }), { by: BY });
+  server.net.unapplied = true;
+  await store.seal(saved.uid, 'Submitted', { sha256: '1'.repeat(64), by: BY });
+  await store.seal(saved.uid, 'Accepted', { by: BY });
+  let held = await store.local.load(saved.uid);
+  ok('with no lot storage, the Accept CARRIES the waiting submission rather than dropping it',
+     held.status === 'Accepted' && !!held.pending_seal && held.pending_seal.status === 'Accepted'
+       && !!held.pending_seal.submit && held.pending_seal.submit.sha256 === '1'.repeat(64), held.pending_seal);
+  ok('…and the lot is still in the outbox', (await store.local.outbox()).includes(saved.uid));
+  server.net.unapplied = false;                                   // amaw_lots.sql is applied
+  order.length = 0;
+  const res = await store.flush({ by: BY });
+  const row = server.db.lots.get(saved.uid);
+  ok('once lot storage exists, the flush seals the submission and THEN the Accept',
+     res.failures.length === 0 && order.join() === 'Submitted,Accepted',
+     [order, res.failures.map((f) => f.error && f.error.message)]);
+  ok('…so the record holds the lot Accepted, under the submission\'s own hash',
+     !!row && row.status === 'Accepted' && row.submittal_sha256 === '1'.repeat(64), row && [row.status, row.submittal_sha256]);
+  held = await store.local.load(saved.uid);
+  ok('…and this device reads Accepted: nothing pending, nothing refused, out of the outbox, both stamps taken',
+     held.status === 'Accepted' && held.pending_seal === null && held.seal_refused == null && !isUnsynced(held)
+       && !!held.submitted_at && held.accepted_name === 'KYTC Reviewer',
+     [held.status, held.pending_seal, held.seal_refused, held.submitted_at, held.accepted_name]);
+
+  // The submission goes in and the signal drops before the Accept: the next
+  // flush sends the Accept alone - never the submission twice.
+  const s2 = newStore(server);
+  const l2 = await s2.save(blankLot({ ...IDENT, lot_number: 13 }), { by: BY });
+  server.net.unapplied = true;
+  await s2.seal(l2.uid, 'Submitted', { sha256: '2'.repeat(64), by: BY });
+  await s2.seal(l2.uid, 'Accepted', { by: BY });
+  server.net.unapplied = false;
+  const rpc2 = server.client.rpc;
+  server.client.rpc = async (fn, a) => {
+    if (a && a.p_status === 'Accepted' && !server.__dropped) { server.__dropped = true; order.push('Accepted(dropped)'); throw Object.assign(new Error('Failed to fetch'), { code: '' }); }
+    return rpc2.call(server.client, fn, a);
+  };
+  order.length = 0;
+  await s2.flush({ by: BY });
+  let h2 = await s2.local.load(l2.uid);
+  ok('a signal lost after the carried submission sealed leaves a plain Accept waiting',
+     server.db.lots.get(l2.uid).status === 'Submitted' && h2.status === 'Accepted' && !!h2.pending_seal
+       && h2.pending_seal.status === 'Accepted' && !h2.pending_seal.submit, [order, h2.pending_seal]);
+  server.client.rpc = rpc2;
+  order.length = 0;
+  await s2.flush({ by: BY });
+  h2 = await s2.local.load(l2.uid);
+  ok('…and the next flush sends only the Accept',
+     order.join() === 'Accepted' && server.db.lots.get(l2.uid).status === 'Accepted' && h2.pending_seal === null, order);
+
+  // The carried submission's reply is lost AFTER it committed: the retry finds
+  // the record holding this submission (its hash), adopts it, and goes on.
+  const s3 = newStore(server);
+  const l3 = await s3.save(blankLot({ ...IDENT, lot_number: 14 }), { by: BY });
+  server.net.unapplied = true;
+  await s3.seal(l3.uid, 'Submitted', { sha256: '3'.repeat(64), by: BY });
+  await s3.seal(l3.uid, 'Accepted', { by: BY });
+  server.net.unapplied = false;
+  server.net.dropNext = 'Submitted';
+  await s3.flush({ by: BY });
+  ok('(the carried submission committed and its reply was lost: the Accept still carries it)',
+     server.db.lots.get(l3.uid).status === 'Submitted' && !!(await s3.local.load(l3.uid)).pending_seal.submit);
+  const r3 = await s3.flush({ by: BY });
+  const h3 = await s3.local.load(l3.uid);
+  ok('…so the retry finds the submission on the record, and the Accept follows',
+     r3.failures.length === 0 && server.db.lots.get(l3.uid).status === 'Accepted' && h3.status === 'Accepted'
+       && h3.pending_seal === null && h3.seal_refused == null, [r3.failures.map((f) => f.error.message), h3.pending_seal]);
+
+  // The record REFUSES the carried submission: the Accept cannot stand either.
+  const s4 = newStore(server);
+  const l4 = await s4.save(blankLot({ ...IDENT, lot_number: 15 }), { by: BY });
+  server.net.unapplied = true;
+  await s4.seal(l4.uid, 'Submitted', { sha256: '4'.repeat(64), by: BY });
+  await s4.seal(l4.uid, 'Accepted', { by: BY });
+  server.net.unapplied = false;
+  server.net.refuse = { Submitted: 'this lot is not at a plant you hold PlantBook for' };
+  await s4.flush({ by: BY });
+  const h4 = await s4.local.load(l4.uid);
+  ok('a refused carried submission takes the Accept off with it: Submitted here, the submission still waiting',
+     h4.status === 'Submitted' && !!h4.pending_seal && h4.pending_seal.status === 'Submitted'
+       && h4.pending_seal.sha256 === '4'.repeat(64) && server.db.lots.get(l4.uid).status === 'Open', [h4.status, h4.pending_seal]);
+  ok('…with the refusal kept as the Accept\'s - the one the page puts back and says - and why it had waited',
+     !!h4.seal_refused && h4.seal_refused.status === 'Accepted' && /submission it was stamped over was refused: this lot is not at a plant/.test(h4.seal_refused.reason)
+       && h4.seal_refused.waited === 'not_set_up', h4.seal_refused);
+  server.net.refuse = null;
+  await s4.flush({ by: BY });
+  ok('…and once the record takes the submission, it is sealed Submitted - the Accept is not revived',
+     server.db.lots.get(l4.uid).status === 'Submitted' && (await s4.local.load(l4.uid)).pending_seal === null,
+     server.db.lots.get(l4.uid).status);
 }
 
 // =====================================================================
