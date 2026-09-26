@@ -626,6 +626,25 @@
   .section[data-layout="ledger"] select.box.autofilled{padding-right:22px;}
   .section[data-layout="ledger"] .box.critfail{background-color:#FBEEEE; border-bottom-color:var(--bad);}
   .section[data-layout="ledger"] .rowblocks{margin-top:8px;}
+  /* A READOUT on the ledger - the approval signature (2026-09-26). The value
+     AND its caption belong in the value column: left to auto-placement the
+     third child, the caption, lands in column one under the label. Back to
+     auto where the field is one column, or grid-column:2 would conjure a
+     second one. The value is a sentence rather than a figure, so it takes the
+     ledger's own type instead of a readout's 30px mono, and the state's
+     colour: .ok / .bad are the base .rvalue's, .warn is a check nobody could
+     make. The 16px below 700 matches the ledger's own values there. */
+  .section[data-layout="ledger"] .field.readout .rvalue,
+  .section[data-layout="ledger"] .field.readout .rsub{grid-column:2;}
+  @media (max-width:560px){
+    .section[data-layout="ledger"] .field.readout .rvalue,
+    .section[data-layout="ledger"] .field.readout .rsub{grid-column:auto;}
+  }
+  .section[data-layout="ledger"] .field.readout .rvalue{font-family:inherit; font-size:14px; line-height:1.35;
+       letter-spacing:0; margin:0; padding:3px 2px 0;}
+  @media (max-width:700px){ .section[data-layout="ledger"] .field.readout .rvalue{font-size:16px;} }
+  .section[data-layout="ledger"] .field.readout .rvalue.warn{color:var(--flag);}
+  .section[data-layout="ledger"] .field.readout .rsub{padding:0 2px 3px;}
   /* The phone restatements (see the block comment). 150px labels below 700
      leave the approved-mix line its 346px at 16px mono down to 560, where the
      label moves above the value and the rule runs the full width. */
@@ -4917,6 +4936,21 @@ const verifySpecimenOf4 = (n) =>
         // t_smpl actually reads. Nothing on this form supplies it yet;
         // generate.mjs names it as missing, which is the loud failure.)
         { key: "lot_mix_id", label: "Approved mix design", type: "text", req: true, mono: true },
+        // ---- HOW THAT APPROVAL VERIFIED - for the life of the lot --------
+        //
+        // 2026-09-26. The front door checks the approval's signature once, as
+        // the lot opens, and until now the answer was one line of one message
+        // and appeared nowhere after it - so a reviewer opening the submittal
+        // could not see whether the approval it was produced under had ever
+        // verified. It rides on the lot (values.design.approval.verification,
+        // carried whole by roll-forward) and this prints it: the label in
+        // words (intake.mjs VERIFICATION_LABELS), the reason under it.
+        // A READOUT, for the reason the JMF figures are: nothing a person could
+        // type here would be true. Keyed WITHOUT the lot_ prefix on purpose -
+        // check_sections.mjs holds every lot_ scalar to a workbook alias, and
+        // this is on no AMAW cell.
+        { type: "readout", label: "Approval signature", out: "approval_signature",
+          sub: "checked when the lot was opened from the approval" },
         // ---- THE MIX, IN DESIGNBOOK'S OWN WORDS --------------------------
         //
         // Jake, 2026-09-13: "the way that it is asking for the mix type seems
@@ -11612,7 +11646,9 @@ async function buildReviewPDF(payload) {
     ["Stage", payload.stage],
     ["Prepared by", payload.generated_by && payload.generated_by.sm_id],
     ["Approval", lotDes && lotDes.approval && lotDes.approval.approval_no],
-    ["Approval signature", lotVer && lotVer.state],
+    // In words (2026-09-26), the same label the door, the Contract & Mix
+    // readout and the rail print - "not-checked" was the token, not a sentence.
+    ["Approval signature", lotDes && lotDes.approval ? PB_LOT.verificationLabel(lotVer) : null],
   ] : [
     ["Contract", j.cid],
     ["Letting", j.letting],
@@ -21840,6 +21876,30 @@ function paintLotReadouts() {
   show("target_va", d ? d.target_va : null, from);
   show("min_vma", d ? d.min_vma : null, from);
 
+  // How the approval this lot was opened under verified (2026-09-26): the
+  // label in words, the reason under it and the time of the check behind it,
+  // off the same verification the door printed once - for the life of the
+  // lot, since roll-forward carries it whole. Printed as the lot carries it,
+  // never re-derived: this page cannot re-check a signature without the
+  // approval PDF. approvalVerificationWarnings() raises the same fact.
+  const sig = document.querySelector('[data-out="approval_signature"]');
+  if (sig) {
+    const a = d && d.approval ? d.approval : null;
+    const v = a ? a.verification : null;
+    const good = !!a && PB_LOT.isVerified(v);
+    const invalid = !!a && !!v && v.state === PB_LOT.VERIFICATION.INVALID;
+    sig.textContent = a ? PB_LOT.verificationLabel(v) : "—";
+    sig.classList.toggle("ok", good);
+    sig.classList.toggle("bad", invalid);
+    sig.classList.toggle("warn", !!a && !good && !invalid);
+    const reason = v && v.reason != null ? String(v.reason).trim() : "";
+    const at = v && v.checked_at ? new Date(v.checked_at) : null;
+    sig.title = !a ? "" : `${reason}${at && Number.isFinite(at.getTime())
+      ? `${reason ? " " : ""}Checked ${at.toLocaleString()}.` : ""}`;
+    const sub = document.querySelector('[data-outsub="approval_signature"]');
+    if (sub) sub.textContent = !a ? from : reason || "No reason was recorded with this check.";
+  }
+
   // Combined Gsb, by sublot (2026-09-14): Andrew's ask that the Gsb readout
   // "follows its data to the matching sublot tab". `blend_gsb` itself stays
   // on Aggregate Blend, one row, four readonly columns - this reads that
@@ -22518,11 +22578,39 @@ function ticketDateTimeWarnings() {
       + `Date and Time (Superpave!I/J) are left blank rather than guessed at.${fix}${ro}` }];
 }
 
+/** How the approval this lot was opened under verified, whenever that is not
+ *  "verified" (2026-09-26). Non-blocking, like everything in this pool. An
+ *  invalid signature is refused at the front door, so a lot carrying one was
+ *  opened before that or has come back from a file - and reopening is never
+ *  refused. The other three states are checks that could not be made. Either
+ *  way the JMF %AC, air-void target and minimum VMA the pay is measured
+ *  against came off an approval nothing here has confirmed KYTC signed, and
+ *  that belongs in the list a reviewer reads, not only on step one. Focus is
+ *  the readout itself, so a click lands on the answer rather than in the
+ *  step's first empty box. */
+function approvalVerificationWarnings() {
+  const d = lotDesign();
+  const a = d && d.approval;
+  if (!a) return [];
+  const v = a.verification;
+  if (PB_LOT.isVerified(v)) return [];
+  const sig = document.querySelector('[data-out="approval_signature"]');
+  const focus = sig ? sig.closest(".field") : null;
+  const text = v && v.state === PB_LOT.VERIFICATION.INVALID
+    ? `${PB_LOT.verificationText(v)} PlantBook no longer opens a lot on an approval like this - check with `
+      + `KYTC Central Office before submitting this one.`
+    : `${PB_LOT.verificationText(v)} The JMF %AC, air-void target and minimum VMA this lot is paid against `
+      + `come from that approval, and nothing here has confirmed KYTC signed it. Check the approval PDF on the `
+      + `site's verify page (verify.html), or ask KYTC Central Office.`;
+  return [{ sectionId: "lot", text, ...(focus ? { focus } : {}) }];
+}
+
 /** Every helper above, pooled - recompute() reads this once. Empty on
  *  DesignBook, where none of the fields exist. */
 function productionSpecWarnings(vol, ver) {
   if (!isPlantBook()) return [];
   return [
+    ...approvalVerificationWarnings(),
     ...dustRatioWarnings(vol), ...mixTempWarnings(), ...coreCountWarnings(vol),
     ...binderSupplierWarnings(), ...verificationToleranceWarnings(vol, ver),
     ...setupAcAdjustWarnings(), ...sampleTimingWarnings(), ...ticketDateTimeWarnings(),

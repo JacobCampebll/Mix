@@ -1427,6 +1427,21 @@ export const PLANTBOOK_SECTIONS = [
       // t_smpl actually reads. Nothing on this form supplies it yet;
       // generate.mjs names it as missing, which is the loud failure.)
       { key: "lot_mix_id", label: "Approved mix design", type: "text", req: true, mono: true },
+      // ---- HOW THAT APPROVAL VERIFIED - for the life of the lot --------
+      //
+      // 2026-09-26. The front door checks the approval's signature once, as
+      // the lot opens, and until now the answer was one line of one message
+      // and appeared nowhere after it - so a reviewer opening the submittal
+      // could not see whether the approval it was produced under had ever
+      // verified. It rides on the lot (values.design.approval.verification,
+      // carried whole by roll-forward) and this prints it: the label in
+      // words (intake.mjs VERIFICATION_LABELS), the reason under it.
+      // A READOUT, for the reason the JMF figures are: nothing a person could
+      // type here would be true. Keyed WITHOUT the lot_ prefix on purpose -
+      // check_sections.mjs holds every lot_ scalar to a workbook alias, and
+      // this is on no AMAW cell.
+      { type: "readout", label: "Approval signature", out: "approval_signature",
+        sub: "checked when the lot was opened from the approval" },
       // ---- THE MIX, IN DESIGNBOOK'S OWN WORDS --------------------------
       //
       // Jake, 2026-09-13: "the way that it is asking for the mix type seems
