@@ -93,9 +93,10 @@ export async function run({ browser, results }) {
         "switching leaves no orphan controls",
         "DesignBook's values survive a round trip through PlantBook",
         "switching raises no console or page error",
-        // The case below the early return runs in its own context, so it
-        // vanishes on this path unless it is named here.
+        // The two cases below the early return run in their own contexts, so
+        // they vanish on this path unless they are named here.
         "back from the door to DesignBook's upload card, its appbar is as it was",
+        "back from a lot, DesignBook carries none of PlantBook's sync chip",
       ]) results.skip(id, BOOK, kase, entered.why);
       return;
     }
@@ -229,4 +230,52 @@ export async function run({ browser, results }) {
   } finally {
     await ctx2.close();
   }
+
+  // ---- a lot open, then back to DesignBook -------------------------------
+  // The sync chip is a LOT's. DesignBook's designs are never stored
+  // (2026-09-04), so a green "saved" there - beside DesignBook's own "Not
+  // downloaded yet" - was the contradiction PlantBook's saved-state fix
+  // removed, mirrored onto the other book: switchBook() repainted the
+  // incoming book's saved-state line and not the chip.
+  const h3 = await openPage(browser, { width: 1440, height: 1000 });
+  try {
+    await h3.page.click("#bookPlant");
+    await h3.page.waitForTimeout(400);
+    const lotChip = await h3.page.evaluate(async (approval) => {
+      const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+      openLotEnvelope(out.lot, "the harness");
+      await new Promise((r) => setTimeout(r, 1500));
+      const c = document.getElementById("syncChip");
+      return c.classList.contains("hidden") ? null : c.textContent;
+    }, CHIP_APPROVAL);
+    await h3.page.click("#bookDesign");
+    await h3.page.waitForTimeout(400);
+    const design = await h3.page.evaluate(() => {
+      const c = document.getElementById("syncChip");
+      return { hidden: c.classList.contains("hidden") || getComputedStyle(c).display === "none",
+               text: c.textContent, saved: document.getElementById("savedstate").textContent };
+    });
+    await h3.page.click("#bookPlant");
+    await h3.page.waitForTimeout(400);
+    const lotAgain = await h3.page.evaluate(() => {
+      const c = document.getElementById("syncChip");
+      return c.classList.contains("hidden") ? null : c.textContent;
+    });
+    results.ok(id, BOOK, "back from a lot, DesignBook carries none of PlantBook's sync chip",
+               lotChip === "saved" && design.hidden && lotAgain === "saved",
+               `lot's chip="${lotChip}" -> DesignBook's chip hidden=${design.hidden} ("${design.text}"), ` +
+               `saved-state "${design.saved}" -> back on the lot "${lotAgain}"`);
+  } finally {
+    await h3.close();
+  }
 }
+
+// Just enough of an approval for PB_LOT.lotFromApproval() to open a lot.
+const CHIP_APPROVAL = {
+  format: "kytc-designbook", version: 1, book: "designbook", stage: "Approved",
+  job: { cid: "262120", plant: "AMP070301", letting: "2026-02-19" },
+  mix: { signature: "CL3 ASPH SURF 0.38B PG64-22", nominal_size: "0.38B", layer: "SURF" },
+  values: { jmf_ac: "5.9", min_vma: "15" }, rows: {},
+  approval: { approval_no: "#467", code: "HARNESS", issued_at: "2026-09-01T00:00:00.000Z",
+              approved_by: "HARNESS", submitted_by: "HARNESS", mix_id: "00260467" },
+};

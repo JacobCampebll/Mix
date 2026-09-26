@@ -7017,6 +7017,11 @@ function switchBook(key) {
   renderForm();
   $("mixid").textContent = designLabel();
   renderSavedState();       // the book coming in says its own saved state, not the last one's
+  // ...and the lot's sync chip goes with the lot: DesignBook's designs are
+  // never stored (2026-09-04), so a green "saved" there, beside DesignBook's
+  // own "Not downloaded yet", was two answers to one question. syncChipState()
+  // answers null off PlantBook, which hides it.
+  paintSyncChip();
 }
 function showLotDoor(from) {
   // Only the first time in: a second switch while the door is already up has
