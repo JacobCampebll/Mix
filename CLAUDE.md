@@ -5605,8 +5605,11 @@ commit where possible.
   refused**, whatever it carries, **but one on an INVALID approval never seeds
   another** - Start lot n+1 is new production under the design, so
   `startNextLot()` refuses before its dialog in the door's own words
-  (`invalidApprovalRefusal()`), and the rail line says the lot reopened only
-  so its measurements are not lost; and `lotFromApproval()` still builds a lot
+  (`invalidApprovalRefusal()`) - and the Submit step does not offer the
+  button at all, printing that refusal in red where it would be, since a
+  refusal written only to `#saveMsg` lands in the rail, off-screen at every
+  width, and the click looked dead - and the rail line says the lot reopened
+  only so its measurements are not lost; and `lotFromApproval()` still builds a lot
   on INVALID, because refusing is the page's call. `VERIFICATION_LABELS` and
   `verificationText()` ("label - reason") in intake.mjs are the one wording -
   anything unknown reads as not checked, never as verified - for the door, the

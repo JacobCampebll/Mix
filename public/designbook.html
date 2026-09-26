@@ -1367,6 +1367,9 @@
   .handoffnote{font-size:12px; color:var(--muted); margin-top:8px; max-width:62ch; line-height:1.5;}
   /* Both books' save notes are one sentence (Jake, 2026-09-24) and run the full width on a desktop. */
   .handoffnote.one{max-width:none;}
+  /* Start lot n+1 refused on an INVALID approval (renderLotStage()): its own
+     line, in the page's "out of limit" colour, where the button would be. */
+  .handoffnote .refused{display:block; color:var(--bad); margin-top:4px;}
   .refstatus{font-family:'Roboto Mono',monospace; font-size:11px; color:var(--muted); margin-top:6px;}
   .refstatus.error{color:var(--bad);}
   .auditrow.local .ts{color:var(--muted);}
@@ -23263,15 +23266,30 @@ function renderLotStage() {
   // 7's file must still REOPEN lot 7 (to correct it), never silently start
   // lot 8 on top of it. A button you press is that intent; a file you drop
   // is not.
+  //
+  // A lot on an INVALID approval never seeds another (startNextLot() refuses),
+  // so the button is not offered and the note says why, beside where it would
+  // be. Refusing only on the click left a live-looking button whose own
+  // caption promised lot n+1, and a refusal written to #saveMsg - in the rail,
+  // off-screen at every width - so the click appeared to do nothing.
+  // startNextLot() keeps its refusal as the second guard.
   const nl = $("nextLotBtn"), nn = $("nextLotNote");
   const canNext = !!state.lot && Number.isFinite(Number(state.lot.lot_number));
+  const ld = canNext ? lotDesign() : null;
+  const lv = ld && ld.approval ? ld.approval.verification : null;
+  const refuseNext = !!lv && lv.state === PB_LOT.VERIFICATION.INVALID;
+  const nextN = canNext ? Number(state.lot.lot_number) + 1 : null;
   if (nl) {
-    nl.classList.toggle("hidden", !canNext);
-    if (canNext) nl.textContent = `Start lot ${Number(state.lot.lot_number) + 1}`;
+    nl.classList.toggle("hidden", !canNext || refuseNext);
+    if (canNext) nl.textContent = `Start lot ${nextN}`;
   }
-  if (nn) nn.innerHTML = canNext
-    ? ` <strong>Start lot ${Number(state.lot.lot_number) + 1}</strong> carries this design over and clears the measurements.`
-    : "";
+  if (nn) {
+    nn.classList.toggle("refused", refuseNext);
+    if (refuseNext) nn.textContent = invalidApprovalRefusal(lv, `Lot ${nextN} cannot be started from this lot`);
+    else nn.innerHTML = canNext
+      ? ` <strong>Start lot ${nextN}</strong> carries this design over and clears the measurements.`
+      : "";
+  }
   const medl = $("medlNote");
   if (medl) medl.innerHTML = state.canReview
     ? " You can also build the <strong>AMAW for MEDL</strong> from this lot."
@@ -23376,12 +23394,14 @@ function approvalSampleId(lot) {
   return `${district}${dist.sampleLab}AMD${mixId.slice(2, 4)}${mixId.slice(-4)}`;
 }
 
-/* The one refusal, in one wording: the front door (openApprovalForLot) and
- * Start lot n+1 (startNextLot) both say it, because both would start NEW
- * production under a design whose signature does not match. */
-function invalidApprovalRefusal(v) {
+/* The one refusal, in one wording: the front door (openApprovalForLot),
+ * Start lot n+1 (startNextLot) and the note that replaces that button on the
+ * Submit step (renderLotStage) all say it, because each is about starting NEW
+ * production under a design whose signature does not match. `what` is the
+ * clause naming what did not happen; the rest never varies. */
+function invalidApprovalRefusal(v, what = "No lot was opened") {
   const to = CONFIG.SUBMIT.KYTC_EMAIL;
-  return `${PB_LOT.verificationText(v)} No lot was opened - check with ` +
+  return `${PB_LOT.verificationText(v)} ${what} - check with ` +
          `KYTC Central Office${to ? ` (${to})` : ""} before producing anything under this design.`;
 }
 

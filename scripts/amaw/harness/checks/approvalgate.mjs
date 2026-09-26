@@ -26,7 +26,10 @@
  * refused them - still reopens: a week of measurements is not a fresh start.
  * But it never seeds lot n+1, which is one (watched failing: with the refusal
  * removed from startNextLot() lot 2 opens, a second ledger row is written and
- * both roll-forward assertions fail).
+ * both roll-forward assertions fail). Nor does the Submit step OFFER it: the
+ * button is withdrawn and the refusal printed beside it, measured on screen at
+ * 1440, 1366 and 390 (watched failing: with the button left offered, three
+ * assertions fail - its caption still promising "carries this design over").
  *
  * AND THE ANSWER STAYS ON THE FORM: the Approval signature readout on
  * Contract & Mix (measured in the ledger's value column at 1440, stacked at
@@ -158,6 +161,22 @@ const PDF_STRINGS = async () => {
   proto.drawText = function (text, opts) { drawn.push(String(text)); return real.call(this, text, opts); };
   try { await buildReviewPDF(handoffPayload("harness")); } finally { proto.drawText = real; }
   return drawn;
+};
+
+/* In the page: the Submit step's Start lot n+1 offer, as a person arriving
+ * at that step sees it. Above 700px the wizard is put on the step (a hidden
+ * step measures zero); below it everything is one scroll, so the step's
+ * buttons are scrolled to the top of the viewport, the way a person reaches
+ * them. "In view" is then a measured fact about the note. */
+const NEXT_OFFER = async () => {
+  if (innerWidth > 700) go(activeSections().filter((s) => !s.into).findIndex((s) => s.id === "lot-status"));
+  else document.querySelector(".handoff").scrollIntoView({ block: "start" });
+  await new Promise((r) => setTimeout(r, 900));
+  const n = document.getElementById("nextLotNote"), b = n.getBoundingClientRect();
+  return { note: n.textContent, cls: n.className, btnHidden: document.getElementById("nextLotBtn").classList.contains("hidden"),
+           rect: [Math.round(b.left), Math.round(b.top), Math.round(b.right), Math.round(b.bottom)], vh: innerHeight,
+           inView: b.height > 0 && b.top >= 0 && b.bottom <= innerHeight,
+           overflow: document.documentElement.scrollWidth - innerWidth };
 };
 
 /* The value the header draws beside its "Approval signature" label: pairs()
@@ -339,6 +358,20 @@ export async function run({ browser, results }) {
          && /Start lot n\+1/.test(t) && /reopens/.test(t)),
        clip(r.rail.filter((t) => /Approval/.test(t)).join(" | ") || "no approval warning on the rail"));
 
+    // ---- ...and the Submit step does not offer one --------------------------
+    // Refusing only on the click left a live "Start lot 2" button captioned
+    // "carries this design over", and the refusal went to #saveMsg - in the
+    // rail, off-screen - so the click looked dead. The button is withdrawn and
+    // the note beside it says why, where the person is looking.
+    const offer = await h.page.evaluate(NEXT_OFFER);
+    ok("roll-forward: the Submit step withdraws Start lot 2 and says why beside it, in the refusal's words",
+       offer.btnHidden && /\brefused\b/.test(offer.cls) && offer.note.startsWith(`${r.labels.invalid} - `)
+         && /Lot 2 cannot be started from this lot/.test(offer.note) && /Central Office/.test(offer.note)
+         && !/carries this design over/.test(offer.note),
+       clip(`button hidden=${offer.btnHidden}; [${offer.cls}] ${offer.note}`));
+    ok("roll-forward: …and that note is on screen at the Submit step (1440)", offer.inView,
+       `note ${JSON.stringify(offer.rect)} in a ${offer.vh}px viewport`);
+
     // ---- ...but it never SEEDS another lot --------------------------------
     // Reopening is a week of measurements; Start lot n+1 is new production
     // under the design, which is exactly what the door refuses. Driven
@@ -367,6 +400,27 @@ export async function run({ browser, results }) {
        clip(`asked ${roll.asked}; [${roll.cls}] ${roll.save}`));
   } finally {
     await h.close();
+  }
+
+  // The same offer at a laptop and a phone: at 390 every section is one
+  // scroll, so "on screen" is measured with the Submit step's buttons in view.
+  for (const width of [1366, 390]) {
+    const hp = await openPage(browser, { width, height: width > 700 ? 768 : 844 });
+    try {
+      await hp.page.click("#bookPlant");
+      await hp.page.waitForFunction(() => !document.getElementById("uploadCard").classList.contains("hidden"),
+                                    null, { timeout: 10000 });
+      const json = await hp.page.evaluate(INVALID_LOT, { approval: APPROVAL, reason: INVALID_REASON });
+      await hp.page.setInputFiles("#fileInput", { name: "lot1.json", mimeType: "application/json", buffer: Buffer.from(json) });
+      await hp.page.waitForFunction(() => !!state.lot, null, { timeout: 15000 });
+      const offer = await hp.page.evaluate(NEXT_OFFER);
+      errs.push(...realErrors(hp.errs));
+      ok(`${width}px: Start lot 2 is withdrawn on an invalid approval and its refusal is on screen beside the buttons`,
+         offer.btnHidden && /Lot 2 cannot be started/.test(offer.note) && offer.inView && offer.overflow <= 0,
+         `button hidden=${offer.btnHidden}; note ${JSON.stringify(offer.rect)} in ${offer.vh}px; overflow ${offer.overflow}px`);
+    } finally {
+      await hp.close();
+    }
   }
 
   ok("no console or page errors through any of it", errs.length === 0, errs.slice(0, 3).join(" | ") || "clean");
