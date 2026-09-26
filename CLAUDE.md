@@ -5537,12 +5537,14 @@ commit where possible.
   is pinned to the row's 28px height (it lays out 2-3px taller). `grid` stays
   pure `fr` because `gridWeights()` sizes the lot PDF from it, **which makes
   the ticket's `fr` a PDF measurement**: the table is 345pt for eleven
-  columns, and each weight is its column's widest ordinary value in pdf-lib's
-  Helvetica plus the cell's padding (337pt of the 345), so an ISO date, a 4-
-  or 5-digit tonnage, both lot numbers and an SM ID all print whole. The first
-  cut bought the date's 1.4fr from "Tons today before sample", which then
-  printed a 4-digit figure as "1..." in the submittal KYTC reads - caught in
-  review by capturing pdf-lib's `drawText`.
+  columns, and each weight is what its column must hold whole in pdf-lib's
+  Helvetica - its widest ordinary value, or its heading's widest word where
+  that is wider - plus the cell's padding (342pt of the 345). So an ISO date,
+  a 5-digit tonnage, both lot numbers (an all-digit one too) and an SM ID
+  print whole, and "sample" (21.4pt) sizes "Tons today before sample", whole
+  on four lines beside "Tons (cum.)". The first cut bought the date's 1.4fr
+  from that column, which then printed a 4-digit figure as "1..." in the
+  submittal KYTC reads - caught in review by capturing pdf-lib's `drawText`.
   **A PDF column heading WRAPS rather than being cut**, in both books' review
   PDFs (`table()` in `buildReviewPDF`, up to `CONFIG.HANDOFF.ROW.headMaxLines`
   lines, bottom-aligned, the band growing with the tallest). Cutting had put
@@ -5551,7 +5553,7 @@ commit where possible.
   "Abs. (%)". A table whose headings fit draws exactly as before - checked by
   diffing every drawn string of a design: only those two headings changed,
   and column 1 below them moved 7.2pt. A single word wider than its column is
-  still cut ("Lot-sublot" on the ticket).
+  still cut ("Lot-sublot" and "Temp" on the ticket).
   **The ticket table SCROLLS below 1440px rather than squeezing** - corrected
   the same day, after review measured the first cut clipping Binder lot, Tack
   lot and Tech (8-character values) from 1000 to 1440px, and AC method's

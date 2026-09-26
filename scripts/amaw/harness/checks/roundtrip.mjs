@@ -416,13 +416,15 @@ export async function run({ browser, results, books }) {
                    !r.found ? "no \"Sublot ticket\" table was drawn"
                      : r.typed !== expected ? `only ${r.typed}/${expected} values could be typed - the sublots did not open`
                      : r.missing.length ? `cut or missing: ${r.missing.join(", ")}` : `${r.want}/${r.want} drawn as typed`);
-        // ...and the cumulative tonnage says so over its column. Cut to fit,
-        // it printed "Tons ..." beside "Ton..." over the 50-ton figure, and a
-        // reader of the submittal could not tell the two apart; wrapped, it
-        // prints both of its words whole.
+        // ...and each tonnage column says which it is. Cut to fit, the two
+        // printed "Tons ..." and "Ton...", and a reader of the submittal could
+        // not tell the cumulative tonnage from the 50-ton figure; wrapped (and
+        // with the ticket's `fr` sized for "sample"), every word of both is
+        // drawn whole.
         const band = r.band || [];
-        results.ok(id, book.label, "lot PDF: the cumulative tonnage heading reads whole",
-                   band.includes("Tons") && band.includes("(cum.)"),
+        results.ok(id, book.label, "lot PDF: both tonnage headings read whole",
+                   band.filter((w) => w === "Tons").length === 2
+                     && ["(cum.)", "today", "before", "sample"].every((w) => band.includes(w)),
                    band.length ? band.join(" / ") : "no heading lines found under \"Sublot ticket\"");
         results.ok(id, book.label, "lot PDF tickets: clean console", e4.length === 0, e4.slice(0, 2).join(" | ") || "0 errors");
       }
@@ -496,6 +498,7 @@ const AMAW_APPROVAL = {
 const PDF_TICKETS = [
   { date: "2026-09-24", time: "14:15", truck: "22471", tons_cum: "4955", tons_before: "1250",
     temperature: "305", binder_lot: "224711-A", tack_lot: "T-88213", technician: "jcavanah" },
+  // An all-digit binder lot prints wider than one with a dash ("224711-A").
   { date: "2026-09-25", time: "07:05", truck: "18803", tons_cum: "41250", tons_before: "975",
-    temperature: "310", binder_lot: "224711-B", tack_lot: "T-88214", technician: "jharmon3" },
+    temperature: "310", binder_lot: "22471199", tack_lot: "T-88214", technician: "jharmon3" },
 ];

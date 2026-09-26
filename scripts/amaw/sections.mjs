@@ -679,19 +679,23 @@ const SUBLOT_TICKETS_SPEC = {
   //
   // IN THE LOT PDF the `fr` is what sizes the columns (gridWeights()), and
   // there the table is 345pt for eleven columns, so each weight is measured
-  // rather than picked: its column's widest ordinary value in pdf-lib's
-  // Helvetica at the 7.6pt a cell prints in, plus the 6pt the cell pads,
-  // shared out in proportion. An ISO date is 38.9pt, a 4- or 5-digit tonnage
-  // 16.9-21.1pt, an eight-character binder lot or SM ID 33.0/31.9pt, a tack
-  // lot like "T-88213" 27.2pt, and AC method wraps at its spaces, so its
-  // widest word counts ("Extraction", 33.7pt). That is 337pt of the 345, and
-  // every one of those prints whole with 0.6-0.9pt to spare - where the grid
-  // before this printed a 4-digit "Tons today before sample" as "1..." (at
-  // .6fr) and cut both lot numbers and the SM ID, as the one before that had
-  // cut the date to "2026-...". Two things still cannot fit and never did:
-  // "Back-Calculation" (56.9pt, one word) and the long headings, which fit()
-  // cuts - the value itself is whole in the payload the PDF carries.
-  grid: ".67fr 1.4fr .79fr .85fr .85fr .73fr .6fr 1.22fr 1.04fr 1.19fr 1.24fr",
+  // rather than picked, in pdf-lib's Helvetica: what its column has to hold
+  // whole, plus the 6pt the cell pads, with the 3pt left over shared out.
+  // For a VALUE that is its widest ordinary one at the 7.6pt a cell prints
+  // in: an ISO date 38.9pt, a 5-digit tonnage or truck 21.1pt, an eight-
+  // digit binder lot 33.8pt (wider than "224711-A"), a tack lot like
+  // "T-88213" 27.2pt, an SM ID like "jharmon3" 31.9pt, and AC method's widest
+  // word ("Extraction", 33.7pt), since it wraps at its spaces. For a HEADING,
+  // which wraps too (table()), its widest WORD at the 6.2pt bold it prints
+  // in: "sample" (21.4pt) is what sizes "Tons today before sample", whole on
+  // four lines beside "Tons" / "(cum.)" - cut to fit, the two read "Ton..."
+  // and "Tons ...", and the submittal could not say which was which. Every
+  // margin is 0.2-0.4pt. Still cut, as before, because a word is wider than
+  // any share of 345pt could be: the headings "Lot-sublot" (30.2pt, "Lot...")
+  // and "Temp" ("Te..." over "(°F)"), and the value "Back-Calculation"
+  // (56.9pt, "Back-C..." over "of MSG") - each whole in the payload the PDF
+  // carries.
+  grid: ".74fr 1.55fr .87fr .94fr .94fr .95fr .65fr 1.38fr 1.15fr 1.31fr 1.38fr",
   seed: TICKET_SEED,
   columns: [
     // `minPx` (rowGridTemplate()): the floor a column's own values need on
