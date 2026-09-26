@@ -138,6 +138,12 @@
   .topbar{padding:10px 24px; display:flex; align-items:center; gap:14px; flex-wrap:wrap;}
   .logo{height:32px; width:auto; display:block; flex-shrink:0;}
   .jobstrip{display:flex; gap:10px; flex-wrap:wrap; padding:0 32px 10px;}
+  /* The `hidden` attribute is only the UA stylesheet's display:none, and the
+     author rule above outranks it - so every `jobStrip.hidden = true` in the
+     script was a no-op, and the Start a lot door (and DesignBook's gate and
+     upload card) showed three empty contract chips. Two classes' worth of
+     specificity, so no later .jobstrip rule can undo it. */
+  .jobstrip[hidden]{display:none;}
   .jobchip{flex:1 1 180px; background:var(--panel); border:1px solid var(--line);
            border-radius:8px; padding:8px 12px;}
   .jobchip small{display:block; color:var(--muted); font-size:10px; text-transform:uppercase;
@@ -7023,6 +7029,7 @@ function showLotDoor(from) {
   show("uploadCard", true);
   msg($("uploadMsg"), "", "");
   paintUploadCard();
+  paintDoorChrome();
   $("mixid").textContent = designLabel();
   paintSyncChip();
   paintLotList();
@@ -7034,7 +7041,23 @@ function closeLotDoor() {
   paintUploadCard();        // back to DesignBook's own wording, if it shows
   const wrap = $("lotListWrap");
   if (wrap) { wrap.classList.add("hidden"); wrap.innerHTML = ""; }
+  // DesignBook's stage pill and saved-state line come back exactly as they
+  // were - un-hidden, not repainted, so a door visit from DesignBook's upload
+  // card or gate leaves that screen as it found it. A form behind the door is
+  // repainted by switchBook() itself.
+  $("statuspill").hidden = false;
+  $("savedstate").hidden = false;
   paintSyncChip();
+}
+// The Start a lot door is neither a lot nor a design, so the appbar carries
+// neither's status: DesignBook's DRAFT pill read as though the door were a
+// draft of something, and the saved-state line had nothing to be about. The
+// pill is the `hidden` attribute because renderStage() and renderLotStage()
+// set its className wholesale; renderSavedState() reads state.bookDoor
+// itself. enterForm() puts the pill back the moment a lot or a design opens.
+function paintDoorChrome() {
+  $("statuspill").hidden = !!state.bookDoor;
+  renderSavedState();
 }
 
 /* ---------- the step rail + the action bar ----------
@@ -26138,6 +26161,7 @@ function enterForm() {
   // Opening a lot from the Start a lot door (see switchBook) is the door's
   // way out: from here on there is a form, and a form is stashed on a switch.
   state.bookDoor = false;
+  paintDoorChrome();        // the stage pill comes back; renderSavedState() runs again below
   show("gateCard", false);
   show("uploadCard", false);
   show("dbLayout", true);
@@ -26285,6 +26309,10 @@ async function boot(session) {
       show("gateCard", false);
       show("uploadCard", true);
       paintUploadCard();
+      // The same appbar showLotDoor() gives the door from the book switch:
+      // "LOT · —" rather than the markup's "MIX ID · —", and no DRAFT pill.
+      $("mixid").textContent = designLabel();
+      paintDoorChrome();
       // Two things storage buys, both here rather than behind a menu: the
       // lots this technician already has, and anything a previous session
       // left unsent. Neither is awaited - the door opens either way.
