@@ -43,6 +43,11 @@
 // reported rather than resolved, because silently picking one loses a
 // technician's afternoon.
 
+// The one thing read from the schema: what counts as somebody having recorded
+// something on a sublot (lotSummary()'s count). sections.mjs imports nothing,
+// so this cannot become a cycle.
+import { rowHoldsMeasurement, measuredScalarSublot } from './sections.mjs';
+
 // ---------------------------------------------------------------------
 // The envelope
 // ---------------------------------------------------------------------
@@ -327,28 +332,46 @@ export function isUnsynced(lot) {
   return Number(lot.revision || 0) !== Number(lot.synced_revision == null ? -1 : lot.synced_revision);
 }
 
-// How many of the four sublots have anything in them. Read off the flat row
-// tables the form actually writes, because `records` is unused today — a count
-// derived from an empty map would report every lot as untouched.
+// How many of the four sublots somebody has recorded something on. Read off
+// the flat row tables and the scalars the form actually writes, because
+// `records` is unused today — a count derived from an empty map would report
+// every lot as untouched.
+//
+// WHAT COUNTS IS ASKED OF THE SCHEMA (rowHoldsMeasurement() and
+// measuredScalarSublot() in sections.mjs), never listed here. The first
+// version counted any non-blank cell but `sublot` and `core_id`, so the
+// component numbers, the seeded AC method and the specimen ids every lot
+// carries before anybody types made every lot read "4 of 4 sublots". It also
+// read the sublot off the part BEFORE the dash, and the page paints "1-3" for
+// lot 1's sublot 3 - so every painted row counted as sublot 1, the lot number.
+// The trailing number is the sublot, the page's own sublotIndexOf() reading.
 function sublotsWithContent(lot) {
   const rows = (lot && lot.rows) || {};
+  const values = (lot && lot.values) || {};
   const seen = new Set();
   for (const key of Object.keys(rows)) {
     const list = rows[key];
     if (!Array.isArray(list)) continue;
     for (const r of list) {
-      if (!r || typeof r !== 'object') continue;
-      const s = r.sublot == null ? null : String(r.sublot);
-      if (!s) continue;
-      const n = /(\d)\s*$/.exec(s.split('-')[0] || s);
-      const filled = Object.keys(r).some((k) => k !== 'sublot' && k !== 'core_id' &&
-        r[k] !== null && r[k] !== '' && r[k] !== undefined);
-      if (n && filled) seen.add(n[1]);
+      const n = r && typeof r === 'object' ? sublotNumberOf(r.sublot) : null;
+      if (n != null && rowHoldsMeasurement(key, r)) seen.add(n);
     }
   }
-  const direct = Object.keys(rows).filter((k) => /^sub[1-4]_/.test(k));
-  for (const k of direct) seen.add(k.slice(3, 4));
+  for (const k of Object.keys(values)) {
+    const v = values[k];
+    if (v == null || String(v).trim() === '') continue;
+    const n = measuredScalarSublot(k);
+    if (n != null) seen.add(n);
+  }
   return seen.size;
+}
+
+// "1-3" is lot 1's sublot 3 and "3" is sublot 3. Anything outside 1..4 is not
+// a sublot of this lot and counts for none.
+function sublotNumberOf(v) {
+  const m = /(\d+)\s*$/.exec(String(v == null ? '' : v).trim());
+  const n = m ? Number(m[1]) : NaN;
+  return n >= 1 && n <= 4 ? n : null;
 }
 
 function hasContent(rec) {
@@ -776,8 +799,11 @@ function summaryFromRow(r) {
     lot_number: r.lot_number,
     density_option: r.density_option || '',
     status: r.status,
-    records_entered: 0,
-    sublots_entered: 0,
+    // amaw_lot_summaries carries neither count, and a zero is a claim: a lot
+    // known only from the server read "0 of 4 sublots" whether it was blank or
+    // finished. Unknown is null, and the list prints no count for it.
+    records_entered: null,
+    sublots_entered: null,
     saved_at: r.updated_at || null,
     saved_by: r.saved_name ? { name: r.saved_name } : (r.author_name ? { name: r.author_name } : null),
     revision: Number(r.revision || 0),

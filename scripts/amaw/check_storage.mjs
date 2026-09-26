@@ -27,6 +27,10 @@ import {
   uidFromKey, lotSummary, isUnsynced, isTransient, mergeLots,
   localLotStore, supabaseLotStore, syncedLotStore, createLotStore, StorageError,
 } from './storage.mjs';
+// Only for the sublot count below: a lot the way the intake and the form
+// really build one, rather than a fixture that agrees with the code by hand.
+import PLANTBOOK_SECTIONS from './sections.mjs';
+import { lotFromApproval } from './intake.mjs';
 
 let passed = 0, failed = 0;
 function ok(name, cond, detail) {
@@ -625,6 +629,96 @@ head('the switch');
   ok('a client means the synced one', createLotStore({ client: fakeServer().client, storage: fakeStorage() }).name === 'synced');
   ok('an unknown backend is refused by name',
      (await raises(async () => createLotStore({ backend: 'postgres' }), 'invalid')).ok);
+}
+
+// =====================================================================
+head('how many sublots have anything in them');
+// =====================================================================
+{
+  // The Start a lot list prints lotSummary()'s count as "2 of 4 sublots". It
+  // read 4 of 4 on every lot opened from an approval, because the cells the
+  // schema and the intake fill in before anybody types - the blend's
+  // component numbers and design %, the Ignition Furnace AC method, the
+  // specimen and core ids - all counted.
+  const APPROVAL = {
+    format: 'kytc-designbook', version: 1, doc_kind: 'review', stage: 'Approved',
+    job: { cid: '262120', letting: '2026-02-19', plant: 'AMP070301' },
+    mix: { nominal_size: '0.38A', binder_grade: 'PG64-22', mix_class: '3' },
+    values: { nominal_size: '0.38A', mix_type: 'A', binder_grade: 'PG64-22', ac_design: 5.2, va_design: 4.0, vma_design: 14.2 },
+    rows: { aggregate: [
+      { producer: 'BOONESBORO QUARRY @ BOONESBORO', type_size: "Dolomite #78's", pct_blend: 45, gsb: 2.71 },
+      { producer: 'HAYDON MATERIALS', type_size: "Dol. #10's Washed", pct_blend: 35, gsb: 2.69 },
+      { producer: 'WATSON GRAVEL', type_size: 'Natural Sand', pct_blend: 20, gsb: 2.62 },
+    ] },
+    approval: { approval_no: '#467PA', code: 'AAAA-BBBB-CCCC', issued_at: '2026-09-11T00:00:00.000Z',
+                approved_by: 'Andrew.Denmark@ky.gov', mix_id: '00260467' },
+    history: [],
+  };
+  const fresh = lotFromApproval(APPROVAL, { lotNumber: 3 });
+  ok('(the intake builds the lot these cases start from)', fresh.ok && !!fresh.lot, fresh.checks);
+  const base = fresh.lot;
+  ok('a lot straight from an approval has NO sublots entered, blend % and all',
+     lotSummary(base).sublots_entered === 0, lotSummary(base).sublots_entered);
+
+  // The same lot the way collectForm() hands it back untouched: every row
+  // table at its seeded length, straight off the schema's own seeds, with the
+  // sublot painted "<lot>-<sublot>" as the page paints it.
+  const untouched = () => {
+    const lot = JSON.parse(JSON.stringify(base));
+    for (const sec of PLANTBOOK_SECTIONS) {
+      for (const spec of (Array.isArray(sec.rows) ? sec.rows : sec.rows ? [sec.rows] : [])) {
+        if (lot.rows[spec.key] && lot.rows[spec.key].length) continue;   // the intake's own (blend_pct)
+        lot.rows[spec.key] = (spec.seed || []).map((s) => {
+          const row = Object.fromEntries((spec.columns || []).map((c) => [c.key, null]));
+          Object.assign(row, s);
+          if (row.sublot != null) row.sublot = `3-${s.sublot}`;
+          return row;
+        });
+      }
+    }
+    return lot;
+  };
+  const form = untouched();
+  ok('…nor as the form collects it untouched: seeded AC method, specimen and core ids say nothing',
+     lotSummary(form).sublots_entered === 0, lotSummary(form).sublots_entered);
+
+  const put = (lot, table, sublot, patch, nth = 0) => {
+    const rows = lot.rows[table].filter((r) => String(r.sublot).split('-').pop() === String(sublot));
+    Object.assign(rows[nth], patch);
+    return lot;
+  };
+  // The sublot is the TRAILING number: "3-2" is lot 3's sublot 2. The first
+  // version read the part before the dash and counted both of these as one.
+  const two = put(put(untouched(), 'sublot_bsg', 1, { wt_air: 4812.4 }), 'sublot_bsg', 2, { wt_air: 4795.1 });
+  ok('a weighing on sublot 1 and another on sublot 2 of lot 3 are TWO sublots, not the lot number twice',
+     lotSummary(two).sublots_entered === 2, lotSummary(two).sublots_entered);
+  ok('a computed cell on its own is nobody\'s entry',
+     lotSummary(put(untouched(), 'sublot_bsg', 4, { bsg: 2.401, bulk_volume: 2004.1 })).sublots_entered === 0);
+  ok('the seeded AC method is not an entry…',
+     lotSummary(put(untouched(), 'sublot_tickets', 4, { ac_method: 'Ignition Furnace' })).sublots_entered === 0);
+  ok('…but a different method on a sublot is somebody writing it down',
+     lotSummary(put(untouched(), 'sublot_tickets', 4, { ac_method: 'Extraction' })).sublots_entered === 1);
+  ok('a Sublot % still equal to the design\'s is the design talking (number or string)',
+     lotSummary(put(untouched(), 'blend_pct', 3, { pct: '45' })).sublots_entered === 0);
+  ok('…and one the plant changed is an entry on that sublot',
+     lotSummary(put(untouched(), 'blend_pct', 3, { pct: 47 })).sublots_entered === 1);
+  const grad = untouched();
+  grad.values = { ...grad.values, jmf_s4_75: 62, sub4_wt_s4_75: 812.4 };
+  ok('a gradation weight counts for its own sublot; the JMF target beside it does not',
+     lotSummary(grad).sublots_entered === 1, lotSummary(grad).sublots_entered);
+  ok('a table the schema does not render counts for nothing',
+     lotSummary({ ...base, rows: { mystery: [{ sublot: '2', x: 1 }] } }).sublots_entered === 0);
+
+  // amaw_lot_summaries has no such column. A row the list knows only from the
+  // server used to say "0 of 4" of a lot that might be finished.
+  const server = fakeServer();
+  const a = newStore(server);
+  await a.save(normaliseLot(two), { by: BY });
+  const b = newStore(server, fakeStorage());     // a device that has never held it
+  const rows = await b.list();
+  ok('a lot known only from the server carries NO count rather than a zero',
+     rows.length === 1 && rows[0].sublots_entered === null, rows[0] && rows[0].sublots_entered);
+  ok('…while the device holding it counts it', (await a.list())[0].sublots_entered === 2);
 }
 
 // =====================================================================

@@ -454,7 +454,35 @@ namespace('PB_SECTIONS', '2. PB_SECTIONS vs scripts/amaw/sections.mjs');
         // ?sublots=open build bypass), which is about the viewer rather than
         // about the lot.
         'SETUP_LOT', 'SETUP_SUBLOT', 'sublotOfSectionId', 'sublotNeedsSample',
-        'LOT_LEVEL_SUBBLOCKS', 'LOT_LEVEL_ROW_TABLES', 'LOT_LEVEL_ROW_COLUMNS'].sort());
+        'LOT_LEVEL_SUBBLOCKS', 'LOT_LEVEL_ROW_TABLES', 'LOT_LEVEL_ROW_COLUMNS',
+        // What counts as somebody having recorded something on a sublot
+        // (2026-09-26) - the Start a lot list's "n of 4 sublots", which
+        // PB_LOT's lotSummary() reaches for here.
+        'rowHoldsMeasurement', 'measuredScalarSublot'].sort());
+  // Swept rather than compared by source: the rule is DERIVED from the
+  // schema, so the cases walk every row table and every column of it - a
+  // seeded value, the seed's own value, a changed one, a readonly figure and
+  // the blend % against the design % it starts from.
+  const measureCases = [];
+  for (const sec of MOD_SECTIONS.PLANTBOOK_SECTIONS) {
+    for (const spec of (Array.isArray(sec.rows) ? sec.rows : sec.rows ? [sec.rows] : [])) {
+      const seed = (spec.seed || [])[0] || {};
+      for (const c of spec.columns || []) {
+        for (const v of [null, '', '7.25', seed[c.key], 'Ignition Furnace', 'Extraction'])
+          measureCases.push([spec.key, { ...seed, [c.key]: v }]);
+      }
+    }
+  }
+  measureCases.push(['blend_pct', { sublot: '2', component: '1', design_pct: 30, pct: 30 }],
+                    ['blend_pct', { sublot: '2', component: '1', design_pct: 30, pct: '30.0' }],
+                    ['blend_pct', { sublot: '2', component: '1', design_pct: 30, pct: 31 }],
+                    ['blend_pct', { sublot: '2', component: '1', design_pct: null, pct: 31 }],
+                    ['no_such_table', { sublot: '1', x: 5 }], ['sublot_bsg', null], ['sublot_bsg', 'x'], [undefined, {}]);
+  sweep(`rowHoldsMeasurement() over ${measureCases.length} cells`, P.rowHoldsMeasurement,
+        MOD_SECTIONS.rowHoldsMeasurement, measureCases);
+  sweep('measuredScalarSublot()', P.measuredScalarSublot, MOD_SECTIONS.measuredScalarSublot,
+        ['sub1_wt_s4_75', 'sub4_wt_total', 'sub3_s0_075', 'sub2_', 'jmf_s4_75', 'sub10_wt_x', 'sub5_wt_x',
+         'lot_tons', 'design', '', null, undefined].map((k) => [k]));
   // The lock rule itself. The cases that matter are the setup exemption and
   // its exact boundary: lot 1 sublot 1 open, lot 1 sublot 2 gated, lot 2
   // sublot 1 gated, and a blank lot number reading as lot 1 rather than
@@ -1257,7 +1285,44 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
   lots.push(M.blankLot(identities[0], { records: { QC01: { values: { ac: 5.2 } } } }));
   const rawLots = [...lots, null, undefined, {}, { format: 'nope' }, JSON.parse(JSON.stringify(lots[0]))];
   sweep('normaliseLot()', P.normaliseLot, M.normaliseLot, rawLots.map((l) => [l]));
-  sweep('lotSummary()', P.lotSummary, M.lotSummary, rawLots.map((l) => [l]));
+  // lotSummary()'s sublot count reads the ROWS and the gradation scalars, and
+  // every lot above has neither - so these carry the seeded tables a lot opens
+  // with (painted "<lot>-<sublot>" the way the page paints them), one with a
+  // weighing on two sublots, one with a gradation weight, one with a changed
+  // blend %. Without them the count would be swept over nothing.
+  const seededRows = (lotNo) => {
+    const rows = {};
+    for (const sec of MOD_SECTIONS.PLANTBOOK_SECTIONS) {
+      for (const spec of (Array.isArray(sec.rows) ? sec.rows : sec.rows ? [sec.rows] : [])) {
+        if (rows[spec.key]) continue;
+        rows[spec.key] = (spec.seed || []).map((s) => {
+          const r = { ...s };
+          if (r.sublot != null) r.sublot = `${lotNo}-${s.sublot}`;
+          if ('component' in r) { r.design_pct = 30; r.pct = 30; }
+          return r;
+        });
+      }
+    }
+    return rows;
+  };
+  const withRows = (lotNo, edit) => {
+    const lot = M.blankLot({ ...identities[0], lot_number: lotNo });
+    lot.rows = seededRows(lotNo);
+    if (edit) edit(lot);
+    return lot;
+  };
+  const rowLots = [
+    withRows(1), withRows(3),
+    withRows(3, (l) => { l.rows.sublot_bsg[0].wt_air = 4812.4; l.rows.sublot_bsg[2].wt_air = 4795.1; }),
+    withRows(2, (l) => { l.values.sub4_wt_s4_75 = 812.4; l.values.jmf_s4_75 = 62; }),
+    withRows(2, (l) => { l.rows.blend_pct[13].pct = 33; }),
+    withRows(2, (l) => { l.rows.sublot_tickets[1].ac_method = 'Extraction'; }),
+  ];
+  sweep('lotSummary()', P.lotSummary, M.lotSummary, [...rawLots, ...rowLots].map((l) => [l]));
+  // The sweep proves agreement; this proves the rows were worth sweeping.
+  ok('…and the row-carrying lots span the count (0 untouched, 2 for two weighed sublots)',
+     M.lotSummary(rowLots[0]).sublots_entered === 0 && M.lotSummary(rowLots[2]).sublots_entered === 2,
+     rowLots.map((l) => M.lotSummary(l).sublots_entered));
 
   // mergeLots is the one storage function that decides what SURVIVES an
   // import, per record rather than per lot, so a drift here loses four

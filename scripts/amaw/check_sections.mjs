@@ -448,6 +448,17 @@ for (const s of S) {
       }
       if (c.readonly && c.req)
         fail("G", `${where} column "${c.key}" is readonly and required — the rail would demand a value nobody can type`);
+      // `seedFrom` is read by rowHoldsMeasurement(), never by the renderer, so
+      // nothing on screen would notice it naming a column that is not there -
+      // the Start a lot list would simply go back to counting a sublot nobody
+      // touched as entered. A name that matches nothing is the quietest
+      // failure there is, so it is asserted to resolve.
+      if (c.seedFrom !== undefined) {
+        if (!spec.columns.some((o) => o.key === c.seedFrom))
+          fail("G", `${where} column "${c.key}" is seeded from "${c.seedFrom}", which is not a column of the same table`);
+        else if (c.readonly)
+          fail("G", `${where} column "${c.key}" is readonly and declares \`seedFrom\` — a readonly cell never counts, so it says nothing`);
+      }
     }
     for (const seedRow of spec.seed || []) {
       for (const k of Object.keys(seedRow))

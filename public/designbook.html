@@ -3550,6 +3550,8 @@ const PB_SECTIONS = (() => {
   //             action, columns[]
   //    column   key, label, type, req, mono, source, options, readonly,
   //             alt, fills
+  //  plus ONE the renderer never reads: a column's `seedFrom`, which says the
+  //  intake starts it as a copy of another column (rowHoldsMeasurement()).
   //
   //  ---- WHERE THE DOMAIN COMES FROM -------------------------------------
   //
@@ -4016,6 +4018,94 @@ const PB_SECTIONS = (() => {
     "blend_pct.sublot", "blend_pct.component", "blend_pct.producer",
     "blend_pct.agp", "blend_pct.type_size", "blend_pct.bod", "blend_pct.design_pct",
   ];
+
+  /* WHAT COUNTS AS SOMEBODY HAVING RECORDED SOMETHING ON A SUBLOT - the Start a
+   * lot list's "2 of 4 sublots" (storage.mjs's lotSummary()).
+   *
+   * ASKED OF THE SCHEMA, never listed, for the reason the two lists above give:
+   * a hand-kept list rots silently, and this one would rot in the worst
+   * direction - telling a technician that a sublot nobody has touched is
+   * entered. Before this existed, every lot opened from an approval read
+   * "4 of 4 sublots" off cells the schema and the intake fill in before anybody
+   * types a thing (Aggregate Blend's component numbers, the Ignition Furnace AC
+   * method, the specimen and core ids). A row cell says nothing when it is
+   *   - READONLY on every copy of its table: an identity cell (sublot,
+   *     specimen, component, core id, record), a figure computed from the
+   *     weights beside it, or a mirror of the approval;
+   *   - LOT-LEVEL: LOT_LEVEL_ROW_TABLES / LOT_LEVEL_ROW_COLUMNS, the lot's own
+   *     description rather than one sublot's sample;
+   *   - STILL ITS SEED: a value the spec's own seed rows carry for that column
+   *     (the Ignition Furnace default - a different method on one sublot IS
+   *     somebody writing something down);
+   *   - or STILL WHAT IT WAS SEEDED FROM (`seedFrom`): the intake starts every
+   *     sublot's blend % at the design's own, so a Sublot % nobody has changed
+   *     is the design talking, not the plant.
+   * A scalar counts when it is a sieve cell of a sublot tab's own measured
+   * gradation column (`sub3_wt_s4_75`); the JMF target beside it is readonly.
+   *
+   * Built once, on first use, because SECTIONS is declared further down this
+   * block and an eager read here would be a TDZ error at construction. */
+  let MEASURED_PLAN = null;
+  function measuredPlan() {
+    if (MEASURED_PLAN) return MEASURED_PLAN;
+    const lotTables = new Set(LOT_LEVEL_ROW_TABLES), lotCols = new Set(LOT_LEVEL_ROW_COLUMNS);
+    const tables = new Map(), scalars = [];
+    for (const sec of SECTIONS) {
+      const specs = Array.isArray(sec.rows) ? sec.rows : sec.rows ? [sec.rows] : [];
+      for (const spec of specs) {
+        if (!spec || !spec.key) continue;
+        const t = tables.get(spec.key) || { cols: new Set(), seeds: new Map(), seedFrom: new Map() };
+        for (const row of spec.seed || []) {
+          for (const [k, v] of Object.entries(row || {})) {
+            if (!filledCell(v)) continue;
+            if (!t.seeds.has(k)) t.seeds.set(k, new Set());
+            t.seeds.get(k).add(String(v).trim());
+          }
+        }
+        for (const c of spec.columns || []) {
+          if (!c || !c.key || c.readonly || lotTables.has(spec.key) || lotCols.has(`${spec.key}.${c.key}`)) continue;
+          t.cols.add(c.key);
+          if (c.seedFrom) t.seedFrom.set(c.key, c.seedFrom);
+        }
+        tables.set(spec.key, t);
+      }
+      const n = sublotOfSectionId(sec.into || sec.id);
+      if (n != null && Array.isArray(sec.sieves)) {
+        for (const c of sec.columns || []) if (c && c.key && !c.readonly) scalars.push([`${c.key}_`, n]);
+      }
+    }
+    MEASURED_PLAN = { tables, scalars };
+    return MEASURED_PLAN;
+  }
+  function filledCell(v) { return v != null && String(v).trim() !== ""; }
+  function sameCell(a, b) {
+    const x = Number(a), y = Number(b);
+    return Number.isFinite(x) && Number.isFinite(y) ? x === y : String(a).trim() === String(b).trim();
+  }
+
+  /** Does this row of `tableKey` hold anything somebody recorded? A table the
+   *  schema does not render holds nothing this form can show, so it never does. */
+  function rowHoldsMeasurement(tableKey, row) {
+    const t = row && typeof row === "object" ? measuredPlan().tables.get(tableKey) : null;
+    if (!t) return false;
+    for (const k of t.cols) {
+      const v = row[k];
+      if (!filledCell(v)) continue;
+      const seeds = t.seeds.get(k);
+      if (seeds && seeds.has(String(v).trim())) continue;
+      const from = t.seedFrom.get(k);
+      if (from && filledCell(row[from]) && sameCell(v, row[from])) continue;
+      return true;
+    }
+    return false;
+  }
+
+  /** The sublot (1..4) a scalar field is a measurement of, or null. */
+  function measuredScalarSublot(key) {
+    const k = String(key == null ? "" : key);
+    for (const [prefix, n] of measuredPlan().scalars) if (k.startsWith(prefix)) return n;
+    return null;
+  }
 
   /* Seeded rather than asked for, which Jake asked for on 2026-09-13 ("do it
    * and the acc per sublot too"). Both of his real accepted lots read code 3 on
@@ -4554,7 +4644,14 @@ const verifySpecimenOf4 = (n) =>
       // (there isn't one today, but aggBlendColumns() is a shared builder,
       // not tab-specific), so it falls back to the bare label rather than
       // printing "Sublot undefined %".
-      { key: "pct", label: n ? `Sublot ${n} %` : "Sublot %", type: "number", req: true, mono: true },
+      //
+      // `seedFrom: "design_pct"` says in the schema what intake.mjs does in
+      // code: every sublot's % STARTS as the design's own, and rollForwardLot()
+      // re-seeds it from there. A value still equal to it is the design talking,
+      // not the plant - which is how rowHoldsMeasurement() tells a sublot
+      // somebody entered from one nobody has touched. The renderer ignores it.
+      { key: "pct", label: n ? `Sublot ${n} %` : "Sublot %", type: "number", req: true, mono: true,
+        seedFrom: "design_pct" },
     ];
   }
   function aggBlendSpec(n) {
@@ -5544,7 +5641,8 @@ const verifySpecimenOf4 = (n) =>
 
   return { AC_METHODS, acMethodCode, CITES, DESIGNBOOK_CITE_KEYS, REFERENCE_TABLES, REFERENCE_KEYS, SECTIONS,
            SETUP_LOT, SETUP_SUBLOT, sublotOfSectionId, sublotNeedsSample,
-           LOT_LEVEL_SUBBLOCKS, LOT_LEVEL_ROW_TABLES, LOT_LEVEL_ROW_COLUMNS };
+           LOT_LEVEL_SUBBLOCKS, LOT_LEVEL_ROW_TABLES, LOT_LEVEL_ROW_COLUMNS,
+           rowHoldsMeasurement, measuredScalarSublot };
 })();
 /* ===== END PLANTBOOK SCHEMA ===== */
 
@@ -18954,6 +19052,7 @@ return {
  *   PB_AMAW.{LOT,AGGREGATE,SUBLOT,VERIFY,GRADATION,CORES,PAY,CALC}  addresses.mjs
  *   PB_PAY.{vmaMinimumFor,airVoidTargetFor}                         pay.mjs
  *   PB_SECTIONS.SECTIONS                                            sections.mjs
+ *   PB_SECTIONS.{rowHoldsMeasurement,measuredScalarSublot}          sections.mjs
  * All three are consts that may be declared LATER in the page than this
  * block, so every one of those references is LAZY - resolved inside the
  * function that needs it, never while PB_LOT is being constructed. See the
@@ -19019,6 +19118,12 @@ const PB_LOT = (() => {
   // `synced_revision` means the server moved; BOTH is a conflict, and it is
   // reported rather than resolved, because silently picking one loses a
   // technician's afternoon.
+
+  // The one thing read from the schema: what counts as somebody having recorded
+  // something on a sublot (lotSummary()'s count). sections.mjs imports nothing,
+  // so this cannot become a cycle.
+  // (in the module this read `import { rowHoldsMeasurement, measuredScalarSublot }
+  // from './sections.mjs'`; here both are PB_SECTIONS's - see sublotsWithContent().)
 
   // ---------------------------------------------------------------------
   // The envelope
@@ -19304,28 +19409,50 @@ const PB_LOT = (() => {
     return Number(lot.revision || 0) !== Number(lot.synced_revision == null ? -1 : lot.synced_revision);
   }
 
-  // How many of the four sublots have anything in them. Read off the flat row
-  // tables the form actually writes, because `records` is unused today — a count
-  // derived from an empty map would report every lot as untouched.
+  // How many of the four sublots somebody has recorded something on. Read off
+  // the flat row tables and the scalars the form actually writes, because
+  // `records` is unused today — a count derived from an empty map would report
+  // every lot as untouched.
+  //
+  // WHAT COUNTS IS ASKED OF THE SCHEMA (rowHoldsMeasurement() and
+  // measuredScalarSublot() in sections.mjs), never listed here. The first
+  // version counted any non-blank cell but `sublot` and `core_id`, so the
+  // component numbers, the seeded AC method and the specimen ids every lot
+  // carries before anybody types made every lot read "4 of 4 sublots". It also
+  // read the sublot off the part BEFORE the dash, and the page paints "1-3" for
+  // lot 1's sublot 3 - so every painted row counted as sublot 1, the lot number.
+  // The trailing number is the sublot, the page's own sublotIndexOf() reading.
+  //
+  // CONVERSION: the module imports the two helpers from './sections.mjs'. Here
+  // they are PB_SECTIONS's, reached LAZILY inside the call, never while PB_LOT
+  // is being built - see this block's header.
   function sublotsWithContent(lot) {
     const rows = (lot && lot.rows) || {};
+    const values = (lot && lot.values) || {};
     const seen = new Set();
     for (const key of Object.keys(rows)) {
       const list = rows[key];
       if (!Array.isArray(list)) continue;
       for (const r of list) {
-        if (!r || typeof r !== 'object') continue;
-        const s = r.sublot == null ? null : String(r.sublot);
-        if (!s) continue;
-        const n = /(\d)\s*$/.exec(s.split('-')[0] || s);
-        const filled = Object.keys(r).some((k) => k !== 'sublot' && k !== 'core_id' &&
-          r[k] !== null && r[k] !== '' && r[k] !== undefined);
-        if (n && filled) seen.add(n[1]);
+        const n = r && typeof r === 'object' ? sublotNumberOf(r.sublot) : null;
+        if (n != null && PB_SECTIONS.rowHoldsMeasurement(key, r)) seen.add(n);
       }
     }
-    const direct = Object.keys(rows).filter((k) => /^sub[1-4]_/.test(k));
-    for (const k of direct) seen.add(k.slice(3, 4));
+    for (const k of Object.keys(values)) {
+      const v = values[k];
+      if (v == null || String(v).trim() === '') continue;
+      const n = PB_SECTIONS.measuredScalarSublot(k);
+      if (n != null) seen.add(n);
+    }
     return seen.size;
+  }
+
+  // "1-3" is lot 1's sublot 3 and "3" is sublot 3. Anything outside 1..4 is not
+  // a sublot of this lot and counts for none.
+  function sublotNumberOf(v) {
+    const m = /(\d+)\s*$/.exec(String(v == null ? '' : v).trim());
+    const n = m ? Number(m[1]) : NaN;
+    return n >= 1 && n <= 4 ? n : null;
   }
 
   function hasContent(rec) {
@@ -19753,8 +19880,11 @@ const PB_LOT = (() => {
       lot_number: r.lot_number,
       density_option: r.density_option || '',
       status: r.status,
-      records_entered: 0,
-      sublots_entered: 0,
+      // amaw_lot_summaries carries neither count, and a zero is a claim: a lot
+      // known only from the server read "0 of 4 sublots" whether it was blank or
+      // finished. Unknown is null, and the list prints no count for it.
+      records_entered: null,
+      sublots_entered: null,
       saved_at: r.updated_at || null,
       saved_by: r.saved_name ? { name: r.saved_name } : (r.author_name ? { name: r.author_name } : null),
       revision: Number(r.revision || 0),

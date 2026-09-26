@@ -20,6 +20,8 @@
 //             action, columns[]
 //    column   key, label, type, req, mono, source, options, readonly,
 //             alt, fills
+//  plus ONE the renderer never reads: a column's `seedFrom`, which says the
+//  intake starts it as a copy of another column (rowHoldsMeasurement()).
 //
 //  ---- WHERE THE DOMAIN COMES FROM -------------------------------------
 //
@@ -492,6 +494,94 @@ export const LOT_LEVEL_ROW_COLUMNS = [
   "blend_pct.sublot", "blend_pct.component", "blend_pct.producer",
   "blend_pct.agp", "blend_pct.type_size", "blend_pct.bod", "blend_pct.design_pct",
 ];
+
+/* WHAT COUNTS AS SOMEBODY HAVING RECORDED SOMETHING ON A SUBLOT - the Start a
+ * lot list's "2 of 4 sublots" (storage.mjs's lotSummary()).
+ *
+ * ASKED OF THE SCHEMA, never listed, for the reason the two lists above give:
+ * a hand-kept list rots silently, and this one would rot in the worst
+ * direction - telling a technician that a sublot nobody has touched is
+ * entered. Before this existed, every lot opened from an approval read
+ * "4 of 4 sublots" off cells the schema and the intake fill in before anybody
+ * types a thing (Aggregate Blend's component numbers, the Ignition Furnace AC
+ * method, the specimen and core ids). A row cell says nothing when it is
+ *   - READONLY on every copy of its table: an identity cell (sublot,
+ *     specimen, component, core id, record), a figure computed from the
+ *     weights beside it, or a mirror of the approval;
+ *   - LOT-LEVEL: LOT_LEVEL_ROW_TABLES / LOT_LEVEL_ROW_COLUMNS, the lot's own
+ *     description rather than one sublot's sample;
+ *   - STILL ITS SEED: a value the spec's own seed rows carry for that column
+ *     (the Ignition Furnace default - a different method on one sublot IS
+ *     somebody writing something down);
+ *   - or STILL WHAT IT WAS SEEDED FROM (`seedFrom`): the intake starts every
+ *     sublot's blend % at the design's own, so a Sublot % nobody has changed
+ *     is the design talking, not the plant.
+ * A scalar counts when it is a sieve cell of a sublot tab's own measured
+ * gradation column (`sub3_wt_s4_75`); the JMF target beside it is readonly.
+ *
+ * Built once, on first use, because PLANTBOOK_SECTIONS is declared further
+ * down this file and an eager read here would be a TDZ error at load. */
+let MEASURED_PLAN = null;
+function measuredPlan() {
+  if (MEASURED_PLAN) return MEASURED_PLAN;
+  const lotTables = new Set(LOT_LEVEL_ROW_TABLES), lotCols = new Set(LOT_LEVEL_ROW_COLUMNS);
+  const tables = new Map(), scalars = [];
+  for (const sec of PLANTBOOK_SECTIONS) {
+    const specs = Array.isArray(sec.rows) ? sec.rows : sec.rows ? [sec.rows] : [];
+    for (const spec of specs) {
+      if (!spec || !spec.key) continue;
+      const t = tables.get(spec.key) || { cols: new Set(), seeds: new Map(), seedFrom: new Map() };
+      for (const row of spec.seed || []) {
+        for (const [k, v] of Object.entries(row || {})) {
+          if (!filledCell(v)) continue;
+          if (!t.seeds.has(k)) t.seeds.set(k, new Set());
+          t.seeds.get(k).add(String(v).trim());
+        }
+      }
+      for (const c of spec.columns || []) {
+        if (!c || !c.key || c.readonly || lotTables.has(spec.key) || lotCols.has(`${spec.key}.${c.key}`)) continue;
+        t.cols.add(c.key);
+        if (c.seedFrom) t.seedFrom.set(c.key, c.seedFrom);
+      }
+      tables.set(spec.key, t);
+    }
+    const n = sublotOfSectionId(sec.into || sec.id);
+    if (n != null && Array.isArray(sec.sieves)) {
+      for (const c of sec.columns || []) if (c && c.key && !c.readonly) scalars.push([`${c.key}_`, n]);
+    }
+  }
+  MEASURED_PLAN = { tables, scalars };
+  return MEASURED_PLAN;
+}
+function filledCell(v) { return v != null && String(v).trim() !== ""; }
+function sameCell(a, b) {
+  const x = Number(a), y = Number(b);
+  return Number.isFinite(x) && Number.isFinite(y) ? x === y : String(a).trim() === String(b).trim();
+}
+
+/** Does this row of `tableKey` hold anything somebody recorded? A table the
+ *  schema does not render holds nothing this form can show, so it never does. */
+export function rowHoldsMeasurement(tableKey, row) {
+  const t = row && typeof row === "object" ? measuredPlan().tables.get(tableKey) : null;
+  if (!t) return false;
+  for (const k of t.cols) {
+    const v = row[k];
+    if (!filledCell(v)) continue;
+    const seeds = t.seeds.get(k);
+    if (seeds && seeds.has(String(v).trim())) continue;
+    const from = t.seedFrom.get(k);
+    if (from && filledCell(row[from]) && sameCell(v, row[from])) continue;
+    return true;
+  }
+  return false;
+}
+
+/** The sublot (1..4) a scalar field is a measurement of, or null. */
+export function measuredScalarSublot(key) {
+  const k = String(key == null ? "" : key);
+  for (const [prefix, n] of measuredPlan().scalars) if (k.startsWith(prefix)) return n;
+  return null;
+}
 
 /* Seeded rather than asked for, which Jake asked for on 2026-09-13 ("do it
  * and the acc per sublot too"). Both of his real accepted lots read code 3 on
@@ -1030,7 +1120,14 @@ function aggBlendColumns(editable, n) {
     // (there isn't one today, but aggBlendColumns() is a shared builder,
     // not tab-specific), so it falls back to the bare label rather than
     // printing "Sublot undefined %".
-    { key: "pct", label: n ? `Sublot ${n} %` : "Sublot %", type: "number", req: true, mono: true },
+    //
+    // `seedFrom: "design_pct"` says in the schema what intake.mjs does in
+    // code: every sublot's % STARTS as the design's own, and rollForwardLot()
+    // re-seeds it from there. A value still equal to it is the design talking,
+    // not the plant - which is how rowHoldsMeasurement() tells a sublot
+    // somebody entered from one nobody has touched. The renderer ignores it.
+    { key: "pct", label: n ? `Sublot ${n} %` : "Sublot %", type: "number", req: true, mono: true,
+      seedFrom: "design_pct" },
   ];
 }
 function aggBlendSpec(n) {
