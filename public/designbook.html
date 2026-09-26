@@ -9461,9 +9461,13 @@ function recompute() {
   // the moisture line: page-level helpers return `{ sectionId, text }` and
   // are pooled here, because `outstanding` has one producer. A sub-section
   // (`binder`, drawn into Contract & Mix) is found the way Consensus is.
-  productionSpecWarnings(vol, ver).forEach(({ sectionId, text }) => {
+  // A helper may name the box it is about as `focus` (ticketDateTimeWarnings()
+  // does), and a rail click then lands in it; without one, jumpTo() falls back
+  // to the section's first empty required field.
+  productionSpecWarnings(vol, ver).forEach(({ sectionId, text, focus }) => {
     const sec = document.querySelector(`[data-subsection="${sectionId}"],[data-section="${sectionId}"]`);
-    outstanding.push({ id: sectionId, label: sec ? sec.dataset.label : "PlantBook", kind: "warn", text });
+    outstanding.push({ id: sectionId, label: sec ? sec.dataset.label : "PlantBook", kind: "warn", text,
+                       ...(focus ? { focus } : {}) });
   });
   const lp = computeLotPay();
   if (lp) {
@@ -22349,20 +22353,43 @@ function sampleTimingWarnings() {
  *  PB_AMAW.amDateRefusal()/amTimeRefusal(), the words the mapper's own report
  *  uses, so the rail and the AMAW cannot disagree about what converts or why.
  *  One line for the lot, pointing at the first sublot's tab. */
+//
+// TWO THINGS A LINE LIKE THIS OWES THE PERSON READING IT (2026-09-26). It
+// carries the box it is about as its `focus`, so a click on the rail lands
+// in that box rather than in the section's first empty required field
+// (jumpTo()'s fallback, which put a phone's number pad on sublot 1's blend).
+// And it says when a sublot it names is LOCKED (lockedSublotNumber()): a
+// contractor cannot correct a value on a sublot whose sample is not open,
+// so telling them to is an instruction they cannot follow. The value still
+// will not reach the AMAW and is still named - a reviewer, whom no sublot is
+// locked to, can correct it. The focus is the first box that CAN be edited,
+// else the first named, so a click never falls through to some other field.
 function ticketDateTimeWarnings() {
   const bad = [];
-  lotRows("sublot_tickets").forEach((r) => {
+  rowsOfList("sublot_tickets").forEach((row) => {
+    const r = rowValuesOf(row);
     const n = sublotIndexOf(r.sublot);
     if (!n) return;
-    const dWhy = PB_AMAW.amDateRefusal(r.date), tWhy = PB_AMAW.amTimeRefusal(r.time);
-    if (dWhy) bad.push({ n, what: `date "${String(r.date).trim()}" (${dWhy})` });
-    if (tWhy) bad.push({ n, what: `time "${String(r.time).trim()}" (${tWhy})` });
+    const locked = lockedSublotNumber(`sublot-${n}`) != null;
+    for (const [col, why] of [["date", PB_AMAW.amDateRefusal(r.date)], ["time", PB_AMAW.amTimeRefusal(r.time)]]) {
+      if (why) bad.push({ n, locked, el: row.querySelector(`[data-col="${col}"]`),
+                          what: `${col} "${String(r[col]).trim()}" (${why})` });
+    }
   });
   if (!bad.length) return [];
-  return [{ sectionId: `sublot-${bad[0].n}`,
+  const nums = (list) => Array.from(new Set(list.map((b) => b.n)));
+  const and = (a) => (a.length > 1 ? `${a.slice(0, -1).join(", ")} and ${a[a.length - 1]}` : String(a[0]));
+  const open = bad.filter((b) => !b.locked), shut = nums(bad.filter((b) => b.locked));
+  const fix = !open.length ? ""
+    : shut.length ? ` Correct sublot ${and(nums(open))}'s on its tab, e.g. 2026-09-24, 14:15.`
+    : ` Correct ${open.length > 1 ? "them" : "it"} on the sublot's tab, e.g. 2026-09-24, 14:15.`;
+  const ro = !shut.length ? ""
+    : ` Sublot${shut.length > 1 ? "s" : ""} ${and(shut)} ${shut.length > 1 ? "are" : "is"} locked, so `
+      + `${shut.length > 1 ? "their values are" : "its values are"} read-only here until ${shut.length > 1 ? "they open" : "it opens"}.`;
+  const first = open[0] || bad[0];
+  return [{ sectionId: `sublot-${first.n}`, focus: first.el,
     text: `Ticket ${bad.map((b) => `sublot ${b.n} ${b.what}`).join(", ")} will not reach the AMAW: MEDL's `
-      + `Date and Time (Superpave!I/J) are left blank rather than guessed at. Correct it on its sublot's tab, `
-      + `e.g. 2026-09-24, 14:15.` }];
+      + `Date and Time (Superpave!I/J) are left blank rather than guessed at.${fix}${ro}` }];
 }
 
 /** Every helper above, pooled - recompute() reads this once. Empty on

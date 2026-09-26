@@ -300,4 +300,44 @@ export async function run({ browser, results }) {
        byp.value.meta.banner === true && byp.value.meta.stamp === true,
        `banner=${byp.value.meta.banner} payload.sublots_unlocked=${byp.value.meta.stamp}`);
   }
+
+  // ---- a ticket value the AMAW will not carry, on an open and a locked tab
+  // (2026-09-26). A lot saved before the ticket's Date and Time were pickers
+  // can hold "9/24/26" on any sublot, and the rail names every one. What it
+  // must not do is tell a contractor to correct a value on a sublot they
+  // cannot edit, and what a click on it must do is land in the box it names -
+  // it used to fall through to the section's first empty required field.
+  const tk = await withBook(browser, PLANT, { width: 1440, height: 1000 }, async (h) => {
+    await h.page.evaluate(async (approval) => {
+      const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+      const t = out.lot.rows.sublot_tickets;
+      t[0] = { ...t[0], date: "9/24/26", time: "14:15" };
+      t[1] = { ...t[1], date: "09/25/2026", time: "1415" };
+      openLotEnvelope(out.lot, "the harness");
+      await new Promise((res) => setTimeout(res, 400));
+      go(topSections().findIndex((s) => s.id === "lot"), null, false);
+    }, APPROVAL);
+    await h.page.waitForTimeout(200);
+    const line = await h.page.evaluate(() => Array.from(document.querySelectorAll("#vallist .vitem"))
+      .map((v) => v.textContent.replace(/\s+/g, " ").trim()).find((t) => /will not reach the AMAW/.test(t)) || "");
+    const item = h.page.locator("#vallist .vitem", { hasText: "will not reach the AMAW" }).first();
+    if (!line) return { line, land: "" };
+    await item.click();
+    await h.page.waitForTimeout(400);
+    const land = await h.page.evaluate(() => {
+      const a = document.activeElement, sec = a && a.closest && a.closest("[data-section]");
+      return a && a.dataset ? `${sec ? sec.dataset.section : ""}|${a.dataset.row || ""}|${a.dataset.col || ""}|${a.value}` : "";
+    });
+    return { line, land };
+  });
+  if (tk.skipped) results.skip(id, BOOK, "a ticket value the AMAW will not carry", tk.skipped);
+  else {
+    const { line, land } = tk.value;
+    ok("the rail names a refused ticket value on a locked sublot, and says the sublot is locked",
+       /sublot 1 date "9\/24\/26"/.test(line) && /sublot 2 date "09\/25\/2026"/.test(line)
+         && /Sublot 2 is locked/.test(line) && /Correct sublot 1's/.test(line) && !/Correct (them|it) on/.test(line),
+       line.slice(0, 260) || "no ticket line on the rail");
+    ok("…and a click on it lands in the box it names, not the section's first empty field",
+       land === "sublot-1|sublot_tickets|date|9/24/26", land || "nothing focused");
+  }
 }
