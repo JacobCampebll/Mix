@@ -5660,13 +5660,17 @@ commit where possible.
   Submit it holds with THIS submission's hash, is adopted with the record's
   who and when. Only a real refusal is refused, and it is KEPT on the lot as
   `seal_refused` (store bookkeeping like `pending_seal`, never in a file). A
-  refused Accept comes back off and is said once - on the door if no lot is
-  open, and on the lot with a history line "Accept refused by KYTC's lot
-  record" after its "Lot accepted" (history only grows) - then `acknowledge()`d;
-  a refused Submit stays, deliberately, its seal still in the outbox. Only the
-  store's own refusal record puts a page back, with that lot's reason: never a
-  disagreement between two statuses, never `lastError`, and never over a lot
-  this device holds as Accepted (`acceptRefusalToSay()`). The rollback is in
+  refused Accept comes back off and is said once, then `acknowledge()`d.
+  Refused at the button, it is said there and acknowledged at once - kept, it
+  was said again on the next reopen, as an Accept "made without a signal",
+  with a history line written at reopen time. Refused by a flush, with nobody
+  watching, it is said on the door if no lot is open, and on the lot with a
+  history line "Accept refused by KYTC's lot record" after its "Lot accepted"
+  (history only grows). A refused Submit stays, deliberately, its seal still
+  in the outbox. Only the store's own refusal record puts a page back, with
+  that lot's reason: never a disagreement between two statuses, never
+  `lastError`, and never over a lot this device holds as Accepted
+  (`acceptRefusalToSay()`). The rollback is in
   storage.mjs's `pushOne()`, the one door `seal()`/`save()`/`flush()` share;
   "no such lot" (P0002) is an answer, not a lost signal, and a missing seal
   function (PGRST202) is not set up, not no signal.

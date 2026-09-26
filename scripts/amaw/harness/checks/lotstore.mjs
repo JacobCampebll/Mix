@@ -308,6 +308,21 @@ const REVIEW = async ({ approval }) => {
   await pressAccept();
   sb.rpc = realRpc;
   const refused = snap(u2);
+  // ...and SAID ONCE. Back to the Start a lot door and in again from its list,
+  // which is where it used to be said a second time - as an Accept "made
+  // without a signal", with a history line written at reopen time.
+  const stored = () => JSON.parse(localStorage.getItem("amaw_lot:" + u2) || "null") || {};
+  refused.heldRefusal = stored().seal_refused || null;
+  state.lot = null;
+  showLotDoor("plantbook");
+  await sleep(1200);
+  await openLotFromStore(u2);
+  await sleep(1500);
+  go(stepIndexOf("lot-status"));
+  await sleep(400);
+  const reopened = { ...snap(u2), btn: $("advanceStage").textContent,
+                     history: (state.history || []).map((h) => h.action),
+                     storedHistory: (stored().history || []).map((h) => h.action) };
   // ...and it is left clean, so the next Accept simply works.
   await pressAccept();
   const retried = snap(u2);
@@ -318,7 +333,7 @@ const REVIEW = async ({ approval }) => {
   await paintLotList();
   const listServerOnly = listRow(u3);
 
-  return { offered, accepted, refused, retried, listUntouched, listServerOnly };
+  return { offered, accepted, refused, reopened, retried, listUntouched, listServerOnly };
 };
 
 /* A plant with no signal, pressing Submit. The PDF downloads and the lot is
@@ -525,7 +540,8 @@ const SUBMIT_ON_A = async ({ approval, offline }) => {
            msg: $("saveMsg").textContent, chip: $("syncChip").textContent,
            server: JSON.parse(JSON.stringify(window.__HARNESS_AMAW)), local: keep };
 };
-const REVIEW_ON_B = async ({ submitted, server, ledgerPatch, ledgerPatchAfterOpen, stalePending, offline, reopen }) => {
+const REVIEW_ON_B = async ({ submitted, server, ledgerPatch, ledgerPatchAfterOpen, stalePending, offline, reopen,
+                             reopenFromList }) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const S = window.__HARNESS_AMAW;
   if (server) { Object.assign(S.amaw_lots, server.amaw_lots); Object.assign(S.amaw_lot_data, server.amaw_lot_data); }
@@ -587,7 +603,23 @@ const REVIEW_ON_B = async ({ submitted, server, ledgerPatch, ledgerPatchAfterOpe
     await sleep(1500);
     reopened = facts();
   }
-  return { opened, accepted, flushed, reopened, server: JSON.parse(JSON.stringify(S)) };
+  // Refused at the button, then the reviewer comes back through the Start a
+  // lot door's list - after the record has moved on (the contractor's seal
+  // landed), which is where a second report used to say the record "still"
+  // had the lot where it no longer did.
+  let listReopened = null;
+  if (reopenFromList) {
+    if (reopenFromList.ledgerPatch && S.amaw_lots[uid]) Object.assign(S.amaw_lots[uid], reopenFromList.ledgerPatch);
+    state.lot = null;
+    showLotDoor("plantbook");
+    await sleep(1200);
+    await openLotFromStore(uid);
+    await sleep(1500);
+    go(stepIndexOf("lot-status"));
+    await sleep(400);
+    listReopened = facts();
+  }
+  return { opened, accepted, flushed, reopened, listReopened, server: JSON.parse(JSON.stringify(S)) };
 };
 
 /* The contractor's own device, later: its localStorage as it was left, and
@@ -743,6 +775,17 @@ export async function run({ browser, results }) {
     ok("…the ledger never moved", f.ledger === "Submitted" && !f.acceptedAt, `ledger=${f.ledger} accepted_at=${f.acceptedAt}`);
     ok("…and this device took its stamp back off: Submitted, nothing pending",
        f.local === "Submitted" && f.pending === null, `local=${f.local} pending=${JSON.stringify(f.pending)}`);
+    ok("…and, said at the button, the refusal is not kept to be said again",
+       f.heldRefusal === null, `kept on this device: ${JSON.stringify(f.heldRefusal)}`);
+    const ro = v.reopened;
+    ok("reopened from the door's list, a refusal said at the button is NOT said again - no rail line, nothing under the button",
+       !/did not take|did not go through|made without a signal/.test(ro.msg) && ro.warn === null
+         && ro.stage === "Submitted" && /Accept/.test(ro.btn),
+       `stage=${ro.stage} btn="${ro.btn}" warn=${JSON.stringify(ro.warn)} msg="${ro.msg}"`);
+    ok("…and no “Accept refused” history line is written at reopen time, on the page or on this device",
+       !ro.history.includes("Accept refused by KYTC's lot record")
+         && !ro.storedHistory.includes("Accept refused by KYTC's lot record") && !/Accept refused/.test(ro.audit),
+       `page: ${ro.history.join(" / ")} || stored: ${ro.storedHistory.join(" / ")}`);
     ok("…so pressing Accept again simply works, and the warning under the button goes",
        v.retried.ledger === "Accepted" && v.retried.stage === "Accepted" && v.retried.warn === null,
        `ledger=${v.retried.ledger} stage=${v.retried.stage} warn=${JSON.stringify(v.retried.warn)}`);
@@ -956,8 +999,14 @@ export async function run({ browser, results }) {
   if (wa.skipped) { results.skip(id, BOOK, "Accept while the contractor's seal waits", wa.skipped); }
   else {
     const W = wa.value.a;
+    // The contractor's own waiting seal, as the record will take it once the
+    // plant has a signal: THIS submission's hash, not a made-up one.
+    const heldA = JSON.parse((W.local || {})["amaw_lot:" + W.uid] || "null") || {};
+    const landed = { status: "Submitted", submittal_sha256: (heldA.pending_seal || {}).sha256 || null,
+                     submitted_name: "Jo Contractor", submitted_at: "2026-09-26T10:00:00.000Z" };
     const wb = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true },
-      async (h) => ({ b: await h.page.evaluate(REVIEW_ON_B, { submitted: W.submitted, server: W.server }),
+      async (h) => ({ b: await h.page.evaluate(REVIEW_ON_B, { submitted: W.submitted, server: W.server,
+                                                             reopenFromList: { ledgerPatch: landed } }),
                       errs: realErrors(h.errs || []) }));
     if (wb.skipped) { results.skip(id, BOOK, "Accept while the contractor's seal waits", wb.skipped); }
     else {
@@ -970,6 +1019,14 @@ export async function run({ browser, results }) {
          acc.stage === "Submitted" && acc.warn === acc.msg, `stage=${acc.stage} warn=${JSON.stringify(acc.warn)}`);
       ok("…and pressing Accept wrote nothing more into the contractor's data",
          acc.dataRevision === o.dataRevision, `revision ${o.dataRevision} on open -> ${acc.dataRevision} after Accept`);
+      const lr = wb.value.b.listReopened || {};
+      ok("…and once the contractor's seal lands, reopening from the door's list does not say that refusal again",
+         !!landed.submittal_sha256 && lr.ledger === "Submitted" && lr.stage === "Submitted" && /Accept/.test(lr.btn || "")
+           && lr.warn === null && !/did not take|did not go through|still has lot 1 Open/.test(lr.msg || ""),
+         `ledger=${lr.ledger} stage=${lr.stage} btn="${lr.btn}" warn=${JSON.stringify(lr.warn)} msg="${lr.msg}"`);
+      ok("…with no “Accept refused” history line written at reopen time",
+         !(lr.history || []).some((h) => /^Accept refused/.test(h)) && !/Accept refused/.test(lr.audit || ""),
+         (lr.history || []).join(" / "));
       ok("…both devices clean", wa.value.errs.length === 0 && wb.value.errs.length === 0,
          [...wa.value.errs, ...wb.value.errs].slice(0, 3).join(" | ") || "clean");
     }

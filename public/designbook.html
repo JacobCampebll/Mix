@@ -24411,11 +24411,12 @@ async function submitLotToKYTC() {
  * THE RECORD DECIDES, NOT THIS PAGE. Refused, the stage never moves, and the
  * reason and where the record has the lot are printed - beside the button and
  * in the rail (the store has already taken its own stamp off - storage.mjs's
- * pushOne()). Already accepted - by another reviewer, since both get the
- * submittal email - the lot is Accepted and the sentence says who. With no
- * signal the lot is Accepted here, the seal waits in the outbox, and the
- * sentence says so. With lot storage not set up the file is the only record,
- * and the sentence says that. */
+ * pushOne()) - and, said, the refusal is acknowledged so it is not said again
+ * when the lot is next opened. Already accepted - by another reviewer, since
+ * both get the submittal email - the lot is Accepted and the sentence says
+ * who. With no signal the lot is Accepted here, the seal waits in the outbox,
+ * and the sentence says so. With lot storage not set up the file is the only
+ * record, and the sentence says that. */
 async function acceptLotForKYTC() {
   if (!state.lot) { msg($("saveMsg"), "There is no lot open.", "error"); return; }
   if (!state.canReview) {
@@ -24424,7 +24425,7 @@ async function acceptLotForKYTC() {
   }
   const btn = $("advanceStage"), was = btn ? btn.textContent : "";
   if (btn) { btn.disabled = true; btn.textContent = "Accepting..."; }
-  const n = state.lot.lot_number;
+  const n = state.lot.lot_number, uid = state.lot.uid;
   state.lot.stageWarn = null;
   try {
     const out = await sealLotAccepted();
@@ -24437,6 +24438,15 @@ async function acceptLotForKYTC() {
       const said = acceptRefusedText(n, out);
       if (state.lot) state.lot.stageWarn = said;
       msg($("saveMsg"), said, "error");
+      // SAID, HERE - so the store stops carrying it. storage.mjs keeps every
+      // refusal on its lot (pushOne()), because one a flush meets has nobody
+      // watching and is said when the lot is next opened; this one has just
+      // been said, beside the button. Left on the lot, reopening it said it a
+      // second time - as an Accept "made without a signal", over a record that
+      // may have moved since, with a history line written at reopen time.
+      if (state.store && state.store.acknowledge) {
+        try { await state.store.acknowledge(uid); } catch (_) { /* at worst said again on reopen */ }
+      }
       return;
     }
     state.stageIdx = CONFIG.LOT_STAGES.findIndex((x) => x.key === "Accepted");
