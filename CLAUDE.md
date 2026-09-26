@@ -5742,3 +5742,27 @@ commit where possible.
   and a fix is a migration.
   Measured: page checker 223 pass (was 214), check_storage 211 (was 94), full
   harness 522 passed / 0 failed / 3 skipped (was 404).
+
+- **The Submit / Approve line is echoed under the stage button, and after a
+  submission a send row says who to email, which file, with Copy and a
+  mailto** (F1, 2026-09-26). Measured before: the sentence a Submit writes
+  went only into `#saveMsg`, ~12,000px above the button on a phone (~62,000
+  on a lot) and under the fixed action bar on a 1366x768 lot. `#stageMsg`
+  sits after the stage button's row, before `#stageNote`, in both books.
+  `msg()` echoes into it whenever its target is `#saveMsg`: one ellipsised
+  line, the whole text in `title`, same ok/warn/error. **It mirrors
+  `#saveMsg` rather than keeping a copy**, and `renderStage()` /
+  `renderLotStage()` re-echo because `renderForm()` re-creates the node.
+  `#valBlock` and `#saveMsg` do not move (2026-09-11), and `#saveMsg` keeps
+  the full text and the long reports. **The echo is the only live region**.
+  Put `aria-live` on `#saveMsg` too and a screen reader says everything
+  twice. A refused Accept already in `#stageWarn` is echoed `.sronly`.
+  The send row is gated on `submittedFor(book)` and names
+  `handoffFileName()` / `lotFileName()` of the frozen submittal, so it is
+  the file that downloaded. "Email it now" is a mailto, so the server stays
+  out of the mail path (2026-09-10). A mailto cannot attach, so the body
+  starts "Attached: <file>". With `CONFIG.SUBMIT.KYTC_EMAIL` null nothing
+  new renders. **Trap for the harness**: Submit re-renders the stage in its
+  `finally`, which re-echoes, so a check that only submits passes with
+  `msg()`'s echo deleted. `checks/stagemsg.mjs` re-downloads the submittal
+  (a `msg()` with no render after it) for that reason.
