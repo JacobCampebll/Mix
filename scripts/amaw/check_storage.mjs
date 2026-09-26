@@ -607,6 +607,83 @@ head('a refusal is the store\'s to keep and the page\'s to acknowledge');
 }
 
 // =====================================================================
+head('the chain is the record\'s, and it moves without the data moving');
+// =====================================================================
+{
+  // KYTC accepts on its own device. The contractor's list took the server's
+  // status (list() always has) while OPENING the same lot showed Submitted,
+  // because load() read the server copy only when the data revision moved -
+  // and a seal does not move it.
+  const server = fakeServer();
+  const contractor = newStore(server);
+  const saved = await contractor.save(blankLot(IDENT), { by: BY });
+  await contractor.seal(saved.uid, 'Submitted', { sha256: 'a'.repeat(64), by: BY });
+  server.net.reviewer = true;
+  const kytc = newStore(server, fakeStorage());
+  await kytc.load(saved.uid);
+  await kytc.seal(saved.uid, 'Accepted', { by: BY });
+  ok('(the record reads Accepted)', server.db.lots.get(saved.uid).status === 'Accepted');
+
+  const row = (await contractor.list()).find((r) => r.uid === saved.uid);
+  ok('the contractor\'s list reads Accepted, with who and when',
+     !!row && row.status === 'Accepted' && row.accepted_name === 'KYTC Reviewer' && !!row.accepted_at, row);
+  const opened = await contractor.load(saved.uid);
+  ok('…and OPENING it reads Accepted too, with the same who and when',
+     opened.status === 'Accepted' && opened.accepted_name === 'KYTC Reviewer' && !!opened.accepted_at,
+     [opened.status, opened.accepted_name, opened.accepted_at]);
+  const held = await contractor.local.load(saved.uid);
+  ok('…and this device keeps it, so it still reads Accepted with no signal',
+     held.status === 'Accepted' && held.accepted_name === 'KYTC Reviewer', [held.status, held.accepted_name]);
+  const mineRow = (await contractor.local.list()).find((r) => r.uid === saved.uid);
+  ok('…including in the list it keeps for itself',
+     !!mineRow && mineRow.status === 'Accepted' && mineRow.accepted_name === 'KYTC Reviewer', mineRow);
+  // A page that opened the lot from its file holds none of the stamps.
+  await contractor.save({ ...held, status: 'Submitted', accepted_at: null, accepted_name: null, submitted_name: null }, { by: BY });
+  const after = await contractor.local.load(saved.uid);
+  ok('a save from a page that holds no stamps does not wipe the record\'s',
+     after.status === 'Accepted' && after.accepted_name === 'KYTC Reviewer' && !!after.submitted_name,
+     [after.status, after.accepted_name, after.submitted_name]);
+  const theirRow = (await newStore(server, fakeStorage()).list()).find((r) => r.uid === saved.uid);
+  ok('a device that has never held it lists who accepted it and when',
+     !!theirRow && theirRow.accepted_name === 'KYTC Reviewer' && !!theirRow.accepted_at && theirRow.submitted_name === 'Jo Cavanah',
+     theirRow);
+}
+{
+  const server = fakeServer();
+  const a = newStore(server);
+  const saved = await a.save(blankLot(IDENT), { by: BY });                    // the record: Open
+  // A reviewer's copy from the submittal FILE, while the contractor's seal
+  // is still waiting on their device: the record is behind it.
+  const b = newStore(server, fakeStorage());
+  await b.local.save(normaliseLot({ ...saved, status: 'Submitted' }), { by: BY });
+  ok('the record\'s chain is never taken backwards', (await b.load(saved.uid)).status === 'Submitted');
+
+  // Nor over a seal of this device's own that is still waiting - its answer
+  // decides that, in pushOne(). Here the record holds ANOTHER submission.
+  const c = newStore(server, fakeStorage());
+  const lotC = normaliseLot({ ...blankLot({ ...IDENT, lot_number: 4 }), status: 'Submitted',
+    pending_seal: { status: 'Submitted', sha256: 'a'.repeat(64), prev: null, at: '2026-09-26T00:00:00.000Z' } });
+  await c.local.save(lotC, { by: BY });
+  server.db.lots.set(lotC.uid, { id: lotC.uid, ...IDENT, lot_number: 4, status: 'Submitted',
+    submittal_sha256: 'b'.repeat(64), submitted_name: 'Night Shift' });
+  const gotC = await c.load(lotC.uid);
+  ok('…nor over a seal of this device\'s own that is still waiting',
+     !!gotC.pending_seal && gotC.submittal_sha256 !== 'b'.repeat(64), [gotC.pending_seal, gotC.submittal_sha256]);
+
+  // A refusal the record has since overtaken says nothing any more.
+  const d = newStore(server, fakeStorage());
+  const lotD = normaliseLot({ ...blankLot({ ...IDENT, lot_number: 5 }), status: 'Submitted',
+    seal_refused: { status: 'Accepted', reason: 'only KYTC accepts a lot', record: { status: 'Submitted' } } });
+  await d.local.save(lotD, { by: BY });
+  server.db.lots.set(lotD.uid, { id: lotD.uid, ...IDENT, lot_number: 5, status: 'Accepted',
+    accepted_name: 'Tate Salle', accepted_at: '2026-09-26T07:00:00.000Z' });
+  const gotD = await d.load(lotD.uid);
+  ok('a refusal the record has since overtaken is dropped',
+     gotD.status === 'Accepted' && gotD.accepted_name === 'Tate Salle' && gotD.seal_refused == null,
+     [gotD.status, gotD.accepted_name, gotD.seal_refused]);
+}
+
+// =====================================================================
 head('an Accept with no signal');
 // =====================================================================
 {

@@ -19493,6 +19493,12 @@ const PB_LOT = (() => {
       lot_number: lot.lot_number,
       density_option: lot.density_option || '',
       status: lot.status || 'Open',
+      // Who moved it along the chain, and when - the record's own stamps, so a
+      // list can say "Accepted 2026-09-26 by Tate Salle" rather than a bare word.
+      submitted_at: lot.submitted_at || null,
+      submitted_name: lot.submitted_name || null,
+      accepted_at: lot.accepted_at || null,
+      accepted_name: lot.accepted_name || null,
       records_entered: entered.length,
       sublots_entered: sublotsWithContent(lot),
       saved_at: lot.saved_at || null,
@@ -19998,6 +20004,10 @@ const PB_LOT = (() => {
       lot_number: r.lot_number,
       density_option: r.density_option || '',
       status: r.status,
+      submitted_at: r.submitted_at || null,
+      submitted_name: r.submitted_name || null,
+      accepted_at: r.accepted_at || null,
+      accepted_name: r.accepted_name || null,
       // amaw_lot_summaries carries neither count, and a zero is a claim: a lot
       // known only from the server read "0 of 4 sublots" whether it was blank or
       // finished. Unknown is null, and the list prints no count for it.
@@ -20231,6 +20241,14 @@ const PB_LOT = (() => {
           // Submitted". Only seal() moves it, and it writes through local.save()
           // rather than through here.
           status: held.status,
+          // ...and the same goes for the stamps beside it. A page that opened a
+          // lot from its file carries none, and taking the caller's here wiped
+          // the who and when load() had just taken off the record.
+          submitted_at: held.submitted_at, submitted_name: held.submitted_name,
+          accepted_at: held.accepted_at, accepted_name: held.accepted_name,
+          submittal_sha256: held.submittal_sha256,
+          prev_sha256: held.prev_sha256 || lot.prev_sha256 || null,
+          purge_after: held.purge_after, purged_at: held.purged_at,
           revision: held.revision,
           server_revision: held.server_revision,
           synced_revision: held.synced_revision,
@@ -20275,6 +20293,23 @@ const PB_LOT = (() => {
         if (!theirs) return mine;
         if (!mine) { await local.save(theirs, { bump: false }); return theirs; }
 
+        // THE CHAIN IS THE RECORD'S, and it moves without the data moving: a
+        // seal changes the status and stamps and leaves the data revision where
+        // it was. Reading the chain only when the data moved meant a contractor's
+        // list said Accepted (list() already takes the server's chain) and the
+        // same lot opened as Submitted. Taken whenever the record is at least as
+        // far along - never backwards (a reviewer's copy from the submittal file
+        // stays Submitted while the contractor's seal is still waiting), and not
+        // over a seal of this device's own that is still waiting: that seal's
+        // answer decides it (pushOne()).
+        if (!mine.pending_seal && statusRank(theirs.status) >= statusRank(mine.status)) {
+          const before = JSON.stringify(chainOf(mine));
+          takeChain(mine, theirs);
+          // A refusal the record has since overtaken says nothing any more.
+          if (mine.seal_refused && statusRank(mine.status) >= statusRank(mine.seal_refused.status)) mine.seal_refused = null;
+          if (JSON.stringify(chainOf(mine)) !== before) { try { await local.save(mine, { bump: false }); } catch (_) {} }
+        }
+
         const localMoved = isUnsynced(mine);
         const remoteMoved = Number(theirs.server_revision == null ? -1 : theirs.server_revision) >
                             Number(mine.server_revision == null ? -1 : mine.server_revision);
@@ -20307,7 +20342,9 @@ const PB_LOT = (() => {
           const r = byUid.get(m.uid);
           // The local copy wins on content (it may hold unsynced work) and the
           // server wins on the chain, which the client never writes.
-          byUid.set(m.uid, r ? { ...m, status: r.status, submitted_at: r.submitted_at,
+          byUid.set(m.uid, r ? { ...m, status: r.status,
+                                 submitted_at: r.submitted_at, submitted_name: r.submitted_name,
+                                 accepted_at: r.accepted_at, accepted_name: r.accepted_name,
                                  purge_after: r.purge_after, purged_at: r.purged_at,
                                  has_data: true } : m);
         }
