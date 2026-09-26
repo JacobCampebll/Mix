@@ -5643,27 +5643,64 @@ commit where possible.
   `accepted_at`, no audit line - and Submit printed one success line whatever
   became of its seal. `acceptLotForKYTC()` now seals (reviewer-only as before:
   hidden button, refusing handler, refusing server), and after Submit and
-  Accept `sealOutcome()` says one of four true things: sealed / waiting for a
-  signal / lot storage not set up (the file wording, then true) / refused, with
-  the reason. The chip reads "waiting to be sealed" while a seal is in the
-  outbox. Every PlantBook sentence about where a lot is kept reads
-  `lotStorageLive()`, the save note's gate; DesignBook's own still stand
-  (2026-09-04).
-  **A refused Accept comes back off; a refused Submit stays**, deliberately -
-  its PDF is already on its way. The rollback is in storage.mjs's `pushOne()`,
-  the one door `seal()`/`save()`/`flush()` share, so an offline Accept refused
-  at a later flush comes off too; "no such lot" (P0002) is an answer now, not a
-  lost signal. **"n of 4 sublots" is asked of the schema** - sections.mjs's
+  Accept `sealOutcome()` says one of four true things: sealed (or already
+  sealed, naming who) / waiting for a signal / lot storage not set up (the
+  file wording, then true) / refused, with the reason and where the record has
+  the lot. A refused Accept also shows in `#stageWarn` under the button:
+  `#saveMsg` is in the rail, off-screen at most widths when it is pressed. The
+  chip reads "waiting to be sealed" while a seal is in the outbox, and "not
+  sealed" after a refused Submit - across a reload too. Every PlantBook
+  sentence about where a lot is kept reads `lotStorageLive()`, the save note's
+  gate; DesignBook's own still stand (2026-09-04).
+  **A refusal is asked about before anything is put back.** amaw_seal_lot()
+  says "no" to a seal that already took - a reply lost on the way back, or a
+  second reviewer first (both get the submittal email, so that is ordinary) -
+  so a non-transient refusal first reads the one ledger row
+  (`supabaseLotStore().chain()`): an Accept the record holds as Accepted, or a
+  Submit it holds with THIS submission's hash, is adopted with the record's
+  who and when. Only a real refusal is refused, and it is KEPT on the lot as
+  `seal_refused` (store bookkeeping like `pending_seal`, never in a file). A
+  refused Accept comes back off and is said once - on the door if no lot is
+  open, and on the lot with a history line "Accept refused by KYTC's lot
+  record" after its "Lot accepted" (history only grows) - then `acknowledge()`d;
+  a refused Submit stays, deliberately, its seal still in the outbox. Only the
+  store's own refusal record puts a page back, with that lot's reason: never a
+  disagreement between two statuses, never `lastError`, and never over a lot
+  this device holds as Accepted (`acceptRefusalToSay()`). The rollback is in
+  storage.mjs's `pushOne()`, the one door `seal()`/`save()`/`flush()` share;
+  "no such lot" (P0002) is an answer, not a lost signal, and a missing seal
+  function (PGRST202) is not set up, not no signal.
+  **The chain is the record's.** It moves without the data moving, so load()
+  takes the status and stamps whenever the record is at least as far along -
+  never backwards, never over a seal of this device's own still waiting - and
+  save() keeps the whole chain block rather than a caller's; the page follows
+  it forward when a lot opens (`takeHeldChain()`), and the list says "Accepted
+  <date> by <name>". A pending seal is made by `seal()` and nowhere else: a
+  file's stale one is ignored, and `lotSnapshot()` keeps both it and a refusal
+  out of files. **One slot:** an Accept over a submission still waiting is
+  refused with no signal, and stamped over it when the project has no lot
+  storage (nothing will ever send it; the file is the record).
+  **"n of 4 sublots" is asked of the schema** - sections.mjs's
   `rowHoldsMeasurement()`, from readonly flags, seeds, the lot-level lists and
   the blend %'s new `seedFrom: "design_pct"`. It read 4 of 4 on every untouched
-  lot and took "1-3" for sublot 1; a server-only row has no count, and an index
+  lot and took "1-3" for sublot 1; a server-only row says Open, and an index
   entry an older `lotSummary()` wrote (no `summary_version`) makes the first
-  list() rebuild the index from the lots themselves.
+  list() rebuild the index from the lots themselves. Retention is said as intent
+  ("due to be deleted"): pg_cron is not scheduled.
   `.jobstrip[hidden]{display:none}`: under `display:flex` the attribute did
   nothing, so the door, DesignBook's gate and its upload card showed empty
-  chips. **Trap:** lotstore/lotremoved/nextlot read `h.errors`, which
-  `openPage()` never returns, so four console-error cases could not fail
-  (fixed; that commit's message says five). **Open (F9):** a reviewer can still
-  press Start lot n+1 on a contractor's lot and roll it forward as KYTC.
-  Measured: page checker 219 pass (was 214), check_storage 129 (was 94), full
-  harness 431 passed / 0 failed / 3 skipped (was 404).
+  chips; and `switchBook()` now repaints the sync chip, which DesignBook kept.
+  **Traps:** lotstore/lotremoved/nextlot read `h.errors`, which `openPage()`
+  never returns, so four console-error cases could not fail (fixed). And when
+  two fixes cover one path, each one's test must be a case the other cannot
+  heal: the stale-seal case passed with its guard removed, because the record
+  check healed it online - its proving case is the one with no signal.
+  **Open (F9):** a reviewer can still press Start lot n+1 on a contractor's lot
+  and roll it forward as KYTC; and a reviewer who opens a submittal while the
+  contractor's seal still waits adopts the server's Open copy and saves into
+  it, which leaves that seal on a stale revision ("not sealed"). The Accept no
+  longer adds a second write. **Open (Andrew):** amaw_seal_lot() inserts every
+  `amaw_lot_events` row with `from_status 'Open'`, so an Accept's event reads
+  Open -> Accepted; nothing reads it yet, and a fix is a migration.
+  Measured: page checker 221 pass (was 214), check_storage 192 (was 94), full
+  harness 489 passed / 0 failed / 3 skipped (was 404).
