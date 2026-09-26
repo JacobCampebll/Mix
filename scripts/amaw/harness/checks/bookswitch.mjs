@@ -36,10 +36,22 @@
  */
 import { bookProbe, domAudit, fillForm } from "../lib/inpage.mjs";
 import { enterBook, PLANT } from "../lib/books.mjs";
-import { openPage, realErrors } from "../lib/page.mjs";
+import { openPage, realErrors, rewrittenPage } from "../lib/page.mjs";
 
 export const id = "bookswitch";
 const BOOK = "-";     // this check is about the pair, not about one book
+
+// The appbar, measured rather than read off an attribute: `hidden` on the job
+// strip was a no-op for as long as `.jobstrip{display:flex}` outranked it, so
+// only the computed display says whether it is really gone. Serialized into
+// the page by page.evaluate(), so it names nothing from this module.
+const appbar = () => {
+  const shown = (id) => { const el = document.getElementById(id); return !!el && getComputedStyle(el).display !== "none"; };
+  return { pill: shown("statuspill") ? document.getElementById("statuspill").textContent : null,
+           saved: shown("savedstate"), jobStrip: shown("jobStrip"),
+           jobH: Math.round(document.getElementById("jobStrip").getBoundingClientRect().height),
+           mixid: document.getElementById("mixid").textContent };
+};
 
 export async function run({ browser, results }) {
   const h = await openPage(browser, { width: 1440, height: 1000 });
@@ -71,6 +83,9 @@ export async function run({ browser, results }) {
       for (const kase of [
         "PlantBook with no lot open is the Start a lot page",
         "the door takes an approval or a saved lot, never a blank",
+        "the door wears no stage pill, saved-state line or contract chips",
+        "back from the door, DesignBook's pill, saved-state line and chips return",
+        "a page booted on PlantBook opens on the same bare door",
         "back from the door is DesignBook's form, in DesignBook's words",
         "switching preserves the #valBlock node",
         "switching keeps #vallist/#saveMsg inside it",
@@ -93,8 +108,17 @@ export async function run({ browser, results }) {
     await page.evaluate(fillForm, { nominal_size: "0.38", mix_type: "B" });
     const designBefore = await page.evaluate(() => JSON.stringify(collectForm()));
 
+    const designBar = await page.evaluate(appbar);
+
     await page.click("#bookPlant");
     await page.waitForTimeout(400);
+    const doorBar = await page.evaluate(appbar);
+    // Start a lot is neither a lot nor a design: DesignBook's DRAFT pill, its
+    // "Not downloaded yet" and three empty contract chips all read as though
+    // the door were a draft of something (2026-09-26).
+    results.ok(id, BOOK, "the door wears no stage pill, saved-state line or contract chips",
+               doorBar.pill === null && !doorBar.saved && !doorBar.jobStrip && doorBar.jobH === 0 && !/MIX ID/.test(doorBar.mixid),
+               `pill=${JSON.stringify(doorBar.pill)} saved=${doorBar.saved} chips=${doorBar.jobStrip} (${doorBar.jobH}px) mixid="${doorBar.mixid}"`);
     const door = await page.evaluate(() => {
       const vis = (id) => { const el = document.getElementById(id); return !!el && !el.classList.contains("hidden"); };
       return {
@@ -136,6 +160,12 @@ export async function run({ browser, results }) {
     results.ok(id, BOOK, "back from the door is DesignBook's form, in DesignBook's words",
                back.layout && !back.upload && !/start a lot/i.test(back.title),
                `form=${back.layout} upload=${back.upload} card title="${back.title}"`);
+    const backBar = await page.evaluate(appbar);
+    results.ok(id, BOOK, "back from the door, DesignBook's pill, saved-state line and chips return",
+               backBar.pill === designBar.pill && backBar.pill !== null && backBar.saved === designBar.saved
+                 && backBar.jobStrip && backBar.jobH === designBar.jobH && backBar.mixid === designBar.mixid,
+               `pill ${JSON.stringify(designBar.pill)}->${JSON.stringify(backBar.pill)} saved ${designBar.saved}->${backBar.saved} ` +
+               `chips ${designBar.jobH}px->${backBar.jobH}px mixid "${backBar.mixid}"`);
     const designAfter = await page.evaluate(() => JSON.stringify(collectForm()));
     results.ok(id, BOOK, "DesignBook's values survive a round trip through PlantBook",
                designBefore === designAfter,
@@ -146,5 +176,54 @@ export async function run({ browser, results }) {
                e.slice(0, 2).join(" | ") || "0 errors");
   } finally {
     await h.close();
+  }
+
+  // ---- a page booted straight onto PlantBook ---------------------------
+  // boot()'s own door rather than the switch's. Only showLotDoor() painted the
+  // door's appbar, so this one kept the markup's "MIX ID · —" and DesignBook's
+  // DRAFT pill. openPage() waits for a form this page never draws, so it is
+  // opened by hand and waited on the door itself.
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  try {
+    const p = await ctx.newPage();
+    const bootErrs = [];
+    p.on("pageerror", (err) => bootErrs.push("pageerror: " + String(err)));
+    p.on("console", (m) => { if (m.type() === "error") bootErrs.push("console: " + m.text()); });
+    await p.goto(`file://${rewrittenPage().file}?book=plantbook`);
+    await p.waitForFunction(() => typeof state !== "undefined" && state.bookDoor === true, null, { timeout: 15000 });
+    await p.waitForTimeout(300);
+    const bar = await p.evaluate(appbar);
+    const be = realErrors(bootErrs);
+    results.ok(id, BOOK, "a page booted on PlantBook opens on the same bare door",
+               bar.pill === null && !bar.saved && !bar.jobStrip && bar.jobH === 0 && /^LOT/.test(bar.mixid) && be.length === 0,
+               `pill=${JSON.stringify(bar.pill)} saved=${bar.saved} chips=${bar.jobStrip} (${bar.jobH}px) mixid="${bar.mixid}"` +
+               (be.length ? ` errors: ${be.slice(0, 2).join(" | ")}` : ""));
+  } finally {
+    await ctx.close();
+  }
+
+  // ---- the door from DesignBook's upload card, and back ----------------
+  // switchBook()'s other return path: no form behind the door, so nothing
+  // re-renders on the way back and closeLotDoor() alone has to put the pill
+  // and the saved-state line back as they were - not repainted, or the legacy
+  // card would come back saying things it never said.
+  const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  try {
+    const p = await ctx2.newPage();
+    await p.goto(`file://${rewrittenPage().file}?mode=legacy&cid=262120&letting=2026-02-19&plant=AMP070301`);
+    await p.waitForFunction(() => typeof state !== "undefined" && state.caps
+      && !document.getElementById("uploadCard").classList.contains("hidden"), null, { timeout: 15000 });
+    await p.waitForTimeout(300);
+    const card = await p.evaluate(appbar);
+    const cardText = await p.evaluate(() => document.getElementById("savedstate").textContent);
+    await p.click("#bookPlant"); await p.waitForTimeout(300);
+    await p.click("#bookDesign"); await p.waitForTimeout(300);
+    const again = await p.evaluate(appbar);
+    const againText = await p.evaluate(() => document.getElementById("savedstate").textContent);
+    results.ok(id, BOOK, "back from the door to DesignBook's upload card, its appbar is as it was",
+               JSON.stringify(card) === JSON.stringify(again) && cardText === againText && card.pill !== null,
+               `before ${JSON.stringify(card)} "${cardText}" / after ${JSON.stringify(again)} "${againText}"`);
+  } finally {
+    await ctx2.close();
   }
 }
