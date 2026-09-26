@@ -5515,8 +5515,14 @@ commit where possible.
   AMAW. **Chromium reports `scrollWidth === clientWidth` for a squeezed date or
   time input**, so the viewports sweep now measures pickers by intrinsic width;
   their tracks floor at 144/124px by column TYPE (`rowGridTemplate()`), and
-  `grid` stays pure `fr` because `gridWeights()` sizes the lot PDF from it (the
-  date's 1.4fr prints an ISO date whole; at 1fr it read "2026-...").
+  `grid` stays pure `fr` because `gridWeights()` sizes the lot PDF from it.
+  **That makes the ticket's `fr` a PDF measurement**: the table is 345pt for
+  eleven columns, and each weight is its column's widest ordinary value in
+  pdf-lib's Helvetica plus the cell's padding (337pt of the 345), so an ISO
+  date, a 4- or 5-digit tonnage, both lot numbers and an SM ID all print
+  whole. The first cut bought the date's 1.4fr from "Tons today before
+  sample", which then printed a 4-digit figure as "1..." in the submittal
+  KYTC reads - caught in review by capturing pdf-lib's `drawText`.
   **The ticket table SCROLLS below 1440px rather than squeezing** - corrected
   the same day, after review measured the first cut clipping Binder lot, Tack
   lot and Tech (8-character values) from 1000 to 1440px, and AC method's

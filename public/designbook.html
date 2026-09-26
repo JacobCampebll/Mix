@@ -4165,14 +4165,21 @@ const verifySpecimenOf4 = (n) =>
     // their values from 1000 to 1440px - AC method's seeded "Ignition
     // Furnace" on every lot.
     //
-    // IN THE LOT PDF the `fr` is what sizes the columns (gridWeights()): 1.4
-    // is the smallest step that prints an ISO date whole in the PDF's 345pt
-    // table - every date is the same 44.9pt there, and at 1fr each printed as
-    // "2026-...". The total stays 10.6, so every PDF column not named here
-    // keeps its width. The 1.4 comes from the three short number columns,
-    // which still print a 5-digit truck number and a 3-digit tonnage or
-    // temperature whole; what is left goes to AC method.
-    grid: ".7fr 1.4fr .8fr .85fr .9fr .6fr .6fr 1fr 1fr 1.1fr 1.65fr",
+    // IN THE LOT PDF the `fr` is what sizes the columns (gridWeights()), and
+    // there the table is 345pt for eleven columns, so each weight is measured
+    // rather than picked: its column's widest ordinary value in pdf-lib's
+    // Helvetica at the 7.6pt a cell prints in, plus the 6pt the cell pads,
+    // shared out in proportion. An ISO date is 38.9pt, a 4- or 5-digit tonnage
+    // 16.9-21.1pt, an eight-character binder lot or SM ID 33.0/31.9pt, a tack
+    // lot like "T-88213" 27.2pt, and AC method wraps at its spaces, so its
+    // widest word counts ("Extraction", 33.7pt). That is 337pt of the 345, and
+    // every one of those prints whole with 0.6-0.9pt to spare - where the grid
+    // before this printed a 4-digit "Tons today before sample" as "1..." (at
+    // .6fr) and cut both lot numbers and the SM ID, as the one before that had
+    // cut the date to "2026-...". Two things still cannot fit and never did:
+    // "Back-Calculation" (56.9pt, one word) and the long headings, which fit()
+    // cuts - the value itself is whole in the payload the PDF carries.
+    grid: ".67fr 1.4fr .79fr .85fr .85fr .73fr .6fr 1.22fr 1.04fr 1.19fr 1.24fr",
     seed: TICKET_SEED,
     columns: [
       // `minPx` (rowGridTemplate()): the floor a column's own values need on

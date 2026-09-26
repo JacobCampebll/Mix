@@ -294,5 +294,58 @@ export async function run({ browser, results, books }) {
       results.ok(id, book.label, "review PDF carries rows back", r.rows, `${r.bytes} bytes`);
       results.ok(id, book.label, "review PDF: clean console", e2.length === 0, e2.slice(0, 2).join(" | ") || "0 errors");
     }
+
+    // ---- PlantBook: the lot PDF prints every ticket value WHOLE (2026-09-26)
+    // The sublot ticket's `fr` is what sizes the lot PDF's 345pt table
+    // (gridWeights()), so a weight moved for the screen can cut a figure in the
+    // submittal KYTC reads - which is how a 4-digit "Tons today before sample"
+    // came to print as "1...". Real-shaped values in (the sublots opened so the
+    // cells take them), pdf-lib's drawText captured, and every value must be
+    // drawn as typed in the table that follows the "Sublot ticket" heading.
+    if (book.label === "PlantBook") {
+      const lp = await withBook(browser, book, { width: 1440, height: 1000, query: "&sublots=open" },
+        async ({ page, errs: e4 }) => {
+          const r = await page.evaluate(async (tickets) => {
+            const rows = rowsOfList("sublot_tickets");
+            let typed = 0;
+            tickets.forEach((t, i) => {
+              for (const [k, v] of Object.entries(t)) {
+                const el = rows[i] && rows[i].querySelector(`[data-col="${k}"]`);
+                if (!el || el.disabled) continue;
+                el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); typed++;
+              }
+            });
+            await new Promise((res) => setTimeout(res, 200));
+            const drawn = [];
+            const orig = PDFLib.PDFPage.prototype.drawText;
+            PDFLib.PDFPage.prototype.drawText = function (t, o) { drawn.push(String(t)); return orig.call(this, t, o); };
+            try { await buildReviewPDF(handoffPayload()); } finally { PDFLib.PDFPage.prototype.drawText = orig; }
+            const at = drawn.indexOf("Sublot ticket");
+            const table = at < 0 ? [] : drawn.slice(at, at + 80);
+            const want = tickets.flatMap((t) => Object.values(t));
+            return { typed, want: want.length, missing: want.filter((v) => !table.includes(v)), found: at >= 0 };
+          }, PDF_TICKETS);
+          return { r, errs: realErrors(e4) };
+        });
+      if (!lp.skipped) {
+        const { r, errs: e4 } = lp.value;
+        const expected = PDF_TICKETS.reduce((n, t) => n + Object.keys(t).length, 0);
+        results.ok(id, book.label, "lot PDF prints every ticket value whole",
+                   r.found && r.typed === expected && r.missing.length === 0,
+                   !r.found ? "no \"Sublot ticket\" table was drawn"
+                     : r.typed !== expected ? `only ${r.typed}/${expected} values could be typed - the sublots did not open`
+                     : r.missing.length ? `cut or missing: ${r.missing.join(", ")}` : `${r.want}/${r.want} drawn as typed`);
+        results.ok(id, book.label, "lot PDF tickets: clean console", e4.length === 0, e4.slice(0, 2).join(" | ") || "0 errors");
+      }
+    }
   }
 }
+
+// Two tickets of real shape for the lot PDF check above: an eight-character
+// binder lot and SM ID, a 4- and a 5-digit tonnage. Fixtures, not real data.
+const PDF_TICKETS = [
+  { date: "2026-09-24", time: "14:15", truck: "22471", tons_cum: "4955", tons_before: "1250",
+    temperature: "305", binder_lot: "224711-A", tack_lot: "T-88213", technician: "jcavanah" },
+  { date: "2026-09-25", time: "07:05", truck: "18803", tons_cum: "41250", tons_before: "975",
+    temperature: "310", binder_lot: "224711-B", tack_lot: "T-88214", technician: "jharmon3" },
+];
