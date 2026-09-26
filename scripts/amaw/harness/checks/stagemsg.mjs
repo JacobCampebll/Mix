@@ -17,7 +17,7 @@
  * controls may render - the CONFIG comment's "never invent an address".
  */
 import { withBook, DESIGN, PLANT } from "../lib/books.mjs";
-import { realErrors } from "../lib/page.mjs";
+import { openPage, realErrors } from "../lib/page.mjs";
 
 export const id = "stagemsg";
 
@@ -144,6 +144,158 @@ async function submitCase(browser, book, w, h, { nullEmail = false } = {}) {
   });
 }
 
+/* In-page: submit the design on screen through the real button, with the
+ * confirm dialog and the download stubbed, and resolve to what saveBytes()
+ * was handed. */
+async function submitDesign(page) {
+  await page.evaluate(TO_STATUS);
+  await page.waitForTimeout(250);
+  await page.evaluate(CENTRE);
+  await page.evaluate(() => {
+    window.__dl = null;
+    window.confirm = () => true;
+    window.saveBytes = (bytes, name) => { window.__dl = name; };
+  });
+  await page.click("#advanceStage");
+  await page.waitForFunction(() => window.__dl && /downloaded/.test(document.getElementById("saveMsg").textContent),
+                             null, { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(250);
+  return page.evaluate(() => window.__dl);
+}
+
+/* The send row says "the file that just downloaded", so it is for a
+ * submission made on THIS page, in this session - never for a file someone
+ * opened. Four ways a submittal reaches the page without being submitted
+ * here, each of which used to light the row: a reviewer opening the
+ * submittal they were emailed (and then approving it, which left the row
+ * telling Andrew or Tate to email themselves), a contractor reopening an
+ * approved design, and the other book's submittal in the shared
+ * state.submitted slot. Plus the echo's own book: a line one book wrote must
+ * not appear under the other book's stage button. */
+async function custodyCases(browser, results) {
+  const ok = (what, cond, detail) => results.ok(id, "DesignBook", `custody ${what}`, !!cond, detail);
+  const rowOf = () => {
+    const row = document.getElementById("sendRow");
+    return {
+      shown: !!(row && !row.classList.contains("hidden") && row.getBoundingClientRect().height),
+      mails: document.querySelectorAll('a[href^="mailto:"]').length,
+      stage: (isPlantBook() ? CONFIG.LOT_STAGES : CONFIG.STAGES)[state.stageIdx].key,
+      echo: (document.getElementById("stageMsg") || {}).textContent || "",
+      save: (document.getElementById("saveMsg") || {}).textContent || "",
+    };
+  };
+  const ANIM = ".section{animation:none!important;opacity:1!important}";
+
+  // 1. A contractor submits; then, on the same page, the other book.
+  let frozen = null, downloaded = null;
+  {
+    const h = await openPage(browser, { width: 1366, height: 768 });
+    try {
+      await h.page.addStyleTag({ content: ANIM });
+      // Before Submit: the live region is already in the accessibility tree,
+      // empty. A region that arrives together with its first message is not
+      // reliably announced.
+      await h.page.evaluate(TO_STATUS);
+      await h.page.waitForTimeout(250);
+      const cdp = await h.page.context().newCDPSession(h.page);
+      const ax = await cdp.send("Accessibility.getFullAXTree");
+      const live = ax.nodes.filter((n) => n.role && n.role.value === "status" && !n.ignored);
+      const disp = await h.page.evaluate(() => getComputedStyle(document.getElementById("stageMsg")).display);
+      ok("the empty live region is in the accessibility tree before Submit", live.length === 1 && disp !== "none",
+         `status nodes=${live.length} display=${disp}`);
+      downloaded = await submitDesign(h.page);
+      frozen = await h.page.evaluate(() => JSON.parse(JSON.stringify(state.submitted)));
+      const own = await h.page.evaluate(rowOf);
+      ok("a submission made here shows the send row", !!downloaded && own.shown && own.mails === 1,
+         `downloaded=${downloaded} shown=${own.shown} mailtos=${own.mails}`);
+      // To PlantBook, and a lot opened through the real front door. The
+      // design's submittal is still in state.submitted - it is not the lot's.
+      await h.page.evaluate((approval) => {
+        switchBook("plantbook");
+        const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+        openLotEnvelope(out.lot, "the harness");
+      }, APPROVAL);
+      await h.page.waitForTimeout(500);
+      await h.page.evaluate(TO_STATUS);
+      await h.page.waitForTimeout(250);
+      const lot = await h.page.evaluate(rowOf);
+      const held = await h.page.evaluate(() => !!submittedFor("designbook"));
+      ok("on a lot, the design's submittal shows no send row and no mailto", held && !lot.shown && lot.mails === 0,
+         `design submittal held=${held} shown=${lot.shown} mailtos=${lot.mails}`);
+      await h.page.evaluate(() => { switchBook("designbook"); });
+      await h.page.waitForTimeout(300);
+      await h.page.evaluate(TO_STATUS);
+      await h.page.waitForTimeout(250);
+      const back = await h.page.evaluate(rowOf);
+      ok("back on DesignBook, the design's send row returns", back.shown && back.mails === 1,
+         `shown=${back.shown} mailtos=${back.mails}`);
+      ok("…and the lot's line is not echoed under DesignBook's button",
+         /lot/i.test(back.save) && back.echo === "",
+         `saveMsg=${JSON.stringify(back.save.slice(0, 40))} echo=${JSON.stringify(back.echo.slice(0, 40))}`);
+      ok("clean console", realErrors(h.errs).length === 0, realErrors(h.errs).join(" | ") || "clean");
+    } finally { await h.close(); }
+  }
+  if (!frozen) return;
+
+  // 2. A reviewer opens that submittal, then approves it.
+  let approved = null;
+  {
+    const h = await openPage(browser, { width: 1366, height: 768, canReview: true });
+    try {
+      await h.page.addStyleTag({ content: ANIM });
+      await h.page.evaluate((p) => {
+        state.tech.sm_id = "adenmark";      // not the submitter, so Approve is offered
+        enterFromHandoff(p, "DesignBook_submittal_x.pdf");
+      }, frozen);
+      await h.page.waitForTimeout(300);
+      await h.page.evaluate(TO_STATUS);
+      await h.page.waitForTimeout(250);
+      const opened = await h.page.evaluate(rowOf);
+      ok("a reviewer opening a submittal sees no send row and no mailto",
+         opened.stage === "Submitted" && !opened.shown && opened.mails === 0,
+         `stage=${opened.stage} shown=${opened.shown} mailtos=${opened.mails}`);
+      await h.page.evaluate(() => {
+        window.confirm = () => true;
+        const real = window.fetch;
+        window.fetch = (url, init) => String(url).includes(CONFIG.SUBMIT.SIGN_FN)
+          ? Promise.resolve(new Response(JSON.stringify({
+              mix_id: "00260467", approval_no: "#467", sequence: 467, year: "26", pa: "",
+              code: "HARNESS", issued_at: "2026-09-26T00:00:00.000Z",
+              approved_by: "adenmark", submitted_by: "harness" }), { status: 200 }))
+          : real(url, init);
+        document.getElementById("approvalSeq").value = "467";
+      });
+      await h.page.evaluate(CENTRE);
+      await h.page.click("#advanceStage");
+      await h.page.waitForFunction(() => !!state.approval, null, { timeout: 15000 }).catch(() => {});
+      await h.page.waitForTimeout(250);
+      const after = await h.page.evaluate(rowOf);
+      ok("after Approve, no send row and no mailto", after.stage === "Approved" && !after.shown && after.mails === 0,
+         `stage=${after.stage} shown=${after.shown} mailtos=${after.mails}`);
+      approved = await h.page.evaluate(() => JSON.parse(JSON.stringify(handoffPayload("Downloaded approval"))));
+      ok("clean console", realErrors(h.errs).length === 0, realErrors(h.errs).join(" | ") || "clean");
+    } finally { await h.close(); }
+  }
+  if (!approved) return;
+
+  // 3. The contractor reopens the approved design.
+  {
+    const h = await openPage(browser, { width: 1366, height: 768 });
+    try {
+      await h.page.addStyleTag({ content: ANIM });
+      await h.page.evaluate((p) => { enterFromHandoff(p, "KYTC_Approval_467_262120.pdf"); }, approved);
+      await h.page.waitForTimeout(300);
+      await h.page.evaluate(TO_STATUS);
+      await h.page.waitForTimeout(250);
+      const r = await h.page.evaluate(rowOf);
+      ok("a contractor reopening an approved design sees no send row and no mailto",
+         r.stage === "Approved" && !r.shown && r.mails === 0,
+         `stage=${r.stage} shown=${r.shown} mailtos=${r.mails}`);
+      ok("clean console", realErrors(h.errs).length === 0, realErrors(h.errs).join(" | ") || "clean");
+    } finally { await h.close(); }
+  }
+}
+
 export async function run({ browser, results }) {
   const A = "Andrew.Denmark@ky.gov", T = "Tate.Salle@ky.gov";
   for (const book of [DESIGN, PLANT]) {
@@ -212,4 +364,5 @@ export async function run({ browser, results }) {
        (after.stageText || "").slice(0, 70));
     ok("clean console", errs.length === 0, errs.join(" | ") || "clean");
   }
+  await custodyCases(browser, results);
 }
