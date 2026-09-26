@@ -24793,6 +24793,12 @@ async function reconcileLotSeal() {
   let held = null;
   try { held = await store.local.load(uid); } catch (_) { return; }
   if (!held || !state.lot || state.lot.uid !== uid) return;   // another lot opened meanwhile
+  // The same bookkeeping saveLotNow() keeps in step after a save. A flush
+  // moves it on disk and not on screen, so the chip read "saving" over a lot
+  // the flush had just finished sending.
+  state.lot.revision = held.revision;
+  state.lot.synced_revision = held.synced_revision;
+  state.lot.server_revision = held.server_revision;
   state.lot.sealPending = !!held.pending_seal;
   if (!held.pending_seal) state.lot.sealRefused = null;
   if (state.lot.status === "Accepted" && held.status !== "Accepted") {
