@@ -1165,11 +1165,25 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
   const P = PB.PB_LOT;
   const M = { ...MOD_STORAGE, ...MOD_INTAKE };
 
+  // The surface: exactly the names the two modules export, the way PB_VOL and
+  // PB_PAY are held to theirs. Missing until 2026-09-26, so a new export that
+  // never reached the page (or a page-only name) was invisible here unless a
+  // later line happened to reach for it. Watched failing both ways: dropping
+  // VERIFICATION_LABELS from the page's return list, and adding a stray name.
+  same('the surface carries every name both modules export',
+       Object.keys(P).sort(),
+       [...new Set([...Object.keys(MOD_STORAGE), ...Object.keys(MOD_INTAKE)])].filter((k) => k !== 'default').sort());
+
   // ---- the constants ------------------------------------------------
   for (const k of ['LOT_FORMAT', 'LOT_VERSION', 'BLOCKS', 'DEPARTMENT_BLOCKS', 'IDENTITY', 'BACKENDS',
                    'APPROVAL_FORMAT', 'APPROVAL_MAX_VERSION', 'DOC_KIND', 'SUBMITTED_ACTION',
                    'APPROVED_ACTION', 'VERIFICATION', 'VERIFY_FN', 'FAILURE', 'MIX_TYPE_CODES'])
     same(`${k} is identical`, P[k], M[k]);
+  // What a person reads for each verification state - the front door, the
+  // reopen line, the Contract & Mix readout, the rail and the lot PDF header
+  // all print these, so the page's copy drifting from the module's is five
+  // places saying something different from what check_intake.mjs asserted.
+  same('VERIFICATION_LABELS is identical', P.VERIFICATION_LABELS, M.VERIFICATION_LABELS);
   // storage.mjs and addresses.mjs both export BLOCKS — the same seven test
   // record ids, and they must not become two definitions.
   ok('PB_LOT.BLOCKS and PB_AMAW.BLOCKS are still the same seven ids',
@@ -1211,6 +1225,20 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
         [[null], [undefined], [{}], [{ state: 'verified' }], [{ state: 'not-checked' }],
          [{ state: MOD_INTAKE.VERIFICATION.VERIFIED }], [{ state: MOD_INTAKE.VERIFICATION.INVALID }]]);
   sweep('notChecked()', P.notChecked, M.notChecked, [[], ['because'], [null], ['']]);
+  // Every state, plus the shapes a lot FILE can carry that no current code
+  // writes - no verification, an unknown state, a reason with no full stop or
+  // a non-string one - because a reopened lot is never refused and prints
+  // whatever it holds.
+  const verifications = [
+    ...Object.values(MOD_INTAKE.VERIFICATION).map((state) => [{ state, reason: `why ${state}` }]),
+    ...Object.values(MOD_INTAKE.VERIFICATION).map((state) => [{ state }]),
+    [MOD_INTAKE.notChecked()], [MOD_INTAKE.readVerifyResponse({ networkError: new Error('Failed to fetch') })],
+    [{ state: 'invalid', reason: 'no stop' }], [{ state: 'invalid', reason: 'Asked?' }],
+    [{ state: 'failed', reason: 'x.' }], [{ state: 'constructor' }], [{ state: 'verified', reason: 42 }],
+    [{ state: 'verified', reason: '   ' }], [{}], [null], [undefined], ['verified'],
+  ];
+  sweep('verificationLabel()', P.verificationLabel, M.verificationLabel, verifications);
+  sweep('verificationText()', P.verificationText, M.verificationText, verifications);
 
   const identities = [
     { contract_id: '252112', amp_number: 'AMP070302', mix_id: '00385', lot_number: 1 },

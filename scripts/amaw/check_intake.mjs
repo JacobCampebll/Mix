@@ -27,6 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   approvalChecks, lotFromApproval, verifyRequest, readVerifyResponse, notChecked,
+  VERIFICATION_LABELS, verificationLabel, verificationText,
   VERIFICATION, FAILURE, DOC_KIND, isVerified, mixTypeFor, jointDensityFor, densityOptionFor, esalClassFor,
   acceptanceMethodFor, specialtyCourseOf, COURSES,
 } from './intake.mjs';
@@ -643,6 +644,37 @@ for (const [res, want, what] of answers)
 ok('only "verified" reads as verified',
    answers.filter(([res]) => isVerified(readVerifyResponse(res))).length === 1);
 ok('notChecked() is not verified', isVerified(notChecked()) === false);
+
+// The same states, in the words a person reads (2026-09-26). The front door
+// printed the raw token for a week and "invalid." and "not-checked." looked
+// alike; these hold the labels to the module's own rule that the states must
+// never read as one another.
+const states = Object.values(VERIFICATION);
+ok('every verification state has a label',
+   states.every((s) => typeof VERIFICATION_LABELS[s] === 'string' && VERIFICATION_LABELS[s].trim()),
+   VERIFICATION_LABELS);
+ok('...and nothing else does', Object.keys(VERIFICATION_LABELS).sort().join() === states.slice().sort().join(),
+   Object.keys(VERIFICATION_LABELS));
+ok('the five labels are five different sentences',
+   new Set(states.map((s) => VERIFICATION_LABELS[s])).size === states.length, VERIFICATION_LABELS);
+ok('no label is a raw state token', states.every((s) => !states.includes(VERIFICATION_LABELS[s])
+   && !/[a-z]-[a-z]/.test(VERIFICATION_LABELS[s])), VERIFICATION_LABELS);
+ok('every answer verify-approval can give reads as its own label',
+   answers.every(([res, want]) => verificationLabel(readVerifyResponse(res)) === VERIFICATION_LABELS[want]));
+// A lot FILE can carry anything, and a reopened lot is never refused - so
+// whatever it holds must print as something that claims no check was made.
+ok('no verification, or a state this code does not know, reads as NOT checked - never as verified',
+   [null, undefined, {}, { state: 'failed' }, { state: 'constructor' }, { state: 'toString' }, 'verified']
+     .every((v) => verificationLabel(v) === VERIFICATION_LABELS[VERIFICATION.NOT_CHECKED]));
+const changed = readVerifyResponse({ status: 200, body: { valid: false, error: 'The design changed.' } });
+ok('verificationText() is the label, then the reason',
+   verificationText(changed) === `${VERIFICATION_LABELS[VERIFICATION.INVALID]} - The design changed.`,
+   verificationText(changed));
+ok('...closing a reason that has no full stop, so the next sentence starts cleanly',
+   verificationText({ state: VERIFICATION.NOT_CHECKED, reason: 'Failed to fetch' })
+     === `${VERIFICATION_LABELS[VERIFICATION.NOT_CHECKED]} - Failed to fetch.`);
+ok('...and the label alone, as a sentence, when there is no reason',
+   verificationText({ state: VERIFICATION.VERIFIED }) === `${VERIFICATION_LABELS[VERIFICATION.VERIFIED]}.`);
 
 if (approval) {
   // A verified lot takes the SERVER's recomputed label, never the file's -

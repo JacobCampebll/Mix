@@ -20219,6 +20219,48 @@ const PB_LOT = (() => {
   const VERIFY_FN = '/.netlify/functions/verify-approval';
 
   // ---------------------------------------------------------------------
+  // The verification, in words
+  // ---------------------------------------------------------------------
+  // The states above are for code to switch on; these are what a PERSON reads.
+  // Until 2026-09-26 the front door printed the raw state ("not-checked.
+  // Opened lot 1 ...", "invalid. Opened lot 1 ...") and dropped the reason
+  // beside it, so an unreachable server and a design edited after approval
+  // read alike. One plain label per state, and one shape for the sentence
+  // every door prints: the label, then the reason.
+  //
+  // Five DIFFERENT labels, for the rule this module opens with: verified, "we
+  // looked and it failed" and the three kinds of "we could not look" must
+  // never read as one another.
+  const VERIFICATION_LABELS = {
+    [VERIFICATION.VERIFIED]: 'Approval verified by KYTC',
+    [VERIFICATION.INVALID]: 'Approval signature does not match',
+    [VERIFICATION.NOT_CHECKED]: 'Approval not checked',
+    [VERIFICATION.UNAVAILABLE]: 'Approval could not be checked',
+    [VERIFICATION.REFUSED]: 'Approval check refused',
+  };
+
+  /** The label for a verification. Anything that is not one of the five - no
+   *  verification at all, or a state this code does not know - reads as NOT
+   *  CHECKED, because that is all anything here can say about it, and it is
+   *  the one label that never claims a check was made. */
+  function verificationLabel(v) {
+    const state = v && typeof v === 'object' ? v.state : null;
+    return Object.prototype.hasOwnProperty.call(VERIFICATION_LABELS, state)
+      ? VERIFICATION_LABELS[state] : VERIFICATION_LABELS[VERIFICATION.NOT_CHECKED];
+  }
+
+  /** "label - reason", as one sentence. The reason is the verification's own -
+   *  the server's words for a verdict, ours for a check that could not be made
+   *  - carried as it was recorded, never re-derived. A full stop is added when
+   *  it has none, so whatever a door prints after it starts a new sentence. */
+  function verificationText(v) {
+    const label = verificationLabel(v);
+    const reason = v && typeof v === 'object' && v.reason != null ? String(v.reason).trim() : '';
+    if (!reason) return `${label}.`;
+    return `${label} - ${/[.!?]$/.test(reason) ? reason : `${reason}.`}`;
+  }
+
+  // ---------------------------------------------------------------------
   // Failure codes
   // ---------------------------------------------------------------------
   // The page picks its own wording; what it must not do is invent its own
@@ -21738,7 +21780,8 @@ const PB_LOT = (() => {
     localLotStore, supabaseLotStore, syncedLotStore, BACKENDS, createLotStore, mergeLots,
     // intake.mjs
     APPROVAL_FORMAT, APPROVAL_MAX_VERSION, DOC_KIND, SUBMITTED_ACTION, APPROVED_ACTION,
-    VERIFICATION, isVerified, VERIFY_FN, FAILURE, MIX_TYPE_CODES,
+    VERIFICATION, isVerified, VERIFY_FN, VERIFICATION_LABELS, verificationLabel, verificationText,
+    FAILURE, MIX_TYPE_CODES,
     splitDesignation, mixTypeFor, jointDensityFor, densityOptionFor, JOINT_DENSITY_SIZES, esalClassFor,
     ACCEPTANCE_METHODS, acceptanceMethodFor, COURSES, DEFAULT_COURSE, courseFor, specialtyCourseOf,
     LOT_TONS, ADJUSTMENT_UNIT_PRICE, expectedLots,
@@ -23136,7 +23179,12 @@ function renderLotStage() {
  *
  * The verification is asked for and its answer is carried, never assumed. A
  * check that could not be made reads as not-checked, which is a different
- * thing from failed and from passed, and all three print differently.
+ * thing from failed and from passed, and all three print differently - in
+ * words, since 2026-09-26: PB_LOT.VERIFICATION_LABELS, then the reason.
+ *
+ * `payload` goes across exactly as readHandoffPDF() parsed it out of the
+ * file (verifyRequest() takes it by reference), so nothing on this side can
+ * make a genuine older approval stop verifying.
  */
 async function verifyApproval(payload) {
   const req = PB_LOT.verifyRequest(payload);
@@ -23148,7 +23196,11 @@ async function verifyApproval(payload) {
     try { body = await res.json(); } catch (_) { body = null; }
     return PB_LOT.readVerifyResponse({ status: res.status, body });
   } catch (err) {
-    return PB_LOT.notChecked(err.message || "the verify function could not be reached");
+    // A throw is no answer at all - usually a plant with no signal. It opens
+    // the lot as NOT CHECKED, and says why in a sentence rather than as the
+    // browser's bare "Failed to fetch".
+    const why = err && err.message ? ` (${err.message})` : "";
+    return PB_LOT.notChecked(`KYTC's verification service could not be reached${why}.`);
   }
 }
 
@@ -23219,6 +23271,26 @@ async function openApprovalForLot(payload, label) {
     const why = (out.checks.failures || []).map((f) => f.message).join(" ");
     throw new Error(why || "That approval cannot open a lot.");
   }
+  /* THE ONE REFUSAL. verify-approval recomputed the signature and it does not
+   * match: the design was changed after KYTC approved it, or the code is not
+   * genuine. The door's own legend promises this is "refused here rather than
+   * three steps later", and until 2026-09-26 it was not - the test was
+   * against a VERIFICATION.FAILED that does not exist, so a 4,000-ton lot
+   * opened on it in the same colour as an unreachable server.
+   *
+   * Thrown BEFORE state.lot is touched, so nothing opens, nothing is saved and
+   * no ledger row is written; startLotFromPDF() prints the message on the
+   * door in red. ONLY this state refuses. Not checked, unavailable and
+   * refused all mean the check could not be made - a plant with no signal
+   * must still start a lot - so they open, labelled, and carry their state.
+   * PB_LOT.lotFromApproval() still builds the lot for an invalid approval
+   * (check_intake.mjs asserts it): refusing is this page's call, not the
+   * module's. A lot ALREADY OPENED on one reopens (openLotEnvelope()). */
+  if (verification.state === PB_LOT.VERIFICATION.INVALID) {
+    const to = CONFIG.SUBMIT.KYTC_EMAIL;
+    throw new Error(`${PB_LOT.verificationText(verification)} No lot was opened - check with ` +
+                    `KYTC Central Office${to ? ` (${to})` : ""} before producing anything under this design.`);
+  }
   if (submittedFor("plantbook")) state.submitted = null;   // see openLotEnvelope()
   state.lot = out.lot;
   state.lotReport = out.report;
@@ -23243,17 +23315,20 @@ async function openApprovalForLot(payload, label) {
   // The report, in the block that can hold it. The generator's list of what a
   // lot lacks is exactly the message you cannot afford to clip, which is why
   // #saveMsg is in #valBlock and not in the fixed action bar.
+  //
+  // How the approval verified comes FIRST, in words, then why - the one thing
+  // on this line a technician has to act on is whether the design they are
+  // about to produce under is the one KYTC signed. An invalid one never gets
+  // here (refused above), so anything short of verified is a warning.
   const r = out.report;
   const v = r.verification;
-  const kind = PB_LOT.isVerified(v) ? "ok"
-             : v.state === PB_LOT.VERIFICATION.FAILED ? "error" : "warn";
   msg($("saveMsg"),
-      `${v.label || v.state}. Opened lot ${out.lot.lot_number} on ${out.lot.mix_id} from ${label}: ` +
+      `${PB_LOT.verificationText(v)} Opened lot ${out.lot.lot_number} on ${out.lot.mix_id} from ${label}: ` +
       `${r.inherited.length} value(s) inherited, ${r.derived.length} derived, ` +
       `${r.typed.length} still to type` +
       (r.warnings.length ? `, ${r.warnings.length} warning(s)` : "") + ".",
-      kind);
-  audit(`Lot opened from an approval (${v.state}) - ${state.tech ? state.tech.sm_id : ""}`);
+      PB_LOT.isVerified(v) ? "ok" : "warn");
+  audit(`Lot opened from an approval: ${PB_LOT.verificationLabel(v)} (${v.state}) - ${state.tech ? state.tech.sm_id : ""}`);
 
   /* AND THE PROJECT ITEMS LOOK THEMSELVES UP (Jake, 2026-09-15: "the projects
    * items should be auto populated not waiting for someone to press the
@@ -23659,11 +23734,19 @@ function openLotEnvelope(raw, label, opening) {
   // SECOND loader: the wording differs, the loading must not. Two readers
   // would be two answers to "what did I just open", and the second one would
   // be wrong the first time somebody added a field.
+  //
+  // NEVER REFUSED, whatever verification the lot carries - an invalid one
+  // included (a lot opened before the front door refused them, 2026-09-26).
+  // This is a week of somebody's measurements, not a fresh start on a design,
+  // and refusing it would lose the work without undoing the production. It is
+  // printed, in words, as the file carries it, and Contract & Mix keeps it on
+  // screen for the life of the lot.
   msg($("saveMsg"),
       (opening ? opening.line : `Reopened lot ${lot.lot_number} on ${lot.mix_id} from ${label}.`) +
-      (v ? ` The approval it was opened under was ${v.state}.` : ""),
+      (v ? ` ${PB_LOT.verificationText(v)}` : ""),
       v && PB_LOT.isVerified(v) ? "ok" : "warn");
-  audit(`${opening ? opening.audit : `Lot reopened from ${label}`} - ${state.tech ? state.tech.sm_id : ""}`);
+  audit(`${opening ? opening.audit : `Lot reopened from ${label}`}` +
+        `${v ? `: ${PB_LOT.verificationLabel(v)} (${v.state})` : ""} - ${state.tech ? state.tech.sm_id : ""}`);
   // LAST, and not awaited. Every door lands here, so this is the one place a
   // lot becomes durable - but a store that is slow, absent or disagreeing must
   // not stand between a technician and the form they came to fill in.
@@ -23711,7 +23794,9 @@ function paintUploadCard() {
     "against: JMF %AC, the air-void target and the minimum VMA." +
     "<br><br>" +
     "The signature is checked on the way in. A design KYTC never approved, or one " +
-    "edited after approval, is refused here rather than three steps later." +
+    "edited after approval, is refused here rather than three steps later. If it " +
+    "cannot be checked &mdash; no signal at the plant &mdash; the lot still opens, " +
+    "marked as not checked." +
     "<br><br>" +
     "A lot you have already started comes back in the same way &mdash; its own " +
     "<strong>lot PDF</strong> or its <strong>.json</strong>. Both carry the whole lot " +
