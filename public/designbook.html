@@ -6953,6 +6953,33 @@ function go(i, focusEl, scroll) {
     const land = () => {
       if (!document.contains(focusEl)) return;
       focusEl.focus({ preventScroll: onePage() });
+      // ONE PAGE scrolls to the section's START (above), which is enough for a
+      // field near its top and leaves one further down focused but out of
+      // sight: a sublot's ticket sits under six Aggregate Blend cards on a
+      // phone, 2,700px below where that scroll stops, with the number pad open
+      // on a box nobody can see (measured at 390x844, 2026-09-26). So bring it
+      // in when it would still be below the fold with its section at the top -
+      // judged by its place IN the section rather than by the viewport,
+      // because the smooth scroll above can still be moving. A disabled box (a
+      // locked sublot's) takes no focus but is still shown.
+      if (onePage()) {
+        const host = focusEl.closest(".section");
+        if (host && focusEl.getBoundingClientRect().bottom - host.getBoundingClientRect().top > window.innerHeight * 0.75)
+          focusEl.scrollIntoView({ block: "center", behavior: "smooth" });
+      } else {
+        // THE WIZARD has nothing in flight, so ask the viewport. focus() does not
+        // scroll a DISABLED box at all - a locked sublot's ticket stayed at
+        // 907px on a 768px laptop - and how far it scrolls an enabled one is the
+        // browser's choice (the spec leaves the alignment open; Chromium centres
+        // it, a browser that stops at the nearest edge leaves it UNDER the fixed
+        // action bar). So: clear of the sticky header and the bar, or centred.
+        const r = focusEl.getBoundingClientRect();
+        const head = document.querySelector(".appbar");
+        const bar = $("actionBar");
+        const top = head ? head.getBoundingClientRect().bottom : 0;
+        const bottom = bar && bar.getClientRects().length ? bar.getBoundingClientRect().top : window.innerHeight;
+        if (r.top < top || r.bottom > bottom) focusEl.scrollIntoView({ block: "center" });
+      }
       const sec = focusEl.closest(".section");
       if (sec) { sec.classList.add("flash"); setTimeout(() => sec.classList.remove("flash"), 900); }
     };

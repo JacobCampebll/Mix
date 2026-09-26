@@ -340,4 +340,49 @@ export async function run({ browser, results }) {
     ok("…and a click on it lands in the box it names, not the section's first empty field",
        land === "sublot-1|sublot_tickets|date|9/24/26", land || "nothing focused");
   }
+
+  /* ...AND THE BOX IS ON SCREEN, which focus alone does not make it. Below
+   * 700px go() scrolls to the section's START and focuses without scrolling,
+   * and a sublot's ticket sits under six Aggregate Blend cards on a phone -
+   * 2,700px down, focused and unseen. On the wizard a locked sublot's box
+   * takes no focus, so nothing scrolled it either (907px on a 768px laptop).
+   * Measured after the smooth scroll has had time to finish. */
+  const seen = async (width, height, which) => withBook(browser, PLANT, { width, height }, async (h) => {
+    await h.page.evaluate(async ({ approval, which }) => {
+      const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+      const t = out.lot.rows.sublot_tickets;
+      t[which - 1] = { ...t[which - 1], date: which === 1 ? "9/24/26" : "09/25/2026", time: "14:15" };
+      openLotEnvelope(out.lot, "the harness");
+      await new Promise((res) => setTimeout(res, 400));
+      go(topSections().findIndex((s) => s.id === "lot"), null, false);
+    }, { approval: APPROVAL, which });
+    await h.page.waitForTimeout(200);
+    const item = h.page.locator("#vallist .vitem", { hasText: "will not reach the AMAW" }).first();
+    if (!(await item.count())) return { none: "no ticket line on the rail" };
+    await item.click();
+    await h.page.waitForTimeout(1500);
+    return h.page.evaluate((which) => {
+      const box = document.querySelector(`[data-section="sublot-${which}"] [data-rowlist="sublot_tickets"] [data-col="date"]`);
+      const r = box.getBoundingClientRect();
+      const head = document.querySelector(".appbar"), bar = document.getElementById("actionBar");
+      const top = head ? head.getBoundingClientRect().bottom : 0;
+      const bottom = bar && bar.getClientRects().length ? bar.getBoundingClientRect().top : innerHeight;
+      return { focused: document.activeElement === box, disabled: box.disabled,
+               onScreen: r.top >= top && r.bottom <= bottom, at: `${Math.round(r.top)}..${Math.round(r.bottom)} in ${Math.round(top)}..${Math.round(bottom)}` };
+    }, which);
+  });
+  const phone = await seen(390, 844, 1);
+  if (phone.skipped) results.skip(id, BOOK, "the clicked ticket box is on screen at 390px", phone.skipped);
+  else {
+    const v = phone.value;
+    ok("at 390x844 the clicked ticket box is focused AND on screen",
+       !v.none && v.focused && v.onScreen, v.none || `focused=${v.focused} at ${v.at}`);
+  }
+  const laptop = await seen(1366, 768, 2);
+  if (laptop.skipped) results.skip(id, BOOK, "a locked sublot's ticket box is shown at 1366px", laptop.skipped);
+  else {
+    const v = laptop.value;
+    ok("at 1366x768 a LOCKED sublot's ticket box is shown, though it takes no focus",
+       !v.none && v.disabled && v.onScreen, v.none || `disabled=${v.disabled} at ${v.at}`);
+  }
 }
