@@ -23692,6 +23692,16 @@ function renderLotStage() {
     btn.classList.toggle("hidden", s.key === "Submitted" && !state.canReview);
   }
   if (note) note.textContent = s.note || "";
+  // A refused Accept, directly under the button that was pressed (it is set
+  // by acceptLotForKYTC() and belongs to this lot on screen only - not an
+  // envelope field). The same red line DesignBook's Status step uses for its
+  // own warning, already in this step's markup.
+  const warn = $("stageWarn");
+  if (warn) {
+    const w = state.lot && state.lot.stageWarn;
+    warn.textContent = w || "";
+    warn.classList.toggle("hidden", !w);
+  }
   const pib = $("itemsLookupBtnStatus");
   if (pib) pib.classList.toggle("hidden", !state.job || !state.job.cid);
   // The submittal is only a document once a submission has happened. It is
@@ -24327,13 +24337,15 @@ async function submitLotToKYTC() {
     renderLotStage();
     audit(`${CONFIG.SUBMIT.ACTION.submitted} - ${who}`);
     // ONE TRUE SENTENCE about the record, where there used to be the same
-    // success line whatever had happened to it.
+    // success line whatever had happened to it. A refusal is said in words a
+    // technician can act on; the store's raw text stays in the chip's title.
+    const why = sealed.kind === "refused" ? submitRefusedReason(state.lot.lot_number, sealed) : "";
     const seal = {
       sealed:  ["It is sealed in KYTC's lot record as submitted, so it can no longer be changed.", "ok"],
       waiting: ["There is no signal, so the lot is saved on this device and will be sealed in " +
                 "KYTC's lot record when the connection is back.", "warn"],
       unset:   ["Lot storage is not set up here, so the site keeps nothing - that file is the only record.", "ok"],
-      refused: [`The lot record was not sealed: ${sealed.reason}.`, "error"],
+      refused: [`The lot record was not sealed: ${why}.`, "error"],
     }[sealed.kind];
     msg($("saveMsg"),
         `${name} downloaded and stamped as submitted by ${who}. Email it to ` +
@@ -24364,11 +24376,14 @@ async function submitLotToKYTC() {
  * UX, not a gate, on a page anyone can link to. The server refuses a third
  * time ("only KYTC accepts a lot"), which is the one that counts.
  *
- * THE RECORD DECIDES, NOT THIS PAGE. Refused, the stage goes back and the
- * reason is printed (the store has already taken its own stamp off -
- * storage.mjs's pushOne()). With no signal the lot is Accepted here, the seal
- * waits in the outbox, and the sentence says so. With lot storage not set up
- * the file is the only record, and the sentence says that. */
+ * THE RECORD DECIDES, NOT THIS PAGE. Refused, the stage never moves, and the
+ * reason and where the record has the lot are printed - beside the button and
+ * in the rail (the store has already taken its own stamp off - storage.mjs's
+ * pushOne()). Already accepted - by another reviewer, since both get the
+ * submittal email - the lot is Accepted and the sentence says who. With no
+ * signal the lot is Accepted here, the seal waits in the outbox, and the
+ * sentence says so. With lot storage not set up the file is the only record,
+ * and the sentence says that. */
 async function acceptLotForKYTC() {
   if (!state.lot) { msg($("saveMsg"), "There is no lot open.", "error"); return; }
   if (!state.canReview) {
@@ -24378,16 +24393,32 @@ async function acceptLotForKYTC() {
   const btn = $("advanceStage"), was = btn ? btn.textContent : "";
   if (btn) { btn.disabled = true; btn.textContent = "Accepting..."; }
   const n = state.lot.lot_number;
+  state.lot.stageWarn = null;
   try {
     const out = await sealLotAccepted();
     if (out.kind === "refused") {
       // Nothing moved: the stage was never advanced, and the store put its
-      // own stamp back.
-      msg($("saveMsg"), `The Accept did not go through: ${out.reason}. Lot ${n} is still Submitted.`, "error");
+      // own stamp back. Said BESIDE THE BUTTON as well as in the rail: at
+      // most widths #saveMsg is off-screen when the button is pressed, and a
+      // refusal that changes nothing a person can see is one they never learn
+      // about. renderLotStage() paints it into #stageWarn.
+      const said = acceptRefusedText(n, out);
+      if (state.lot) state.lot.stageWarn = said;
+      msg($("saveMsg"), said, "error");
       return;
     }
     state.stageIdx = CONFIG.LOT_STAGES.findIndex((x) => x.key === "Accepted");
     state.lot.status = "Accepted";
+    takeRecordStamps(out.lot);
+    if (out.kind === "sealed" && out.already) {
+      // The record held it already - a second reviewer first, both get the
+      // submittal email. Nothing this reviewer did changed the lot, so no
+      // history line is written in their name; the record's stamps say who.
+      const by = sealedByWhen(state.lot.accepted_name, state.lot.accepted_at);
+      audit(`Lot already accepted in KYTC's lot record${by}`);
+      msg($("saveMsg"), `Lot ${n} is Accepted - KYTC's lot record already said so${by}.`, "ok");
+      return;
+    }
     // The same history action this step has always written. A history string
     // is the record once it is in a file, so it is not reworded.
     state.history = (state.history || []).concat([custodyEntry("Lot accepted")]);
@@ -24406,6 +24437,10 @@ async function acceptLotForKYTC() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = was; }
     renderLotStage();
+    // sealLotAccepted() painted the chip while the lot still read Submitted;
+    // an outcome that saves nothing afterwards (already accepted, refused)
+    // would otherwise leave it there.
+    paintSyncChip();
   }
 }
 
@@ -24727,6 +24762,7 @@ async function sealLotSubmitted(frozen) {
     });
     state.lot.status = "Submitted";
     state.lot.submittal_sha256 = hash;
+    takeRecordStamps(sealed);                 // who and when, as the record stamped them
     state.lot.sealPending = !!sealed.pending_seal;
     state.lot.sealRefused = null;
     return sealOutcome(sealed, null);
@@ -24747,16 +24783,21 @@ async function sealLotSubmitted(frozen) {
 // KYTC's side of the same door, called from acceptLotForKYTC(), which has
 // already refused anyone who is not a reviewer.
 //
-// THE LOT IS SAVED FIRST, while it still reads Submitted. store.seal() works on
-// this device's copy, and a reviewer who presses Accept the moment a submittal
-// opens can beat adoptLotIntoStore()'s own save to it. A first save made after
-// the stage had moved would write Accepted as the copy's status, which is the
-// seal's to write and nobody else's.
+// THE LOT IS REGISTERED FIRST if this device does not hold it yet, while it
+// still reads Submitted: store.seal() works on this device's copy, and a
+// reviewer who presses Accept the moment a submittal opens can beat
+// adoptLotIntoStore()'s own save to it. A lot this device ALREADY holds is not
+// saved again - nothing about it can change on a reviewer's screen, and on a
+// lot the record still has Open (the contractor's seal still waiting) that save
+// wrote the reviewer's copy into the contractor's data once more before the
+// record refused the Accept.
 async function sealLotAccepted() {
   const store = lotStore();
   if (!store || !state.lot) return sealOutcome(null, null);
   try {
-    await saveLotNow();
+    let held = null;
+    try { held = store.local ? await store.local.load(state.lot.uid) : null; } catch (_) { /* register below */ }
+    if (!held) await saveLotNow();
     const sealed = await store.seal(state.lot.uid, "Accepted", { by: storeWho() });
     state.lot.sealPending = !!sealed.pending_seal;
     return sealOutcome(sealed, null);
@@ -24770,17 +24811,69 @@ async function sealLotAccepted() {
 
 /* What became of a seal, as one of the four things the page can truthfully
  * say about it:
- *   sealed   KYTC's lot record took it
+ *   sealed   KYTC's lot record took it - or `already` held it (the record
+ *            answered "no" to a seal it had taken: a lost reply, or a second
+ *            reviewer first), and `lot` carries the record's who and when
  *   waiting  stamped on this device, waiting in the outbox for a signal
  *   unset    lot storage is not live here, so nothing will send it and the
  *            file is the only record
- *   refused  the record, or this device, said no - and `reason` says why
+ *   refused  the record, or this device, said no - `reason` says why, `code`
+ *            is the store's own code and `record` is where the record has
+ *            the lot (null when it could not be asked)
  * A thrown error is always an answer: storage.mjs swallows a lost signal
  * (isTransient()) and throws only for a refusal. */
 function sealOutcome(saved, err) {
-  if (err) return { kind: "refused", reason: String((err && err.message) || "no reason was given") };
-  if (saved && !saved.pending_seal) return { kind: "sealed" };
+  if (err) return { kind: "refused", reason: String((err && err.message) || "no reason was given"),
+                    code: (err && err.code) || null, record: (err && err.record) || null };
+  if (saved && !saved.pending_seal) return { kind: "sealed", already: !!saved.adopted, lot: saved };
   return { kind: saved && lotStorageLive() ? "waiting" : "unset" };
+}
+
+// " (by Tate Salle on 2026-09-26 06:03)" off the record's own stamps, or
+// nothing when it has none. The same clock the lot list prints.
+function lotWhen(t) { return t ? String(t).slice(0, 16).replace("T", " ") : ""; }
+function sealedByWhen(name, at) {
+  const bits = [name ? `by ${name}` : "", at ? `on ${lotWhen(at)}` : ""].filter(Boolean);
+  return bits.length ? ` (${bits.join(" ")})` : "";
+}
+
+// The record's who and when onto the lot on screen, so the chip, a lot PDF
+// and the list can say them. Taken, never written: they are the record's.
+function takeRecordStamps(from) {
+  if (!state.lot || !from) return;
+  for (const k of ["submitted_at", "submitted_name", "accepted_at", "accepted_name", "submittal_sha256", "purge_after"]) {
+    if (from[k] != null) state.lot[k] = from[k];
+  }
+}
+
+// A refused Accept, said the way the RECORD has the lot. It used to end
+// "Lot n is still Submitted" whatever the record said - including over a
+// ledger reading Open (the submission had not reached it).
+function acceptRefusedText(n, out) {
+  const rec = out.record;
+  if (!rec && out.code === "not_found") {
+    return `The Accept did not go through: lot ${n}'s submission has not reached KYTC's lot record.`;
+  }
+  const where = !rec ? ""
+    : rec.status === "Open" ? ` KYTC's lot record still has lot ${n} Open - its submission has not reached the record yet.`
+    : ` KYTC's lot record still reads lot ${n} as ${rec.status}.`;
+  return `The Accept did not go through: ${out.reason}.${where}`;
+}
+
+// Why a submission was not sealed, in words a technician can act on. The
+// store's code and the record's own row decide it, never the wording of the
+// error, which stays in the chip's title for whoever supports this.
+function submitRefusedReason(n, out) {
+  const rec = out.record;
+  if (rec && (rec.status === "Submitted" || rec.status === "Accepted")) {
+    return `KYTC's lot record already holds a different submission of lot ${n}` +
+           sealedByWhen(rec.submitted_name, rec.submitted_at);
+  }
+  if (out.code === "denied") return `KYTC's lot record refused this device's copy (${out.reason})`;
+  if (out.code === "conflict") {
+    return `lot ${n} was also saved elsewhere since this device last reached KYTC's lot record (${out.reason})`;
+  }
+  return out.reason;
 }
 
 /* ---------- saying where it stands ---------- */
@@ -24852,8 +24945,11 @@ function syncChipState() {
                title: `This lot is ${s} on this device and will be sealed in KYTC's lot record when there is a signal. ` +
                       "Until then only this device and the PDF hold it that way." };
     }
+    // Who moved it along the chain and when, as the record stamped them.
+    const by = state.lot.status === "Accepted" ? sealedByWhen(state.lot.accepted_name, state.lot.accepted_at)
+             : sealedByWhen(state.lot.submitted_name, state.lot.submitted_at);
     return { cls: "ok", text: s,
-             title: `This lot was ${s} and is no longer editable. KYTC holds the copy the PDF's hash covers.` };
+             title: `This lot was ${s}${by} and is no longer editable. KYTC holds the copy the PDF's hash covers.` };
   }
   const st = store.state ? store.state() : {};
   if (state.lot.conflict) return { cls: "bad", text: "edited elsewhere", title: state.lot.conflict };

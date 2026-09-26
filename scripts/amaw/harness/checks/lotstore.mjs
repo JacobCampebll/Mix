@@ -250,6 +250,11 @@ const REVIEW = async ({ approval }) => {
     try { await submitLotToKYTC(); } finally { window.confirm = c; window.saveBytes = s; }
   };
   const pressAccept = async () => {
+    // From the Submit step, where a person is when they press it - and where
+    // anything measured beside the button is laid out at all (a hidden step
+    // measures zero).
+    go(stepIndexOf("lot-status"));
+    await sleep(500);
     const before = $("saveMsg").textContent;
     document.getElementById("advanceStage").click();
     for (let i = 0; i < 80 && ($("saveMsg").textContent === before
@@ -259,8 +264,16 @@ const REVIEW = async ({ approval }) => {
   const snap = (uid) => {
     const row = server.amaw_lots[uid] || {};
     const local = JSON.parse(localStorage.getItem("amaw_lot:" + uid) || "null") || {};
+    // Where a refusal lands relative to the button that was pressed: #saveMsg
+    // is in the rail, off-screen at most widths, so the refusal has to show
+    // beside the button too - measured, not read off the markup.
+    const w = $("stageWarn"), b = $("advanceStage");
+    const wr = w ? w.getBoundingClientRect() : null, br = b ? b.getBoundingClientRect() : null;
     return { stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key, pill: $("statuspill").textContent,
              msg: $("saveMsg").textContent, cls: $("saveMsg").className, chip: $("syncChip").textContent,
+             chipTitle: $("syncChip").title,
+             warn: w && !w.classList.contains("hidden") ? w.textContent : null,
+             warnGap: wr && br && wr.height > 0 ? Math.round(wr.top - br.bottom) : null,
              ledger: row.status || null, acceptedAt: row.accepted_at || null, acceptedName: row.accepted_name || null,
              local: local.status || null, pending: local.pending_seal || null,
              audit: ($("auditlog") || {}).textContent || "" };
@@ -350,14 +363,16 @@ const OFFLINE_SUBMIT = async ({ approval }) => {
  * server); the server as A left it is carried across, as the real one would
  * be. REVIEW above does all of it on one device and one store, which is not
  * where a stale pending seal or a stale status can show up. */
-const SUBMIT_ON_A = async ({ approval }) => {
+const SUBMIT_ON_A = async ({ approval, offline }) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
   openLotEnvelope(out.lot, "the harness");
   await sleep(CONFIG.STORAGE.AUTOSAVE_MS + 700);
   const c = window.confirm, s = window.saveBytes;
   window.confirm = () => true; window.saveBytes = () => {};
-  try { await submitLotToKYTC(); } finally { window.confirm = c; window.saveBytes = s; }
+  // No signal at the plant: the submittal goes by email, its seal waits here.
+  if (offline) window.__HARNESS_OFFLINE = true;
+  try { await submitLotToKYTC(); } finally { window.confirm = c; window.saveBytes = s; window.__HARNESS_OFFLINE = false; }
   await sleep(300);
   const keep = {};
   for (let i = 0; i < localStorage.length; i++) {
@@ -368,7 +383,7 @@ const SUBMIT_ON_A = async ({ approval }) => {
            msg: $("saveMsg").textContent, chip: $("syncChip").textContent,
            server: JSON.parse(JSON.stringify(window.__HARNESS_AMAW)), local: keep };
 };
-const REVIEW_ON_B = async ({ submitted, server, ledgerPatch, stalePending, offline }) => {
+const REVIEW_ON_B = async ({ submitted, server, ledgerPatch, ledgerPatchAfterOpen, stalePending, offline }) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const S = window.__HARNESS_AMAW;
   if (server) { Object.assign(S.amaw_lots, server.amaw_lots); Object.assign(S.amaw_lot_data, server.amaw_lot_data); }
@@ -393,14 +408,19 @@ const REVIEW_ON_B = async ({ submitted, server, ledgerPatch, stalePending, offli
              btn: $("advanceStage").textContent, btnDisabled: $("advanceStage").disabled,
              msg: $("saveMsg").textContent, cls: $("saveMsg").className,
              chip: $("syncChip").classList.contains("hidden") ? null : $("syncChip").textContent,
+             chipTitle: $("syncChip").title || "",
              note: ($("lotSaveNote") || {}).textContent || "",
              warn: w && !w.classList.contains("hidden") ? w.textContent : null,
              ledger: row.status || null, acceptedName: row.accepted_name || null,
              local: local.status || null, pending: local.pending_seal ? local.pending_seal.status : null,
              dataRevision: (S.amaw_lot_data[uid] || {}).revision == null ? null : S.amaw_lot_data[uid].revision,
+             history: (state.history || []).map((h) => `${h.action}|${h.name || h.sm_id || ""}`),
              audit: ($("auditlog") || {}).textContent || "" };
   };
   const opened = facts();
+  // Another reviewer accepts it WHILE this one has it open - so this device's
+  // own open saw Submitted, and it is the press that meets the record's "no".
+  if (ledgerPatchAfterOpen && S.amaw_lots[uid]) Object.assign(S.amaw_lots[uid], ledgerPatchAfterOpen);
   let accepted = null;
   if (!$("advanceStage").disabled && !$("advanceStage").classList.contains("hidden")) {
     const before = $("saveMsg").textContent;
@@ -528,16 +548,24 @@ export async function run({ browser, results }) {
     ok("…and the audit log carries the accept line", /Lot accepted/.test(a.audit), a.audit.slice(0, 120));
     ok("…and the sentence says the record took it", /record now says so/.test(a.msg) && /\bok\b/.test(a.cls), a.msg);
 
+    ok("…and the chip's title says who accepted it", /by Harness Runner/.test(a.chipTitle || ""), a.chipTitle);
+
     const f = v.refused;
     ok("a refused Accept leaves the stage Submitted", f.stage === "Submitted" && f.pill === "Submitted",
        `stage=${f.stage} pill=${f.pill}`);
     ok("…prints the record's reason as an error",
        /did not go through/.test(f.msg) && /only a submitted lot can be accepted/.test(f.msg) && /error/.test(f.cls), f.msg);
+    ok("…says where the record has the lot, never a hard-coded “still Submitted”",
+       /KYTC's lot record still reads lot 2 as Submitted/.test(f.msg) && !/Lot 2 is still Submitted/.test(f.msg), f.msg);
+    ok("…and shows it directly under the Accept button, not only in the rail",
+       f.warn === f.msg && f.warnGap != null && f.warnGap >= 0 && f.warnGap < 120,
+       `warn=${JSON.stringify(f.warn)} gap below the button=${f.warnGap}px`);
     ok("…the ledger never moved", f.ledger === "Submitted" && !f.acceptedAt, `ledger=${f.ledger} accepted_at=${f.acceptedAt}`);
     ok("…and this device took its stamp back off: Submitted, nothing pending",
        f.local === "Submitted" && f.pending === null, `local=${f.local} pending=${JSON.stringify(f.pending)}`);
-    ok("…so pressing Accept again simply works", v.retried.ledger === "Accepted" && v.retried.stage === "Accepted",
-       `ledger=${v.retried.ledger} stage=${v.retried.stage}`);
+    ok("…so pressing Accept again simply works, and the warning under the button goes",
+       v.retried.ledger === "Accepted" && v.retried.stage === "Accepted" && v.retried.warn === null,
+       `ledger=${v.retried.ledger} stage=${v.retried.stage} warn=${JSON.stringify(v.retried.warn)}`);
 
     ok("a lot known only from the server shows no sublot count rather than “0 of 4”",
        !!v.listServerOnly && !/of 4 sublots/.test(v.listServerOnly), v.listServerOnly);
@@ -570,6 +598,88 @@ export async function run({ browser, results }) {
        o.offline.snapshotSeal === null && o.offline.fileSeal === null,
        `snapshot=${JSON.stringify(o.offline.snapshotSeal)} .json=${JSON.stringify(o.offline.fileSeal)}`);
     ok("the offline run is clean", os.value.errs.length === 0, os.value.errs.slice(0, 3).join(" | ") || "clean");
+  }
+
+  // ---- the production reviewer path: a submittal opened on another device ----
+  const pa = await withBook(browser, PLANT, { width: 1440, height: 1000, query: "&sublots=open" },
+    async (h) => ({ a: await h.page.evaluate(SUBMIT_ON_A, { approval: APPROVAL }), errs: realErrors(h.errs || []) }));
+  if (pa.skipped) { results.skip(id, BOOK, "a reviewer on another device", pa.skipped); }
+  else {
+    const A = pa.value.a;
+    const rowA = A.server.amaw_lots[A.uid] || {};
+    const pb = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true },
+      async (h) => ({ b: await h.page.evaluate(REVIEW_ON_B, { submitted: A.submitted, server: A.server }),
+                      errs: realErrors(h.errs || []) }));
+    if (pb.skipped) { results.skip(id, BOOK, "a reviewer on another device", pb.skipped); }
+    else {
+      const o = pb.value.b.opened, acc = pb.value.b.accepted || {};
+      ok("another device: the reviewer opens the contractor's sealed submittal and is offered Accept",
+         rowA.status === "Submitted" && o.stage === "Submitted" && /Accept/.test(o.btn) && !o.btnDisabled
+           && o.local === "Submitted" && o.pending === null,
+         `record=${rowA.status} stage=${o.stage} btn="${o.btn}" local=${o.local} pending=${o.pending}`);
+      ok("…opening it wrote nothing into the contractor's data",
+         o.dataRevision === ((A.server.amaw_lot_data[A.uid] || {}).revision), `revision ${o.dataRevision}`);
+      ok("…the real Accept seals the record Accepted, stamped with the reviewer",
+         acc.ledger === "Accepted" && acc.acceptedName === "Harness Runner", `ledger=${acc.ledger} by=${acc.acceptedName}`);
+      ok("…and the page, the chip, this device and the audit agree",
+         acc.stage === "Accepted" && /accepted/.test(acc.chip || "") && /by Harness Runner/.test(acc.chipTitle)
+           && acc.local === "Accepted" && acc.pending === null && /Lot accepted/.test(acc.audit)
+           && /record now says so/.test(acc.msg),
+         `stage=${acc.stage} chip=${acc.chip} local=${acc.local} msg="${acc.msg}"`);
+    }
+
+    // A SECOND reviewer: both Andrew and Tate get the submittal email, and
+    // Tate accepts while Andrew has it open.
+    const pc = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true },
+      async (h) => ({ b: await h.page.evaluate(REVIEW_ON_B, { submitted: A.submitted, server: A.server,
+                        ledgerPatchAfterOpen: { status: "Accepted", accepted_at: "2026-09-26T06:03:53.000Z",
+                                                accepted_name: "Tate Salle" } }),
+                      errs: realErrors(h.errs || []) }));
+    if (pc.skipped) { results.skip(id, BOOK, "a second reviewer", pc.skipped); }
+    else {
+      const acc = pc.value.b.accepted || {};
+      ok("a second reviewer's Accept on a lot already accepted is not a failure: it says who did it",
+         /already said so/.test(acc.msg || "") && /by Tate Salle/.test(acc.msg || "") && /\bok\b/.test(acc.cls || "")
+           && !/did not go through/.test(acc.msg || ""), acc.msg);
+      ok("…the page and this device read Accepted, nothing pending, and the chip names Tate",
+         acc.stage === "Accepted" && acc.local === "Accepted" && acc.pending === null && /by Tate Salle/.test(acc.chipTitle),
+         `stage=${acc.stage} local=${acc.local} pending=${acc.pending} title="${acc.chipTitle}"`);
+      ok("…and no “Lot accepted” history line is written in the second reviewer's name",
+         !acc.history.some((h) => /^Lot accepted\|/.test(h)) && /already accepted/.test(acc.audit),
+         acc.history.join(" / "));
+      ok("the two-device runs are clean",
+         pa.value.errs.length === 0 && (pb.skipped || pb.value.errs.length === 0) && pc.value.errs.length === 0,
+         [...pa.value.errs, ...(pb.value ? pb.value.errs : []), ...pc.value.errs].slice(0, 3).join(" | ") || "clean");
+    }
+  }
+
+  // ---- the record still reads Open: the contractor's seal is waiting ----
+  // The submittal was emailed from a plant with no signal. The reviewer's
+  // Accept is refused, and has to say WHY in the record's terms - it used to
+  // end "Lot 1 is still Submitted" over a ledger reading Open - and pressing
+  // it must not write the reviewer's copy into the contractor's data again.
+  const wa = await withBook(browser, PLANT, { width: 1440, height: 1000, query: "&sublots=open" },
+    async (h) => ({ a: await h.page.evaluate(SUBMIT_ON_A, { approval: APPROVAL, offline: true }), errs: realErrors(h.errs || []) }));
+  if (wa.skipped) { results.skip(id, BOOK, "Accept while the contractor's seal waits", wa.skipped); }
+  else {
+    const W = wa.value.a;
+    const wb = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true },
+      async (h) => ({ b: await h.page.evaluate(REVIEW_ON_B, { submitted: W.submitted, server: W.server }),
+                      errs: realErrors(h.errs || []) }));
+    if (wb.skipped) { results.skip(id, BOOK, "Accept while the contractor's seal waits", wb.skipped); }
+    else {
+      const o = wb.value.b.opened, acc = wb.value.b.accepted || {};
+      ok("contractor's seal waiting: the reviewer's Accept is refused, saying the record still has the lot Open",
+         (W.server.amaw_lots[W.uid] || {}).status === "Open" && /did not go through/.test(acc.msg || "")
+           && /still has lot 1 Open - its submission has not reached the record yet/.test(acc.msg || "")
+           && !/is still Submitted/.test(acc.msg || ""), acc.msg);
+      ok("…the page stays Submitted, with the refusal under the button",
+         acc.stage === "Submitted" && acc.warn === acc.msg, `stage=${acc.stage} warn=${JSON.stringify(acc.warn)}`);
+      ok("…and pressing Accept wrote nothing more into the contractor's data",
+         acc.dataRevision === o.dataRevision, `revision ${o.dataRevision} on open -> ${acc.dataRevision} after Accept`);
+      ok("…both devices clean", wa.value.errs.length === 0 && wb.value.errs.length === 0,
+         [...wa.value.errs, ...wb.value.errs].slice(0, 3).join(" | ") || "clean");
+    }
   }
 
   // ---- a reviewer opening an OLD file that still carries a waiting seal ----
