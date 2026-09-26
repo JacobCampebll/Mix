@@ -5609,8 +5609,8 @@ commit where possible.
   button at all, printing that refusal in red where it would be, since a
   refusal written only to `#saveMsg` lands in the rail, off-screen at every
   width, and the click looked dead - and the rail line says the lot reopened
-  only so its measurements are not lost; and `lotFromApproval()` still builds a lot
-  on INVALID, because refusing is the page's call. `VERIFICATION_LABELS` and
+  only so its measurements are not lost; and `lotFromApproval()` still builds
+  a lot on INVALID, because refusing is the page's call. `VERIFICATION_LABELS` and
   `verificationText()` ("label - reason") in intake.mjs are the one wording -
   anything unknown reads as not checked, never as verified - for the door, the
   reopen and audit lines, the rail, the lot PDF header and an "Approval
@@ -5619,9 +5619,10 @@ commit where possible.
   alias), and on the ledger it needs its own `.field.readout` rule or its
   caption lands in column one. It is SHADED like every other value read from
   the approval, in the ledger's own weight (verified in `--ok-ink`, since
-  `--ok` at weight 400 on that wash is 4.45:1, under AA), and a check nobody could make is
-  ink behind a warning glyph rather than the page's amber, because on the
-  ledger amber-and-gold means "still to fill in" and nobody can fill this in.
+  `--ok` at weight 400 on that wash is 4.45:1, under AA), and a check nobody
+  could make is ink behind a warning glyph rather than the page's amber,
+  because on the ledger amber-and-gold means "still to fill in" and nobody can
+  fill this in.
   Checked rather than assumed: `readHandoffPDF()` returns the embedded JSON as
   parsed and `verifyRequest()` passes it on by reference, so no page-side
   change can make a genuine older approval read INVALID; harness
