@@ -25023,8 +25023,10 @@ function syncChipState() {
              title: `Saved on this device. ${n === 1 ? "This lot" : `${n} lots`} will reach KYTC when you are back online. ${st.lastError || ""}`.trim() };
   }
   if (PB_LOT.isUnsynced(state.lot)) return { cls: "warn", text: "saving", title: "Saved on this device, going to KYTC now." };
+  // Retention is INTENT until the purge is scheduled (pg_cron is not), so it
+  // is said as what is due to happen, not as what does.
   return { cls: "ok", text: "saved",
-           title: `Saved on this device and with KYTC. The data is deleted ${CONFIG.STORAGE.RETENTION_DAYS} days after this lot is submitted - your downloaded PDF is the permanent copy.` };
+           title: `Saved on this device and with KYTC. The data is due to be deleted ${CONFIG.STORAGE.RETENTION_DAYS} days after this lot is submitted - your downloaded PDF is the permanent copy.` };
 }
 
 function paintSyncChip() {
@@ -25067,13 +25069,13 @@ async function paintLotList() {
   // lots here live only in this browser, so "not yet sent" (it never will be)
   // and the retention sentence (nothing is kept to delete) are both untrue.
   // The list itself stays - reopening a lot kept on this device is real.
-  // available() is what decides it, because this runs on the front door before
-  // any lot has been saved and there may be no failure on the state yet.
-  let notSetUp = false;
-  try {
-    const a = await store.available();
-    notSetUp = !!a && a.notSetUp === true;
-  } catch (_) { /* cannot tell: keep the full wording */ }
+  // available() is asked first, because this runs on the front door before
+  // any lot has been saved and the store may not have heard yet; then the
+  // answer is read through lotStorageLive(), the one gate every sentence about
+  // where a lot is kept goes through (it read available()'s flag directly, a
+  // second gate that called a store with no server at all "live").
+  try { await store.available(); } catch (_) { /* cannot tell: lotStorageLive() reads not live */ }
+  const live = lotStorageLive();
 
   const items = rows.map((r) => {
     const purged = !!r.purged_at || r.has_data === false;
@@ -25096,7 +25098,7 @@ async function paintLotList() {
     const sub = [esc(r.contract_id), esc(r.plant_name || r.amp_number), stage,
                  sAt || sBy ? "" : esc(lotWhen(r.saved_at))].filter(Boolean).join(" · ");
     const flag = purged ? `<span class="lotflag">data purged</span>`
-               : r.unsynced && !notSetUp ? `<span class="lotflag warn">not yet sent</span>` : "";
+               : r.unsynced && live ? `<span class="lotflag warn">not yet sent</span>` : "";
     return purged
       ? `<div class="lotrow gone"><div><strong>${label}</strong><span>${sub}</span></div>${flag}</div>`
       : `<button type="button" class="lotrow" data-lot-uid="${esc(r.uid)}">
@@ -25106,9 +25108,9 @@ async function paintLotList() {
 
   wrap.innerHTML =
     `<h3>Lots you already have</h3>
-     <p class="legend">Open one to carry on.${notSetUp ? "" : ` A lot's data is kept for
-        ${CONFIG.STORAGE.RETENTION_DAYS} days after it is submitted and then deleted &mdash;
-        the PDF you downloaded is the permanent copy.`}</p>
+     <p class="legend">Open one to carry on.${live ? ` A lot's data is due to be deleted
+        ${CONFIG.STORAGE.RETENTION_DAYS} days after it is submitted, so the PDF you downloaded
+        is the permanent copy.` : ""}</p>
      ${items}`;
   wrap.classList.remove("hidden");
   wrap.querySelectorAll("[data-lot-uid]").forEach((b) => {
@@ -25124,8 +25126,8 @@ async function openLotFromStore(uid) {
     if (!lot) { msg($("uploadMsg"), "That lot is no longer on this device or on the server.", "error"); return; }
     if (!Object.keys(lot.values || {}).length) {
       msg($("uploadMsg"),
-          `Lot ${lot.lot_number}'s data was deleted ${CONFIG.STORAGE.RETENTION_DAYS} days after it was submitted, ` +
-          `which is the retention rule. Open the lot PDF you downloaded instead - it carries the whole lot inside it.`,
+          `Lot ${lot.lot_number}'s data has been deleted from KYTC's lot record under the retention rule. ` +
+          `Open the lot PDF you downloaded instead - it carries the whole lot inside it.`,
           "warn");
       return;
     }

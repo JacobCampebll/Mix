@@ -86,6 +86,7 @@ const READ = async ({ approval }) => {
   await paintLotList();
   const listRows = Array.from(document.querySelectorAll("#lotListWrap [data-lot-uid]"))
     .map((b) => b.dataset.lotUid);
+  const legend = ((document.querySelector("#lotListWrap .legend") || {}).textContent || "").replace(/\s+/g, " ").trim();
 
   // ---- reopening it, through the real button -------------------------
   state.lot = null; state.extracted = { scalars: {}, tables: {} };
@@ -114,7 +115,7 @@ const READ = async ({ approval }) => {
   // In step and online: the chip is the save, so the appbar's saved-state line
   // must not sit beside it saying "Not downloaded yet" (renderSavedState()).
   const savedChrome = { chip: $("syncChip").textContent, savedHidden: $("savedstate").hidden,
-                        savedText: $("savedstate").textContent };
+                        savedText: $("savedstate").textContent, chipTitle: $("syncChip").title || "" };
 
   // ---- sealing, through the REAL Submit button ----------------------
   // submitLotToKYTC() is what a technician presses, and calling the function
@@ -167,7 +168,7 @@ const READ = async ({ approval }) => {
   };
 
   return {
-    contractorAccept, savedChrome,
+    contractorAccept, savedChrome, legend,
     uid, ledgerOnOpen, tonsAtOpen, tonsBeforeDebounce, downloaded, submitError,
     ledgerWritten: !!ledger,
     ledgerIdentity: ledger ? { contract_id: ledger.contract_id, amp_number: ledger.amp_number,
@@ -223,7 +224,7 @@ const UNAPPLIED = async ({ approval }) => {
     listRows: document.querySelectorAll("#lotListWrap [data-lot-uid]").length,
     chipHidden: $("syncChip").classList.contains("hidden"),
     chip: $("syncChip").textContent,
-    listSaysRetention: /kept for/.test(listText),
+    listSaysRetention: /days after it is submitted/.test(listText),
     listSaysNotYetSent: /not yet sent/.test(listText),
     formAlive: document.querySelectorAll("#sections .section").length,
   };
@@ -637,6 +638,12 @@ export async function run({ browser, results }) {
 
   // ---- the list, which is what storage actually buys a person ----
   ok("the lot appears in “lots you already have”", r.listRows.includes(r.uid), r.listRows);
+  // pg_cron is not scheduled, so nothing is deleted yet: the seven days are
+  // INTENT (CLAUDE.md, 2026-09-24), and the list and the chip say them so.
+  ok("…and its legend gives the retention as intent, not as something that happens",
+     /due to be deleted 7 days after it is submitted/.test(r.legend) && !/and then deleted/.test(r.legend), r.legend);
+  ok("…as does the “saved” chip's title",
+     /due to be deleted 7 days after this lot is submitted/.test(r.savedChrome.chipTitle), r.savedChrome.chipTitle);
   ok("opening it from the list reopens THAT lot", r.reopened === r.uid, `${r.reopened} vs ${r.uid}`);
   ok("…with the values it was saved with", String(r.reopenedTons) === r.marker,
      `lot_tons=${JSON.stringify(r.reopenedTons)}`);
