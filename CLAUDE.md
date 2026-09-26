@@ -5637,3 +5637,32 @@ commit where possible.
   PDF for the person and writes nothing back). **Open for Jake**: whether a
   lot should be re-checkable - say by dropping the approval PDF on an open lot
   once there is a signal - given lots must work offline.
+
+- **A lot's page and its ledger agree now, and Accept seals** (2026-09-26).
+  A reviewer's Accept was a local stage change - ledger still Submitted, no
+  `accepted_at`, no audit line - and Submit printed one success line whatever
+  became of its seal. `acceptLotForKYTC()` now seals (reviewer-only as before:
+  hidden button, refusing handler, refusing server), and after Submit and
+  Accept `sealOutcome()` says one of four true things: sealed / waiting for a
+  signal / lot storage not set up (the file wording, then true) / refused, with
+  the reason. The chip reads "waiting to be sealed" while a seal is in the
+  outbox. Every PlantBook sentence about where a lot is kept reads
+  `lotStorageLive()`, the save note's gate; DesignBook's own still stand
+  (2026-09-04).
+  **A refused Accept comes back off; a refused Submit stays**, deliberately -
+  its PDF is already on its way. The rollback is in storage.mjs's `pushOne()`,
+  the one door `seal()`/`save()`/`flush()` share, so an offline Accept refused
+  at a later flush comes off too; "no such lot" (P0002) is an answer now, not a
+  lost signal. **"n of 4 sublots" is asked of the schema** - sections.mjs's
+  `rowHoldsMeasurement()`, from readonly flags, seeds, the lot-level lists and
+  the blend %'s new `seedFrom: "design_pct"`. It read 4 of 4 on every untouched
+  lot and took "1-3" for sublot 1; a server-only row has no count, and an index
+  entry written earlier keeps its old count until that lot is next saved.
+  `.jobstrip[hidden]{display:none}`: under `display:flex` the attribute did
+  nothing, so the door, DesignBook's gate and its upload card showed empty
+  chips. **Trap:** lotstore/lotremoved/nextlot read `h.errors`, which
+  `openPage()` never returns, so four console-error cases could not fail
+  (fixed; that commit's message says five). **Open (F9):** a reviewer can still
+  press Start lot n+1 on a contractor's lot and roll it forward as KYTC.
+  Measured: page checker 219 pass (was 214), check_storage 129 (was 94), full
+  harness 431 passed / 0 failed / 3 skipped (was 404).
