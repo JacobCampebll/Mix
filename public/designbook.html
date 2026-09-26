@@ -24030,13 +24030,28 @@ async function submitLotToKYTC() {
     // so KYTC can check the PDF in their inbox against what was sealed here.
     // Awaited, unlike every other store call on this page: the whole point of
     // the seal is that it happened before the lot stopped being editable.
-    await sealLotSubmitted(frozen);
+    const sealed = await sealLotSubmitted(frozen);
+    // Submitted whatever the record said: the PDF is on disk and is the
+    // submission, and a lot still reading Open here would keep autosaving
+    // into a door that has shut. The chip is repainted from it - painted
+    // while the lot still read Open, a refused seal showed a green "saved".
+    state.lot.status = "Submitted";
+    paintSyncChip();
     renderLotStage();
     audit(`${CONFIG.SUBMIT.ACTION.submitted} - ${who}`);
+    // ONE TRUE SENTENCE about the record, where there used to be the same
+    // success line whatever had happened to it.
+    const seal = {
+      sealed:  ["It is sealed in KYTC's lot record as submitted, so it can no longer be changed.", "ok"],
+      waiting: ["There is no signal, so the lot is saved on this device and will be sealed in " +
+                "KYTC's lot record when the connection is back.", "warn"],
+      unset:   ["Lot storage is not set up here, so the site keeps nothing - that file is the only record.", "ok"],
+      refused: [`The lot record was not sealed: ${sealed.reason}.`, "error"],
+    }[sealed.kind];
     msg($("saveMsg"),
         `${name} downloaded and stamped as submitted by ${who}. Email it to ` +
-        `${to || "KYTC Central Office Materials"} - that file is the submission, and the ` +
-        `site keeps nothing. You can download it again at any time.`, "ok");
+        `${to || "KYTC Central Office Materials"} - that file is the submission. ` +
+        `${seal[0]} You can download it again at any time.`, seal[1]);
   } catch (err) {
     state.stageIdx = prevIdx;          // nothing left the machine, so nothing moved
     renderLotStage();
@@ -24130,6 +24145,9 @@ function openLotEnvelope(raw, label, opening) {
   if (submittedFor("plantbook")) state.submitted = null;
   state.lot = lot;
   state.lotReport = null;
+  // A lot reopened from the store with its seal still waiting says so from the
+  // first paint, not only once adoptLotIntoStore()'s save comes back.
+  state.lot.sealPending = !!lot.pending_seal;
   // The letting date rides on the lot's design block precisely so a reopened
   // lot can still run the compaction lookup; without it kytc-lookup 400s.
   state.job = { cid: lot.contract_id, plant: lot.amp_number,
@@ -24337,6 +24355,11 @@ async function saveLotNow() {
       state.lot.synced_revision = saved.synced_revision;
       state.lot.server_revision = saved.server_revision;
       state.lot.conflict = saved.conflict || null;
+      // Whether this lot's seal is still in the outbox - the store keeps a
+      // waiting one across ordinary saves, and a save can carry it through.
+      // Read by the chip; like `conflict`, not an envelope field, so it never
+      // reaches a file.
+      state.lot.sealPending = !!saved.pending_seal;
     }
     paintSyncChip();
     return saved;
@@ -24388,9 +24411,15 @@ async function adoptLotIntoStore(lot) {
 // The one-way door. Called from submitLotToKYTC() with the frozen payload -
 // the same bytes the PDF carries - so the hash on the ledger is the hash of
 // the file KYTC receives.
+//
+// It returns what became of the seal (sealOutcome()), and submitLotToKYTC()
+// says it in one sentence. It used to return the lot or null and swallow a
+// failure into state.storeError, which nothing read: a refused or unsent seal
+// was a KYTC submission with no record behind it while the screen said the
+// same success line as one that sealed.
 async function sealLotSubmitted(frozen) {
   const store = lotStore();
-  if (!store || !state.lot) return null;
+  if (!store || !state.lot) return sealOutcome(null, null);
   try {
     // Everything typed since the last autosave has to reach the server BEFORE
     // the seal: a submitted lot's data is frozen server-side, so a save after
@@ -24408,16 +24437,20 @@ async function sealLotSubmitted(frozen) {
     });
     state.lot.status = "Submitted";
     state.lot.submittal_sha256 = hash;
-    paintSyncChip();
-    return sealed;
+    state.lot.sealPending = !!sealed.pending_seal;
+    state.lot.sealRefused = null;
+    return sealOutcome(sealed, null);
   } catch (err) {
     // The PDF has already downloaded and the technician will email it, so the
     // submission is real whatever happened here. This is the RECORD of it
     // failing, which is worth a sentence and is not worth undoing the
-    // download over.
+    // download over - and a refused submission keeps its stamp on this device
+    // (storage.mjs's pushOne()), so the chip says "not sealed" and why.
     state.storeError = err && err.message;
+    state.lot.sealRefused = String((err && err.message) || "no reason was given");
+    return sealOutcome(null, err);
+  } finally {
     paintSyncChip();
-    return null;
   }
 }
 
@@ -24435,6 +24468,7 @@ async function sealLotAccepted() {
   try {
     await saveLotNow();
     const sealed = await store.seal(state.lot.uid, "Accepted", { by: storeWho() });
+    state.lot.sealPending = !!sealed.pending_seal;
     return sealOutcome(sealed, null);
   } catch (err) {
     state.storeError = err && err.message;
@@ -24514,8 +24548,22 @@ function syncChipState() {
   const st0 = store.state ? store.state() : {};
   if (st0.notSetUp) return null;
   if (state.lot.status && state.lot.status !== "Open") {
-    return { cls: "ok", text: state.lot.status.toLowerCase(),
-             title: `This lot was ${state.lot.status.toLowerCase()} and is no longer editable. KYTC holds the copy the PDF's hash covers.` };
+    const s = state.lot.status.toLowerCase();
+    // "KYTC holds the copy" is only true once the record has taken the seal.
+    // Stamped here and still in the outbox - no signal - it is waiting, and a
+    // seal the record REFUSED is not sealed at all; both are said, never
+    // painted over with the green one.
+    if (state.lot.sealRefused) {
+      return { cls: "bad", text: "not sealed",
+               title: `This lot is ${s} on this device, but KYTC's lot record did not seal it: ${state.lot.sealRefused}` };
+    }
+    if (state.lot.sealPending) {
+      return { cls: "warn", text: "waiting to be sealed",
+               title: `This lot is ${s} on this device and will be sealed in KYTC's lot record when there is a signal. ` +
+                      "Until then only this device and the PDF hold it that way." };
+    }
+    return { cls: "ok", text: s,
+             title: `This lot was ${s} and is no longer editable. KYTC holds the copy the PDF's hash covers.` };
   }
   const st = store.state ? store.state() : {};
   if (state.lot.conflict) return { cls: "bad", text: "edited elsewhere", title: state.lot.conflict };
@@ -24629,8 +24677,36 @@ async function flushLots() {
   const store = state.store;                 // NOT lotStore() - never build one just to flush
   if (!store || !store.flush) return;
   try { await store.flush({ by: storeWho() }); } catch (_) { /* it will try again */ }
+  await reconcileLotSeal();
   paintSyncChip();
   paintLotList();
+}
+
+// After a flush, where the lot on screen now stands with the record. A seal
+// that was waiting may have gone (the chip stops saying "waiting"), and an
+// Accept made with no signal may have been REFUSED once it could be asked -
+// the store has already taken that stamp off (storage.mjs's pushOne()), so the
+// page puts its own stage back and says so, rather than reading Accepted over
+// a ledger row that still says Submitted.
+async function reconcileLotSeal() {
+  const store = state.store;
+  if (!isPlantBook() || !state.lot || !store || !store.local) return;
+  const uid = state.lot.uid;
+  let held = null;
+  try { held = await store.local.load(uid); } catch (_) { return; }
+  if (!held || !state.lot || state.lot.uid !== uid) return;   // another lot opened meanwhile
+  state.lot.sealPending = !!held.pending_seal;
+  if (!held.pending_seal) state.lot.sealRefused = null;
+  if (state.lot.status === "Accepted" && held.status !== "Accepted") {
+    const at = CONFIG.LOT_STAGES.findIndex((x) => x.key === held.status);
+    state.stageIdx = at < 0 ? CONFIG.LOT_STAGES.findIndex((x) => x.key === "Submitted") : at;
+    state.lot.status = held.status;
+    renderLotStage();
+    const why = (store.state && store.state().lastError) || "";
+    msg($("saveMsg"),
+        `KYTC's lot record did not take the Accept made without a signal${why ? `: ${why}` : ""}. ` +
+        `Lot ${state.lot.lot_number} is still ${held.status}.`, "error");
+  }
 }
 
 if (typeof window !== "undefined" && window.addEventListener) {
