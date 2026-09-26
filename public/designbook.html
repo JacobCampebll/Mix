@@ -5780,7 +5780,7 @@ const state = {
   // time - the same reason the approval's verification state is carried rather
   // than assumed.
   sublotsOpen: new URLSearchParams(location.search).get("sublots") === "open",
-  saving: false,
+  saving: false,     // a Submit / Approve / Accept is in flight - see setStageBusy()
   step: 0,           // which of activeSections() is on screen (index, not the visible position)
   // Which book is on screen, from ?book= at boot and from the switch in the
   // appbar afterwards. DesignBook and PlantBook are two VIEWS of this one
@@ -7042,12 +7042,25 @@ function paintBookSwitch() {
     btn.classList.toggle("on", on);
     if (on) btn.setAttribute("aria-current", "page"); else btn.removeAttribute("aria-current");
     const allowed = bookAllowed(key);
-    btn.disabled = !allowed;
-    btn.title = allowed
-      ? `${CONFIG.BOOKS[key].label} - the ${CONFIG.BOOKS[key].noun} view of this page`
-      : `${CONFIG.BOOKS[key].label} needs a current certification. Yours isn't showing as active.`;
+    btn.disabled = !allowed || !!state.saving;
+    btn.title = !allowed
+      ? `${CONFIG.BOOKS[key].label} needs a current certification. Yours isn't showing as active.`
+      : state.saving ? "Wait for this to finish before switching books."
+      : `${CONFIG.BOOKS[key].label} - the ${CONFIG.BOOKS[key].noun} view of this page`;
   });
   document.title = `Mix — ${activeBook().label}`;
+}
+// A Submit, an Approve or an Accept awaits a PDF build, a signature or a seal,
+// and everything it does after the await - msg(), which tags #saveMsg with
+// the book on screen, and renderStage()/renderLotStage(), which paint the one
+// set of stage controls - assumes the book it started in is still on screen.
+// A book switch in that window put a lot's submittal line under DesignBook's
+// button and the lot's stage controls onto DesignBook's Status step
+// (measured 2026-09-26). So the switch is disabled for the duration, and
+// switchBook() refuses as well.
+function setStageBusy(on) {
+  state.saving = !!on;
+  paintBookSwitch();
 }
 // PlantBook with no lot open is its Start a lot page, not an empty form (Jake,
 // 2026-09-24: clicking PlantBook from inside DesignBook "should take me to
@@ -7073,7 +7086,7 @@ function paintBookSwitch() {
 // screen rather than assuming the form. Opening an approval or a lot from the
 // door goes through enterForm(), which closes it.
 function switchBook(key) {
-  if (!CONFIG.BOOKS[key] || key === state.book || !bookAllowed(key)) return;
+  if (!CONFIG.BOOKS[key] || key === state.book || !bookAllowed(key) || state.saving) return;
   if (!state.bookDoor) bookStash();
   const from = state.book;
   state.book = key;
@@ -23991,7 +24004,7 @@ function renderLotStage() {
   const btn = $("advanceStage"), note = $("stageNote");
   if (btn) {
     btn.textContent = s.next || "Accepted";
-    btn.disabled = !s.next;
+    btn.disabled = !s.next || state.saving;
     // Accepting a lot is KYTC's act, the same power as approving a design
     // (can_review). A contractor's lot is "with KYTC" once submitted, so the
     // button is not theirs to see. The click handler refuses too - hiding a
@@ -24629,6 +24642,7 @@ async function submitLotToKYTC() {
   const btn = $("advanceStage"), was = btn ? btn.textContent : "";
   const prevIdx = state.stageIdx;
   let done = false;
+  setStageBusy(true);
   if (btn) { btn.disabled = true; btn.textContent = "Building..."; }
   try {
     // Stage first, so the package itself says Submitted and the history entry
@@ -24681,6 +24695,7 @@ async function submitLotToKYTC() {
     renderLotStage();
     msg($("saveMsg"), err.message || "Couldn't build the submittal.", "error");
   } finally {
+    setStageBusy(false);
     if (btn) { btn.disabled = false; btn.textContent = was; }
     renderLotStage();
     if (done) revealSubmitted();
@@ -24735,6 +24750,7 @@ async function acceptLotForKYTC() {
     return;
   }
   const btn = $("advanceStage"), was = btn ? btn.textContent : "";
+  setStageBusy(true);
   if (btn) { btn.disabled = true; btn.textContent = "Accepting..."; }
   const n = state.lot.lot_number, uid = state.lot.uid;
   state.lot.stageWarn = null;
@@ -24791,6 +24807,7 @@ async function acceptLotForKYTC() {
     // the list with it. Not awaited: the seal above is what mattered.
     saveLotNow();
   } finally {
+    setStageBusy(false);
     if (btn) { btn.disabled = false; btn.textContent = was; }
     renderLotStage();
     // A refusal painted under the button is brought into view: pressed at the
@@ -25800,7 +25817,7 @@ async function submitToKYTC() {
   if (!confirm(`Submit this design to KYTC as ${who}?\n\nYour SM ID is stamped on the package - if you are the supervisor who reviewed it, that stamp is the record of the internal review.\n\nThe submittal PDF downloads now. Email it to ${to || "KYTC Central Office Materials"} yourself - the site does not send it, and keeps no copy.`)) return;
 
   const btn = $("advanceStage"); const was = btn.textContent;
-  state.saving = true; renderStage(); btn.textContent = "Building...";
+  setStageBusy(true); renderStage(); btn.textContent = "Building...";
   const prevIdx = state.stageIdx;
   let done = false;
   try {
@@ -25830,7 +25847,7 @@ async function submitToKYTC() {
     renderStage();
     msg($("saveMsg"), err.message || "Couldn't build the submittal.", "error");
   } finally {
-    state.saving = false; btn.textContent = was; renderStage();
+    setStageBusy(false); btn.textContent = was; renderStage();
     if (done) revealSubmitted();
   }
 }
@@ -25855,7 +25872,7 @@ async function approveDesign() {
   if (!confirm(`Approve this design as ${state.tech.sm_id}, number ${seq}?\n\nThis issues a signed approval. It is checkable by anyone holding the file, so it cannot be undone by editing.`)) return;
 
   const btn = $("advanceStage"), was = btn.textContent;
-  state.saving = true; renderStage(); btn.textContent = "Approving...";
+  setStageBusy(true); renderStage(); btn.textContent = "Approving...";
   try {
     // Signed over the design as it stands, so the approval covers what is
     // in front of the reviewer - not a later edit.
@@ -25885,7 +25902,7 @@ async function approveDesign() {
   } catch (err) {
     msg($("saveMsg"), err.message || "Couldn't approve.", "error");
   } finally {
-    state.saving = false; btn.textContent = was; renderStage();
+    setStageBusy(false); btn.textContent = was; renderStage();
   }
 }
 

@@ -5765,6 +5765,12 @@ commit where possible.
   so `msg()` records which book wrote it (`state.saveMsgBook`) and the echo
   shows only the current book's line. Without that, a lot's "Reopened lot
   1..." or its submittal line sat under DesignBook's Submit button.
+  That tag is the book on screen when `msg()` runs, so it only holds if the
+  book cannot change during an action's await: a switch mid-Submit put the
+  lot's submittal line under DesignBook's button and painted the lot's stage
+  controls onto DesignBook's Status step. `setStageBusy()` disables the book
+  switch while a Submit, Approve or Accept is in flight, and `switchBook()`
+  refuses too (`stagemsg` switches mid-Submit in both books).
   `#valBlock` and `#saveMsg` do not move (2026-09-11), and `#saveMsg` keeps
   the full text and the long reports. **The echo is the only live region**,
   and it stays rendered while empty (zero margin, never `display:none`):

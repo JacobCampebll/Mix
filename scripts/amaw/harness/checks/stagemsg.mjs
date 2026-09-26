@@ -453,6 +453,79 @@ export async function run({ browser, results }) {
   await lineCase(browser, results);
   await warnCase(browser, results);
   await revealCase(browser, results);
+  await midSwitchCase(browser, results);
+}
+
+/* A Submit awaits a PDF build (and on a lot, the seal), and what it does
+ * after the await - msg() tags #saveMsg with the book on screen, the stage
+ * render paints the one set of stage controls - assumes the same book is
+ * still on screen. A book switch in that window put a lot's submittal line
+ * under DesignBook's button and the lot's stage controls onto DesignBook's
+ * Status step. So the switch is disabled while the action is in flight. */
+async function midSwitchCase(browser, results) {
+  for (const book of [DESIGN, PLANT]) {
+    const out = await withBook(browser, book, { width: 1366, height: 768 }, async ({ page, errs }) => {
+      await page.addStyleTag({ content: ".section{animation:none!important;opacity:1!important}" });
+      if (book === PLANT) {
+        await page.evaluate((approval) => {
+          const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+          openLotEnvelope(out.lot, "the harness");
+        }, APPROVAL);
+        await page.waitForTimeout(500);
+      }
+      await page.evaluate(TO_STATUS);
+      await page.waitForTimeout(250);
+      if (book === PLANT) {
+        await page.evaluate(CENTRE);
+        await page.click("#advanceStage");                    // Open -> Closed
+        await page.waitForTimeout(200);
+      }
+      // Hold the action open after its first await: the lot's seal, the
+      // design's PDF build.
+      await page.evaluate((plant) => {
+        window.__dl = null;
+        window.confirm = () => true;
+        window.saveBytes = (bytes, name) => { window.__dl = name; };
+        const name = plant ? "sealLotSubmitted" : "buildReviewPDF";
+        const real = window[name];
+        window[name] = async (...a) => { await new Promise((r) => setTimeout(r, 1500)); return real(...a); };
+      }, book === PLANT);
+      await page.evaluate(CENTRE);
+      await page.click("#advanceStage");                      // Submit
+      await page.waitForTimeout(400);
+      const other = book === PLANT ? "bookDesign" : "bookPlant";
+      const otherKey = book === PLANT ? "designbook" : "plantbook";
+      const mid = await page.evaluate(([id, key]) => {
+        const b = document.getElementById(id);
+        const r = { building: document.getElementById("advanceStage").textContent, disabled: b.disabled };
+        b.click();                                            // a disabled button does nothing...
+        switchBook(key);                                      // ...and neither does a direct call
+        r.book = state.book;
+        return r;
+      }, [other, otherKey]);
+      await page.waitForFunction(() => window.__dl && /downloaded/.test(document.getElementById("saveMsg").textContent),
+                                 null, { timeout: 30000 }).catch(() => {});
+      await page.waitForTimeout(300);
+      const end = await page.evaluate((id) => ({
+        book: state.book, tag: state.saveMsgBook,
+        echo: (document.getElementById("stageMsg") || {}).textContent || "",
+        row: !!(document.getElementById("sendRow") && !document.getElementById("sendRow").classList.contains("hidden")),
+        enabled: !document.getElementById(id).disabled,
+      }), other);
+      return { mid, end, errs: realErrors(errs) };
+    });
+    if (out.skipped) { results.skip(id, book.label, "mid-Submit switch", out.skipped); continue; }
+    const { mid, end, errs } = out.value;
+    const want = book === PLANT ? "plantbook" : "designbook";
+    results.ok(id, book.label, "1366x768 the book switch is disabled while Submit is building, and refuses a direct call",
+               /Building/.test(mid.building) && mid.disabled && mid.book === want,
+               `button=${mid.building} switch disabled=${mid.disabled} book=${mid.book}`);
+    results.ok(id, book.label, "1366x768 …so the submittal line and the send row land under this book's button",
+               end.book === want && end.tag === want && /downloaded/.test(end.echo) && end.row,
+               `book=${end.book} tag=${end.tag} row=${end.row} echo=${JSON.stringify(end.echo.slice(0, 40))}`);
+    results.ok(id, book.label, "1366x768 …and the switch is back once Submit is done", end.enabled, `enabled=${end.enabled}`);
+    results.ok(id, book.label, "1366x768 clean console", errs.length === 0, errs.join(" | ") || "clean");
+  }
 }
 
 /* A warning or an error is the line to act on - a lot's seal waiting for a
