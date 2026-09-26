@@ -5749,8 +5749,16 @@ commit where possible.
   went only into `#saveMsg`, ~12,000px above the button on a phone (~62,000
   on a lot) and under the fixed action bar on a 1366x768 lot. `#stageMsg`
   sits after the stage button's row, before `#stageNote`, in both books.
-  `msg()` echoes into it whenever its target is `#saveMsg`: one ellipsised
-  line, the whole text in `title`, same ok/warn/error. **It mirrors
+  `msg()` echoes into it whenever its target is `#saveMsg`, the whole text
+  in `title`, same ok/warn/error. **An ok line is one ellipsised line on a
+  desktop. Below 700px it wraps to three, and a warn or error wraps to
+  three on a desktop and six on a phone.** One line on a phone showed a
+  file-name fragment and nothing else. A lot's seal outcome ("no signal",
+  "not sealed") comes after the file name and the instruction, so one line
+  never reached it at any width. After a successful Submit,
+  `revealSubmitted()` scrolls the send row into view ('nearest', with a
+  scroll-margin for the header and the action bar), because a button
+  pressed at the bottom edge of a phone screen left both below it. **It mirrors
   `#saveMsg` rather than keeping a copy**, and `renderStage()` /
   `renderLotStage()` re-echo because `renderForm()` re-creates the node.
   `#saveMsg` is one node for both books and a book switch leaves it alone,

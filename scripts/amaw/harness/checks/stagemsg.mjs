@@ -67,6 +67,7 @@ const MEASURE = () => {
     stageRole: sm ? sm.getAttribute("role") : null, stageLive: sm ? sm.getAttribute("aria-live") : null,
     saveLive: save ? (save.getAttribute("aria-live") || save.getAttribute("role") || "") : null,
     oneLine: cs ? cs.whiteSpace === "nowrap" && cs.textOverflow === "ellipsis" && cs.overflow === "hidden" : false,
+    clamp: cs ? Number(cs.webkitLineClamp) || null : null,
     lineHeights: sm && cs ? sm.getBoundingClientRect().height / parseFloat(cs.lineHeight) : null,
     stageInView: inView(sm), stageRect: rect(sm),
     btnVisible: !!(btn && btn.getBoundingClientRect().height), btnInView: inView(btn), btnRect: rect(btn),
@@ -363,9 +364,16 @@ export async function run({ browser, results }) {
       ok("#stageMsg says exactly what #saveMsg says, in its kind",
          !!after.saveText && after.stageText === after.saveText && after.stageKind === after.saveKind,
          `stage=${JSON.stringify((after.stageText || "").slice(0, 70))} kind ${after.stageKind}/${after.saveKind}`);
-      ok("…on one line, ellipsised, with the whole text in its title",
-         after.oneLine && after.lineHeights != null && after.lineHeights < 1.6 && after.stageTitle === after.saveText,
-         `lines=${after.lineHeights && after.lineHeights.toFixed(2)} oneLine=${after.oneLine}`);
+      // One ellipsised line on a desktop; below 700px one line is a file name
+      // and nothing else, so it wraps to three. (A warn/error wraps at every
+      // width - warnCase below.)
+      const phone = w <= 700;
+      ok(phone ? "…wrapping to at most three lines on a phone, with the whole text in its title"
+               : "…on one line, ellipsised, with the whole text in its title",
+         after.lineHeights != null && after.stageTitle === after.saveText
+           && (phone ? after.clamp === 3 && after.lineHeights > 1.6 && after.lineHeights < 3.1
+                     : after.oneLine && after.lineHeights < 1.6),
+         `lines=${after.lineHeights && after.lineHeights.toFixed(2)} oneLine=${after.oneLine} clamp=${after.clamp}`);
       ok("…sitting after the stage button and before the stage note", after.order, after.order);
       ok("…announced (role=status, aria-live=polite), and #saveMsg is NOT a second live region",
          after.stageRole === "status" && after.stageLive === "polite" && after.saveLive === "",
@@ -413,6 +421,76 @@ export async function run({ browser, results }) {
   }
   await custodyCases(browser, results);
   await lineCase(browser, results);
+  await warnCase(browser, results);
+  await revealCase(browser, results);
+}
+
+/* A warning or an error is the line to act on - a lot's seal waiting for a
+ * signal or refused comes AFTER the file name and the instruction - so it
+ * wraps: to three lines on a desktop, six on a phone. */
+async function warnCase(browser, results) {
+  const LONG = "PlantBook_submittal_262120_lot1_00260467_2026-09-26.pdf downloaded and stamped as submitted by " +
+    "harness. Email it to Andrew.Denmark@ky.gov, Tate.Salle@ky.gov - that file is the submission. The lot record " +
+    "was not sealed: lot 1 is already submitted on this contract, line item and plant. You can download it again.";
+  for (const [w, h, max] of [[1366, 768, 3], [390, 844, 6]]) {
+    const out = await withBook(browser, DESIGN, { width: w, height: h }, async ({ page, errs }) => {
+      await page.addStyleTag({ content: ".section{animation:none!important;opacity:1!important}" });
+      await page.evaluate(TO_STATUS);
+      await page.waitForTimeout(250);
+      return page.evaluate((t) => {
+        msg(document.getElementById("saveMsg"), t, "error");
+        const el = document.getElementById("stageMsg"), cs = getComputedStyle(el);
+        return { lines: el.getBoundingClientRect().height / parseFloat(cs.lineHeight), clamp: Number(cs.webkitLineClamp) };
+      }, LONG).then((r) => ({ ...r, errs: realErrors(errs) }));
+    });
+    const r = out.value;
+    results.ok(id, "DesignBook", `${w}x${h} an error echo wraps to at most ${max} lines`,
+               r.clamp === max && r.lines > 1.6 && r.lines < max + 0.1, `lines=${r.lines.toFixed(2)} clamp=${r.clamp}`);
+    results.ok(id, "DesignBook", `${w}x${h} clean console`, r.errs.length === 0, r.errs.join(" | ") || "clean");
+  }
+}
+
+/* Pressed with the stage button at the bottom edge of a phone screen, the
+ * echo and the send row land below it; Submit brings the row into view. */
+async function revealCase(browser, results) {
+  for (const book of [DESIGN, PLANT]) {
+    const out = await withBook(browser, book, { width: 390, height: 844 }, async ({ page, errs }) => {
+      await page.addStyleTag({ content: ".section{animation:none!important;opacity:1!important}" });
+      if (book === PLANT) {
+        await page.evaluate((approval) => {
+          const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+          openLotEnvelope(out.lot, "the harness");
+        }, APPROVAL);
+        await page.waitForTimeout(500);
+        await page.evaluate(CENTRE);
+        await page.click("#advanceStage");                    // Open -> Closed
+        await page.waitForTimeout(200);
+      }
+      await page.evaluate(() => {
+        window.__dl = null;
+        window.confirm = () => true;
+        window.saveBytes = (bytes, name) => { window.__dl = name; };
+        document.getElementById("advanceStage").scrollIntoView({ block: "end" });
+      });
+      await page.waitForTimeout(150);
+      await page.click("#advanceStage");
+      await page.waitForFunction(() => window.__dl && /downloaded/.test(document.getElementById("saveMsg").textContent),
+                                 null, { timeout: 30000 }).catch(() => {});
+      await page.waitForTimeout(300);
+      const m = await page.evaluate(MEASURE);
+      const row = await page.evaluate(() => {
+        const r = document.getElementById("sendRow").getBoundingClientRect();
+        return [Math.round(r.top), Math.round(r.bottom), innerHeight];
+      });
+      return { m, row, errs: realErrors(errs) };
+    });
+    if (out.skipped) { results.skip(id, book.label, "390 reveal", out.skipped); continue; }
+    const { m, row, errs } = out.value;
+    results.ok(id, book.label, "390x844 Submit at the screen's edge brings the echo and the send row into view",
+               m.rowShown && m.stageInView === true && row[0] >= m.band[0] - 0.5 && row[1] <= m.band[1] + 0.5,
+               `stageMsg ${JSON.stringify(m.stageRect)} row ${JSON.stringify(row)} band ${JSON.stringify(m.band)}`);
+    results.ok(id, book.label, "390x844 clean console", errs.length === 0, errs.join(" | ") || "clean");
+  }
 }
 
 /* PlantBook's Submit step note is ONE line at 1440 - the save note, the

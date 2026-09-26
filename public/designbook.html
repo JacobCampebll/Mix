@@ -1369,12 +1369,23 @@
   /* #saveMsg's line, echoed under the stage button (echoStageMsg()). One line
      on purpose: the whole text is in its title and in #saveMsg. */
   .stagemsg{font-size:12.5px; line-height:1.5; margin-top:8px; max-width:100%;
-            white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+            white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+            scroll-margin:140px 0 76px;}
+  /* One line on a phone is ~50 characters - a file name and nothing else - so
+     below 700px it wraps to three before the ellipsis. */
+  @media (max-width:700px){
+    .stagemsg{display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; white-space:normal;}
+  }
   /* Empty, it takes no room but stays RENDERED: display:none would keep the
      live region out of the accessibility tree until its first message, and a
      region that arrives with its text is not reliably announced. */
   .stagemsg:empty{margin:0;}
   .stagemsg.error{color:var(--bad);} .stagemsg.warn{color:var(--flag);} .stagemsg.ok{color:var(--ok);}
+  /* A warning or an error is the line a person has to act on - a lot's seal
+     waiting for a signal, or refused - and that sentence comes after the file
+     name and the instruction, so one line never reached it. These wrap. */
+  .stagemsg.warn,.stagemsg.error{display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; white-space:normal;}
+  @media (max-width:700px){ .stagemsg.warn,.stagemsg.error{-webkit-line-clamp:6;} }
   /* Heard, not seen: in the accessibility tree, off the screen. */
   .sronly{position:absolute !important; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
           clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; border:0;}
@@ -1398,7 +1409,7 @@
      (paintSendRow()). The file name breaks at the <wbr> after each
      underscore; break-word is only the fallback for a token still too wide. */
   .sendrow{display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; margin:0 0 12px;
-           font-size:12.5px; line-height:1.5; color:var(--ink);}
+           font-size:12.5px; line-height:1.5; color:var(--ink); scroll-margin:140px 0 76px;}
   .sendtext{flex:1 1 300px; min-width:0; overflow-wrap:break-word;}
   .sendfile{font-family:'Roboto Mono',monospace; font-size:11.5px;}
   .sendbtn{display:inline-flex; align-items:center; padding:5px 11px; border:1px solid var(--accent);
@@ -12118,6 +12129,16 @@ function paintSendRow(book) {
   if (el.__html !== html) { el.innerHTML = html; el.__html = html; }
   el.classList.toggle("hidden", !html);
   return !!html;
+}
+// After a Submit the echo and the send row ARE the instruction. A button
+// pressed at the bottom edge of a phone screen leaves both below it, so bring
+// the row (or, with no address, the echo) into view - 'nearest' scrolls only
+// when it is out of view, and scroll-margin keeps it clear of the sticky
+// header and the fixed action bar.
+function revealSubmitted() {
+  const row = $("sendRow");
+  const el = row && !row.classList.contains("hidden") ? row : $("stageMsg");
+  if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
 }
 async function copyKytcAddress(btn) {
   const text = kytcAddressText();
@@ -24599,6 +24620,7 @@ async function submitLotToKYTC() {
 
   const btn = $("advanceStage"), was = btn ? btn.textContent : "";
   const prevIdx = state.stageIdx;
+  let done = false;
   if (btn) { btn.disabled = true; btn.textContent = "Building..."; }
   try {
     // Stage first, so the package itself says Submitted and the history entry
@@ -24645,6 +24667,7 @@ async function submitLotToKYTC() {
     // So the save or flush that finally seals it can replace the "no signal"
     // line (sealAnswered()).
     state.lot.waitingSaid = sealed.kind === "waiting" || null;
+    done = true;
   } catch (err) {
     state.stageIdx = prevIdx;          // nothing left the machine, so nothing moved
     renderLotStage();
@@ -24652,6 +24675,7 @@ async function submitLotToKYTC() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = was; }
     renderLotStage();
+    if (done) revealSubmitted();
   }
 }
 
@@ -25770,6 +25794,7 @@ async function submitToKYTC() {
   const btn = $("advanceStage"); const was = btn.textContent;
   state.saving = true; renderStage(); btn.textContent = "Building...";
   const prevIdx = state.stageIdx;
+  let done = false;
   try {
     // Stage first, so the package itself says Submitted and the history
     // entry the payload appends IS the submission record.
@@ -25791,12 +25816,14 @@ async function submitToKYTC() {
     audit(`${CONFIG.SUBMIT.ACTION.submitted} - ${who}`);
     msg($("saveMsg"),
       `${name} downloaded and stamped as submitted by ${who}. Email it to ${to || "KYTC Central Office Materials"} - that file is the submission, and the site keeps nothing. You can download it again at any time.`, "ok");
+    done = true;
   } catch (err) {
     state.stageIdx = prevIdx;               // nothing left the machine, so nothing moved
     renderStage();
     msg($("saveMsg"), err.message || "Couldn't build the submittal.", "error");
   } finally {
     state.saving = false; btn.textContent = was; renderStage();
+    if (done) revealSubmitted();
   }
 }
 
