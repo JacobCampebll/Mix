@@ -24479,8 +24479,11 @@ function openLotEnvelope(raw, label, opening) {
   state.lot = lot;
   state.lotReport = null;
   // A lot reopened from the store with its seal still waiting says so from the
-  // first paint, not only once adoptLotIntoStore()'s save comes back.
+  // first paint, not only once adoptLotIntoStore()'s save comes back - and so
+  // does one whose submission the record REFUSED, which used to be one
+  // session's memory: reopened, it read "waiting to be sealed".
   state.lot.sealPending = !!lot.pending_seal;
+  state.lot.sealRefused = submitRefusalOf(lot);
   // The letting date rides on the lot's design block precisely so a reopened
   // lot can still run the compaction lookup; without it kytc-lookup 400s.
   state.job = { cid: lot.contract_id, plant: lot.amp_number,
@@ -24696,6 +24699,7 @@ async function saveLotNow() {
       // Read by the chip; like `conflict`, not an envelope field, so it never
       // reaches a file.
       state.lot.sealPending = !!saved.pending_seal;
+      state.lot.sealRefused = submitRefusalOf(saved);
     }
     paintSyncChip();
     return saved;
@@ -24905,6 +24909,16 @@ function recordWhere(n, rec) {
     : ` KYTC's lot record still reads lot ${n} as ${rec.status}.`;
 }
 
+// The record's refusal of THIS device's submission, as the store keeps it on
+// the lot (storage.mjs's pushOne()) - the raw reason, for the chip's title -
+// or null. Only while the submission is still waiting: a refused Accept is put
+// back and said once (sayAcceptRefused()), and a submission that has since
+// sealed has nothing left to refuse.
+function submitRefusalOf(lot) {
+  const r = lot && lot.seal_refused;
+  return r && r.status === "Submitted" && lot.pending_seal ? String(r.reason || "no reason was given") : null;
+}
+
 // Why a submission was not sealed, in words a technician can act on. The
 // store's code and the record's own row decide it, never the wording of the
 // error, which stays in the chip's title for whoever supports this.
@@ -24986,8 +25000,13 @@ function syncChipState() {
                title: `This lot is ${s} on this device, but KYTC's lot record did not seal it: ${state.lot.sealRefused}` };
     }
     if (state.lot.sealPending) {
+      // "When there is a signal" is only true of a device without one; a
+      // device that is online is told the seal goes the next time the page
+      // reaches the record (a flush, a save, reopening the lot).
+      const off = st0.online === false;
       return { cls: "warn", text: "waiting to be sealed",
-               title: `This lot is ${s} on this device and will be sealed in KYTC's lot record when there is a signal. ` +
+               title: `This lot is ${s} on this device and will be sealed in KYTC's lot record ` +
+                      `${off ? "when there is a signal" : "the next time this page reaches it"}. ` +
                       "Until then only this device and the PDF hold it that way." };
     }
     // Who moved it along the chain and when, as the record stamped them.
@@ -25158,7 +25177,7 @@ async function reconcileLotSeal(failures) {
   state.lot.server_revision = held.server_revision;
   const wasWaiting = !!state.lot.sealPending;
   state.lot.sealPending = !!held.pending_seal;
-  if (!held.pending_seal) state.lot.sealRefused = null;
+  state.lot.sealRefused = submitRefusalOf(held);
   if (held.seal_refused && held.seal_refused.status === "Accepted") { await sayAcceptRefused(held); return; }
   // A seal this page said was waiting has gone through: the gold "there is
   // no signal" sentence would otherwise stay up over a sealed lot.

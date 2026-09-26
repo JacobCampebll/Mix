@@ -336,7 +336,7 @@ const OFFLINE_SUBMIT = async ({ approval }) => {
   window.confirm = () => true; window.saveBytes = () => {};
   try { await submitLotToKYTC(); } finally { window.confirm = c; window.saveBytes = s; }
   const offline = { msg: $("saveMsg").textContent, cls: $("saveMsg").className,
-                    chip: $("syncChip").textContent, chipCls: $("syncChip").className,
+                    chip: $("syncChip").textContent, chipCls: $("syncChip").className, chipTitle: $("syncChip").title || "",
                     ledger: (server.amaw_lots[uid] || {}).status || null, stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key };
   // Reopened from the list while the seal still waits: the store hands the
   // page a lot carrying its pending seal - which must not travel on into the
@@ -423,6 +423,38 @@ const ACCEPT_OFFLINE = async ({ approval, refuse, door }) => {
     outbox: (await state.store.local.outbox()).length,
     row: rowEl ? rowEl.textContent.replace(/\s+/g, " ").trim() : null,
   };
+};
+
+/* A SUBMIT THE RECORD REFUSES: another device already submitted this lot, with
+ * a different payload. This device's submission is real - its PDF has gone -
+ * so the lot stays Submitted here, and the chip says "not sealed". That used
+ * to last one session: reopened, the same lot read "waiting to be sealed ...
+ * when there is a signal" on a device that was online the whole time. And the
+ * sentence printed the server's raw "new row violates row-level security
+ * policy", which nobody at a plant can act on. */
+const REFUSED_SUBMIT = async ({ approval }) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.__HARNESS_AMAW;
+  const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+  openLotEnvelope(out.lot, "the harness");
+  const uid = state.lot.uid;
+  await sleep(CONFIG.STORAGE.AUTOSAVE_MS + 700);
+  Object.assign(S.amaw_lots[uid], { status: "Submitted", submittal_sha256: "b".repeat(64),
+    submitted_name: "Night Shift", submitted_at: "2026-09-26T02:00:00.000Z" });
+  const c = window.confirm, s = window.saveBytes;
+  window.confirm = () => true; window.saveBytes = () => {};
+  try { await submitLotToKYTC(); } finally { window.confirm = c; window.saveBytes = s; }
+  const chip = () => ({ text: $("syncChip").classList.contains("hidden") ? null : $("syncChip").textContent,
+                        cls: $("syncChip").className, title: $("syncChip").title || "" });
+  const refused = { msg: $("saveMsg").textContent, cls: $("saveMsg").className, chip: chip(),
+                    stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key };
+  // Another session: the lot reopened from the list, the record unchanged.
+  state.lot = null;
+  await openLotFromStore(uid);
+  await sleep(1500);
+  const held = JSON.parse(localStorage.getItem("amaw_lot:" + uid) || "null") || {};
+  return { refused, reopened: { chip: chip(), stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key,
+                                heldPending: !!held.pending_seal, heldRefused: held.seal_refused ? held.seal_refused.status : null } };
 };
 
 /* A device that never pressed Accept: a contractor holding its lot as
@@ -712,8 +744,9 @@ export async function run({ browser, results }) {
     ok("offline Submit: the sentence says the seal is WAITING, not that KYTC has it",
        /no signal/.test(o.offline.msg) && /when the connection is back/.test(o.offline.msg) && /warn/.test(o.offline.cls),
        o.offline.msg);
-    ok("…and the chip says “waiting to be sealed”, not “submitted”",
-       /waiting to be sealed/.test(o.offline.chip) && /warn/.test(o.offline.chipCls), `chip="${o.offline.chip}"`);
+    ok("…and the chip says “waiting to be sealed”, not “submitted” - “when there is a signal”, to a device without one",
+       /waiting to be sealed/.test(o.offline.chip) && /warn/.test(o.offline.chipCls) && /when there is a signal/.test(o.offline.chipTitle),
+       `chip="${o.offline.chip}" title="${o.offline.chipTitle}"`);
     ok("…while the lot is Submitted here and the ledger is not yet",
        o.offline.stage === "Submitted" && o.offline.ledger !== "Submitted", `stage=${o.offline.stage} ledger=${o.offline.ledger}`);
     ok("…and once the signal is back the seal goes and the chip says so",
@@ -768,6 +801,25 @@ export async function run({ browser, results }) {
       }
     }
     ok(`offline Accept (${v.name}): clean`, r.value.errs.length === 0, r.value.errs.slice(0, 3).join(" | ") || "clean");
+  }
+
+  // ---- a Submit the record refuses, and the next session ----
+  const rs = await withBook(browser, PLANT, { width: 1440, height: 1000, query: "&sublots=open" },
+    async (h) => ({ v: await h.page.evaluate(REFUSED_SUBMIT, { approval: APPROVAL }), errs: realErrors(h.errs || []) }));
+  if (rs.skipped) { results.skip(id, BOOK, "a Submit the record refuses", rs.skipped); }
+  else {
+    const x = rs.value.v;
+    ok("a refused Submit says why in words a technician can act on - another submission is on the record, and whose",
+       /The lot record was not sealed: KYTC's lot record already holds a different submission of lot 1 \(by Night Shift on 2026-09-26 02:00\)/.test(x.refused.msg)
+         && !/row-level security/.test(x.refused.msg) && /error/.test(x.refused.cls), x.refused.msg);
+    ok("…the lot stays Submitted and the chip says “not sealed”, keeping the server's own words in its title",
+       x.refused.stage === "Submitted" && x.refused.chip.text === "not sealed" && /bad/.test(x.refused.chip.cls)
+         && /row-level security policy/.test(x.refused.chip.title), `chip=${JSON.stringify(x.refused.chip)}`);
+    ok("…and in the next session it is STILL “not sealed” - not “waiting to be sealed ... when there is a signal”",
+       x.reopened.chip.text === "not sealed" && !/when there is a signal/.test(x.reopened.chip.title)
+         && x.reopened.heldPending === true && x.reopened.heldRefused === "Submitted",
+       `chip=${JSON.stringify(x.reopened.chip)} pending=${x.reopened.heldPending} refusal=${x.reopened.heldRefused}`);
+    ok("…clean", rs.value.errs.length === 0, rs.value.errs.slice(0, 3).join(" | ") || "clean");
   }
 
   // ---- a device that never pressed Accept ----
@@ -977,6 +1029,9 @@ export async function run({ browser, results }) {
                     errs: realErrors(h.errs || []) }));
   if (ub.skipped) { results.skip(id, BOOK, "a reviewer's Accept with the schema unapplied", ub.skipped); return; }
   const uo = ub.value.b.opened, uacc = ub.value.b.accepted || {};
+  ok("unapplied: the contractor's Submit says lot storage is not set up and the file is the only record",
+     /Lot storage is not set up here, so the site keeps nothing - that file is the only record\./.test(ua.value.a.msg || ""),
+     ua.value.a.msg);
   ok("unapplied: a reviewer opening the submittal sees no sync chip and the file's save note",
      uo.chip === null && /saved copy/.test(uo.note), `chip=${JSON.stringify(uo.chip)} note="${uo.note}"`);
   ok("unapplied: …and Accept says lot storage is NOT SET UP - not “no signal”, not a refusal",
