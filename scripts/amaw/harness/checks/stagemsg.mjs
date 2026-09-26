@@ -82,6 +82,7 @@ const MEASURE = () => {
     mails,
     note: ($$("stageNote") || {}).textContent || "",
     medl: ($$("medlNote") || {}).textContent || "",
+    saved: $$("savedstate") && !$$("savedstate").hidden ? $$("savedstate").textContent : null,
     scroll: [document.documentElement.scrollWidth, document.documentElement.clientWidth],
   };
 };
@@ -385,6 +386,10 @@ export async function run({ browser, results }) {
       ok("the stage button was in the clear part of the screen when pressed",
          before.btnInView === true, `button ${JSON.stringify(before.btnRect)} band ${JSON.stringify(before.band)}`);
       ok("a real Submit downloaded the submittal", !!downloaded, downloaded);
+      // The submittal carries the whole design, so on DesignBook it is a
+      // download of it: the appbar must not still say "Not downloaded yet".
+      if (book !== PLANT) ok("…and the appbar says the design was downloaded",
+                             /^Downloaded /.test(after.saved || ""), `before "${before.saved}" after "${after.saved}"`);
       ok("#stageMsg says exactly what #saveMsg says, in its kind",
          !!after.saveText && after.stageText === after.saveText && after.stageKind === after.saveKind,
          `stage=${JSON.stringify((after.stageText || "").slice(0, 70))} kind ${after.stageKind}/${after.saveKind}`);

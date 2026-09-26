@@ -25883,7 +25883,12 @@ async function submitToKYTC() {
     state.history = payload.history;
     state.submitted = frozen;
     state.justSubmitted = "designbook";
+    // The submittal carries the whole design and reopens through the same
+    // door as the review PDF, so it IS a download of the design: the appbar
+    // stops saying "Not downloaded yet" beside "...downloaded and stamped".
     state.dirty = false;
+    state.downloadedAt = new Date();
+    renderSavedState();
     renderStage();
     audit(`${CONFIG.SUBMIT.ACTION.submitted} - ${who}`);
     msg($("saveMsg"),
