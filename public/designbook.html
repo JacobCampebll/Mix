@@ -24717,9 +24717,15 @@ async function paintLotList() {
   const items = rows.map((r) => {
     const purged = !!r.purged_at || r.has_data === false;
     const label = `Lot ${esc(String(r.lot_number))} · ${esc(r.mix_signature || r.mix_id)}`;
+    // The count is lotSummary()'s, which counts only what somebody recorded
+    // on a sublot (sections.mjs's rowHoldsMeasurement()) - it read "4 of 4" on
+    // every lot opened from an approval. A lot this device knows only from the
+    // server has no count at all (amaw_lot_summaries has no such column), and
+    // prints none rather than a "0 of 4" that may be a finished lot.
+    const count = r.sublots_entered == null ? "" : `${esc(String(r.sublots_entered))} of 4 sublots`;
     const sub = [esc(r.contract_id), esc(r.plant_name || r.amp_number),
-                 r.status === "Open" ? `${r.sublots_entered || 0} of 4 sublots` : esc(r.status),
-                 when(r.saved_at)].filter(Boolean).join(" · ");
+                 r.status === "Open" ? count : esc(r.status),
+                 esc(when(r.saved_at))].filter(Boolean).join(" · ");
     const flag = purged ? `<span class="lotflag">data purged</span>`
                : r.unsynced && !notSetUp ? `<span class="lotflag warn">not yet sent</span>` : "";
     return purged
