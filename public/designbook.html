@@ -4158,11 +4158,11 @@ const verifySpecimenOf4 = (n) =>
     key: "sublot_tickets", heading: "Sublot ticket", banded: true, fixed: true,
     // Re-weighted 2026-09-26 when Date and Time became native pickers. ON
     // SCREEN every column sits on a pixel floor - the two pickers on theirs
-    // by type (144px/124px, rowGridTemplate()), and the columns that hold a
+    // by type (129px/124px, rowGridTemplate()), and the columns that hold a
     // known string on their own `minPx` below - so the `fr` only shares out
     // what is left over them, and a table narrower than the floors SCROLLS
-    // rather than squeezing (CLAUDE.md). It fits whole at a 1440px window
-    // and scrolls by about 60px at 1366. Before the floors the pickers'
+    // rather than squeezing (CLAUDE.md). It fits whole from a 1410px window
+    // and scrolls by 43px at 1366. Before the floors the pickers'
     // width came out of Tech, Binder lot and AC method, which then clipped
     // their values from 1000 to 1440px - AC method's seeded "Ignition
     // Furnace" on every lot.
@@ -5977,9 +5977,11 @@ function gridHTML(fields) {
  * input, so a scrollWidth test cannot see it (the harness's viewports sweep
  * measures a picker by its intrinsic width for that reason). Measured as the page
  * styles a row box (12.5px mono, 5px/7px padding), at 1x/2x/3x density: a
- * date needs 130/136/142px, a time 110/116/122px. The floors are the 3x
- * figures plus 2px, because a phone held sideways is wider than 700px and
- * lands here rather than in the card layout. Still pixels, for the reason
+ * date needs 115/121/127px, a time 110/116/122px. (A date's year field is
+ * four digits wide because its `max` is 9999-12-31; with no `max` it is six,
+ * and the date needed 130/136/142px - re-measure if that bound moves.) The
+ * floors are the 3x figures plus 2px, because a phone held sideways is wider
+ * than 700px and lands here rather than in the card layout. Still pixels, for the reason
  * above: the header and every row are handed the same string, so the tracks
  * cannot disagree. The `grid` string stays pure `fr` because gridWeights()
  * reads it for the review PDF and drops a track it cannot parse.
@@ -5997,7 +5999,7 @@ function gridHTML(fields) {
  * declaration and the table silently loses its columns; check_sections.mjs
  * (D) fails such a declaration for the same reason. */
 const ROW_TRACK_MIN = "64px";
-const NATIVE_TRACK_MIN = { date: "144px", time: "124px" };
+const NATIVE_TRACK_MIN = { date: "129px", time: "124px" };
 function rowTrackMin(c) {
   const col = c || {};
   if (typeof col.minPx === "number" && Number.isFinite(col.minPx) && col.minPx > 0) return `${col.minPx}px`;

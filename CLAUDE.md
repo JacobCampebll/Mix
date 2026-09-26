@@ -5538,9 +5538,11 @@ commit where possible.
   saying why up under the header, on a phone and on a 1280x600 laptop.
   **Chromium reports `scrollWidth === clientWidth` for a squeezed date or time
   input**, so the viewports sweep measures pickers by intrinsic width; their
-  tracks floor at 144/124px by column TYPE (`rowGridTemplate()`), and a picker
-  is pinned to the row's 28px height (it lays out 2-3px taller). `grid` stays
-  pure `fr` because `gridWeights()` sizes the lot PDF from it, **which makes
+  tracks floor at 129/124px by column TYPE (`rowGridTemplate()`: the 3x
+  intrinsic width plus 2px, the date's down from 144 once its `max` bounded
+  the year field to four digits), and a picker is pinned to the row's 28px
+  height (it lays out 2-3px taller). `grid` stays pure `fr` because
+  `gridWeights()` sizes the lot PDF from it, **which makes
   the ticket's `fr` a PDF measurement**: the table is 345pt for eleven
   columns, and each weight is what its column must hold whole in pdf-lib's
   Helvetica - its widest ordinary value, or its heading's widest word where
@@ -5566,8 +5568,8 @@ commit where possible.
   the longest strings. Every ticket column now sits on a pixel floor - the
   pickers by type, the rest by a `minPx` the schema declares (78px for the lot
   numbers and SM ID, 128px for AC method, 56px for the lot-sublot id and the
-  temperature, which need less than the 64px default) - 1014px in all: whole
-  at 1440 and up, scrolling below it (58px at 1366, 28px at 1100). **Measure a
+  temperature, which need less than the 64px default) - 999px in all: whole
+  from about 1410 up, scrolling below it (43px at 1366, 13px at 1100). **Measure a
   floor in the REAL fonts**: the harness is offline and falls back to DejaVu,
   where "Ignition Furnace" needs 121px; in Public Sans it needs 125, so a
   floor measured in the harness alone clips on the live site (the fonts

@@ -668,11 +668,11 @@ const SUBLOT_TICKETS_SPEC = {
   key: "sublot_tickets", heading: "Sublot ticket", banded: true, fixed: true,
   // Re-weighted 2026-09-26 when Date and Time became native pickers. ON
   // SCREEN every column sits on a pixel floor - the two pickers on theirs
-  // by type (144px/124px, rowGridTemplate()), and the columns that hold a
+  // by type (129px/124px, rowGridTemplate()), and the columns that hold a
   // known string on their own `minPx` below - so the `fr` only shares out
   // what is left over them, and a table narrower than the floors SCROLLS
-  // rather than squeezing (CLAUDE.md). It fits whole at a 1440px window
-  // and scrolls by about 60px at 1366. Before the floors the pickers'
+  // rather than squeezing (CLAUDE.md). It fits whole from a 1410px window
+  // and scrolls by 43px at 1366. Before the floors the pickers'
   // width came out of Tech, Binder lot and AC method, which then clipped
   // their values from 1000 to 1440px - AC method's seeded "Ignition
   // Furnace" on every lot.
