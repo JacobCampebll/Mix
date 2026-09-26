@@ -42,6 +42,11 @@ export async function enterBook(page, book) {
   await page.evaluate(() => {
     if (!state.bookDoor) return;
     state.bookDoor = false;
+    // The door hides the stage pill and the saved-state line (paintDoorChrome,
+    // 2026-09-26) and enterForm() brings them back; this opens a form by hand,
+    // so it has to do the same or every PlantBook case measures an appbar no
+    // real lot has.
+    if (typeof paintDoorChrome === "function") paintDoorChrome();
     show("uploadCard", false);
     show("dbLayout", true);
     show("actionBar", true);

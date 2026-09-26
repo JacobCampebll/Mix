@@ -300,4 +300,152 @@ export async function run({ browser, results }) {
        byp.value.meta.banner === true && byp.value.meta.stamp === true,
        `banner=${byp.value.meta.banner} payload.sublots_unlocked=${byp.value.meta.stamp}`);
   }
+
+  // ---- a ticket value the AMAW will not carry, on an open and a locked tab
+  // (2026-09-26). A lot saved before the ticket's Date and Time were pickers
+  // can hold "9/24/26" on any sublot, and the rail names every one. What it
+  // must not do is tell a contractor to correct a value on a sublot they
+  // cannot edit, and what a click on it must do is land in the box it names -
+  // it used to fall through to the section's first empty required field.
+  const tk = await withBook(browser, PLANT, { width: 1440, height: 1000 }, async (h) => {
+    await h.page.evaluate(async (approval) => {
+      const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+      const t = out.lot.rows.sublot_tickets;
+      t[0] = { ...t[0], date: "9/24/26", time: "14:15" };
+      t[1] = { ...t[1], date: "09/25/2026", time: "1415" };
+      openLotEnvelope(out.lot, "the harness");
+      await new Promise((res) => setTimeout(res, 400));
+      go(topSections().findIndex((s) => s.id === "lot"), null, false);
+    }, APPROVAL);
+    await h.page.waitForTimeout(200);
+    const line = await h.page.evaluate(() => Array.from(document.querySelectorAll("#vallist .vitem"))
+      .map((v) => v.textContent.replace(/\s+/g, " ").trim()).find((t) => /will not reach the AMAW/.test(t)) || "");
+    const item = h.page.locator("#vallist .vitem", { hasText: "will not reach the AMAW" }).first();
+    if (!line) return { line, land: "" };
+    await item.click();
+    await h.page.waitForTimeout(400);
+    const land = await h.page.evaluate(() => {
+      const a = document.activeElement, sec = a && a.closest && a.closest("[data-section]");
+      return a && a.dataset ? `${sec ? sec.dataset.section : ""}|${a.dataset.row || ""}|${a.dataset.col || ""}|${a.value}` : "";
+    });
+    return { line, land };
+  });
+  if (tk.skipped) results.skip(id, BOOK, "a ticket value the AMAW will not carry", tk.skipped);
+  else {
+    const { line, land } = tk.value;
+    ok("the rail names a refused ticket value on a locked sublot, and says the sublot is locked",
+       /sublot 1 date "9\/24\/26"/.test(line) && /sublot 2 date "09\/25\/2026"/.test(line)
+         && /Sublot 2 is locked/.test(line) && /Correct sublot 1's/.test(line) && !/Correct (them|it) on/.test(line),
+       line.slice(0, 260) || "no ticket line on the rail");
+    ok("…and a click on it lands in the box it names, not the section's first empty field",
+       land === "sublot-1|sublot_tickets|date|9/24/26", land || "nothing focused");
+  }
+
+  // The same values seen by a REVIEWER, to whom no sublot is locked: both
+  // sublots can be corrected, and they are on two tabs, not "the" tab.
+  const rv = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true }, async (h) => {
+    await h.page.evaluate(async (approval) => {
+      const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+      const t = out.lot.rows.sublot_tickets;
+      t[0] = { ...t[0], date: "9/24/26", time: "14:15" };
+      t[1] = { ...t[1], date: "09/25/2026", time: "1415" };
+      openLotEnvelope(out.lot, "the harness");
+      await new Promise((res) => setTimeout(res, 400));
+    }, APPROVAL);
+    await h.page.waitForTimeout(200);
+    return h.page.evaluate(() => Array.from(document.querySelectorAll("#vallist .vitem"))
+      .map((v) => v.textContent.replace(/\s+/g, " ").trim()).find((t) => /will not reach the AMAW/.test(t)) || "");
+  });
+  if (rv.skipped) results.skip(id, BOOK, "a reviewer's ticket line, values on two sublots", rv.skipped);
+  else {
+    const line = rv.value;
+    ok("…and for a reviewer, with values on two open sublots, it says to correct each on its own tab",
+       /Correct them on each sublot's tab/.test(line) && !/locked/.test(line),
+       line.slice(0, 260) || "no ticket line on the rail");
+  }
+
+  /* ...AND THE BOX IS ON SCREEN, which focus alone does not make it. Below
+   * 700px go() scrolls to the section's START and focuses without scrolling,
+   * and a sublot's ticket sits under six Aggregate Blend cards on a phone -
+   * 2,700px down, focused and unseen. On the wizard a locked sublot's box
+   * takes no focus, so nothing scrolled it either (907px on a 768px laptop).
+   * Measured after the smooth scroll has had time to finish. */
+  const seen = async (width, height, which) => withBook(browser, PLANT, { width, height }, async (h) => {
+    await h.page.evaluate(async ({ approval, which }) => {
+      const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+      const t = out.lot.rows.sublot_tickets;
+      t[which - 1] = { ...t[which - 1], date: which === 1 ? "9/24/26" : "09/25/2026", time: "14:15" };
+      openLotEnvelope(out.lot, "the harness");
+      await new Promise((res) => setTimeout(res, 400));
+      go(topSections().findIndex((s) => s.id === "lot"), null, false);
+    }, { approval: APPROVAL, which });
+    await h.page.waitForTimeout(200);
+    const item = h.page.locator("#vallist .vitem", { hasText: "will not reach the AMAW" }).first();
+    if (!(await item.count())) return { none: "no ticket line on the rail" };
+    await item.click();
+    await h.page.waitForTimeout(1500);
+    return h.page.evaluate((which) => {
+      const box = document.querySelector(`[data-section="sublot-${which}"] [data-rowlist="sublot_tickets"] [data-col="date"]`);
+      const r = box.getBoundingClientRect();
+      const head = document.querySelector(".appbar"), bar = document.getElementById("actionBar");
+      const top = head ? head.getBoundingClientRect().bottom : 0;
+      const bottom = bar && bar.getClientRects().length ? bar.getBoundingClientRect().top : innerHeight;
+      return { focused: document.activeElement === box, disabled: box.disabled,
+               onScreen: r.top >= top && r.bottom <= bottom, at: `${Math.round(r.top)}..${Math.round(r.bottom)} in ${Math.round(top)}..${Math.round(bottom)}` };
+    }, which);
+  });
+  const phone = await seen(390, 844, 1);
+  if (phone.skipped) results.skip(id, BOOK, "the clicked ticket box is on screen at 390px", phone.skipped);
+  else {
+    const v = phone.value;
+    ok("at 390x844 the clicked ticket box is focused AND on screen",
+       !v.none && v.focused && v.onScreen, v.none || `focused=${v.focused} at ${v.at}`);
+  }
+  const laptop = await seen(1366, 768, 2);
+  if (laptop.skipped) results.skip(id, BOOK, "a locked sublot's ticket box is shown at 1366px", laptop.skipped);
+  else {
+    const v = laptop.value;
+    ok("at 1366x768 a LOCKED sublot's ticket box is shown, though it takes no focus",
+       !v.none && v.disabled && v.onScreen, v.none || `disabled=${v.disabled} at ${v.at}`);
+  }
+
+  /* ...BUT A LOCKED SUBLOT'S "N field(s) missing" LANDS ON ITS LOCK CARD.
+   * That line names no box, so jumpTo() falls back to the section's first
+   * empty required one - which on a locked sublot is disabled. Since go()
+   * brings its target on screen (the case above), handing it that greyed box
+   * scrolled the card saying why the sublot is shut up under the header: on a
+   * phone, and on a laptop short enough that the box sits below the action
+   * bar. The fallback skips a box nobody can fill, so the jump lands on the
+   * step's start, where the card is. Every contractor's rail carries these
+   * lines on every lot - sublots 2-4, and sublot 1 from lot 2 on. */
+  const cardSeen = async (width, height) => withBook(browser, PLANT, { width, height }, async (h) => {
+    await h.page.evaluate(async (approval) => {
+      const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+      openLotEnvelope(out.lot, "the harness");
+      await new Promise((res) => setTimeout(res, 400));
+      go(0, null, false);
+    }, APPROVAL);
+    await h.page.waitForTimeout(200);
+    const item = h.page.locator("#vallist .vitem", { hasText: /Sublot 2 —.*field\(s\) missing/ }).first();
+    if (!(await item.count())) return { none: "no \"Sublot 2 — N field(s) missing\" line on the rail" };
+    await item.scrollIntoViewIfNeeded();
+    await item.click();
+    await h.page.waitForTimeout(1500);
+    return h.page.evaluate(() => {
+      const card = document.querySelector('[data-section="sublot-2"] .steplock');
+      const head = document.querySelector(".appbar"), bar = document.getElementById("actionBar");
+      const top = head ? head.getBoundingClientRect().bottom : 0;
+      const bottom = bar && bar.getClientRects().length ? bar.getBoundingClientRect().top : innerHeight;
+      if (!card || card.hidden) return { none: "sublot 2 shows no lock card" };
+      const r = card.getBoundingClientRect();
+      return { onScreen: r.top >= top && r.bottom <= bottom,
+               at: `${Math.round(r.top)}..${Math.round(r.bottom)} in ${Math.round(top)}..${Math.round(bottom)}` };
+    });
+  });
+  for (const [w, hgt] of [[390, 844], [1280, 600]]) {
+    const c = await cardSeen(w, hgt);
+    const name = `at ${w}x${hgt} a locked sublot's "field(s) missing" line lands on its lock card`;
+    if (c.skipped) results.skip(id, BOOK, name, c.skipped);
+    else ok(name, !c.value.none && c.value.onScreen, c.value.none || `card at ${c.value.at}`);
+  }
 }

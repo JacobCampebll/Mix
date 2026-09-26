@@ -168,7 +168,7 @@ export async function run({ browser, results }) {
       // imported inside the page — the same rule inpage.mjs states.
       await h.page.addScriptTag({ content: `window.fillFormFn = ${fillForm.toString()};` });
       const r = await h.page.evaluate(READ, { approval: APPROVAL, measured: MEASURED });
-      return { r, errs: realErrors(h.errors || []) };
+      return { r, errs: realErrors(h.errs || []) };
     });
 
   if (out.skipped) { results.skip(id, BOOK, "start the next lot", out.skipped); return; }

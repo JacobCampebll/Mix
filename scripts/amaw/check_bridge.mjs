@@ -359,6 +359,16 @@ is('QC04 moisture reaches its own column',
   cells[A(MO.sheet, `${MO.cols[3]}${MO.rows.pan}`)] != null);
 is('QC01 truck ticket tonnage',
   cells[A(SUBLOT.sheet, `${SUBLOT.ticket.cols.tons}${SUBLOT.ticket.first}`)] != null);
+// The schema's ticket Date and Time are `date`/`time` pickers since
+// 2026-09-26, so valueFor() fills them in ISO shape and the lot built from the
+// FORM reaches MEDL's staged Date and Time (sn 36/37). While the schema said
+// `text` it got "date-12", and neither cell was ever written by this fixture.
+const schemaDate = cells[A(SUBLOT.sheet, `${SUBLOT.ticket.cols.date}${SUBLOT.ticket.first}`)];
+const schemaTime = cells[A(SUBLOT.sheet, `${SUBLOT.ticket.cols.time}${SUBLOT.ticket.first}`)];
+is("QC01 ticket date from the schema-built lot reaches Superpave!I3 (2026-09-02 = 46267)",
+  schemaDate === 46267, schemaDate);
+is('QC01 ticket time from the schema-built lot reaches Superpave!J3 (09:30)',
+  schemaTime === (9 * 3600 + 30 * 60) / 86400, schemaTime);
 
 // ---------------------------------------------------------------------
 //  B2. the three constants the pay schedule is measured against
@@ -438,6 +448,100 @@ const quiet = amawCells({ values: { lot_number: '1', lot_nominal_size: '0.38B' }
 is('a Department sample with no answer is reported',
   (quiet.report.notes || []).some((n) => /equipment verified/.test(String(n))),
   quiet.report.notes);
+
+// ---------------------------------------------------------------------
+//  B4. a typed date or time reaches its serial - or is REPORTED, never
+//      written as something else
+// ---------------------------------------------------------------------
+// `Superpave!I3:I6` and `J3:J6` are MEDL's staged Date and Time (sn 36/37,
+// docs/amaw-field-map.json). Until 2026-09-26 the two helpers fell back to
+// parseFloat, so the paper formats a technician copies off the AMAW were
+// WRITTEN, wrongly and in silence: '9/24/26' and '09/24/2026' as serial 9 -
+// 9 January 1900 - '2:15 PM' as a two-day time fraction, '1415' as 1,415
+// days. The fixture above never exercised any of it: the schema's two ticket
+// columns were plain text, so valueFor() gave them "date-12" and nothing was
+// written at all. These lots are built by hand so the route is tested
+// whatever the schema says about the columns.
+console.log('\nB4. the ticket date and time reach MEDL\'s cells, or are reported');
+const tk = SUBLOT.ticket;
+const tCell = (col, s) => A(SUBLOT.sheet, `${tk.cols[col]}${tk.first + (s - 1) * tk.stride}`);
+const GR_DATE = A(INPUTS.gradation.sheet, `${INPUTS.gradation.dateCols[0]}${INPUTS.gradation.dateRow}`);
+const PO_DATE = A(INPUTS.polish.sheet, `${INPUTS.polish.cols.date}${INPUTS.polish.first}`);
+const ticketLot = (over) => amawCells({
+  values: { lot_number: '1', lot_nominal_size: '0.38B' }, records: {},
+  rows: { sublot_tickets: [1, 2, 3, 4].map((s) => ({
+    sublot: `1-${s}`, date: '2026-09-24', time: '14:15', truck: `T${s}`, tons_cum: 1000 * s,
+    ...(s === 1 ? over : {}),
+  })) },
+}, tpl, {});
+const cellsOf = (o) => ({ ...(o.values || {}), ...(o.evalOnly || {}) });
+const reported = (o, re) => (o.report.missing || []).filter((m) => re.test(String(m)));
+
+const iso = ticketLot({}), isoC = cellsOf(iso);
+// 2026-09-24 is serial 46289; 14:15 is 51300/86400 = 0.59375 exactly.
+is('an ISO date reaches Superpave!I3 as its Excel serial', isoC[tCell('date', 1)] === 46289, isoC[tCell('date', 1)]);
+is('an ISO time reaches Superpave!J3 as its time fraction', isoC[tCell('time', 1)] === 0.59375, isoC[tCell('time', 1)]);
+is("sublot 4's ticket reaches Superpave!I6/J6",
+  isoC[tCell('date', 4)] === 46289 && isoC[tCell('time', 4)] === 0.59375,
+  { date: isoC[tCell('date', 4)], time: isoC[tCell('time', 4)] });
+is('the gradation and polish date cells copy the ticket date',
+  isoC[GR_DATE] === 46289 && isoC[PO_DATE] === 46289, { gradation: isoC[GR_DATE], polish: isoC[PO_DATE] });
+is('a ticket that converts raises nothing in the report',
+  reported(iso, /ticket (date|time)/).length === 0, reported(iso, /ticket/));
+
+// The paper formats: nothing written to the cell, and one line in the report
+// naming the cell and the value exactly as typed.
+for (const [col, typed] of [['date', '9/24/26'], ['date', '09/24/2026'], ['time', '2:15 PM'], ['time', '1415']]) {
+  const o = ticketLot({ [col]: typed }), c = cellsOf(o);
+  const lines = (o.report.missing || []).filter((m) => m.startsWith(`${tCell(col, 1)} - `) && m.includes(`"${typed}"`));
+  is(`ticket ${col} "${typed}" writes nothing to ${tCell(col, 1)} and is reported`,
+    c[tCell(col, 1)] === undefined && lines.length === 1, { cell: c[tCell(col, 1)], lines });
+}
+// The line gives its REASON - amDateRefusal()/amTimeRefusal(), the same
+// words the page's rail prints. A two-digit year off the date picker is a
+// real YYYY-MM-DD ('0026-09-24'), so "it takes YYYY-MM-DD" would ask for what
+// was typed: the line names the year instead. Each refused line is also in
+// `report.refused`, apart from the cells nobody filled, so a caller can put a
+// typed value first.
+for (const [col, typed, reason] of [
+  ['date', '9/24/26', '(it takes YYYY-MM-DD)'],
+  ['date', '0026-09-24', "(the year reads 0026 - type all four digits of the year; the workbook's dates start in 1900)"],
+  ['date', '2026-02-30', '(there is no such day)'],
+  ['time', '2:15 PM', '(it takes HH:MM, 24-hour)'],
+]) {
+  const o = ticketLot({ [col]: typed }), c = cellsOf(o);
+  const lines = (o.report.missing || []).filter((m) => m.includes(`"${typed}"`));
+  is(`ticket ${col} "${typed}" is refused with its reason ${reason}`,
+    c[tCell(col, 1)] === undefined && lines.length === 1 && lines[0].includes(reason), lines);
+  is(`...and that line, and only it, is in report.refused`,
+    JSON.stringify(o.report.refused) === JSON.stringify(lines), o.report.refused);
+}
+is('a ticket that converts refuses nothing', Array.isArray(iso.report.refused) && iso.report.refused.length === 0,
+  iso.report.refused);
+// A refused ticket date leaves the two cells that copy it empty as well -
+// and says so ONCE: three lines for one typo read like three problems.
+const refused = ticketLot({ date: '9/24/26' }), refC = cellsOf(refused);
+is('a refused ticket date leaves the gradation and polish date cells empty too',
+  refC[GR_DATE] === undefined && refC[PO_DATE] === undefined, { gradation: refC[GR_DATE], polish: refC[PO_DATE] });
+is('...and is one line in the report, which names those cells',
+  reported(refused, /"9\/24\/26"/).length === 1 && /gradation and polish date cells/.test(reported(refused, /"9\/24\/26"/)[0]),
+  reported(refused, /9\/24\/26/));
+
+// A REAL workbook's cells are numbers - check_mapper's reader makes them so -
+// and a number passes straight through, a record's own gradation and polish
+// dates included. A record's own date that cannot be converted is reported
+// at its own cell, not folded into the ticket's.
+const real = amawCells({ values: { lot_number: '1', lot_nominal_size: '0.38B' }, rows: {},
+  records: { QC01: { values: { date: 46289, time: 0.9125, gradation_date: 46290, polish_date: '9/25/26' }, rows: {} } } },
+  tpl, {});
+const realC = cellsOf(real);
+is('a serial and a time fraction from a real workbook pass straight through',
+  realC[tCell('date', 1)] === 46289 && realC[tCell('time', 1)] === 0.9125 && realC[GR_DATE] === 46290,
+  { date: realC[tCell('date', 1)], time: realC[tCell('time', 1)], gradation: realC[GR_DATE] });
+is("a record's own unconvertible polish date is reported at its own cell",
+  realC[PO_DATE] === undefined
+    && (real.report.missing || []).filter((m) => m.startsWith(`${PO_DATE} - `) && m.includes('"9/25/26"')).length === 1,
+  reported(real, /9\/25\/26/));
 
 // ---------------------------------------------------------------------
 //  C. distinct values land in distinct cells

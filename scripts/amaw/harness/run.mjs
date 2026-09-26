@@ -43,8 +43,10 @@ import * as sublotlocks from "./checks/sublotlocks.mjs";
 import * as nextlot from "./checks/nextlot.mjs";
 import * as lotstore from "./checks/lotstore.mjs";
 import * as lotremoved from "./checks/lotremoved.mjs";
+import * as approvalgate from "./checks/approvalgate.mjs";
+import * as stagemsg from "./checks/stagemsg.mjs";
 
-const CHECKS = [ids, steps, shapes, roundtrip, viewports, bookswitch, compaction, sublotlocks, nextlot, lotstore, lotremoved];
+const CHECKS = [ids, steps, shapes, roundtrip, viewports, bookswitch, compaction, sublotlocks, nextlot, lotstore, lotremoved, approvalgate, stagemsg];
 
 async function main() {
   const argv = process.argv.slice(2);

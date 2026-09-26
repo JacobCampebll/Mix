@@ -35,6 +35,107 @@ export const id = "viewports";
  * breakpoint named in CLAUDE.md or the pixel beside one. */
 export const WIDTHS = [1500, 1440, 1366, 1244, 1243, 1240, 1100, 1099, 1000, 900, 800, 701, 700, 560, 390, 360];
 
+/* THE SUBLOT TICKET, FILLED THE WAY A LOT IS (2026-09-26).
+ *
+ * The sweep above cannot see this table, and that is how the ticket
+ * re-weight that clipped Tech, Binder lot and AC method at 1100-1440px
+ * passed it. Two blind spots, both measured:
+ *  - The sweep fills the default empty PlantBook form, whose sublot tabs are
+ *    locked while fillForm() runs (the lock opens on the lot number, which
+ *    the fill sets last), so every ticket text cell is still EMPTY when it is
+ *    measured. An empty box clips nothing.
+ *  - A <select> reports scrollWidth === clientWidth however far its label is
+ *    cut, the same trap as a date or time picker, so AC method's seeded
+ *    "Ignition Furnace" read as fitting in 86px.
+ * So this opens a real lot through the page's own door with ?sublots=open,
+ * types the kind of values a ticket carries - an eight-character SM ID and
+ * binder lot, not fillForm()'s five-character junk - and measures every
+ * control by what it NEEDS: a text box by its own text, a picker by its
+ * intrinsic width, a select by its selected label. Absolute, with no
+ * baseline: these are ordinary values and every one of them must be readable
+ * at every width, the table scrolling where it cannot fit rather than
+ * squeezing (CLAUDE.md). The values are fixtures of real shapes, not real
+ * data. */
+const TICKET_APPROVAL = {
+  format: "kytc-designbook", version: 1, book: "designbook", stage: "Approved",
+  job: { cid: "262120", plant: "AMP070301", letting: "2026-02-19" },
+  mix: { signature: "CL3 ASPH SURF 0.38B PG64-22", nominal_size: "0.38B", layer: "SURF" },
+  values: { jmf_ac: "5.9", min_vma: "15" }, rows: {},
+  approval: { approval_no: "#467", code: "HARNESS", issued_at: "2026-09-01T00:00:00.000Z",
+              approved_by: "HARNESS", submitted_by: "HARNESS", mix_id: "00260467" },
+};
+const TICKET_VALUES = { date: "2026-09-24", time: "14:15", truck: "22471", tons_cum: "4955",
+                        tons_before: "1250", temperature: "305", binder_lot: "224711-A",
+                        tack_lot: "T-88213", technician: "jcavanah" };
+// The seed every lot opens on (AC_METHODS). The select is measured by it, so
+// a table that lost its seed would be measuring an empty label.
+const TICKET_AC_SEED = "Ignition Furnace";
+
+/* Runs IN the page and closes over nothing. */
+async function measureTicketRow({ approval, values }) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+  openLotEnvelope(out.lot, "the harness");
+  await sleep(250);
+  // Above 700px only the active step is laid out; below it every section is
+  // on one scroll. go() first either way, and measure the sublot-1 section.
+  go(topSections().findIndex((s) => s.id === "sublot-1"), null, false);
+  await sleep(40);
+  const sec = document.querySelector('[data-section="sublot-1"]');
+  const list = sec && sec.querySelector('[data-rowlist="sublot_tickets"]');
+  const row = list && list.children[0];
+  if (!row) return { none: "no sublot-1 ticket row on the page" };
+  if (sec.getBoundingClientRect().height <= 0) return { none: "the sublot-1 step measured zero height" };
+  for (const [k, v] of Object.entries(values)) {
+    const el = row.querySelector(`[data-col="${k}"]`);
+    if (!el) return { none: `no ${k} cell in the ticket row` };
+    if (el.disabled) return { none: `${k} is disabled - ?sublots=open did not open sublot 1` };
+    el.value = v;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  await sleep(40);
+  const textNeed = (el, s) => {
+    const cs = getComputedStyle(el);
+    const sp = document.createElement("span");
+    sp.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:${cs.font};letter-spacing:${cs.letterSpacing}`;
+    sp.textContent = s;
+    document.body.appendChild(sp);
+    const w = sp.getBoundingClientRect().width;
+    sp.remove();
+    return w + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) +
+           parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+  };
+  const clipped = [], empty = [], heights = new Set();
+  let ac = null;
+  row.querySelectorAll("[data-col]").forEach((el) => {
+    if (getComputedStyle(el.closest(".cell") || el).display === "none") return;
+    // One row, one height: a picker lays out taller than a text box unless
+    // the stylesheet pins it (30/31px beside 28px until 2026-09-26).
+    heights.add(Math.round(el.getBoundingClientRect().height * 2) / 2);
+    let need;
+    if (el.type === "date" || el.type === "time") {
+      const c = el.cloneNode(true);
+      c.style.cssText = "position:absolute; visibility:hidden; width:auto; left:0; top:0";
+      el.parentElement.appendChild(c);
+      need = c.getBoundingClientRect().width;
+      c.remove();
+    } else if (el.tagName === "SELECT") {
+      const label = el.selectedOptions[0] ? el.selectedOptions[0].textContent : "";
+      if (el.dataset.col === "ac_method") ac = label;
+      need = textNeed(el, label);
+    } else {
+      need = textNeed(el, el.value);
+    }
+    if (!String(el.value || "").trim()) empty.push(el.dataset.col);
+    const have = el.getBoundingClientRect().width;
+    if (need > have + 0.5) clipped.push(`${el.dataset.col}(${need.toFixed(1)}>${have.toFixed(1)})`);
+  });
+  const sc = list.closest(".rowscroll");
+  return { clipped, empty, ac, heights: Array.from(heights).sort((a, b) => a - b),
+           scrolls: sc ? sc.scrollWidth > sc.clientWidth + 1 : false,
+           page: document.documentElement.scrollWidth };
+}
+
 /* Per-input clipping is compared against baseline/clipping.json rather than
  * against zero — see lib/baseline.mjs for why, and for how to re-bless it.
  * The page-level scrollWidth assertion below is absolute and has no baseline:
@@ -64,9 +165,23 @@ export async function run({ browser, results, books, bless }) {
             if (h <= 0) { deadSteps.push(active.dataset.section); continue; }
             measured++;
             active.querySelectorAll("[data-field], [data-col], [data-fp], [data-pr]").forEach((el) => {
-              if (el.scrollWidth > el.clientWidth + 1) {
+              let need = el.scrollWidth, have = el.clientWidth;
+              // A native date or time picker NEVER reports its own overflow:
+              // Chromium gives scrollWidth === clientWidth however far its
+              // fields are clipped (measured 2026-09-26), so a scrollWidth
+              // test passes a squeezed one by measuring nothing. Its need is its
+              // intrinsic width instead - a clone at width:auto in the same
+              // cell, so the same row-box CSS applies - against its own box.
+              if (el.type === "date" || el.type === "time") {
+                const c = el.cloneNode(true);
+                c.style.cssText = "position:absolute; visibility:hidden; width:auto; left:0; top:0";
+                el.parentElement.appendChild(c);
+                need = c.offsetWidth; have = el.offsetWidth;
+                c.remove();
+              }
+              if (need > have + 1) {
                 clipped.push((el.dataset.field || el.dataset.col || el.dataset.fp || el.dataset.pr) +
-                             `(${el.scrollWidth}>${el.clientWidth})`);
+                             `(${need}>${have})`);
               }
             });
             /* EVERY COLUMN HEADING OVER ITS OWN VALUES.
@@ -172,6 +287,37 @@ export async function run({ browser, results, books, bless }) {
                  `${r.measured}/${r.steps} steps had a live .section.active` +
                  (r.deadSteps.length ? ` — zero-height: ${r.deadSteps.join(",")}` : ""));
       results.ok(id, book.label, `${tag} clean console`, errs.length === 0, errs.slice(0, 2).join(" | ") || "0 errors");
+    }
+  }
+
+  // ---- the sublot ticket, filled the way a lot is (measureTicketRow) --------
+  const plant = books.find((b) => b.label === "PlantBook");
+  if (plant) {
+    let skippedOnce = false;
+    for (const width of WIDTHS) {
+      const out = await withBook(browser, plant, { width, height: 900, query: "&sublots=open" }, async ({ page, errs }) => {
+        const r = await page.evaluate(measureTicketRow, { approval: TICKET_APPROVAL, values: TICKET_VALUES });
+        return { r, errs: realErrors(errs) };
+      });
+      if (out.skipped) {
+        if (!skippedOnce) { results.skip(id, plant.label, `ticket row, all ${WIDTHS.length} widths`, out.skipped); skippedOnce = true; }
+        continue;
+      }
+      const { r, errs } = out.value;
+      const tag = `${width}px`;
+      const what = `${tag} ticket row: every value readable, scrolling rather than squeezing`;
+      if (r.none) { results.fail(id, plant.label, what, r.none); continue; }
+      results.ok(id, plant.label, what,
+                 r.clipped.length === 0 && r.empty.length === 0 && r.ac === TICKET_AC_SEED,
+                 r.clipped.length ? "CLIPPED: " + r.clipped.join(" ")
+                   : r.ac !== TICKET_AC_SEED ? `AC method reads "${r.ac}", not its seed "${TICKET_AC_SEED}" - measured nothing there`
+                   : r.empty.length ? `still blank after the fill: ${r.empty.join(",")} - measured nothing there`
+                   : `11 cells whole${r.scrolls ? ", the table scrolls" : ", the table fits"}`);
+      results.ok(id, plant.label, `${tag} ticket row: every box one height`, r.heights.length === 1,
+                 `${r.heights.join("px / ")}px`);
+      results.ok(id, plant.label, `${tag} ticket row: no sideways page scroll, clean console`,
+                 r.page <= width && errs.length === 0,
+                 `scrollWidth ${r.page} vs viewport ${width}` + (errs.length ? ` | ${errs.slice(0, 2).join(" | ")}` : ""));
     }
   }
   if (bless) {

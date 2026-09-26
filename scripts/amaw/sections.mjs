@@ -20,6 +20,8 @@
 //             action, columns[]
 //    column   key, label, type, req, mono, source, options, readonly,
 //             alt, fills
+//  plus ONE the renderer never reads: a column's `seedFrom`, which says the
+//  intake starts it as a copy of another column (rowHoldsMeasurement()).
 //
 //  ---- WHERE THE DOMAIN COMES FROM -------------------------------------
 //
@@ -493,6 +495,94 @@ export const LOT_LEVEL_ROW_COLUMNS = [
   "blend_pct.agp", "blend_pct.type_size", "blend_pct.bod", "blend_pct.design_pct",
 ];
 
+/* WHAT COUNTS AS SOMEBODY HAVING RECORDED SOMETHING ON A SUBLOT - the Start a
+ * lot list's "2 of 4 sublots" (storage.mjs's lotSummary()).
+ *
+ * ASKED OF THE SCHEMA, never listed, for the reason the two lists above give:
+ * a hand-kept list rots silently, and this one would rot in the worst
+ * direction - telling a technician that a sublot nobody has touched is
+ * entered. Before this existed, every lot opened from an approval read
+ * "4 of 4 sublots" off cells the schema and the intake fill in before anybody
+ * types a thing (Aggregate Blend's component numbers, the Ignition Furnace AC
+ * method, the specimen and core ids). A row cell says nothing when it is
+ *   - READONLY on every copy of its table: an identity cell (sublot,
+ *     specimen, component, core id, record), a figure computed from the
+ *     weights beside it, or a mirror of the approval;
+ *   - LOT-LEVEL: LOT_LEVEL_ROW_TABLES / LOT_LEVEL_ROW_COLUMNS, the lot's own
+ *     description rather than one sublot's sample;
+ *   - STILL ITS SEED: a value the spec's own seed rows carry for that column
+ *     (the Ignition Furnace default - a different method on one sublot IS
+ *     somebody writing something down);
+ *   - or STILL WHAT IT WAS SEEDED FROM (`seedFrom`): the intake starts every
+ *     sublot's blend % at the design's own, so a Sublot % nobody has changed
+ *     is the design talking, not the plant.
+ * A scalar counts when it is a sieve cell of a sublot tab's own measured
+ * gradation column (`sub3_wt_s4_75`); the JMF target beside it is readonly.
+ *
+ * Built once, on first use, because PLANTBOOK_SECTIONS is declared further
+ * down this file and an eager read here would be a TDZ error at load. */
+let MEASURED_PLAN = null;
+function measuredPlan() {
+  if (MEASURED_PLAN) return MEASURED_PLAN;
+  const lotTables = new Set(LOT_LEVEL_ROW_TABLES), lotCols = new Set(LOT_LEVEL_ROW_COLUMNS);
+  const tables = new Map(), scalars = [];
+  for (const sec of PLANTBOOK_SECTIONS) {
+    const specs = Array.isArray(sec.rows) ? sec.rows : sec.rows ? [sec.rows] : [];
+    for (const spec of specs) {
+      if (!spec || !spec.key) continue;
+      const t = tables.get(spec.key) || { cols: new Set(), seeds: new Map(), seedFrom: new Map() };
+      for (const row of spec.seed || []) {
+        for (const [k, v] of Object.entries(row || {})) {
+          if (!filledCell(v)) continue;
+          if (!t.seeds.has(k)) t.seeds.set(k, new Set());
+          t.seeds.get(k).add(String(v).trim());
+        }
+      }
+      for (const c of spec.columns || []) {
+        if (!c || !c.key || c.readonly || lotTables.has(spec.key) || lotCols.has(`${spec.key}.${c.key}`)) continue;
+        t.cols.add(c.key);
+        if (c.seedFrom) t.seedFrom.set(c.key, c.seedFrom);
+      }
+      tables.set(spec.key, t);
+    }
+    const n = sublotOfSectionId(sec.into || sec.id);
+    if (n != null && Array.isArray(sec.sieves)) {
+      for (const c of sec.columns || []) if (c && c.key && !c.readonly) scalars.push([`${c.key}_`, n]);
+    }
+  }
+  MEASURED_PLAN = { tables, scalars };
+  return MEASURED_PLAN;
+}
+function filledCell(v) { return v != null && String(v).trim() !== ""; }
+function sameCell(a, b) {
+  const x = Number(a), y = Number(b);
+  return Number.isFinite(x) && Number.isFinite(y) ? x === y : String(a).trim() === String(b).trim();
+}
+
+/** Does this row of `tableKey` hold anything somebody recorded? A table the
+ *  schema does not render holds nothing this form can show, so it never does. */
+export function rowHoldsMeasurement(tableKey, row) {
+  const t = row && typeof row === "object" ? measuredPlan().tables.get(tableKey) : null;
+  if (!t) return false;
+  for (const k of t.cols) {
+    const v = row[k];
+    if (!filledCell(v)) continue;
+    const seeds = t.seeds.get(k);
+    if (seeds && seeds.has(String(v).trim())) continue;
+    const from = t.seedFrom.get(k);
+    if (from && filledCell(row[from]) && sameCell(v, row[from])) continue;
+    return true;
+  }
+  return false;
+}
+
+/** The sublot (1..4) a scalar field is a measurement of, or null. */
+export function measuredScalarSublot(key) {
+  const k = String(key == null ? "" : key);
+  for (const [prefix, n] of measuredPlan().scalars) if (k.startsWith(prefix)) return n;
+  return null;
+}
+
 /* Seeded rather than asked for, which Jake asked for on 2026-09-13 ("do it
  * and the acc per sublot too"). Both of his real accepted lots read code 3 on
  * all four sublots, and an ignition furnace is what a plant lab actually has;
@@ -666,21 +756,59 @@ const sixOf4 = (n) => [0, 1, 2, 3, 4, 5].map((i) => 6 * (n - 1) + i);
 // the section(s) wrapping them changed.
 const SUBLOT_TICKETS_SPEC = {
   key: "sublot_tickets", heading: "Sublot ticket", banded: true, fixed: true,
-  grid: ".7fr 1fr .8fr .9fr .9fr .9fr .8fr 1fr 1fr 1.1fr 1.5fr",
+  // Re-weighted 2026-09-26 when Date and Time became native pickers. ON
+  // SCREEN every column sits on a pixel floor - the two pickers on theirs
+  // by type (129px/124px, rowGridTemplate()), and the columns that hold a
+  // known string on their own `minPx` below - so the `fr` only shares out
+  // what is left over them, and a table narrower than the floors SCROLLS
+  // rather than squeezing (CLAUDE.md). It fits whole from a 1410px window
+  // and scrolls by 43px at 1366. Before the floors the pickers'
+  // width came out of both lot numbers, Tech and AC method, which then
+  // clipped their values from 701 to 1440px - AC method's seeded "Ignition
+  // Furnace" on every lot.
+  //
+  // IN THE LOT PDF the `fr` is what sizes the columns (gridWeights()), and
+  // there the table is 345pt for eleven columns, so each weight is measured
+  // rather than picked, in pdf-lib's Helvetica: what its column has to hold
+  // whole, plus the 6pt the cell pads, with the 3pt left over shared out.
+  // For a VALUE that is its widest ordinary one at the 7.6pt a cell prints
+  // in: an ISO date 38.9pt, a 5-digit tonnage or truck 21.1pt, an eight-
+  // digit binder lot 33.8pt (wider than "224711-A"), a tack lot like
+  // "T-88213" 27.2pt, an SM ID like "jharmon3" 31.9pt, and AC method's widest
+  // word ("Extraction", 33.7pt), since it wraps at its spaces. For a HEADING,
+  // which wraps too (table()), its widest WORD at the 6.2pt bold it prints
+  // in: "sample" (21.4pt) is what sizes "Tons today before sample", whole on
+  // four lines beside "Tons" / "(cum.)" - cut to fit, the two read "Ton..."
+  // and "Tons ...", and the submittal could not say which was which. Every
+  // margin is 0.2-0.4pt. Still cut, as before, because a word is wider than
+  // any share of 345pt could be: the headings "Lot-sublot" (30.2pt, "Lot...")
+  // and "Temp" ("Te..." over "(°F)"), and the value "Back-Calculation"
+  // (56.9pt, "Back-C..." over "of MSG") - each whole in the payload the PDF
+  // carries.
+  grid: ".74fr 1.55fr .87fr .94fr .94fr .95fr .65fr 1.38fr 1.15fr 1.31fr 1.38fr",
   seed: TICKET_SEED,
   columns: [
-    { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
-    // A row column is rendered as a plain text input whatever its
-    // `type` — rowHTML() only branches on `select` and `source` — so
-    // `type: "date"` would NOT give a date picker here the way it does
-    // on a grid field. Left as text on purpose rather than declaring a
-    // type the renderer ignores.
-    { key: "date", label: "Date", type: "text", req: true, mono: true },
-    // Superpave!J. STORED AS AN EXCEL TIME FRACTION (0.9125 = 21:54),
-    // whatever the stale AMAMAW sheet says about HHMM. Typed here as
-    // HH:MM, converted by the mapper — not the other way round, and
-    // never typed as 0.9125.
-    { key: "time", label: "Time", type: "text", req: true, mono: true },
+    // `minPx` (rowGridTemplate()): the floor a column's own values need on
+    // screen, where the 64px default is not the right answer. Here, 56px for
+    // a lot-sublot id ("1-1", "12-4": four characters are 30px of the 40px
+    // it leaves) - below the default on purpose, to give back room the
+    // longer strings further along need.
+    { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true, minPx: 56 },
+    // Superpave!I, MEDL's staged Date (sn 36). A native date picker -
+    // rowHTML() honours `date` and `time` the way inputFor() does - so
+    // what reaches the mapper is YYYY-MM-DD, which amDateSerial() turns
+    // into the Excel serial the sheet holds. A value saved in any other
+    // shape ('9/24/26', typed before this was a picker) is shown as typed
+    // in a text box rather than blanked, and the rail says it will not
+    // reach the workbook - the mapper refuses it rather than guessing.
+    { key: "date", label: "Date", type: "date", req: true, mono: true },
+    // Superpave!J, MEDL's staged Time (sn 37). STORED AS AN EXCEL TIME
+    // FRACTION (0.9125 = 21:54), whatever the stale AMAMAW sheet says
+    // about HHMM. A native time picker: whatever clock it shows (2:15 PM
+    // on a US phone), its value is HH:MM on a 24-hour clock, converted by
+    // amTimeFraction() - not the other way round, and never typed as
+    // 0.9125.
+    { key: "time", label: "Time", type: "time", req: true, mono: true },
     { key: "truck", label: "Truck", type: "text", req: true, mono: true },
     // CUMULATIVE ticket tonnage, not this sublot's own: lot 2 runs
     // 4955 -> 5390 -> 6693 -> 7530. The label says so, because a
@@ -697,16 +825,21 @@ const SUBLOT_TICKETS_SPEC = {
     // On the sheet and on the printed page, but NOT in the staging
     // field map — MEDL never receives it. Kept because the Department
     // reads it, and optional because nothing downstream needs it.
-    { key: "temperature", label: "Temp (°F)", type: "number", req: false, mono: true },
-    // Pay Values rows 43/44, striding by COLUMN across B/C/D/E.
-    { key: "binder_lot", label: "Binder lot", type: "text", req: false, mono: true },
-    { key: "tack_lot", label: "Tack lot", type: "text", req: false, mono: true },
+    // Three digits of a mix temperature need far less than 64px; 56 as for
+    // the lot-sublot id, and for the same reason.
+    { key: "temperature", label: "Temp (°F)", type: "number", req: false, mono: true, minPx: 56 },
+    // Pay Values rows 43/44, striding by COLUMN across B/C/D/E. 78px holds
+    // eight characters ("224711-A"): 76px in Roboto Mono at the row's 12.5px.
+    { key: "binder_lot", label: "Binder lot", type: "text", req: false, mono: true, minPx: 78 },
+    { key: "tack_lot", label: "Tack lot", type: "text", req: false, mono: true, minPx: 78 },
     // SUBLOT.technician — a 2x2 block at B6/E6/B8/E8, NOT a stride.
     // The workbook's `Cert. Techs` sheet is an in-workbook list of SM
     // User I.D. + name; PlantBook should resolve a technician against
     // the `technicians` roster it already signs people in from rather
-    // than shipping that list, same rule as binder terminals.
-    { key: "technician", label: "Tech (SM ID)", type: "text", req: true, mono: true },
+    // than shipping that list, same rule as binder terminals. 78px, as for
+    // the lot numbers: SM IDs on the roster run to eight characters
+    // ("jcavanah", "jharmon3").
+    { key: "technician", label: "Tech (SM ID)", type: "text", req: true, mono: true, minPx: 78 },
     // Calculations!AP35:AP38 (the code) and AU35:AU38 (the label this
     // holds). HOW THE SUBLOT'S %AC WAS MEASURED - the figure typed on
     // the volumetrics table below is the only one on this step a
@@ -717,8 +850,13 @@ const SUBLOT_TICKETS_SPEC = {
     // `req: false` deliberately: a blank leaves AP/AU unwritten, which
     // is what both the template and a mid-production lot already look
     // like, and nothing in pay.mjs reads it.
+    // 128px: "Ignition Furnace", which every lot opens on, needs 125px in
+    // Public Sans at 12.5px beside the drawn caret (121px in the offline
+    // harness's fallback font, so a floor measured there alone clips on the
+    // live site). The longest option, "Back-Calculation of MSG", needs 176px
+    // and has never fit this column; a select shows it in full when opened.
     { key: "ac_method", label: "AC method", type: "select", req: false,
-      options: AC_METHODS },
+      options: AC_METHODS, minPx: 128 },
   ],
 };
 // ---- THE RAW WEIGHTS THE VOLUMETRICS ARE COMPUTED FROM ----------
@@ -982,7 +1120,14 @@ function aggBlendColumns(editable, n) {
     // (there isn't one today, but aggBlendColumns() is a shared builder,
     // not tab-specific), so it falls back to the bare label rather than
     // printing "Sublot undefined %".
-    { key: "pct", label: n ? `Sublot ${n} %` : "Sublot %", type: "number", req: true, mono: true },
+    //
+    // `seedFrom: "design_pct"` says in the schema what intake.mjs does in
+    // code: every sublot's % STARTS as the design's own, and rollForwardLot()
+    // re-seeds it from there. A value still equal to it is the design talking,
+    // not the plant - which is how rowHoldsMeasurement() tells a sublot
+    // somebody entered from one nobody has touched. The renderer ignores it.
+    { key: "pct", label: n ? `Sublot ${n} %` : "Sublot %", type: "number", req: true, mono: true,
+      seedFrom: "design_pct" },
   ];
 }
 function aggBlendSpec(n) {
@@ -1379,6 +1524,21 @@ export const PLANTBOOK_SECTIONS = [
       // t_smpl actually reads. Nothing on this form supplies it yet;
       // generate.mjs names it as missing, which is the loud failure.)
       { key: "lot_mix_id", label: "Approved mix design", type: "text", req: true, mono: true },
+      // ---- HOW THAT APPROVAL VERIFIED - for the life of the lot --------
+      //
+      // 2026-09-26. The front door checks the approval's signature once, as
+      // the lot opens, and until now the answer was one line of one message
+      // and appeared nowhere after it - so a reviewer opening the submittal
+      // could not see whether the approval it was produced under had ever
+      // verified. It rides on the lot (values.design.approval.verification,
+      // carried whole by roll-forward) and this prints it: the label in
+      // words (intake.mjs VERIFICATION_LABELS), the reason under it.
+      // A READOUT, for the reason the JMF figures are: nothing a person could
+      // type here would be true. Keyed WITHOUT the lot_ prefix on purpose -
+      // check_sections.mjs holds every lot_ scalar to a workbook alias, and
+      // this is on no AMAW cell.
+      { type: "readout", label: "Approval signature", out: "approval_signature",
+        sub: "checked when the lot was opened from the approval" },
       // ---- THE MIX, IN DESIGNBOOK'S OWN WORDS --------------------------
       //
       // Jake, 2026-09-13: "the way that it is asking for the mix type seems
@@ -1648,8 +1808,11 @@ export const PLANTBOOK_SECTIONS = [
       // reads the same sum (effectiveJmfAc()). Frame, so it rolls forward with
       // the lot - after setup the adjusted figure IS the JMF. Optional: no
       // adjustment is the ordinary case, and a blank is zero.
+      // `signed`: the one number on either book that can be NEGATIVE, and
+      // iOS's decimal pad has no minus key - so the renderer leaves it the
+      // full keyboard rather than the number pad every other figure gets.
       { key: "lot_setup_ac_adjust", label: "Setup AC adjustment (± % from JMF)", type: "number",
-        req: false, mono: true },
+        req: false, mono: true, signed: true },
     ],
   },
 

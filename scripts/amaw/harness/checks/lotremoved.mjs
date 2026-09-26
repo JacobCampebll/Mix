@@ -71,7 +71,7 @@ const PHASE_A_B = async ({ approval, typeSrc }) => {
     notSetUp: st.notSetUp, online: st.online,
     chipHidden: $("syncChip").classList.contains("hidden"), chip: $("syncChip").textContent,
     listed: document.querySelectorAll("#lotListWrap [data-lot-uid]").length,
-    listSaysRetention: /kept for/.test(listText),
+    listSaysRetention: /days after it is submitted/.test(listText),
     listSaysNotYetSent: /not yet sent/.test(listText),
   };
 };
@@ -98,7 +98,7 @@ const PHASE_C = async ({ uid }) => {
   await sleep(600);
   return {
     listedOnBoot, reopened, tons, wedge, chipHidden,
-    listSaysRetention: /kept for/.test(listText),
+    listSaysRetention: /days after it is submitted/.test(listText),
     listSaysNotYetSent: /not yet sent/.test(listText),
     downloaded, submitError, status: state.lot ? state.lot.status : null,
     stageText: (document.querySelector("#saveMsg") || {}).textContent || "",
@@ -126,7 +126,7 @@ export async function run({ browser, results }) {
       await h.page.waitForFunction(() => state.book === "plantbook" && state.bookDoor === true,
         null, { timeout: 15000 });
       const c = await h.page.evaluate(PHASE_C, { uid: ab.uid });
-      return { ab, c, errs: realErrors(h.errors || []) };
+      return { ab, c, errs: realErrors(h.errs || []) };
     });
   if (out.skipped) { results.skip(id, BOOK, "the lot store after its tables are removed", out.skipped); return; }
   const { ab, c } = out.value;

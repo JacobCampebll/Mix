@@ -30,6 +30,7 @@
  * The review-PDF round trip is a second case and SKIPS unless pdf-lib is
  * available (set HARNESS_LIBS to a node_modules that has it).
  */
+import fs from "node:fs";
 import { fillForm } from "../lib/inpage.mjs";
 import { withBook } from "../lib/books.mjs";
 import { realErrors, findLibs } from "../lib/page.mjs";
@@ -50,14 +51,53 @@ const XSS_PROBE = `A"B'C<D&E>F`;
  * with nowhere to park this is a book whose escaping is untested. */
 const PROBE_FIELD = { DesignBook: "rap_note", PlantBook: "lot_additive" };
 
+/* A native date or time picker blanks any value that is not in its own shape,
+ * the moment it is set, with nothing said. So a fill that spoke the wrong
+ * language leaves "" behind, and a round trip then compares "" with "" - a
+ * pass that tested nothing (inpage.mjs's fill gives these controls ISO values
+ * for exactly that reason). These two ask the question directly: which
+ * pickers could the fill reach, and does each hold a value afterwards. Keys,
+ * not element handles or markers, so a re-render in between cannot hide one.
+ * Both run IN the page and close over nothing. */
+function nativeReachable() {
+  const out = [];
+  document.querySelectorAll('input[type="date"], input[type="time"]').forEach((el) => {
+    if (el.disabled || el.readOnly || !(el.dataset.field || el.dataset.col)) return;
+    const host = el.closest("[data-subsection]") || el.closest("[data-section]");
+    const row = el.closest(".rowitem");
+    const i = row && row.parentElement ? Array.prototype.indexOf.call(row.parentElement.children, row) : -1;
+    out.push(el.dataset.field ? `f|${el.dataset.field}`
+      : `c|${host ? host.dataset.subsection || host.dataset.section : ""}|${el.dataset.row}|${el.dataset.col}|${i}`);
+  });
+  return out;
+}
+function nativeHolding(keys) {
+  const find = (k) => {
+    const p = k.split("|");
+    if (p[0] === "f") return document.querySelector(`[data-field="${p[1]}"]`);
+    const host = document.querySelector(`[data-subsection="${p[1]}"]`) || document.querySelector(`[data-section="${p[1]}"]`);
+    const list = host && host.querySelector(`[data-rowlist="${p[2]}"]`);
+    const row = list && list.children[Number(p[4])];
+    return row ? row.querySelector(`[data-col="${p[3]}"]`) : null;
+  };
+  const empty = keys.filter((k) => { const el = find(k); return !el || el.value === ""; });
+  return { count: keys.length, empty };
+}
+
 export async function run({ browser, results, books }) {
   const libs = findLibs();
   for (const book of books) {
     const out = await withBook(browser, book, { width: 1440, height: 1000 }, async ({ page, errs }) => {
       const probeField = PROBE_FIELD[book.label];
+      // The native pickers the fill can reach - the ones enabled BEFORE it
+      // runs. PlantBook's sublot tabs are locked in this empty form until the
+      // fill's own last step sets a lot number, so its ticket pickers are
+      // exercised by the ?sublots=open pass below rather than here.
+      const reachable = await page.evaluate(nativeReachable);
       const filled = await page.evaluate(fillForm,
         { nominal_size: "0.38", mix_type: "B", [probeField]: XSS_PROBE });
       await page.waitForTimeout(200);
+      const native = await page.evaluate(nativeHolding, reachable);
       const r = await page.evaluate(() => {
         const before = collectForm();
         // Exactly what applyHandoff() does with a reopened file.
@@ -88,14 +128,69 @@ export async function run({ browser, results, books }) {
         const el = document.querySelector(`[data-field="${f}"]`);
         return el ? el.value : "(no such field on this book)";
       }, probeField);
-      return { before: r.before, after, filled, emptyRows, collectedRows, probe, errs: realErrors(errs) };
+      /* THE STORED-VALUE GUARD (2026-09-26). A file saved with "9/24/26" in a
+       * date - DesignBook's referenced design date, or a lot's ticket Date and
+       * Time from before they were pickers - must reopen showing it as typed,
+       * in a text box, not as an empty picker the next save would store. The
+       * same reopen applyHandoff() and openLotEnvelope() do, with the value
+       * swapped in; PlantBook's rail must also say it will not reach the AMAW. */
+      const guard = await page.evaluate((isPlant) => {
+        const b = collectForm();
+        const typed = isPlant ? ["9/24/26", "2:15 PM"] : ["9/24/26"];
+        if (isPlant) {
+          const t = (b.rows.sublot_tickets || [])[0];
+          if (!t) return { none: "no sublot ticket row was collected" };
+          t.date = typed[0]; t.time = typed[1];
+        } else {
+          b.values.reference_design_date = typed[0];
+        }
+        state.extracted = { scalars: b.values, tables: b.rows };
+        renderForm();
+        const q = (sel) => document.querySelector(sel);
+        const els = isPlant
+          ? [q('[data-section="sublot-1"] [data-rowlist="sublot_tickets"] [data-col="date"]'),
+             q('[data-section="sublot-1"] [data-rowlist="sublot_tickets"] [data-col="time"]')]
+          : [q('[data-field="reference_design_date"]')];
+        const back = collectForm();
+        const t0 = (back.rows.sublot_tickets || [])[0] || {};
+        return {
+          typed,
+          controls: els.map((el) => (el ? { type: el.type, value: el.value } : null)),
+          collected: isPlant ? [t0.date, t0.time] : [back.values.reference_design_date],
+          rail: (document.getElementById("vallist") || {}).textContent || "",
+        };
+      }, book.label === "PlantBook");
+      return { before: r.before, after, filled, native, emptyRows, collectedRows, probe, guard, errs: realErrors(errs) };
     });
 
     if (out.skipped) { results.skip(id, book.label, "collectForm round trip", out.skipped); continue; }
-    const { before, after, filled, emptyRows, collectedRows, probe, errs } = out.value;
+    const { before, after, filled, native, emptyRows, collectedRows, probe, guard, errs } = out.value;
 
     results.ok(id, book.label, "something was actually filled", filled > 40,
                `${filled} controls filled` + (filled > 40 ? "" : " — too few to prove anything"));
+    // DesignBook's referenced design date is reachable here. PlantBook has no
+    // picker this empty form's fill can reach (its sublot tabs are locked
+    // while the fill runs), so its pickers are asserted in the open pass below.
+    if (book.label !== "PlantBook") {
+      results.ok(id, book.label, "every native date/time control holds what the fill gave it",
+                 native.count > 0 && native.empty.length === 0,
+                 `${native.count - native.empty.length}/${native.count} hold a value` +
+                 (native.empty.length ? ` — blanked: ${native.empty.join(",")}` : ""));
+    }
+    if (guard.none) {
+      results.fail(id, book.label, "an off-format date or time reopens as typed", guard.none);
+    } else {
+      results.ok(id, book.label, "an off-format date or time reopens in a text box, as typed",
+                 guard.controls.every((c, i) => c && c.type === "text" && c.value === guard.typed[i]),
+                 JSON.stringify(guard.controls));
+      results.ok(id, book.label, "...and collectForm() carries it back unchanged, never blank",
+                 guard.collected.every((v, i) => v === guard.typed[i]), JSON.stringify(guard.collected));
+      if (book.label === "PlantBook") {
+        const says = guard.typed.every((v, i) => guard.rail.includes(`sublot 1 ${i ? "time" : "date"} "${v}"`));
+        results.ok(id, book.label, "the rail names the sublot and the value that will not reach the AMAW", says,
+                   says ? "named in #vallist" : `#vallist: ${guard.rail.slice(0, 160)}`);
+      }
+    }
 
     // Compared in parts so a failure names the part. design_values is the
     // computed column and is compared too: re-rendering must re-derive the
@@ -132,6 +227,103 @@ export async function run({ browser, results, books }) {
 
     results.ok(id, book.label, "clean console", errs.length === 0, errs.slice(0, 2).join(" | ") || "0 errors");
 
+    // ---- PlantBook's ticket Date and Time, through the pickers ---------------
+    // The pass above cannot reach them: in this empty form every sublot tab is
+    // locked while the fill runs, so no sublot table is round-tripped with a
+    // value in it. ?sublots=open is the page's own bypass and opens all four,
+    // so the four tickets' pickers take the fill's ISO values, and the same
+    // reopen as above must bring every one back as a picker holding it.
+    if (book.label === "PlantBook") {
+      const open = await withBook(browser, book, { width: 1440, height: 1000, query: "&sublots=open" },
+        async ({ page, errs: e3 }) => {
+          const reach = await page.evaluate(nativeReachable);
+          await page.evaluate(fillForm, { nominal_size: "0.38", mix_type: "B" });
+          await page.waitForTimeout(200);
+          const held = await page.evaluate(nativeHolding, reach);
+          const rt = await page.evaluate(() => {
+            const pick = (rows) => (rows.sublot_tickets || []).map((r) => [r.sublot, r.date, r.time]);
+            const b = collectForm();
+            state.extracted = { scalars: b.values, tables: b.rows };
+            renderForm();
+            const a = collectForm();
+            const kinds = Array.from(document.querySelectorAll(
+              '[data-rowlist="sublot_tickets"] [data-col="date"], [data-rowlist="sublot_tickets"] [data-col="time"]'))
+              .map((el) => el.type);
+            // A date picker's year is bounded to what a workbook date can be
+            // (NATIVE_DATE_LIMITS): max caps the year at four digits.
+            const bounds = Array.from(document.querySelectorAll('[data-rowlist="sublot_tickets"] input[type="date"]'))
+              .map((el) => `${el.getAttribute("min")}..${el.getAttribute("max")}`);
+            return { before: pick(b.rows), after: pick(a.rows), kinds, bounds };
+          });
+          /* A TWO-DIGIT YEAR, TYPED. The paper writes "9/24/26", and typed
+           * into the picker from the keyboard that is "0026-09-24" - a real
+           * YYYY-MM-DD the browser keeps and the mapper refuses, because the
+           * workbook's dates start in 1900. The rail must name the YEAR, not
+           * the format the value is already in. Typed rather than set, because
+           * the keyboard is how the value gets there; the step is opened first
+           * because a focus inside a hidden step does nothing. */
+          await page.evaluate(() => go(topSections().findIndex((s) => s.id === "sublot-1"), null, false));
+          await page.waitForTimeout(150);
+          const dsel = '[data-section="sublot-1"] [data-rowlist="sublot_tickets"] [data-col="date"]';
+          await page.evaluate((sel) => { const el = document.querySelector(sel); el.value = ""; el.dispatchEvent(new Event("input", { bubbles: true })); }, dsel);
+          await page.focus(dsel);
+          await page.keyboard.type("092426");
+          await page.keyboard.press("Tab");
+          await page.waitForTimeout(150);
+          const year = await page.evaluate((sel) => {
+            const el = document.querySelector(sel);
+            // The ticket line alone, whitespace folded, so a failure shows it.
+            const rail = Array.from(document.querySelectorAll("#vallist .vitem"))
+              .map((v) => v.textContent.replace(/\s+/g, " ").trim()).filter((t) => /Ticket sublot/.test(t)).join(" | ");
+            return { type: el.type, value: el.value, rail };
+          }, dsel);
+          /* A TIME WITH SECONDS, from a lot typed before the pickers. The
+           * browser keeps "14:15:30", but its picker draws the seconds and
+           * outgrows the 124px track, so it reopens as typed in a text box -
+           * which reports its own overflow honestly, unlike a picker - and it
+           * still converts, so the rail says nothing about it. */
+          const secs = await page.evaluate(async () => {
+            const b = collectForm();
+            b.rows.sublot_tickets[1] = { ...b.rows.sublot_tickets[1], date: "2026-09-25", time: "14:15:30" };
+            state.extracted = { scalars: b.values, tables: b.rows };
+            renderForm();
+            go(topSections().findIndex((s) => s.id === "sublot-2"), null, false);
+            await new Promise((res) => setTimeout(res, 150));
+            const el = document.querySelector('[data-section="sublot-2"] [data-rowlist="sublot_tickets"] [data-col="time"]');
+            const railed = Array.from(document.querySelectorAll("#vallist .vitem")).some((v) => /14:15:30/.test(v.textContent));
+            return { type: el.type, value: el.value, sw: el.scrollWidth, cw: el.clientWidth,
+                     collected: (collectForm().rows.sublot_tickets[1] || {}).time, railed };
+          });
+          return { reach, held, rt, year, secs, errs: realErrors(e3) };
+        });
+      if (!open.skipped) {
+        const { held, rt, year, secs, errs: e3 } = open.value;
+        results.ok(id, book.label, "with the sublots open, all 8 ticket pickers take the fill's values",
+                   held.count === 8 && held.empty.length === 0,
+                   `${held.count - held.empty.length}/${held.count} hold a value` +
+                   (held.empty.length ? ` — blanked: ${held.empty.slice(0, 4).join(",")}` : ""));
+        const whole = rt.before.length === 4 && rt.before.every((r) => r[1] && r[2]);
+        results.ok(id, book.label, "ticket Date and Time round-trip through the pickers",
+                   whole && JSON.stringify(rt.before) === JSON.stringify(rt.after)
+                     && rt.kinds.length === 8 && rt.kinds.every((k) => k === "date" || k === "time"),
+                   `before ${JSON.stringify(rt.before)} | after ${JSON.stringify(rt.after)} | reopened as ${rt.kinds.join(",")}`);
+        results.ok(id, book.label, "every ticket date picker is bounded 1900-01-01..9999-12-31",
+                   rt.bounds.length === 4 && rt.bounds.every((x) => x === "1900-01-01..9999-12-31"),
+                   rt.bounds.join(" ") || "no date pickers");
+        const namesYear = year.rail.includes('sublot 1 date "0026-09-24" (the year reads 0026');
+        results.ok(id, book.label, "a two-digit year typed into the picker: kept, and the rail names the year",
+                   year.type === "date" && year.value === "0026-09-24" && namesYear,
+                   `picker holds ${JSON.stringify(year.value)}` + (namesYear ? ", the rail names the year"
+                     : ` | the rail says: ${year.rail.slice(0, 220) || "(no ticket line)"}`));
+        results.ok(id, book.label, "a time with seconds reopens whole in a text box, kept, and unflagged",
+                   secs.type === "text" && secs.value === "14:15:30" && secs.cw > 0 && secs.sw <= secs.cw + 1
+                     && secs.collected === "14:15:30" && !secs.railed,
+                   `${secs.type} "${secs.value}" ${secs.sw}/${secs.cw}px, collected ${JSON.stringify(secs.collected)}` +
+                   (secs.railed ? ", but the rail flags it" : ""));
+        results.ok(id, book.label, "sublots-open pass: clean console", e3.length === 0, e3.slice(0, 2).join(" | ") || "0 errors");
+      }
+    }
+
     // ---- the review PDF, when the library is there -------------------------
     if (!libs["pdf-lib"]) {
       results.skip(id, book.label, "review PDF round trip",
@@ -143,12 +335,22 @@ export async function run({ browser, results, books }) {
       await page.waitForTimeout(200);
       const r = await page.evaluate(async () => {
         const pay = handoffPayload();
-        const bytes = await buildReviewPDF(pay);
+        // Every column heading line drawn (bold, at the heading size), so a
+        // cut one - "% ble..." - can be asked about.
+        const heads = [];
+        const orig = PDFLib.PDFPage.prototype.drawText;
+        PDFLib.PDFPage.prototype.drawText = function (t, o) {
+          if (o && o.size === CONFIG.HANDOFF.TYPE.lab && o.font && /Bold/.test(o.font.name)) heads.push(String(t));
+          return orig.call(this, t, o);
+        };
+        let bytes;
+        try { bytes = await buildReviewPDF(pay); } finally { PDFLib.PDFPage.prototype.drawText = orig; }
         const back = await readHandoffPDF(bytes);
         return {
           values: JSON.stringify(back.values) === JSON.stringify(pay.values),
           rows: JSON.stringify(back.rows) === JSON.stringify(pay.rows),
           bytes: bytes.length,
+          heads: heads.length, cut: heads.filter((h) => h.endsWith("...")),
         };
       });
       return { r, errs: realErrors(errs) };
@@ -157,7 +359,147 @@ export async function run({ browser, results, books }) {
       const { r, errs: e2 } = pdf.value;
       results.ok(id, book.label, "review PDF carries values back", r.values, `${r.bytes} bytes`);
       results.ok(id, book.label, "review PDF carries rows back", r.rows, `${r.bytes} bytes`);
+      // A column heading too wide for its column wraps rather than being cut
+      // (table() in buildReviewPDF, 2026-09-26). DesignBook's filled design
+      // cut two, "% blend" and "Abs. (%)", both of which fit on two lines. A
+      // lot is not asked the same: a few of its headings are one word wider
+      // than the column (see the ticket assertion below).
+      if (book.label === "DesignBook") {
+        results.ok(id, book.label, "review PDF: no column heading is cut - a long one wraps",
+                   r.heads > 0 && r.cut.length === 0,
+                   r.cut.length ? `cut: ${r.cut.join(", ")}` : `${r.heads} heading lines drawn, none cut`);
+      }
       results.ok(id, book.label, "review PDF: clean console", e2.length === 0, e2.slice(0, 2).join(" | ") || "0 errors");
+    }
+
+    // ---- PlantBook: the lot PDF prints every ticket value WHOLE (2026-09-26)
+    // The sublot ticket's `fr` is what sizes the lot PDF's 345pt table
+    // (gridWeights()), so a weight moved for the screen can cut a figure in the
+    // submittal KYTC reads - which is how a 4-digit "Tons today before sample"
+    // came to print as "1...". Real-shaped values in (the sublots opened so the
+    // cells take them), pdf-lib's drawText captured, and every value must be
+    // drawn as typed in the table that follows the "Sublot ticket" heading.
+    if (book.label === "PlantBook") {
+      const lp = await withBook(browser, book, { width: 1440, height: 1000, query: "&sublots=open" },
+        async ({ page, errs: e4 }) => {
+          const r = await page.evaluate(async (tickets) => {
+            const rows = rowsOfList("sublot_tickets");
+            let typed = 0;
+            tickets.forEach((t, i) => {
+              for (const [k, v] of Object.entries(t)) {
+                const el = rows[i] && rows[i].querySelector(`[data-col="${k}"]`);
+                if (!el || el.disabled) continue;
+                el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); typed++;
+              }
+            });
+            await new Promise((res) => setTimeout(res, 200));
+            const drawn = [], sizes = [];
+            const orig = PDFLib.PDFPage.prototype.drawText;
+            PDFLib.PDFPage.prototype.drawText = function (t, o) { drawn.push(String(t)); sizes.push(o && o.size); return orig.call(this, t, o); };
+            try { await buildReviewPDF(handoffPayload()); } finally { PDFLib.PDFPage.prototype.drawText = orig; }
+            const at = drawn.indexOf("Sublot ticket");
+            const table = at < 0 ? [] : drawn.slice(at, at + 80);
+            const want = tickets.flatMap((t) => Object.values(t));
+            // The heading band: every line drawn at the heading size between
+            // the table's title and its first value.
+            const band = [];
+            for (let i = at + 1; at >= 0 && i < drawn.length && sizes[i] === CONFIG.HANDOFF.TYPE.lab; i++) band.push(drawn[i]);
+            return { typed, want: want.length, missing: want.filter((v) => !table.includes(v)), found: at >= 0, band };
+          }, PDF_TICKETS);
+          return { r, errs: realErrors(e4) };
+        });
+      if (!lp.skipped) {
+        const { r, errs: e4 } = lp.value;
+        const expected = PDF_TICKETS.reduce((n, t) => n + Object.keys(t).length, 0);
+        results.ok(id, book.label, "lot PDF prints every ticket value whole",
+                   r.found && r.typed === expected && r.missing.length === 0,
+                   !r.found ? "no \"Sublot ticket\" table was drawn"
+                     : r.typed !== expected ? `only ${r.typed}/${expected} values could be typed - the sublots did not open`
+                     : r.missing.length ? `cut or missing: ${r.missing.join(", ")}` : `${r.want}/${r.want} drawn as typed`);
+        // ...and each tonnage column says which it is. Cut to fit, the two
+        // printed "Tons ..." and "Ton...", and a reader of the submittal could
+        // not tell the cumulative tonnage from the 50-ton figure; wrapped (and
+        // with the ticket's `fr` sized for "sample"), every word of both is
+        // drawn whole. table() draws each heading's lines one after another,
+        // so the band read in order holds each heading's words in order,
+        // whether it took one line or four.
+        const band = r.band || [], read = band.join(" ");
+        results.ok(id, book.label, "lot PDF: both tonnage headings read whole",
+                   read.includes("Tons (cum.)") && read.includes("Tons today before sample"),
+                   band.length ? band.join(" / ") : "no heading lines found under \"Sublot ticket\"");
+        results.ok(id, book.label, "lot PDF tickets: clean console", e4.length === 0, e4.slice(0, 2).join(" | ") || "0 errors");
+      }
+
+      // ---- the AMAW download puts a refused TYPED value first (2026-09-26)
+      // The message shows four lines of what the lot lacks and counts the
+      // rest, and a real lot carries twenty-odd untyped gaps, so a ticket date
+      // the workbook could not hold was a number in "and 26 more" until
+      // report.refused was listed ahead of them. A reviewer builds the AMAW
+      // through the real button; the rewritten page is offline, so the real
+      // template's bytes are handed to fetch.
+      if (!libs.fflate || !fs.existsSync(AMAW_TEMPLATE)) {
+        results.skip(id, book.label, "the AMAW download shows a refused ticket value",
+                     !libs.fflate ? "fflate not found - set HARNESS_LIBS" : `no template at ${AMAW_TEMPLATE.pathname}`);
+      } else {
+        const tplB64 = fs.readFileSync(AMAW_TEMPLATE).toString("base64");
+        const am = await withBook(browser, book, { width: 1366, height: 768, canReview: true },
+          async ({ page, errs: e5 }) => {
+            await page.evaluate((b64) => {
+              const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+              const orig = window.fetch.bind(window);
+              window.fetch = async (u, o) => (String(u).includes("AMAW_VER14_01")
+                ? new Response(bytes.slice().buffer, { status: 200 }) : orig(u, o));
+              window.saveBytes = (_b, name) => { window.__savedAmaw = name; };
+            }, tplB64);
+            await page.evaluate(async (approval) => {
+              const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+              const t = out.lot.rows.sublot_tickets;
+              t[1] = { ...t[1], date: "9/24/26", time: "14:15", truck: "10427", tons_cum: "5390", technician: "jcavanah" };
+              openLotEnvelope(out.lot, "the harness");
+              await new Promise((res) => setTimeout(res, 400));
+              go(topSections().findIndex((s) => s.id === "lot-status"), null, false);
+            }, AMAW_APPROVAL);
+            await page.waitForTimeout(200);
+            await page.click("#amawBtn");
+            await page.waitForFunction(() => /downloaded|Couldn't|could not/i.test(
+              (document.getElementById("saveMsg") || {}).textContent || ""), null, { timeout: 60000 });
+            const r = await page.evaluate(() => ({
+              msg: ((document.getElementById("saveMsg") || {}).textContent || "").replace(/\s+/g, " ").trim(),
+              saved: window.__savedAmaw || null,
+            }));
+            return { r, errs: realErrors(e5) };
+          });
+        if (!am.skipped) {
+          const { r, errs: e5 } = am.value;
+          const shown = r.msg.split(/; and \d+ more/)[0];
+          results.ok(id, book.label, "the AMAW download shows a refused ticket value among its lines",
+                     !!r.saved && shown.includes('"9/24/26"'),
+                     r.saved ? (shown.includes('"9/24/26"') ? `${r.saved}: named ahead of the untyped gaps`
+                       : `not among the lines shown: ${r.msg.slice(0, 220)}`) : `nothing downloaded: ${r.msg.slice(0, 200)}`);
+          results.ok(id, book.label, "AMAW download: clean console", e5.length === 0, e5.slice(0, 2).join(" | ") || "0 errors");
+        }
+      }
     }
   }
 }
+
+// The blank AMAW the page builds from, beside the real page in public/.
+const AMAW_TEMPLATE = new URL("../../../../public/AMAW_VER14_01.xlsm", import.meta.url);
+const AMAW_APPROVAL = {
+  format: "kytc-designbook", version: 1, book: "designbook", stage: "Approved",
+  job: { cid: "262120", plant: "AMP070301", letting: "2026-02-19" },
+  mix: { signature: "CL3 ASPH SURF 0.38B PG64-22", nominal_size: "0.38B", layer: "SURF" },
+  values: { jmf_ac: "5.9", min_vma: "15" }, rows: {},
+  approval: { approval_no: "#467", code: "HARNESS", issued_at: "2026-09-01T00:00:00.000Z",
+              approved_by: "HARNESS", submitted_by: "HARNESS", mix_id: "00260467" },
+};
+
+// Two tickets of real shape for the lot PDF check above: an eight-character
+// binder lot and SM ID, a 4- and a 5-digit tonnage. Fixtures, not real data.
+const PDF_TICKETS = [
+  { date: "2026-09-24", time: "14:15", truck: "22471", tons_cum: "4955", tons_before: "1250",
+    temperature: "305", binder_lot: "224711-A", tack_lot: "T-88213", technician: "jcavanah" },
+  // An all-digit binder lot prints wider than one with a dash ("224711-A").
+  { date: "2026-09-25", time: "07:05", truck: "18803", tons_cum: "41250", tons_before: "975",
+    temperature: "310", binder_lot: "22471199", tack_lot: "T-88214", technician: "jharmon3" },
+];

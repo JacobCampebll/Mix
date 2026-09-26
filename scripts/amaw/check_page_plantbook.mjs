@@ -454,7 +454,35 @@ namespace('PB_SECTIONS', '2. PB_SECTIONS vs scripts/amaw/sections.mjs');
         // ?sublots=open build bypass), which is about the viewer rather than
         // about the lot.
         'SETUP_LOT', 'SETUP_SUBLOT', 'sublotOfSectionId', 'sublotNeedsSample',
-        'LOT_LEVEL_SUBBLOCKS', 'LOT_LEVEL_ROW_TABLES', 'LOT_LEVEL_ROW_COLUMNS'].sort());
+        'LOT_LEVEL_SUBBLOCKS', 'LOT_LEVEL_ROW_TABLES', 'LOT_LEVEL_ROW_COLUMNS',
+        // What counts as somebody having recorded something on a sublot
+        // (2026-09-26) - the Start a lot list's "n of 4 sublots", which
+        // PB_LOT's lotSummary() reaches for here.
+        'rowHoldsMeasurement', 'measuredScalarSublot'].sort());
+  // Swept rather than compared by source: the rule is DERIVED from the
+  // schema, so the cases walk every row table and every column of it - a
+  // seeded value, the seed's own value, a changed one, a readonly figure and
+  // the blend % against the design % it starts from.
+  const measureCases = [];
+  for (const sec of MOD_SECTIONS.PLANTBOOK_SECTIONS) {
+    for (const spec of (Array.isArray(sec.rows) ? sec.rows : sec.rows ? [sec.rows] : [])) {
+      const seed = (spec.seed || [])[0] || {};
+      for (const c of spec.columns || []) {
+        for (const v of [null, '', '7.25', seed[c.key], 'Ignition Furnace', 'Extraction'])
+          measureCases.push([spec.key, { ...seed, [c.key]: v }]);
+      }
+    }
+  }
+  measureCases.push(['blend_pct', { sublot: '2', component: '1', design_pct: 30, pct: 30 }],
+                    ['blend_pct', { sublot: '2', component: '1', design_pct: 30, pct: '30.0' }],
+                    ['blend_pct', { sublot: '2', component: '1', design_pct: 30, pct: 31 }],
+                    ['blend_pct', { sublot: '2', component: '1', design_pct: null, pct: 31 }],
+                    ['no_such_table', { sublot: '1', x: 5 }], ['sublot_bsg', null], ['sublot_bsg', 'x'], [undefined, {}]);
+  sweep(`rowHoldsMeasurement() over ${measureCases.length} cells`, P.rowHoldsMeasurement,
+        MOD_SECTIONS.rowHoldsMeasurement, measureCases);
+  sweep('measuredScalarSublot()', P.measuredScalarSublot, MOD_SECTIONS.measuredScalarSublot,
+        ['sub1_wt_s4_75', 'sub4_wt_total', 'sub3_s0_075', 'sub2_', 'jmf_s4_75', 'sub10_wt_x', 'sub5_wt_x',
+         'lot_tons', 'design', '', null, undefined].map((k) => [k]));
   // The lock rule itself. The cases that matter are the setup exemption and
   // its exact boundary: lot 1 sublot 1 open, lot 1 sublot 2 gated, lot 2
   // sublot 1 gated, and a blank lot number reading as lot 1 rather than
@@ -921,10 +949,26 @@ namespace('PB_AMAW', '5. PB_AMAW vs scripts/amaw/addresses.mjs + mapper.mjs + ge
         [['Pay Values', 'B3'], ['Superpave', 'N3'], ['discipline', 'E2'], ['.45 Data', 'A1'], ['Cores', 'I10'], ['', 'A1']]);
   sweep('colShift()', P.colShift, MOD_MAPPER.colShift,
         [['A', 0], ['A', 1], ['A', 25], ['A', 26], ['Z', 1], ['AA', -1], ['R', 3], ['G', 8], ['AZ', 1], ['B', -1]]);
+  // Both helpers REFUSE a paper-format value (null, reported by the mapper's
+  // writeWhen()) where they used to parseFloat it into a wrong serial, so the
+  // refusal branches are swept as hard as the conversions: a copy that still
+  // wrote 9 for '9/24/26' would be the drift that matters most here.
   sweep('amDateSerial()', P.amDateSerial, MOD_MAPPER.amDateSerial,
-        [['2026-09-13'], ['2026-09-13T14:00:00Z'], ['9/13/2026'], [45000], ['0'], [''], [null], [undefined], ['not a date']]);
+        [['2026-09-13'], ['2026-09-13T14:00:00Z'], ['9/13/2026'], [45000], ['0'], [''], [null], [undefined], ['not a date'],
+         ['9/24/26'], ['09/24/2026'], ['24-09-2026'], ['2026-02-30'], ['2024-02-29'], ['0026-09-24'], ['1899-12-31'],
+         [' 2026-09-24 '], ['20260924'], [46267.5]]);
   sweep('amTimeFraction()', P.amTimeFraction, MOD_MAPPER.amTimeFraction,
-        [['21:54'], ['09:05'], ['2154'], [0.9125], [0], [1], [''], [null], [undefined], ['nope']]);
+        [['21:54'], ['09:05'], ['2154'], [0.9125], [0], [1], [''], [null], [undefined], ['nope'],
+         ['2:15 PM'], ['2:15pm'], ['1415'], ['2:15'], ['9:30'], ['24:00'], ['14:60'], ['23:59:59'], ['09:30:15.5'], [' 14:15 ']]);
+  // The REASON a value is refused, which the page's rail prints beside the
+  // mapper's report - one definition, so the two cannot name different
+  // causes. The year is its own case: it is what the date picker produces
+  // when a two-digit year is typed ('0026-09-24').
+  sweep('amDateRefusal()', P.amDateRefusal, MOD_MAPPER.amDateRefusal,
+        [['2026-09-24'], ['0026-09-24'], ['0002-09-24'], ['1899-12-31'], ['1900-01-01'], ['2026-02-30'],
+         ['9/24/26'], ['20266-09-24'], ['2026-09-13T14:00:00Z'], [46289], [NaN], [''], ['  '], [null], [undefined]]);
+  sweep('amTimeRefusal()', P.amTimeRefusal, MOD_MAPPER.amTimeRefusal,
+        [['14:15'], ['14:15:30'], ['2:15 PM'], ['1415'], ['2:15'], ['24:00'], [0.5], [''], [null], [undefined]]);
 
   // The seam between the form's field keys and the workbook's own names.
   // Both copies have to agree about it or a lot built in the browser reaches
@@ -1007,6 +1051,80 @@ namespace('PB_AMAW', '5. PB_AMAW vs scripts/amaw/addresses.mjs + mapper.mjs + ge
   ];
   sweep('lotRecords()', P.lotRecords, MOD_MAPPER.lotRecords, recordCases);
 
+  // amawCells() WHOLE, on lots built here rather than read off a workbook
+  // (2026-09-26). The comparison below needs the uncommitted real AMAW lots,
+  // so on every other machine the page's copy of the mapper body - the code a
+  // reviewer's "AMAW for MEDL" download actually runs - was compared with
+  // nothing: a page-only change to writeWhen()'s report passed 214/0. These
+  // are check_bridge.mjs's shapes: an ISO ticket, the paper formats the mapper
+  // refuses and reports, a record's own gradation and polish dates, and a lot
+  // filled from the schema so every route runs. The same template stub as
+  // there (every cell exists; these few are formulas, so write() and
+  // writeOver() both run), and each copy gets its own deep copy of the lot so
+  // a mutation in one cannot leak into the other's input.
+  const TPL_FORMULAS = new Set([
+    'Gradation!C10', 'Gradation!D10', 'Gradation!C23', 'Gradation!D23',
+    "'Super Verify'!C33", "'Super Verify'!D33",
+    'Cores!H10', 'Superpave!H12', 'Superpave!G12', 'Superpave!F12',
+    'Calculations!O1', 'Calculations!O2',
+  ]);
+  const synthTpl = { has: () => true, formulaAt: (addr) => (TPL_FORMULAS.has(addr) ? '=…' : null) };
+  const ticketLot = (over) => ({
+    values: { lot_number: '1', lot_nominal_size: '0.38B' }, records: {},
+    rows: { sublot_tickets: [1, 2, 3, 4].map((s) => ({
+      sublot: `1-${s}`, date: '2026-09-24', time: '14:15', truck: `T${s}`, tons_cum: 1000 * s,
+      ...(s === 1 ? over : {}),
+    })) },
+  });
+  const schemaLot = () => {
+    let n = 0;
+    const val = (c) => (Array.isArray(c.options) && c.options.length
+      ? (typeof c.options[0] === 'string' ? c.options[0] : c.options[0].value)
+      : c.type === 'number' ? 1000 + (++n) : c.type === 'date' ? '2026-09-02'
+        : c.type === 'time' ? '09:30' : `${c.key}-${++n}`);
+    const values = { lot_number: '1', lot_nominal_size: '0.38B', lot_tons: 4000, lot_esal_class: 3,
+      lot_density_option: 'A', lot_joint_density: '1', design: { jmf_ac: 5.9, target_va: 3.5, min_vma: 15 } };
+    const rows = {};
+    for (const s of MOD_SECTIONS.default) {
+      for (const f of s.fields || []) if (!f.readonly && values[f.key] === undefined) values[f.key] = val(f);
+      for (const t of (Array.isArray(s.rows) ? s.rows : s.rows ? [s.rows] : [])) {
+        if (rows[t.key]) continue;
+        const seed = Array.isArray(t.seed) && t.seed.length ? t.seed : [{}];
+        rows[t.key] = seed.map((r) => {
+          const o = { ...r };
+          for (const c of t.columns || []) if (o[c.key] == null || o[c.key] === '') o[c.key] = val(c);
+          return o;
+        });
+      }
+    }
+    return { values, rows, records: {} };
+  };
+  const SYNTH = [
+    ['an ISO ticket', ticketLot({})],
+    ["paper-format ticket values ('9/24/26', '2:15 PM')", ticketLot({ date: '9/24/26', time: '2:15 PM' })],
+    ["paper-format ticket values ('09/24/2026', '1415')", ticketLot({ date: '09/24/2026', time: '1415' })],
+    ["a two-digit year off the picker ('0026-09-24')", ticketLot({ date: '0026-09-24' })],
+    ["a day the calendar lacks ('2026-02-30')", ticketLot({ date: '2026-02-30' })],
+    ["a record's own dates, one of them refused", { values: { lot_number: '1', lot_nominal_size: '0.38B' }, rows: {},
+      records: { QC01: { values: { date: 46289, time: 0.9125, gradation_date: 46290, polish_date: '9/25/26' }, rows: {} } } }],
+    ['a lot filled from the schema', schemaLot()],
+  ];
+  let synthCells = 0, synthRefusals = 0;
+  for (const [label, lot] of SYNTH) {
+    const a = call(P.amawCells, [JSON.parse(JSON.stringify(lot)), synthTpl, {}]);
+    const b = call(MOD_MAPPER.amawCells, [JSON.parse(JSON.stringify(lot)), synthTpl, {}]);
+    if (!a.ok || !b.ok) { ok(`amawCells() runs on ${label}`, false, `page ${trunc(a.v)} / module ${trunc(b.v)}`); continue; }
+    same(`amawCells().values on ${label} (${Object.keys(b.v.values).length} cells)`, a.v.values, b.v.values);
+    same(`amawCells().evalOnly on ${label}`, a.v.evalOnly, b.v.evalOnly);
+    same(`amawCells().report on ${label}`, a.v.report, b.v.report);
+    synthCells += Object.keys(b.v.values).length;
+    synthRefusals += ((b.v.report || {}).missing || []).filter((m) => /is not in a form the workbook can hold/.test(String(m))).length;
+  }
+  // A lot that maps to nothing compares equal on both copies, so say that
+  // these wrote cells and exercised the refusal branch.
+  ok(`…and the synthetic lots wrote cells (${synthCells}) and reported refused dates or times (${synthRefusals})`,
+     synthCells > 300 && synthRefusals >= 5, { synthCells, synthRefusals });
+
   if (!AMAW_LOTS.length) {
     skip('amawCells() on a real completed lot',
          'no AMAW workbook passed — pass the two completed lots as arguments');
@@ -1075,11 +1193,25 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
   const P = PB.PB_LOT;
   const M = { ...MOD_STORAGE, ...MOD_INTAKE };
 
+  // The surface: exactly the names the two modules export, the way PB_VOL and
+  // PB_PAY are held to theirs. Missing until 2026-09-26, so a new export that
+  // never reached the page (or a page-only name) was invisible here unless a
+  // later line happened to reach for it. Watched failing both ways: dropping
+  // VERIFICATION_LABELS from the page's return list, and adding a stray name.
+  same('the surface carries every name both modules export',
+       Object.keys(P).sort(),
+       [...new Set([...Object.keys(MOD_STORAGE), ...Object.keys(MOD_INTAKE)])].filter((k) => k !== 'default').sort());
+
   // ---- the constants ------------------------------------------------
   for (const k of ['LOT_FORMAT', 'LOT_VERSION', 'BLOCKS', 'DEPARTMENT_BLOCKS', 'IDENTITY', 'BACKENDS',
                    'APPROVAL_FORMAT', 'APPROVAL_MAX_VERSION', 'DOC_KIND', 'SUBMITTED_ACTION',
                    'APPROVED_ACTION', 'VERIFICATION', 'VERIFY_FN', 'FAILURE', 'MIX_TYPE_CODES'])
     same(`${k} is identical`, P[k], M[k]);
+  // What a person reads for each verification state - the front door, the
+  // reopen line, the Contract & Mix readout, the rail and the lot PDF header
+  // all print these, so the page's copy drifting from the module's is five
+  // places saying something different from what check_intake.mjs asserted.
+  same('VERIFICATION_LABELS is identical', P.VERIFICATION_LABELS, M.VERIFICATION_LABELS);
   // storage.mjs and addresses.mjs both export BLOCKS — the same seven test
   // record ids, and they must not become two definitions.
   ok('PB_LOT.BLOCKS and PB_AMAW.BLOCKS are still the same seven ids',
@@ -1121,6 +1253,20 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
         [[null], [undefined], [{}], [{ state: 'verified' }], [{ state: 'not-checked' }],
          [{ state: MOD_INTAKE.VERIFICATION.VERIFIED }], [{ state: MOD_INTAKE.VERIFICATION.INVALID }]]);
   sweep('notChecked()', P.notChecked, M.notChecked, [[], ['because'], [null], ['']]);
+  // Every state, plus the shapes a lot FILE can carry that no current code
+  // writes - no verification, an unknown state, a reason with no full stop or
+  // a non-string one - because a reopened lot is never refused and prints
+  // whatever it holds.
+  const verifications = [
+    ...Object.values(MOD_INTAKE.VERIFICATION).map((state) => [{ state, reason: `why ${state}` }]),
+    ...Object.values(MOD_INTAKE.VERIFICATION).map((state) => [{ state }]),
+    [MOD_INTAKE.notChecked()], [MOD_INTAKE.readVerifyResponse({ networkError: new Error('Failed to fetch') })],
+    [{ state: 'invalid', reason: 'no stop' }], [{ state: 'invalid', reason: 'Asked?' }],
+    [{ state: 'failed', reason: 'x.' }], [{ state: 'constructor' }], [{ state: 'verified', reason: 42 }],
+    [{ state: 'verified', reason: '   ' }], [{}], [null], [undefined], ['verified'],
+  ];
+  sweep('verificationLabel()', P.verificationLabel, M.verificationLabel, verifications);
+  sweep('verificationText()', P.verificationText, M.verificationText, verifications);
 
   const identities = [
     { contract_id: '252112', amp_number: 'AMP070302', mix_id: '00385', lot_number: 1 },
@@ -1139,7 +1285,44 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
   lots.push(M.blankLot(identities[0], { records: { QC01: { values: { ac: 5.2 } } } }));
   const rawLots = [...lots, null, undefined, {}, { format: 'nope' }, JSON.parse(JSON.stringify(lots[0]))];
   sweep('normaliseLot()', P.normaliseLot, M.normaliseLot, rawLots.map((l) => [l]));
-  sweep('lotSummary()', P.lotSummary, M.lotSummary, rawLots.map((l) => [l]));
+  // lotSummary()'s sublot count reads the ROWS and the gradation scalars, and
+  // every lot above has neither - so these carry the seeded tables a lot opens
+  // with (painted "<lot>-<sublot>" the way the page paints them), one with a
+  // weighing on two sublots, one with a gradation weight, one with a changed
+  // blend %. Without them the count would be swept over nothing.
+  const seededRows = (lotNo) => {
+    const rows = {};
+    for (const sec of MOD_SECTIONS.PLANTBOOK_SECTIONS) {
+      for (const spec of (Array.isArray(sec.rows) ? sec.rows : sec.rows ? [sec.rows] : [])) {
+        if (rows[spec.key]) continue;
+        rows[spec.key] = (spec.seed || []).map((s) => {
+          const r = { ...s };
+          if (r.sublot != null) r.sublot = `${lotNo}-${s.sublot}`;
+          if ('component' in r) { r.design_pct = 30; r.pct = 30; }
+          return r;
+        });
+      }
+    }
+    return rows;
+  };
+  const withRows = (lotNo, edit) => {
+    const lot = M.blankLot({ ...identities[0], lot_number: lotNo });
+    lot.rows = seededRows(lotNo);
+    if (edit) edit(lot);
+    return lot;
+  };
+  const rowLots = [
+    withRows(1), withRows(3),
+    withRows(3, (l) => { l.rows.sublot_bsg[0].wt_air = 4812.4; l.rows.sublot_bsg[2].wt_air = 4795.1; }),
+    withRows(2, (l) => { l.values.sub4_wt_s4_75 = 812.4; l.values.jmf_s4_75 = 62; }),
+    withRows(2, (l) => { l.rows.blend_pct[13].pct = 33; }),
+    withRows(2, (l) => { l.rows.sublot_tickets[1].ac_method = 'Extraction'; }),
+  ];
+  sweep('lotSummary()', P.lotSummary, M.lotSummary, [...rawLots, ...rowLots].map((l) => [l]));
+  // The sweep proves agreement; this proves the rows were worth sweeping.
+  ok('…and the row-carrying lots span the count (0 untouched, 2 for two weighed sublots)',
+     M.lotSummary(rowLots[0]).sublots_entered === 0 && M.lotSummary(rowLots[2]).sublots_entered === 2,
+     rowLots.map((l) => M.lotSummary(l).sublots_entered));
 
   // mergeLots is the one storage function that decides what SURVIVES an
   // import, per record rather than per lot, so a drift here loses four
@@ -1341,6 +1524,183 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
   ok('StorageError is an Error in both copies — each against its own realm\'s Error',
      ea instanceof vm.runInContext('Error', CTX) && eb instanceof Error,
      [ea instanceof vm.runInContext('Error', CTX), eb instanceof Error]);
+
+  // ---- the synced store's one-way door ---------------------------------
+  // What a seal does to THIS device's copy when the record says yes, says no,
+  // or cannot be reached - the half of storage.mjs a page user actually meets
+  // (a refused Accept must come back off; a waiting one must stay; "no such
+  // lot" is an answer, not a lost signal). Each copy gets its own store and
+  // its own fake ledger, driven through the same steps, and the two traces
+  // must agree. The fake is the smallest one those steps need; the rules it
+  // reproduces are amaw_seal_lot()'s own, as check_storage.mjs's fuller one is.
+  const fakeLedger = () => {
+    const lots = new Map(), data = new Map();
+    const f = { up: true, reviewer: false, calls: 0, lots, dropNext: null };
+    const netErr = () => Object.assign(new Error('Failed to fetch'), { code: '' });
+    const settle = (d, e) => { const p = Promise.resolve({ data: d, error: e }); p.select = () => p; p.single = () => p; return p; };
+    const refuse = () => { const p = Promise.reject(netErr()); p.select = () => p; p.single = () => p; return p; };
+    f.client = {
+      from: (table) => ({
+        // The one ledger row a REFUSED seal asks for (supabaseLotStore().chain()),
+        // so "the record already holds it" is exercised on both copies rather
+        // than falling back to "not known" on both.
+        select: () => {
+          let id = null;
+          const q = {
+            eq: (k, v) => { if (k === 'id') id = v; return q; },
+            maybeSingle: () => {
+              if (!f.up) return Promise.reject(netErr());
+              const l = lots.get(id);
+              return Promise.resolve({ data: l ? { ...l } : null, error: null });
+            },
+          };
+          return q;
+        },
+        upsert: (row) => {
+          if (!f.up) return refuse();
+          if (table === 'amaw_lots') {
+            if (!lots.has(row.id)) lots.set(row.id, { ...row, status: 'Open' });
+            return settle({ id: row.id }, null);
+          }
+          const l = lots.get(row.lot_id);
+          if (l && l.status !== 'Open') return settle(null, { code: '42501', message: 'new row violates row-level security policy' });
+          const prev = data.get(row.lot_id), rev = prev ? prev.revision + 1 : 0;
+          data.set(row.lot_id, { revision: rev });
+          return settle({ revision: rev, updated_at: '2026-09-26T00:00:00.000Z' }, null);
+        },
+      }),
+      rpc: async (fn, a) => {
+        f.calls++;
+        if (!f.up) throw netErr();
+        const l = lots.get(a.p_lot_id);
+        if (!l) return { data: null, error: { code: 'P0002', message: 'no such lot' } };
+        if (a.p_status === 'Submitted') {
+          if (l.status !== 'Open') return { data: null, error: { message: `lot ${l.lot_number} is already ${l.status}, and a lot is never reopened once submitted` } };
+          l.status = 'Submitted';
+        } else {
+          if (!f.reviewer) return { data: null, error: { message: 'only KYTC accepts a lot' } };
+          if (l.status !== 'Submitted') return { data: null, error: { message: `lot ${l.lot_number} is ${l.status}, and only a submitted lot can be accepted` } };
+          l.status = 'Accepted';
+          l.accepted_name = 'KYTC Reviewer';
+        }
+        // Committed, and the reply lost on the way back.
+        if (f.dropNext === a.p_status) { f.dropNext = null; throw netErr(); }
+        return { data: l, error: null };
+      },
+    };
+    return f;
+  };
+  const sealTrace = async (impl) => {
+    const f = fakeLedger();
+    const by = { sm_id: 'jcavanah', name: 'Jo Cavanah' };
+    const store = impl.syncedLotStore({ storage: stubStorage(), client: f.client });
+    const trace = [];
+    const attempt = async (fn) => {
+      try { const l = await fn(); return { ok: true, status: l && l.status, adopted: !!(l && l.adopted) }; }
+      catch (err) { return { ok: false, code: err && err.code, message: err && err.message,
+                             record: err && err.record ? err.record.status : null }; }
+    };
+    const snap = async (label, uid) => {
+      const l = await store.local.load(uid);
+      const st = store.state();
+      trace.push({ label, status: l && l.status,
+                   pending: l && l.pending_seal ? { status: l.pending_seal.status, was: l.pending_seal.was || null,
+                                                    waited: l.pending_seal.waited || null } : null,
+                   refused: l && l.seal_refused ? { status: l.seal_refused.status,
+                                                    record: l.seal_refused.record ? l.seal_refused.record.status : null,
+                                                    waited: l.seal_refused.waited || null } : null,
+                   accepted_name: (l && l.accepted_name) || null,
+                   outbox: (await store.local.outbox()).length, online: st.online, notSetUp: st.notSetUp,
+                   lastError: st.lastError || null, ledger: (f.lots.get(uid) || {}).status || null, calls: f.calls });
+    };
+    const lot = M.blankLot(identities[0]);
+    await store.save(JSON.parse(JSON.stringify(lot)), { by });                             await snap('saved', lot.uid);
+    trace.push(await attempt(() => store.seal(lot.uid, 'Submitted', { sha256: 'a'.repeat(64), by }))); await snap('submitted', lot.uid);
+    trace.push(await attempt(() => store.seal(lot.uid, 'Accepted', { by })));                         await snap('refused accept', lot.uid);
+    await store.flush({ by });                                                              await snap('flush after refusal', lot.uid);
+    f.up = false; f.reviewer = true;
+    trace.push(await attempt(() => store.seal(lot.uid, 'Accepted', { by })));                         await snap('accept with no signal', lot.uid);
+    f.up = true;
+    await store.flush({ by });                                                              await snap('flushed', lot.uid);
+    // A lot the record never saw, as a reviewer holding it from a file would.
+    const orphan = M.normaliseLot({ ...M.blankLot(identities[1]), status: 'Submitted' });
+    await store.local.save(JSON.parse(JSON.stringify(orphan)), { by });
+    trace.push(await attempt(() => store.seal(orphan.uid, 'Accepted', { by })));                      await snap('no such lot', orphan.uid);
+    // An Accept over a submission still waiting for a signal.
+    const third = M.blankLot({ ...identities[0], lot_number: 5 });
+    await store.save(JSON.parse(JSON.stringify(third)), { by });
+    f.up = false;
+    trace.push(await attempt(() => store.seal(third.uid, 'Submitted', { sha256: 'c'.repeat(64), by })));
+    trace.push(await attempt(() => store.seal(third.uid, 'Accepted', { by })));                       await snap('accept over a waiting submission', third.uid);
+    f.up = true;
+    // An Accept that TOOK, its reply lost: the retry is refused as "already
+    // Accepted", which is the record agreeing - adopted, not put back.
+    const fourth = M.blankLot({ ...identities[0], lot_number: 6 });
+    await store.save(JSON.parse(JSON.stringify(fourth)), { by });
+    trace.push(await attempt(() => store.seal(fourth.uid, 'Submitted', { sha256: 'd'.repeat(64), by })));
+    f.dropNext = 'Accepted';
+    trace.push(await attempt(() => store.seal(fourth.uid, 'Accepted', { by })));                      await snap('accept whose reply was lost', fourth.uid);
+    await store.flush({ by });                                                              await snap('accept that took, found on the record', fourth.uid);
+    // A second reviewer: the record already reads Accepted.
+    const fifth = M.blankLot({ ...identities[0], lot_number: 7 });
+    await store.save(JSON.parse(JSON.stringify(fifth)), { by });
+    trace.push(await attempt(() => store.seal(fifth.uid, 'Submitted', { sha256: 'e'.repeat(64), by })));
+    Object.assign(f.lots.get(fifth.uid), { status: 'Accepted', accepted_name: 'Tate Salle' });
+    trace.push(await attempt(() => store.seal(fifth.uid, 'Accepted', { by })));                       await snap('second reviewer', fifth.uid);
+    // An Accept made with no signal and REFUSED by the flush that sends it:
+    // the refusal keeps why the seal had waited, which is what the page words
+    // a refusal said after the fact by.
+    const sixth = M.blankLot({ ...identities[0], lot_number: 8 });
+    await store.save(JSON.parse(JSON.stringify(sixth)), { by });
+    trace.push(await attempt(() => store.seal(sixth.uid, 'Submitted', { sha256: 'f'.repeat(64), by })));
+    f.up = false; f.reviewer = false;
+    trace.push(await attempt(() => store.seal(sixth.uid, 'Accepted', { by })));
+    f.up = true;
+    await store.flush({ by });                                                              await snap('offline accept refused by the flush', sixth.uid);
+    // An Accept CARRYING the submission it was stamped over (a project with no
+    // lot storage, seal()): the record takes the submission first and then the
+    // Accept - the same calls, in the same order, from both copies.
+    const seventh = M.normaliseLot({ ...M.blankLot({ ...identities[0], lot_number: 9 }), status: 'Accepted',
+      pending_seal: { status: 'Accepted', sha256: null, prev: null, at: '2026-09-26T00:00:00.000Z', was: 'Submitted',
+                      waited: 'not_set_up', submit: { sha256: '9'.repeat(64), prev: null, at: '2026-09-26T00:00:00.000Z' } } });
+    await store.local.save(JSON.parse(JSON.stringify(seventh)), { by });
+    f.reviewer = true;
+    await store.flush({ by });                                                              await snap('a carried submission, then its Accept', seventh.uid);
+    return trace;
+  };
+  let pageTrace, modTrace;
+  try { pageTrace = await sealTrace(P); } catch (err) { pageTrace = `threw: ${err && err.message}`; }
+  try { modTrace = await sealTrace(M); } catch (err) { modTrace = `threw: ${err && err.message}`; }
+  same('syncedLotStore().seal()/flush() leave the same trace on both copies (refused, waiting, sealed, no such lot, one slot)',
+       pageTrace, modTrace);
+  // Agreement is not enough on its own - two copies can agree on nothing. The
+  // module's trace has to actually contain the rollback it is guarding.
+  const refused = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'refused accept') : null;
+  ok('…and that trace does put a refused Accept back (Submitted, nothing pending, nothing retried)',
+     !!refused && refused.status === 'Submitted' && refused.pending === null && refused.outbox === 0,
+     refused);
+  ok('…keeping what the record said, and where it has the lot',
+     !!refused && !!refused.refused && refused.refused.status === 'Accepted' && refused.refused.record === 'Submitted',
+     refused && refused.refused);
+  // Why a seal waited is what a refusal said after the fact is worded by, so
+  // both copies must write it - and the trace must actually contain it.
+  const waitedOn = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'accept with no signal') : null;
+  const laterNo = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'offline accept refused by the flush') : null;
+  const carriedT = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'a carried submission, then its Accept') : null;
+  ok('…and an Accept carrying the submission it was stamped over sends both, the submission first',
+     !!carriedT && carriedT.ledger === 'Accepted' && carriedT.status === 'Accepted' && carriedT.pending === null
+       && carriedT.refused === null && carriedT.outbox === 0, carriedT);
+  ok('…and an Accept that waits for a signal says so on its seal and on a refusal a flush meets, while one refused at once records no wait',
+     !!waitedOn && !!waitedOn.pending && waitedOn.pending.waited === 'no_signal'
+       && !!laterNo && !!laterNo.refused && laterNo.refused.waited === 'no_signal' && laterNo.status === 'Submitted'
+       && !!refused && !!refused.refused && refused.refused.waited === null,
+     [waitedOn && waitedOn.pending, laterNo && laterNo.refused, refused && refused.refused]);
+  const tookIt = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'accept that took, found on the record') : null;
+  const second = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'second reviewer') : null;
+  ok('…and ADOPTS an Accept the record already holds - a lost reply, or a second reviewer - rather than putting it back',
+     !!tookIt && tookIt.status === 'Accepted' && tookIt.pending === null && tookIt.refused === null
+       && !!second && second.status === 'Accepted' && second.accepted_name === 'Tate Salle' && second.refused === null,
+     [tookIt, second]);
 }
 
 // =====================================================================

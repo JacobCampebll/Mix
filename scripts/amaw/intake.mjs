@@ -148,6 +148,51 @@ export const isVerified = (v) => !!v && v.state === VERIFICATION.VERIFIED;
 export const VERIFY_FN = '/.netlify/functions/verify-approval';
 
 // ---------------------------------------------------------------------
+// The verification, in words
+// ---------------------------------------------------------------------
+// The states above are for code to switch on; these are what a PERSON reads.
+// Until 2026-09-26 the front door printed the raw state ("not-checked.
+// Opened lot 1 ...", "invalid. Opened lot 1 ...") and dropped the reason
+// beside it, so an unreachable server and a design edited after approval
+// read alike. One plain label per state, and one shape for the sentence
+// every door prints: the label, then the reason.
+//
+// Five DIFFERENT labels, for the rule this module opens with: verified, "we
+// looked and it failed" and the three kinds of "we could not look" must
+// never read as one another.
+// And no label says "refused": the one real refusal is the page's, of an
+// INVALID signature, and a 400 - verify-approval not accepting the request -
+// opens a lot like the other checks that could not be made.
+export const VERIFICATION_LABELS = {
+  [VERIFICATION.VERIFIED]: 'Approval verified by KYTC',
+  [VERIFICATION.INVALID]: 'Approval signature does not match',
+  [VERIFICATION.NOT_CHECKED]: 'Approval not checked',
+  [VERIFICATION.UNAVAILABLE]: 'Approval could not be checked',
+  [VERIFICATION.REFUSED]: 'Approval check not accepted by KYTC\'s service',
+};
+
+/** The label for a verification. Anything that is not one of the five - no
+ *  verification at all, or a state this code does not know - reads as NOT
+ *  CHECKED, because that is all anything here can say about it, and it is
+ *  the one label that never claims a check was made. */
+export function verificationLabel(v) {
+  const state = v && typeof v === 'object' ? v.state : null;
+  return Object.prototype.hasOwnProperty.call(VERIFICATION_LABELS, state)
+    ? VERIFICATION_LABELS[state] : VERIFICATION_LABELS[VERIFICATION.NOT_CHECKED];
+}
+
+/** "label - reason", as one sentence. The reason is the verification's own -
+ *  the server's words for a verdict, ours for a check that could not be made
+ *  - carried as it was recorded, never re-derived. A full stop is added when
+ *  it has none, so whatever a door prints after it starts a new sentence. */
+export function verificationText(v) {
+  const label = verificationLabel(v);
+  const reason = v && typeof v === 'object' && v.reason != null ? String(v.reason).trim() : '';
+  if (!reason) return `${label}.`;
+  return `${label} - ${/[.!?]$/.test(reason) ? reason : `${reason}.`}`;
+}
+
+// ---------------------------------------------------------------------
 // Failure codes
 // ---------------------------------------------------------------------
 // The page picks its own wording; what it must not do is invent its own
@@ -710,7 +755,7 @@ export function readVerifyResponse(res) {
   const at = new Date().toISOString();
   if (!res || res.networkError)
     return { state: VERIFICATION.UNAVAILABLE, checked_at: at,
-             reason: 'The approval could not be checked - the verification service did not answer.',
+             reason: 'The verification service did not answer.',
              detail: res && res.networkError ? String(res.networkError.message || res.networkError) : null };
 
   const status = Number(res.status);

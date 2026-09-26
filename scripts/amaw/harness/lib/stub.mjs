@@ -197,7 +197,7 @@ export function stubScript() {
       } else {
         var l = {}; for (var p in row) l[p] = row[p];
         l.status = "Open"; l.submitted_at = null; l.submitted_name = null;
-        l.accepted_at = null; l.accepted_name = null;
+        l.accepted_at = null; l.accepted_by = null; l.accepted_name = null;
         l.submittal_sha256 = null; l.prev_sha256 = null;
         l.purge_after = null; l.purged_at = null;
         l.plant_name = null; l.updated_at = new Date().toISOString();
@@ -247,7 +247,16 @@ export function stubScript() {
         // amaw_seal_lot(): the one-way door. Refuses exactly what the real
         // function refuses, because the client branches on those messages.
         rpc: function (fn, args) {
-          try { offline(); } catch (e) { return Promise.reject(e); }
+          // With amaw_lots.sql unapplied the FUNCTION is missing as well as
+          // the tables, and PostgREST answers that as PGRST202 - an answer,
+          // not a rejected promise. Rejecting a raw Error here made an Accept
+          // on an unapplied project read as a refusal ("relation does not
+          // exist") where the real site reads it as not set up.
+          try { offline(); } catch (e) {
+            if (e.pgrst) return Promise.resolve({ data: null, error: { code: "PGRST202", message:
+              "Could not find the function public.amaw_seal_lot(p_lot_id, p_prev, p_sha256, p_status) in the schema cache" } });
+            return Promise.reject(e);
+          }
           if (fn !== "amaw_seal_lot") return Promise.resolve({ data: null, error: { message: "no such function" } });
           var lot = AMAW.amaw_lots[args.p_lot_id];
           if (!lot) return Promise.resolve({ data: null, error: { code: "P0002", message: "no such lot" } });
@@ -268,8 +277,17 @@ export function stubScript() {
             lot.purge_after = new Date(Date.now() + 7 * 864e5).toISOString();
           } else if (args.p_status === "Accepted") {
             if (!TECH.can_review) return Promise.resolve({ data: null, error: { message: "only KYTC accepts a lot" } });
-            if (lot.status !== "Submitted") return Promise.resolve({ data: null, error: { message: "only a submitted lot can be accepted" } });
+            if (lot.status !== "Submitted") return Promise.resolve({ data: null, error: { message:
+              "lot " + lot.lot_number + " is " + lot.status + ", and only a submitted lot can be accepted" } });
+            // amaw_seal_lot()'s Accepted branch stamps who and when, the same
+            // way its Submitted branch does - accepted_by is the caller's
+            // auth.uid(), accepted_name their technicians name. Without them
+            // "the ledger reads Accepted" could only ever be asserted on the
+            // status word, which is half of what KYTC reads off the row.
             lot.status = "Accepted";
+            lot.accepted_at = new Date().toISOString();
+            lot.accepted_by = "u1";
+            lot.accepted_name = TECH.first_name + " " + TECH.last_name;
           }
           return Promise.resolve({ data: lot, error: null });
         },

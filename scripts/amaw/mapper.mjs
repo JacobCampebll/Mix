@@ -354,22 +354,77 @@ const amNum = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 
 const amStr = (v) => (v == null ? '' : String(v).trim());
 const amHas = (v) => v !== null && v !== undefined && v !== '';
 
-/** Excel serial date (days since 1899-12-30) from an ISO date, or a number
- *  already in serial form. Both real lots store dates as serials. */
+/** Excel serial date (days since 1899-12-30) from an ISO date (YYYY-MM-DD),
+ *  or a number already in serial form. Both real lots store dates as serials.
+ *
+ *  ANYTHING ELSE IS null, and the caller reports it (writeWhen() in
+ *  amawCells). The fallback used to be parseFloat, which reads a date written
+ *  the way paper writes it as a confidently wrong serial: '9/24/26' and
+ *  '09/24/2026' both became 9 - 9 January 1900 - in `Superpave!I`, MEDL's
+ *  staged Date (sn 36). A NUMBER still passes straight through untouched,
+ *  because check_mapper reads real workbooks whose date cells hold serials,
+ *  and a real calendar date converts exactly as before. Refused as well, each
+ *  of which used to write something wrong: a day the calendar does not have
+ *  ('2026-02-30' rolled over to 2 March), a year before 1900, which the
+ *  workbook's 1900 date system cannot hold (and Date.UTC reads '0026' as
+ *  1926), and a bare numeric string ('20260924' was written as a serial). */
 export function amDateSerial(v) {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
-  if (!m) return amNum(v);
-  return Math.round((Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(1899, 11, 30)) / 86400000);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(amStr(v));
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = +m[3];
+  const t = Date.UTC(y, mo - 1, d), back = new Date(t);
+  if (y < 1900 || back.getUTCFullYear() !== y || back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d) return null;
+  return Math.round((t - Date.UTC(1899, 11, 30)) / 86400000);
 }
 
-/** Excel time fraction from "HH:MM", or a fraction already. docs/amaw-map.md:
- *  0.9125 is 21:54, NOT the HHMM the stale AMAMAW sheet claims. */
+/** Excel time fraction from a 24-hour "HH:MM" or "HH:MM:SS", or a fraction
+ *  already. docs/amaw-map.md: 0.9125 is 21:54, NOT the HHMM the stale AMAMAW
+ *  sheet claims.
+ *
+ *  ANYTHING ELSE IS null, for the reason amDateSerial() gives: parseFloat made
+ *  '2:15 PM' a TWO-DAY time fraction and '1415' one of 1,415 days, in MEDL's
+ *  staged Time (sn 37). Two digits for the hour is not pedantry - '2:15' is
+ *  exactly how a twelve-hour clock writes a quarter past two in the afternoon,
+ *  and it used to be read, silently, as 02:15 in the morning. The page's time
+ *  picker produces HH:MM on a 24-hour clock whatever clock it displays. An
+ *  hour past 23 or a minute or second past 59 is refused too ('25:99' used to
+ *  be a fraction greater than one day). */
 export function amTimeFraction(v) {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
-  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(String(v || '').trim());
-  if (!m) return amNum(v);
+  const m = /^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/.exec(amStr(v));
+  if (!m) return null;
   return (+m[1] * 3600 + +m[2] * 60 + (+m[3] || 0)) / 86400;
+}
+
+/** WHY amDateSerial() refuses a date, in the words the AMAW report and the
+ *  page's rail both print - or null when it converts, or nothing was typed.
+ *  One definition, so the report and the rail cannot give one value two
+ *  different reasons (the page's ticketDateTimeWarnings() asks PB_AMAW).
+ *
+ *  THE YEAR IS NAMED ON ITS OWN because it is the refusal the page's own date
+ *  picker produces. Chromium's year field keeps what is typed, so copying
+ *  "9/24/26" off the paper gives "0026-09-24" - a real YYYY-MM-DD whose year
+ *  the workbook's 1900 date system cannot hold - and "it takes YYYY-MM-DD"
+ *  would ask for exactly what was typed. (The picker's max="9999-12-31" stops
+ *  a fifth digit; its min cannot stop a short year.) The wording names the
+ *  year rather than guessing the cause, because the same value is on screen
+ *  for a moment while a correct year is typed digit by digit. The shape and
+ *  a day the calendar lacks are the other two refusals: a picker makes
+ *  neither, a lot saved before the pickers can hold both. */
+export function amDateRefusal(v) {
+  if (amDateSerial(v) != null || !amStr(v)) return null;
+  const m = /^(\d{4})-\d{2}-\d{2}$/.exec(amStr(v));
+  if (!m) return 'it takes YYYY-MM-DD';
+  if (+m[1] < 1900) return `the year reads ${m[1]} - type all four digits of the year; the workbook's dates start in 1900`;
+  return 'there is no such day';
+}
+
+/** WHY amTimeFraction() refuses a time, for the same two readers. There is
+ *  one reason: it is not HH:MM (or HH:MM:SS) on a 24-hour clock. */
+export function amTimeRefusal(v) {
+  if (amTimeFraction(v) != null || !amStr(v)) return null;
+  return 'it takes HH:MM, 24-hour';
 }
 
 // =====================================================================
@@ -1024,7 +1079,7 @@ export function amawCells(lot, tpl, ref) {
   const call = (fn, arg) => { try { return typeof fn === 'function' ? fn(arg) : null; } catch { return null; } };
 
   const values = {}, evalOnly = {};
-  const missing = [], notes = [], unmapped = [];
+  const missing = [], notes = [], unmapped = [], refused = [];
   const coverage = { lot: 0, blocks: {} };
 
   /** We hold the value; the template decides whether it is ours to write. */
@@ -1040,8 +1095,30 @@ export function amawCells(lot, tpl, ref) {
     values[addr] = v;
     return true;
   };
-  const need = (what, why) => missing.push(why ? `${what} - ${why}` : what);
+  const need = (what, why) => { const s = why ? `${what} - ${why}` : what; missing.push(s); return s; };
   const note = (s) => { if (notes.indexOf(s) < 0) notes.push(s); };
+  /** A typed date or time, converted to the serial or fraction the sheet
+   *  holds - or, when amDateSerial()/amTimeFraction() cannot convert it,
+   *  REPORTED and not written, with the reason amDateRefusal()/amTimeRefusal()
+   *  give. `write()` skips a null in silence by design, which is right for a
+   *  blank and wrong for something a technician typed: "9/24/26" is not
+   *  missing, it is present in a form the workbook cannot hold. need() rather
+   *  than note() or `unmapped`, because `missing` is what generate.mjs lists
+   *  as "the lot lacks" and what the page prints under the AMAW download - the
+   *  cell MEDL reads is empty either way. The same line also goes to `refused`,
+   *  so a caller can put a value that was TYPED ahead of the cells nobody
+   *  filled: a long `missing` list is cut short on screen, and these are the
+   *  lines a person can act on. The page's rail says the same thing while the
+   *  lot is being typed (ticketDateTimeWarnings()). A blank is still blank
+   *  and says nothing. `also` names the cells that copy this one. */
+  const writeWhen = (addr, raw, convert, refusal, what, also) => {
+    const v = convert(raw);
+    if (v != null) return write(addr, v);
+    const why = refusal(raw);
+    if (why) refused.push(need(addr, `${what} "${amStr(raw)}" is not in a form the workbook can hold (${why}), `
+      + `so nothing was written${also || ''}`));
+    return false;
+  };
 
   /** % passing for one sieve, written as the MATCHED PAIR the sheet needs.
    *
@@ -1351,8 +1428,16 @@ export function amawCells(lot, tpl, ref) {
     //    4955 -> 5390 -> 6693 -> 7530), not the sublot's own; `temperature`
     //    is on the sheet and never reaches MEDL.
     const tk = SUBLOT.ticket, tRow = tk.first + (s - 1) * tk.stride;
-    write(A(SUBLOT.sheet, `${tk.cols.date}${tRow}`), amDateSerial(rv.date));
-    write(A(SUBLOT.sheet, `${tk.cols.time}${tRow}`), amTimeFraction(rv.time));
+    // The date and time are MEDL's staged Date and Time (sn 36/37), so one
+    // that cannot be converted is reported rather than written as something
+    // else (writeWhen()). The gradation and polish date cells further down
+    // copy the ticket date when the record carries no date of its own - which
+    // a lot built on the form never does - so a refused ticket date is
+    // reported once, here, naming them, rather than three times for one typo.
+    const copies = [rv.gradation_date == null && 'gradation', rv.polish_date == null && 'polish'].filter(Boolean);
+    writeWhen(A(SUBLOT.sheet, `${tk.cols.date}${tRow}`), rv.date, amDateSerial, amDateRefusal, `${block}'s ticket date`,
+      copies.length ? `, nor to the ${copies.join(' and ')} date cell${copies.length > 1 ? 's' : ''} that copy it` : '');
+    writeWhen(A(SUBLOT.sheet, `${tk.cols.time}${tRow}`), rv.time, amTimeFraction, amTimeRefusal, `${block}'s ticket time`);
     write(A(SUBLOT.sheet, `${tk.cols.truck}${tRow}`), amStr(rv.truck));
     write(A(SUBLOT.sheet, `${tk.cols.tons}${tRow}`), amNum(rv.tons));
     write(A(SUBLOT.sheet, `${tk.cols.temperature}${tRow}`), amNum(rv.temperature));
@@ -1408,7 +1493,11 @@ export function amawCells(lot, tpl, ref) {
     });
     write(A(GR.sheet, `${gcol}${GR.panRow}`), amNum(rv.grams_pan));
     write(A(GR.sheet, `${gcol}${GR.totalRow}`), amNum(rv.grams_total));
-    write(A(GR.sheet, `${GR.dateCols[s - 1]}${GR.dateRow}`), amDateSerial(rv.gradation_date ?? rv.date));
+    // A date of the record's own is converted or reported; otherwise the cell
+    // copies the ticket date, already reported above if it could not be.
+    const gDateAddr = A(GR.sheet, `${GR.dateCols[s - 1]}${GR.dateRow}`);
+    if (rv.gradation_date != null) writeWhen(gDateAddr, rv.gradation_date, amDateSerial, amDateRefusal, `${block}'s gradation date`);
+    else write(gDateAddr, amDateSerial(rv.date));
     // NOTHING IS WRITTEN TO `Gradation`!D32/G32/J32/M32 any more. That row is
     // EMPTY in the shipped template - no value, no formula, no label - and no
     // formula on any sheet references it, so every %AC ever written there went
@@ -1458,7 +1547,10 @@ export function amawCells(lot, tpl, ref) {
     // -- polish-resistant data, on the sheet and on KYTC's record but never
     //    in the staging map.
     const PO = INPUTS.polish, prow = PO.first + (s - 1) * PO.stride;
-    write(A(PO.sheet, `${PO.cols.date}${prow}`), amDateSerial(rv.polish_date ?? rv.date));
+    // Same rule as the gradation date: its own date, or the ticket's copy.
+    const pDateAddr = A(PO.sheet, `${PO.cols.date}${prow}`);
+    if (rv.polish_date != null) writeWhen(pDateAddr, rv.polish_date, amDateSerial, amDateRefusal, `${block}'s polish date`);
+    else write(pDateAddr, amDateSerial(rv.date));
     write(A(PO.sheet, `${PO.cols.coarsePct}${prow}`), amNum(rv.polish_coarse_pct));
     write(A(PO.sheet, `${PO.cols.finePct}${prow}`), amNum(rv.polish_fine_pct));
 
@@ -1706,6 +1798,7 @@ export function amawCells(lot, tpl, ref) {
     evalOnly,
     report: {
       missing,
+      refused,
       notes,
       unmapped,
       blocks: present,

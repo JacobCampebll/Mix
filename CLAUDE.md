@@ -5479,6 +5479,13 @@ commit where possible.
   and "Start lot n+1 carries this design over and clears the measurements."
   still follow it, all three on one line at 1440px.
   Browser-checked against the harness stub both ways.
+  **A third wording, 2026-09-26: a Submitted or Accepted lot "is submitted
+  and no longer saves."** It is frozen - `scheduleLotSave()` stops and the
+  server refuses the write - so "saves as you go" was false on it, for the
+  reviewer reading it and the contractor alike. It says nothing about the
+  seal (the chip does: it may be waiting or refused), and it is shorter than
+  the live sentence on purpose: the longer first cut took a reviewer's line
+  (with the AMAW sentence) to two lines at 1366, measured.
 
 - **Supabase roles: Andrew is the only Owner of the org that holds
   `iwysxhcmvhkcjxmjarkd`, and Jake is a Developer** (changed 2026-09-25,
@@ -5497,3 +5504,339 @@ commit where possible.
   None of this touches the site. Pages and Netlify functions use only the
   URL and the anon key, which are in each page's `CONFIG` and Netlify's
   environment variables.
+
+- **Row figures open the number pad; a sublot ticket's Date and Time are
+  pickers whose values reach MEDL or are reported, never written wrong**
+  (2026-09-26). `rowHTML()` gives every editable `number` row column
+  `inputmode="decimal"` (327 cells a lot, 63 a design), `type` still "text".
+  All 54 are non-negative; a figure that can go negative declares
+  `signed: true` and keeps the full keyboard, since iOS's decimal pad has no
+  minus (`lot_setup_ac_adjust` only). **The mapper refuses what it cannot
+  convert**: parseFloat wrote a paper '9/24/26' as serial 9 (9 January 1900)
+  into MEDL's Date (`Superpave!I`, sn 36). A number still passes through, a
+  YYYY-MM-DD date and a 24-hour HH:MM time convert as before (an ISO
+  date-time like `2026-09-13T14:00:00Z` no longer does; nothing produces
+  one), and anything else writes nothing and is `need()`ed with the cell, the
+  value and the reason from `amDateRefusal()`/`amTimeRefusal()` - which the
+  rail prints too, so the two cannot disagree. **The year is its own reason**:
+  Chromium's year field keeps what is typed, so the paper's "9/24/26" becomes
+  `0026-09-24`, a real YYYY-MM-DD, and "it takes YYYY-MM-DD" would ask for
+  exactly what was typed. The picker's `max="9999-12-31"` stops a fifth digit;
+  its `min="1900-01-01"` cannot stop a short year. Refused lines also go to
+  `report.refused`, and the AMAW download lists them ahead of the untyped
+  gaps - it shows four lines and counts the rest, and a real lot has twenty-odd.
+  **A picker blanks a value not in its own shape**, so `nativeInputType()` asks
+  the BROWSER whether it would keep a stored value - a regex copy of its rule
+  could only drift towards data loss - and draws a text box showing it as
+  typed if not; the rail says it will not reach the AMAW. A time WITH seconds
+  is kept but its picker outgrows the HH:MM track (130-150px against 124), so
+  it shows in a text box too; it still converts, and the picker never makes
+  seconds itself. The rail line carries its box as `focus` (passed through
+  `productionSpecWarnings()`' pooling), so a click lands in it rather than in
+  the section's first empty field, and it says when a sublot it names is
+  locked instead of telling a contractor to fix what they cannot edit.
+  `go()` then brings the box on screen: below 700px it used to focus with
+  preventScroll after scrolling only to the section's start (2678px short on a
+  phone), and a disabled box takes no focus-scroll at all. **So a jump must
+  not hand it a box nobody can fill**: `jumpTo()`'s fallback (a line naming
+  no box, like "Sublot 2 — 37 field(s) missing") takes the first empty
+  required box that is not disabled, else lands on the step's start. Handed
+  a locked sublot's greyed blend box, `go()` centred it and put the lock card
+  saying why up under the header, on a phone and on a 1280x600 laptop.
+  **Chromium reports `scrollWidth === clientWidth` for a squeezed date or time
+  input**, so the viewports sweep measures pickers by intrinsic width; their
+  tracks floor at 129/124px by column TYPE (`rowGridTemplate()`: the 3x
+  intrinsic width plus 2px, the date's down from 144 once its `max` bounded
+  the year field to four digits), and a picker is pinned to the row's 28px
+  height (it lays out 2-3px taller). `grid` stays pure `fr` because
+  `gridWeights()` sizes the lot PDF from it, **which makes
+  the ticket's `fr` a PDF measurement**: the table is 345pt for eleven
+  columns, and each weight is what its column must hold whole in pdf-lib's
+  Helvetica - its widest ordinary value, or its heading's widest word where
+  that is wider - plus the cell's padding (342pt of the 345). So an ISO date,
+  a 5-digit tonnage, both lot numbers (an all-digit one too) and an SM ID
+  print whole, and "sample" (21.4pt) sizes "Tons today before sample", whole
+  on four lines beside "Tons (cum.)". The first cut bought the date's 1.4fr
+  from that column, which then printed a 4-digit figure as "1..." in the
+  submittal KYTC reads - caught in review by capturing pdf-lib's `drawText`.
+  **A PDF column heading WRAPS rather than being cut**, in both books' review
+  PDFs (`table()` in `buildReviewPDF`, up to `CONFIG.HANDOFF.ROW.headMaxLines`
+  lines, bottom-aligned, the band growing with the tallest). Cutting had put
+  "Tons ..." beside "Ton..." over the two tonnage columns, twenty other lot
+  headings ("Wt in wa...", "% dens...") and DesignBook's "% blend" and
+  "Abs. (%)". A table whose headings fit draws exactly as before - checked by
+  diffing every drawn string of a design: only those two headings changed,
+  and column 1 below them moved 7.2pt. A single word wider than its column is
+  still cut ("Lot-sublot" and "Temp" on the ticket).
+  **The ticket table SCROLLS below about 1410px rather than squeezing** - corrected
+  the same day, after review measured the first cut clipping Binder lot, Tack
+  lot and Tech (7- and 8-character values) from 701 to 1440px, and AC method's
+  seeded "Ignition Furnace" on every lot: the pickers' width had come out of
+  the longest strings. Every ticket column now sits on a pixel floor - the
+  pickers by type, the rest by a `minPx` the schema declares (78px for the lot
+  numbers and SM ID, 128px for AC method, 56px for the lot-sublot id and the
+  temperature, which need less than the 64px default) - 999px in all: whole
+  from about 1410 up, scrolling below it (43px at 1366, 13px at 1100). **Measure a
+  floor in the REAL fonts**: the harness is offline and falls back to DejaVu,
+  where "Ignition Furnace" needs 121px; in Public Sans it needs 125, so a
+  floor measured in the harness alone clips on the live site (the fonts
+  install from @fontsource into a scratch dir and inject as @font-face).
+  **Open, for Jake**: hiding Lot-sublot, which repeats the tab title as
+  `blend_pct`'s did, would let it fit at 1100 and 1366 too (measured with the
+  floors; 1244 and 1280 still scroll) - a layout call, not taken here.
+  **Harness gaps.** PlantBook's default round trip and viewports sweep never
+  fill a sublot tab (locked while the fill runs), so the pickers round-trip in
+  a `?sublots=open` pass, and the viewports check has a ticket pass that opens
+  a real lot with the sublots open, types real-shaped values and measures each
+  control by what it NEEDS - a select by its selected label, because a
+  `<select>` too reports `scrollWidth === clientWidth` however far its label
+  is cut (watched failing on fa03510 at eleven widths). The generic sweep
+  still does not measure selects that way, deliberately: doing so reveals
+  clipped labels far older than this - DesignBook's binder terminal, TSR
+  condition, aggregate type & size and a polish class; PlantBook's type &
+  size, binder terminal and equipment verified - each a layout question of
+  its own, and none of them in the baseline.
+
+- **PlantBook's front door refuses an INVALID approval, and every verification
+  prints as words** (2026-09-26). Extends "PlantBook's front door is the
+  approval upload" (2026-09-13), whose promise that an edited design "is
+  refused there" was not kept: `openApprovalForLot()` tested a
+  `PB_LOT.VERIFICATION.FAILED` that does not exist, so an invalid signature
+  opened a lot, shown as the bare token "invalid." in the colour of an
+  unreachable server. It now throws before `state.lot` is set - red on the
+  door, verify-approval's reason, "check with KYTC Central Office", nothing
+  saved and no ledger row. **Only INVALID refuses**: the other three
+  non-verified states are checks that could not be made and open, labelled (a
+  plant with no signal must still start a lot), and the door's legend says
+  each opens "marked with what could not be checked"; **a saved lot is never
+  refused**, whatever it carries, **but one on an INVALID approval never seeds
+  another** - Start lot n+1 is new production under the design, so
+  `startNextLot()` refuses before its dialog in the door's own words
+  (`invalidApprovalRefusal()`) - and the Submit step does not offer the
+  button at all, printing that refusal in red where it would be, since a
+  refusal written only to `#saveMsg` lands in the rail, off-screen at every
+  width, and the click looked dead - and the rail line says the lot reopened
+  only so its measurements are not lost; and `lotFromApproval()` still builds
+  a lot on INVALID, because refusing is the page's call.
+  `VERIFICATION_LABELS` and `verificationText()` ("label - reason") in
+  intake.mjs are the one wording -
+  anything unknown reads as not checked, never as verified - for the door, the
+  reopen and audit lines, the rail, the lot PDF header and an "Approval
+  signature" readout on Contract & Mix. That readout is `approval_signature`,
+  not `lot_`-prefixed (check_sections.mjs holds every `lot_` scalar to an AMAW
+  alias), and on the ledger it needs its own `.field.readout` rule or its
+  caption lands in column one. It is SHADED like every other value read from
+  the approval, in the ledger's own weight (verified in `--ok-ink`, since
+  `--ok` at weight 400 on that wash is 4.45:1, under AA), and a check nobody
+  could make is ink behind a warning glyph rather than the page's amber,
+  because on the ledger amber-and-gold means "still to fill in" and nobody can
+  fill this in.
+  Checked rather than assumed: `readHandoffPDF()` returns the embedded JSON as
+  parsed and `verifyRequest()` passes it on by reference, so no page-side
+  change can make a genuine older approval read INVALID; harness
+  `approvalgate` asserts the request body equals the file.
+  check_page_plantbook.mjs now holds PB_LOT's surface to the two modules'
+  exports exactly, as it already did PB_VOL's and PB_PAY's.
+  **Nothing on a lot clears a not-checked verification**: the lot carries the
+  approval's summary, not its payload, so a lot opened with no signal reads
+  "not checked" for its life and for every lot rolled from it, and the rail
+  line says so rather than suggesting verify.html fixes it (that checks the
+  PDF for the person and writes nothing back). **Open for Jake**: whether a
+  lot should be re-checkable - say by dropping the approval PDF on an open lot
+  once there is a signal - given lots must work offline.
+
+- **A lot's page and its ledger agree now, and Accept seals** (2026-09-26).
+  A reviewer's Accept was a local stage change - ledger still Submitted, no
+  `accepted_at`, no audit line - and Submit printed one success line whatever
+  became of its seal. `acceptLotForKYTC()` now seals (reviewer-only as before:
+  hidden button, refusing handler, refusing server), and after Submit and
+  Accept `sealOutcome()` says one of four true things: sealed (or already
+  sealed, naming who) / waiting for a signal / lot storage not set up (the
+  file wording, then true) / refused, with the reason and where the record has
+  the lot. A refused Accept also shows in `#stageWarn` under the button:
+  `#saveMsg` is in the rail, off-screen at most widths when it is pressed.
+  And it is scrolled clear of the header and the fixed action bar
+  (`revealClear()`): pressed at the bottom of a phone, or just above the bar,
+  it landed out of sight. Not `scrollIntoView({block:"nearest"})`, which
+  Chromium treats as a no-op for a line under a FIXED bar - it is inside the
+  viewport, so "already visible" - measured at 1000x800. The
+  chip reads "waiting to be sealed" while a seal is in the outbox, and "not
+  sealed" after a refused Submit - across a reload too. Whatever answers a
+  waiting seal - a flush, or a SAVE: the trailing save after an Accept whose
+  reply was lost, the debounced autosave after a Submit - replaces the "no
+  signal" sentence and takes the record's who and when, in one place
+  (`sealAnswered()`); from the flush alone, a seal a save took left "there is
+  no signal" up beside a green chip. It is worded by the seal THIS device
+  made, never by the record's status (a contractor's lost Submit reply can be
+  found on a lot KYTC has since accepted), and follows the record forward,
+  since a save has no reconcileLotSeal() after it. An Accept made with no
+  signal that another reviewer beat to the record is said as "already said
+  so (by ...)", like the online case, and its "Lot accepted" line gets a "Lot
+  already accepted in KYTC's lot record" line after it - whose Accept it was
+  is read off the record's `accepted_name` against this reviewer's, since the
+  view has no `accepted_by`. Every PlantBook sentence about where a lot is
+  kept reads `lotStorageLive()`, the save note's gate; DesignBook's own still
+  stand (2026-09-04).
+  **A refusal is asked about before anything is put back.** amaw_seal_lot()
+  says "no" to a seal that already took - a reply lost on the way back, or a
+  second reviewer first (both get the submittal email, so that is ordinary) -
+  so a non-transient refusal first reads the one ledger row
+  (`supabaseLotStore().chain()`): an Accept the record holds as Accepted, or a
+  Submit it holds with THIS submission's hash, is adopted with the record's
+  who and when. Only a real refusal is refused, and it is KEPT on the lot as
+  `seal_refused` (store bookkeeping like `pending_seal`, never in a file). A
+  refused Accept comes back off and is said once, then `acknowledge()`d.
+  Refused at the button, it is said there and acknowledged at once - kept, it
+  was said again on the next reopen, as an Accept "made without a signal",
+  with a history line written at reopen time. Refused by a flush, with nobody
+  watching, it is said on the door if no lot is open, and on the lot with a
+  history line "Accept refused by KYTC's lot record" after its "Lot accepted"
+  (history only grows) - saying why that Accept had waited (`seal()` writes
+  `waited`, `no_signal` or `not_set_up`, on a seal it leaves waiting, and the
+  refusal keeps it: "made without a signal" only of one that did), and where
+  the record had the lot WHEN it refused, in the past tense, because the lot
+  may be opened days later. A refused Submit stays, deliberately, its seal
+  still in the outbox. Only the store's own refusal record puts a page back,
+  with that lot's reason: never a disagreement between two statuses, never
+  `lastError`, and never over a lot this device holds as Accepted
+  (`acceptRefusalToSay()`). The rollback is in storage.mjs's `pushOne()`, the
+  one door `seal()`/`save()`/`flush()` share;
+  "no such lot" (P0002) is an answer, not a lost signal, and a missing seal
+  function (PGRST202) is not set up, not no signal.
+  **The chain is the record's.** It moves without the data moving, so load()
+  takes the status and stamps whenever the record is at least as far along -
+  never backwards, never over a seal of this device's own still waiting - and
+  save() keeps the whole chain block rather than a caller's; the page follows
+  it forward when a lot opens (`takeHeldChain()`), and the list says "Accepted
+  <date> by <name>". A pending seal is made by `seal()` and nowhere else: a
+  file's stale one is ignored, and `lotSnapshot()` keeps both it and a refusal
+  out of files. **One slot:** an Accept over a submission still waiting is
+  refused with no signal. When the project has no lot storage it is stamped,
+  and CARRIES the waiting submission (`pending_seal.submit`), so the day
+  amaw_lots.sql is applied the record takes the submission first and then the
+  Accept (`pushCarried()`). An earlier cut dropped the submission on the
+  ground that "nothing will ever send it", which was wrong - a waiting
+  submission does catch up once lot storage exists - and the lone Accept was
+  then refused ("no such lot") with the submission gone from the outbox, so
+  the lot never reached the ledger. A refused carried submission takes the
+  Accept off with it and stays waiting, as any refused submission does.
+  **"n of 4 sublots" is asked of the schema** - sections.mjs's
+  `rowHoldsMeasurement()`, from readonly flags, seeds, the lot-level lists and
+  the blend %'s new `seedFrom: "design_pct"`. It read 4 of 4 on every untouched
+  lot and took "1-3" for sublot 1; a server-only row says Open, and an index
+  entry an older `lotSummary()` wrote (no `summary_version`) makes the first
+  list() rebuild the index from the lots themselves. Retention is said as intent
+  ("due to be deleted"): pg_cron is not scheduled.
+  `.jobstrip[hidden]{display:none}`: under `display:flex` the attribute did
+  nothing, so the door, DesignBook's gate and its upload card showed empty
+  chips; and `switchBook()` now repaints the sync chip, which DesignBook kept.
+  **Traps:** lotstore/lotremoved/nextlot read `h.errors`, which `openPage()`
+  never returns, so four console-error cases could not fail (fixed). And when
+  two fixes cover one path, each one's test must be a case the other cannot
+  heal: the stale-seal case passed with its guard removed, because the record
+  check healed it online - its proving case is the one with no signal.
+  **Open (F9):** a reviewer can still press Start lot n+1 on a contractor's lot
+  and roll it forward as KYTC; and a reviewer who opens a submittal while the
+  contractor's seal still waits adopts the server's Open copy and saves into
+  it, which leaves that seal on a stale revision ("not sealed"). The Accept no
+  longer adds a second write. And that reviewer's own list then holds the
+  contractor's lot as an Open row ("0 of 4 sublots"): opened from it, the lot
+  lands at stage Open with "Close the lot →" offered - editable, so KYTC could
+  close and submit the contractor's lot - and the reopen writes into the
+  contractor's data again (revision 2 -> 4, measured). **Open (Andrew):**
+  amaw_seal_lot() inserts every `amaw_lot_events` row with `from_status
+  'Open'`, so an Accept's event reads Open -> Accepted; nothing reads it yet,
+  and a fix is a migration.
+  Measured: page checker 223 pass (was 214), check_storage 211 (was 94), full
+  harness 522 passed / 0 failed / 3 skipped (was 404).
+
+- **The Submit / Approve line is echoed under the stage button, and after a
+  submission a send row says who to email, which file, with Copy and a
+  mailto** (2026-09-26). Measured before: the sentence a Submit writes
+  went only into `#saveMsg`, ~12,000px above the button on a phone (~62,000
+  on a lot) and under the fixed action bar on a 1366x768 lot. `#stageMsg`
+  sits after the stage button's row, before `#stageNote`, in both books.
+  `msg()` echoes into it whenever its target is `#saveMsg`, the whole text
+  in `title`, same ok/warn/error. **An ok line is one ellipsised line on a
+  desktop. Below 700px it wraps to three, and a warn or error wraps to
+  three on a desktop and six on a phone.** One line on a phone showed a
+  file-name fragment and nothing else. A lot's seal outcome ("no signal",
+  "not sealed") comes after the file name and the instruction, so one line
+  never reached it at any width. After a successful Submit,
+  `revealSubmitted()` scrolls the send row into view ('nearest', with a
+  scroll-margin for the header and the action bar), because a button
+  pressed at the bottom edge of a phone screen left both below it. **It mirrors
+  `#saveMsg` rather than keeping a copy**, and `renderStage()` /
+  `renderLotStage()` re-echo because `renderForm()` re-creates the node.
+  `#saveMsg` is one node for both books and a book switch leaves it alone,
+  so `msg()` records which book wrote it (`state.saveMsgBook`) and the echo
+  shows only the current book's line. Without that, a lot's "Reopened lot
+  1..." or its submittal line sat under DesignBook's Submit button.
+  That tag is the book on screen when `msg()` runs, so it only holds if the
+  book cannot change during an action's await: a switch mid-Submit put the
+  lot's submittal line under DesignBook's button and painted the lot's stage
+  controls onto DesignBook's Status step. `setStageBusy()` disables the book
+  switch while a Submit, Approve or Accept is in flight, and `switchBook()`
+  refuses too (`stagemsg` switches mid-Submit in both books). A download is
+  the same window: a lot PDF that finished after a switch put its line under
+  DesignBook's button, and every download also writes the per-book history.
+  So the seven async downloads hold the switch through `holdBook()`, a count
+  kept apart from `state.saving` because that one disables the stage buttons
+  too; `bookHeld()` is the one test (`stagemsg` switches mid-download).
+  `#valBlock` and `#saveMsg` do not move (2026-09-11), and `#saveMsg` keeps
+  the full text and the long reports. **The echo is the only live region**,
+  and it stays rendered while empty (zero margin, never `display:none`):
+  hidden, it is out of the accessibility tree until its first message
+  arrives with it, and a screen reader may not announce a region that
+  appears together with its text.
+  Put `aria-live` on `#saveMsg` too and a screen reader says everything
+  twice. A refused Accept already in `#stageWarn` is echoed `.sronly`.
+  The send row names `handoffFileName()` / `lotFileName()` of the frozen
+  submittal, and **it is only for a Submit pressed on this page**:
+  `state.justSubmitted` names the book, `applyHandoff()`,
+  `openLotEnvelope()` and `openApprovalForLot()` clear it, and the stage
+  must still be Submitted, so Approve, Accept and Send back put it away.
+  The first cut gated on `submittedFor(book)` alone, which every reopened
+  file with a submission in its history satisfies. A reviewer opening the
+  submittal they were emailed was told to email it to themselves, the row
+  stayed up after Approve, and a contractor reopening an approval was told
+  to send it again. The row reads "Email <file> to <addresses>", which is
+  one line beside its two controls at 1366 and 1440 (measured: the first
+  wording, addresses first and "the file that just downloaded", was two).
+  The file name breaks only after an underscore, never inside the date:
+  each piece up to its underscore is an inline-block, with a `<wbr>`
+  between. A `<wbr>` alone was not enough - it adds break opportunities
+  and removes none, and Chrome still broke after a hyphen in the date at
+  415-476, 527-588 and 630-691px (430 is an iPhone Pro Max). Swept 320-1500
+  afterwards: no piece splits. "Email it now" is a mailto, so the server stays
+  out of the mail path (2026-09-10). A mailto cannot attach, so the body
+  starts "Attached: <file>". With `CONFIG.SUBMIT.KYTC_EMAIL` null nothing
+  new renders. **The note before Submit names both addresses on DesignBook
+  only.** DesignBook's `#stageNote` has a line to itself. PlantBook's
+  Submit sentence shares one line with the save note and Start lot n+1,
+  which the 2026-09-24 entry records as one line at 1440, and the two
+  addresses took it to two lines. So it still says "KYTC". The confirm
+  dialog names the addresses before Submit and the send row names them
+  after it. `stagemsg` measures that line at 1440. **Trap for the harness**: Submit re-renders the stage in its
+  `finally`, which re-echoes, so a check that only submits passes with
+  `msg()`'s echo deleted. `checks/stagemsg.mjs` re-downloads the submittal
+  (a `msg()` with no render after it) for that reason.
+
+- **Where the checkers stood after all of 2026-09-26's changes**, since each
+  entry above quotes its own lane's counts at the time it landed (the lot-
+  ledger entry's "page checker 223 ... harness 522" is that lane's, not the
+  end state): page checker 251 pass / 0 fail / 4 skip, check_storage 211,
+  check_bridge 101, check_intake 63 / 0 / 6, check_rollforward 40,
+  check_verify 53, check_notes 26 / 0 / 1, and the full browser harness 768
+  passed / 0 failed / 3 skipped. The last round of that day added the
+  autosave flush on a book switch (a pending lot save used to fire with
+  DesignBook on screen and store DesignBook's form as the lot), downloads
+  holding the switch, "Downloaded" in DesignBook's appbar after Submit, and
+  the sealed lot's save note. **Still open from that review, deliberately:**
+  the sublot ticket table scrolls below ~1410px (the layout call recorded in
+  the ticket entry); a reviewer is still offered Start lot n+1 on a
+  contractor's lot (Open (F9) above - it needs a custody field the envelope
+  does not carry); and PlantBook's pre-Submit note says "KYTC" rather than
+  the two addresses, to stay one line at 1440 - the one point of the Submit
+  echo spec taken differently, for Jake to overrule if he wants the second
+  line.

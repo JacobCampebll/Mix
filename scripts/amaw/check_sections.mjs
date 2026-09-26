@@ -395,6 +395,16 @@ for (const s of S) {
       fail("D", `${where} ends its grid with "${tracks[tracks.length - 1]}" — the remove button's track is \`auto\``);
     else if (spec.fixed && tracks[tracks.length - 1] === "auto")
       fail("D", `${where} is fixed but ends its grid with \`auto\` — a fixed table has no remove button`);
+    // A column's own pixel floor (`minPx`, 2026-09-26) is written into the same
+    // inline template as a `minmax(<n>px, ...)` track. The renderer ignores
+    // anything but a positive number - one malformed track ("78pxpx") makes
+    // the browser drop the WHOLE inline declaration and the table silently
+    // loses its columns - so a declaration it would ignore is a typo, and a
+    // typo here is invisible on screen.
+    for (const c of spec.columns) {
+      if (c.minPx !== undefined && !(typeof c.minPx === "number" && Number.isFinite(c.minPx) && c.minPx > 0))
+        fail("D", `${where} column ${c.key} declares minPx ${JSON.stringify(c.minPx)} — a floor is a positive number of pixels`);
+    }
 
     if (spec.fixed) {
       if (!Array.isArray(spec.seed) || !spec.seed.length)
@@ -438,6 +448,17 @@ for (const s of S) {
       }
       if (c.readonly && c.req)
         fail("G", `${where} column "${c.key}" is readonly and required — the rail would demand a value nobody can type`);
+      // `seedFrom` is read by rowHoldsMeasurement(), never by the renderer, so
+      // nothing on screen would notice it naming a column that is not there -
+      // the Start a lot list would simply go back to counting a sublot nobody
+      // touched as entered. A name that matches nothing is the quietest
+      // failure there is, so it is asserted to resolve.
+      if (c.seedFrom !== undefined) {
+        if (!spec.columns.some((o) => o.key === c.seedFrom))
+          fail("G", `${where} column "${c.key}" is seeded from "${c.seedFrom}", which is not a column of the same table`);
+        else if (c.readonly)
+          fail("G", `${where} column "${c.key}" is readonly and declares \`seedFrom\` — a readonly cell never counts, so it says nothing`);
+      }
     }
     for (const seedRow of spec.seed || []) {
       for (const k of Object.keys(seedRow))
