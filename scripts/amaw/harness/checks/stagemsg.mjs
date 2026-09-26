@@ -454,6 +454,7 @@ export async function run({ browser, results }) {
   await warnCase(browser, results);
   await revealCase(browser, results);
   await midSwitchCase(browser, results);
+  await midDownloadCase(browser, results);
 }
 
 /* A Submit awaits a PDF build (and on a lot, the seal), and what it does
@@ -525,6 +526,69 @@ async function midSwitchCase(browser, results) {
                `book=${end.book} tag=${end.tag} row=${end.row} echo=${JSON.stringify(end.echo.slice(0, 40))}`);
     results.ok(id, book.label, "1366x768 …and the switch is back once Submit is done", end.enabled, `enabled=${end.enabled}`);
     results.ok(id, book.label, "1366x768 clean console", errs.length === 0, errs.join(" | ") || "clean");
+  }
+}
+
+/* The same window, opened by a download rather than a Submit: the lot PDF and
+ * DesignBook's review PDF build behind an await, then msg() tags #saveMsg with
+ * the book on screen and the per-book history is written. A lot PDF that
+ * finished after a switch put its line under DesignBook's Status step
+ * (measured 2026-09-26), so a download holds the switch too (holdBook()) -
+ * without disabling the stage button, which a download has no business with. */
+async function midDownloadCase(browser, results) {
+  for (const book of [DESIGN, PLANT]) {
+    const out = await withBook(browser, book, { width: 1366, height: 768 }, async ({ page, errs }) => {
+      await page.addStyleTag({ content: ".section{animation:none!important;opacity:1!important}" });
+      if (book === PLANT) {
+        await page.evaluate((approval) => {
+          const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+          openLotEnvelope(out.lot, "the harness");
+        }, APPROVAL);
+        await page.waitForTimeout(500);
+      }
+      await page.evaluate(TO_STATUS);
+      await page.waitForTimeout(250);
+      await page.evaluate(() => {
+        window.__dl = null;
+        window.saveBytes = (bytes, name) => { window.__dl = name; };
+        const real = window.buildReviewPDF;
+        window.buildReviewPDF = async (...a) => { await new Promise((r) => setTimeout(r, 1500)); return real(...a); };
+      });
+      const btnId = book === PLANT ? "lotPdfBtn" : "pdfBtn";
+      await page.evaluate((id) => { document.getElementById(id).scrollIntoView({ block: "center" }); }, btnId);
+      await page.click("#" + btnId);
+      await page.waitForTimeout(400);
+      const other = book === PLANT ? "bookDesign" : "bookPlant";
+      const otherKey = book === PLANT ? "designbook" : "plantbook";
+      const mid = await page.evaluate(([id, key]) => {
+        const b = document.getElementById(id);
+        const stage = document.getElementById("advanceStage");
+        const r = { disabled: b.disabled, stageDisabled: !!(stage && stage.disabled) };
+        b.click();
+        switchBook(key);
+        r.book = state.book;
+        return r;
+      }, [other, otherKey]);
+      await page.waitForFunction(() => window.__dl && /downloaded/.test(document.getElementById("saveMsg").textContent),
+                                 null, { timeout: 30000 }).catch(() => {});
+      await page.waitForTimeout(300);
+      const end = await page.evaluate((id) => ({
+        book: state.book, tag: state.saveMsgBook, dl: window.__dl,
+        echo: (document.getElementById("stageMsg") || {}).textContent || "",
+        enabled: !document.getElementById(id).disabled, building: state.building,
+      }), other);
+      return { mid, end, errs: realErrors(errs) };
+    });
+    if (out.skipped) { results.skip(id, book.label, "mid-download switch", out.skipped); continue; }
+    const { mid, end, errs } = out.value;
+    const want = book === PLANT ? "plantbook" : "designbook";
+    results.ok(id, book.label, "1366x768 the book switch is disabled while a PDF download builds, and refuses a direct call",
+               mid.disabled && mid.book === want && !mid.stageDisabled,
+               `switch disabled=${mid.disabled} book=${mid.book} stage button disabled=${mid.stageDisabled}`);
+    results.ok(id, book.label, "1366x768 …so the download's line lands under this book's button, and the switch comes back",
+               end.book === want && end.tag === want && !!end.dl && /downloaded/.test(end.echo) && end.enabled && end.building === 0,
+               `book=${end.book} tag=${end.tag} file=${end.dl} enabled=${end.enabled} building=${end.building} echo=${JSON.stringify(end.echo.slice(0, 40))}`);
+    results.ok(id, book.label, "1366x768 mid-download clean console", errs.length === 0, errs.join(" | ") || "clean");
   }
 }
 

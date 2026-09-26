@@ -5770,7 +5770,12 @@ commit where possible.
   lot's submittal line under DesignBook's button and painted the lot's stage
   controls onto DesignBook's Status step. `setStageBusy()` disables the book
   switch while a Submit, Approve or Accept is in flight, and `switchBook()`
-  refuses too (`stagemsg` switches mid-Submit in both books).
+  refuses too (`stagemsg` switches mid-Submit in both books). A download is
+  the same window: a lot PDF that finished after a switch put its line under
+  DesignBook's button, and every download also writes the per-book history.
+  So the seven async downloads hold the switch through `holdBook()`, a count
+  kept apart from `state.saving` because that one disables the stage buttons
+  too; `bookHeld()` is the one test (`stagemsg` switches mid-download).
   `#valBlock` and `#saveMsg` do not move (2026-09-11), and `#saveMsg` keeps
   the full text and the long reports. **The echo is the only live region**,
   and it stays rendered while empty (zero margin, never `display:none`):

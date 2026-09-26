@@ -5781,6 +5781,7 @@ const state = {
   // than assumed.
   sublotsOpen: new URLSearchParams(location.search).get("sublots") === "open",
   saving: false,     // a Submit / Approve / Accept is in flight - see setStageBusy()
+  building: 0,       // downloads still building - see holdBook()
   step: 0,           // which of activeSections() is on screen (index, not the visible position)
   // Which book is on screen, from ?book= at boot and from the switch in the
   // appbar afterwards. DesignBook and PlantBook are two VIEWS of this one
@@ -7042,10 +7043,10 @@ function paintBookSwitch() {
     btn.classList.toggle("on", on);
     if (on) btn.setAttribute("aria-current", "page"); else btn.removeAttribute("aria-current");
     const allowed = bookAllowed(key);
-    btn.disabled = !allowed || !!state.saving;
+    btn.disabled = !allowed || bookHeld();
     btn.title = !allowed
       ? `${CONFIG.BOOKS[key].label} needs a current certification. Yours isn't showing as active.`
-      : state.saving ? "Wait for this to finish before switching books."
+      : bookHeld() ? "Wait for this to finish before switching books."
       : `${CONFIG.BOOKS[key].label} - the ${CONFIG.BOOKS[key].noun} view of this page`;
   });
   document.title = `Mix — ${activeBook().label}`;
@@ -7062,6 +7063,19 @@ function setStageBusy(on) {
   state.saving = !!on;
   paintBookSwitch();
 }
+// A download builds its file behind an await too, and what it does after -
+// msg() tagging #saveMsg with the book on screen, and the per-book history,
+// downloadedAt and audit it writes - assumes the same book. A lot PDF that
+// finished after a switch put its line under DesignBook's Status step
+// (measured 2026-09-26). So a download holds the switch as well. A COUNT, not
+// a flag, because two can be in flight (a lot PDF and the AMAW), and separate
+// from state.saving, because that one also disables the stage buttons and
+// nothing about a download should disable Submit.
+function holdBook(on) {
+  state.building = Math.max(0, (state.building || 0) + (on ? 1 : -1));
+  paintBookSwitch();
+}
+function bookHeld() { return !!state.saving || (state.building || 0) > 0; }
 // PlantBook with no lot open is its Start a lot page, not an empty form (Jake,
 // 2026-09-24: clicking PlantBook from inside DesignBook "should take me to
 // this page"). A lot with no approval behind it has no JMF %AC, no air-void
@@ -7086,7 +7100,7 @@ function setStageBusy(on) {
 // screen rather than assuming the form. Opening an approval or a lot from the
 // door goes through enterForm(), which closes it.
 function switchBook(key) {
-  if (!CONFIG.BOOKS[key] || key === state.book || !bookAllowed(key) || state.saving) return;
+  if (!CONFIG.BOOKS[key] || key === state.book || !bookAllowed(key) || bookHeld()) return;
   // Leaving a lot with a keystroke still on the autosave timer: the timer
   // would fire with DesignBook on screen, and collectForm() reads the schema
   // ON SCREEN, so the lot was written - locally and to the server - holding
@@ -12572,6 +12586,7 @@ async function downloadApprovalPDF() {
   btn.disabled = true;
   const was = btn.textContent;
   btn.textContent = "Building...";
+  holdBook(true);
   try {
     const payload = approvedPayload("Downloaded approval");
     const bytes = await buildApprovalPDF(payload);
@@ -12584,6 +12599,7 @@ async function downloadApprovalPDF() {
   } catch (err) {
     msg($("saveMsg"), err.message || "Couldn't build the approval.", "error");
   } finally {
+    holdBook(false);
     btn.disabled = false; btn.textContent = was;
   }
 }
@@ -12600,6 +12616,7 @@ async function downloadSubmittalPDF() {
   btn.disabled = true;
   const was = btn.textContent;
   btn.textContent = "Building PDF...";
+  holdBook(true);
   try {
     const payload = submittedFor("designbook");
     const bytes = await buildReviewPDF(payload);
@@ -12610,6 +12627,7 @@ async function downloadSubmittalPDF() {
   } catch (err) {
     msg($("saveMsg"), err.message || "Couldn't build the submittal PDF.", "error");
   } finally {
+    holdBook(false);
     btn.disabled = false; btn.textContent = was;
   }
 }
@@ -12620,6 +12638,7 @@ async function downloadReviewPDF() {
   btn.disabled = true;
   const was = btn.textContent;
   btn.textContent = "Building PDF...";
+  holdBook(true);
   try {
     const payload = state.approval ? approvedPayload("Downloaded design sheet")
                                    : handoffPayload("Downloaded review PDF");
@@ -12635,6 +12654,7 @@ async function downloadReviewPDF() {
   } catch (err) {
     msg($("saveMsg"), err.message || "Couldn't build the PDF.", "error");
   } finally {
+    holdBook(false);
     btn.disabled = false; btn.textContent = was;
   }
 }
@@ -24342,6 +24362,7 @@ async function downloadAmaw() {
   btn.disabled = true;
   const was = btn.textContent;
   btn.textContent = "Building...";
+  holdBook(true);
   try {
     const lot = lotSnapshot();
     const { bytes, filename, report } = await PB_AMAW.generateAmaw({
@@ -24373,6 +24394,7 @@ async function downloadAmaw() {
   } catch (err) {
     msg($("saveMsg"), err.message || "Couldn't build the AMAW.", "error");
   } finally {
+    holdBook(false);
     btn.disabled = false; btn.textContent = was;
   }
 }
@@ -24577,6 +24599,7 @@ async function downloadLotPdf() {
   if (!state.lot) { msg($("saveMsg"), "There is no lot open.", "error"); return; }
   const btn = $("lotPdfBtn"), was = btn ? btn.textContent : "";
   if (btn) { btn.disabled = true; btn.textContent = "Building..."; }
+  holdBook(true);
   try {
     const payload = handoffPayload("Lot PDF downloaded");
     const bytes = await buildReviewPDF(payload);
@@ -24590,6 +24613,7 @@ async function downloadLotPdf() {
   } catch (err) {
     msg($("saveMsg"), err.message || "Couldn't build the lot PDF.", "error");
   } finally {
+    holdBook(false);
     if (btn) { btn.disabled = false; btn.textContent = was; }
   }
 }
@@ -24599,6 +24623,7 @@ async function downloadLotPdf() {
 async function downloadLotSubmittal() {
   const frozen = submittedFor("plantbook");
   if (!frozen) { msg($("saveMsg"), "This lot has no submission on record.", "error"); return; }
+  holdBook(true);
   try {
     const bytes = await buildReviewPDF(frozen);
     const name = lotFileName(frozen);
@@ -24606,6 +24631,8 @@ async function downloadLotSubmittal() {
     msg($("saveMsg"), `${name} downloaded again - the same document that was submitted.`, "ok");
   } catch (err) {
     msg($("saveMsg"), err.message || "Couldn't rebuild the submittal.", "error");
+  } finally {
+    holdBook(false);
   }
 }
 
@@ -25789,6 +25816,7 @@ async function downloadMixPack() {
   btn.disabled = true;
   const was = btn.textContent;
   btn.textContent = "Building workbook...";
+  holdBook(true);
   try {
     const payload = approvedPayload("Downloaded MixPack");
     const { bytes, name, report } = await buildMixPack(payload);
@@ -25806,6 +25834,7 @@ async function downloadMixPack() {
   } catch (err) {
     msg($("saveMsg"), err.message || "Couldn't build the MixPack.", "error");
   } finally {
+    holdBook(false);
     btn.disabled = false; btn.textContent = was;
   }
 }
