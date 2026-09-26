@@ -329,6 +329,68 @@ const OFFLINE_SUBMIT = async ({ approval }) => {
   return { offline, flushed };
 };
 
+/* TWO DEVICES - the production reviewer path. A contractor submits on device
+ * A and emails the submittal; a KYTC reviewer opens that file on device B,
+ * which has never held the lot, and presses Accept. Each device is its own
+ * browser context (its own localStorage and its own copy of the stub
+ * server); the server as A left it is carried across, as the real one would
+ * be. REVIEW above does all of it on one device and one store, which is not
+ * where a stale pending seal or a stale status can show up. */
+const SUBMIT_ON_A = async ({ approval }) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+  openLotEnvelope(out.lot, "the harness");
+  await sleep(CONFIG.STORAGE.AUTOSAVE_MS + 700);
+  const c = window.confirm, s = window.saveBytes;
+  window.confirm = () => true; window.saveBytes = () => {};
+  try { await submitLotToKYTC(); } finally { window.confirm = c; window.saveBytes = s; }
+  await sleep(300);
+  const keep = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.indexOf("amaw_lot:") === 0) keep[k] = localStorage.getItem(k);
+  }
+  return { uid: state.lot.uid, submitted: JSON.parse(JSON.stringify(state.submitted)),
+           msg: $("saveMsg").textContent, chip: $("syncChip").textContent,
+           server: JSON.parse(JSON.stringify(window.__HARNESS_AMAW)), local: keep };
+};
+const REVIEW_ON_B = async ({ submitted, server, ledgerPatch }) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.__HARNESS_AMAW;
+  if (server) { Object.assign(S.amaw_lots, server.amaw_lots); Object.assign(S.amaw_lot_data, server.amaw_lot_data); }
+  const uid = submitted.lot.uid;
+  if (ledgerPatch && S.amaw_lots[uid]) Object.assign(S.amaw_lots[uid], ledgerPatch);
+  // The PDF door: startLotFromPDF() routes a lot PDF to exactly this call.
+  openLotEnvelope(submitted.lot, "the submittal");
+  await sleep(1500);
+  const facts = () => {
+    const row = S.amaw_lots[uid] || {};
+    const local = JSON.parse(localStorage.getItem("amaw_lot:" + uid) || "null") || {};
+    const w = $("stageWarn");
+    return { stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key, pill: $("statuspill").textContent,
+             btn: $("advanceStage").textContent, btnDisabled: $("advanceStage").disabled,
+             msg: $("saveMsg").textContent, cls: $("saveMsg").className,
+             chip: $("syncChip").classList.contains("hidden") ? null : $("syncChip").textContent,
+             note: ($("lotSaveNote") || {}).textContent || "",
+             warn: w && !w.classList.contains("hidden") ? w.textContent : null,
+             ledger: row.status || null, acceptedName: row.accepted_name || null,
+             local: local.status || null, pending: local.pending_seal ? local.pending_seal.status : null,
+             dataRevision: (S.amaw_lot_data[uid] || {}).revision == null ? null : S.amaw_lot_data[uid].revision,
+             audit: ($("auditlog") || {}).textContent || "" };
+  };
+  const opened = facts();
+  let accepted = null;
+  if (!$("advanceStage").disabled && !$("advanceStage").classList.contains("hidden")) {
+    const before = $("saveMsg").textContent;
+    document.getElementById("advanceStage").click();
+    for (let i = 0; i < 80 && ($("saveMsg").textContent === before
+                               || $("advanceStage").textContent === "Accepting..."); i++) await sleep(100);
+    await sleep(400);
+    accepted = facts();
+  }
+  return { opened, accepted };
+};
+
 export async function run({ browser, results }) {
   const ok = (what, cond, detail) => results.add(id, BOOK, what, cond ? "PASS" : "FAIL", detail);
 
@@ -510,4 +572,28 @@ export async function run({ browser, results }) {
   ok("unapplied: the lot still lists, out of localStorage", u.listRows === 1, `${u.listRows} rows`);
   ok("unapplied: no console errors at all",
      un.value.errs.length === 0, un.value.errs.slice(0, 3).join(" | ") || "clean");
+
+  // ---- a reviewer accepting a submittal, on a project without the schema ----
+  // The reviewer's device has never held the lot and opens it from the file.
+  // The seal function is missing too (PGRST202): that is NOT SET UP, and the
+  // sentence has to say so - it read "there is no signal" against the real
+  // PostgREST answer, and "relation does not exist" against this stub.
+  const ua = await withBook(browser, PLANT, { width: 1440, height: 1000, query: "&sublots=open", unapplied: true },
+    async (h) => ({ a: await h.page.evaluate(SUBMIT_ON_A, { approval: APPROVAL }), errs: realErrors(h.errs || []) }));
+  if (ua.skipped) { results.skip(id, BOOK, "a reviewer's Accept with the schema unapplied", ua.skipped); return; }
+  const ub = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true, unapplied: true },
+    async (h) => ({ b: await h.page.evaluate(REVIEW_ON_B, { submitted: ua.value.a.submitted, server: null }),
+                    errs: realErrors(h.errs || []) }));
+  if (ub.skipped) { results.skip(id, BOOK, "a reviewer's Accept with the schema unapplied", ub.skipped); return; }
+  const uo = ub.value.b.opened, uacc = ub.value.b.accepted || {};
+  ok("unapplied: a reviewer opening the submittal sees no sync chip and the file's save note",
+     uo.chip === null && /saved copy/.test(uo.note), `chip=${JSON.stringify(uo.chip)} note="${uo.note}"`);
+  ok("unapplied: …and Accept says lot storage is NOT SET UP - not “no signal”, not a refusal",
+     /Lot storage is not set up here/.test(uacc.msg || "") && !/no signal/.test(uacc.msg || "")
+       && !/did not go through/.test(uacc.msg || ""), uacc.msg);
+  ok("unapplied: …the lot reads Accepted, still with no chip and the file's save note",
+     uacc.stage === "Accepted" && uacc.chip === null && /saved copy/.test(uacc.note || ""),
+     `stage=${uacc.stage} chip=${JSON.stringify(uacc.chip)} note="${uacc.note}"`);
+  ok("unapplied: both devices ran clean", ua.value.errs.length === 0 && ub.value.errs.length === 0,
+     [...ua.value.errs, ...ub.value.errs].slice(0, 3).join(" | ") || "clean");
 }

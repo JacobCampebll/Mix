@@ -173,7 +173,10 @@ function fakeServer() {
       // status that happens to match.
       net.rpcCalls = (net.rpcCalls || 0) + 1;
       if (!net.up) throw netErr();
-      if (net.unapplied) return { data: null, error: unappliedErr() };
+      // Unapplied, the FUNCTION is missing too, and PostgREST says so as
+      // PGRST202 rather than 42P01.
+      if (net.unapplied) return { data: null, error: { code: 'PGRST202',
+        message: 'Could not find the function public.amaw_seal_lot(p_lot_id, p_prev, p_sha256, p_status) in the schema cache' } };
       if (fn !== 'amaw_seal_lot') return { data: null, error: { message: 'no such function' } };
       // The connection drops BEFORE the call lands: nothing changed server-side.
       if (net.failSealOnce) { net.failSealOnce = false; throw netErr(); }
@@ -798,6 +801,68 @@ head('offline is not the same as not set up');
   ok('...and leaves online alone, because the network is fine',
      store.state().online === true, store.state());
   ok('either way the lot is still waiting', (await store.local.outbox()).length === 1);
+}
+
+// =====================================================================
+head('not set up, met by the seal rather than by a table');
+// =====================================================================
+{
+  // amaw_seal_lot() missing is PGRST202, not 42P01. Left as 'backend' it read
+  // as a lost signal, so an Accept on a project with no lot storage said
+  // "there is no signal". And a save that sent nothing called noteOk(), which
+  // wiped the notSetUp a load() had just found.
+  const sup = supabaseLotStore({ client: { rpc: async () => ({ data: null, error: { code: 'PGRST202',
+    message: 'Could not find the function public.amaw_seal_lot(p_lot_id, p_prev, p_sha256, p_status) in the schema cache' } }) } });
+  ok('a missing seal function is NOT SET UP', (await raises(() => sup.seal('x', 'Accepted'), 'not_set_up')).ok);
+
+  const server = fakeServer();
+  server.net.reviewer = true;
+  const store = newStore(server);
+  // A submitted lot this device holds from its file, as a reviewer's does.
+  const fromFile = normaliseLot({ ...blankLot(IDENT), status: 'Submitted' });
+  await store.local.save(fromFile, { by: BY });
+  server.net.unapplied = true;
+  await store.load(fromFile.uid);
+  ok('(opening it finds no lot storage)', store.state().notSetUp === true, store.state());
+  await store.save(await store.local.load(fromFile.uid), { by: BY });
+  ok('saving a sealed lot sends nothing, and does not claim lot storage is there',
+     store.state().notSetUp === true, store.state());
+  const acc = await store.seal(fromFile.uid, 'Accepted', { by: BY });
+  ok('an Accept there waits as NOT SET UP - not offline, not refused',
+     acc.status === 'Accepted' && !!acc.pending_seal && store.state().notSetUp === true && store.state().online === true,
+     [acc.status, acc.pending_seal, store.state()]);
+
+  // A flush of a lot with nothing to send is not an answer either.
+  const s4 = newStore(server);
+  const frozen = normaliseLot({ ...blankLot({ ...IDENT, lot_number: 11 }), status: 'Submitted', revision: 3, synced_revision: 1 });
+  await s4.local.save(frozen, { by: BY, bump: false });
+  await s4.load(frozen.uid);
+  const flushed = await s4.flush({ by: BY });
+  ok('a flush that only froze a lot does not claim lot storage is there',
+     flushed.pushed === 1 && s4.state().notSetUp === true, [flushed, s4.state()]);
+
+  // The same device submitted it and now accepts it. One slot - but nothing
+  // will ever send the waiting submission, so the Accept is stamped over it
+  // rather than refused with a sentence about a record that does not exist.
+  server.net.unapplied = false;
+  const s2 = newStore(server);
+  const lot2 = await s2.save(blankLot({ ...IDENT, lot_number: 9 }), { by: BY });
+  server.net.unapplied = true;
+  await s2.seal(lot2.uid, 'Submitted', { sha256: 'f'.repeat(64), by: BY });
+  const over = await raises(() => s2.seal(lot2.uid, 'Accepted', { by: BY }));
+  ok('with no lot storage, an Accept over a waiting submission is stamped, not refused', !over.raised, over);
+  ok('…and reads Accepted on this device', (await s2.local.load(lot2.uid)).status === 'Accepted');
+
+  // A fresh page has not heard yet, so the store ASKS before refusing.
+  const s3 = newStore(server, fakeStorage());
+  const lot3 = normaliseLot({ ...blankLot({ ...IDENT, lot_number: 10 }), status: 'Submitted',
+    pending_seal: { status: 'Submitted', sha256: 'e'.repeat(64), prev: null, at: '2026-09-26T00:00:00.000Z' } });
+  await s3.local.save(lot3, { by: BY });
+  ok('(a fresh store has not heard yet)', s3.state().notSetUp === false, s3.state());
+  const asked = await raises(() => s3.seal(lot3.uid, 'Accepted', { by: BY }));
+  ok('…so it asks, finds no lot storage, and stamps',
+     !asked.raised && (await s3.local.load(lot3.uid)).status === 'Accepted' && s3.state().notSetUp === true,
+     [asked, s3.state()]);
 }
 
 // =====================================================================

@@ -247,7 +247,16 @@ export function stubScript() {
         // amaw_seal_lot(): the one-way door. Refuses exactly what the real
         // function refuses, because the client branches on those messages.
         rpc: function (fn, args) {
-          try { offline(); } catch (e) { return Promise.reject(e); }
+          // With amaw_lots.sql unapplied the FUNCTION is missing as well as
+          // the tables, and PostgREST answers that as PGRST202 - an answer,
+          // not a rejected promise. Rejecting a raw Error here made an Accept
+          // on an unapplied project read as a refusal ("relation does not
+          // exist") where the real site reads it as not set up.
+          try { offline(); } catch (e) {
+            if (e.pgrst) return Promise.resolve({ data: null, error: { code: "PGRST202", message:
+              "Could not find the function public.amaw_seal_lot(p_lot_id, p_prev, p_sha256, p_status) in the schema cache" } });
+            return Promise.reject(e);
+          }
           if (fn !== "amaw_seal_lot") return Promise.resolve({ data: null, error: { message: "no such function" } });
           var lot = AMAW.amaw_lots[args.p_lot_id];
           if (!lot) return Promise.resolve({ data: null, error: { code: "P0002", message: "no such lot" } });

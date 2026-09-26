@@ -19806,6 +19806,10 @@ const PB_LOT = (() => {
 
     // PostgREST error -> StorageError. The ones that matter:
     //   42P01 / PGRST205 - the relation does not exist: the DDL is unapplied.
+    //   PGRST202 - "Could not find the function public.amaw_seal_lot(...) in the
+    //     schema cache": the same unapplied DDL, met by the seal rather than by a
+    //     table. Left as 'backend' it was a lost SIGNAL, so a reviewer's Accept
+    //     on a project with no lot storage said "there is no signal".
     //   PGRST116 - ".single() got no row". It is what an RLS-filtered write
     //     looks like from the client (CLAUDE.md): Postgres touched 0 rows and
     //     .single() complained about the count. A permission or conflict answer,
@@ -19815,7 +19819,7 @@ const PB_LOT = (() => {
       if (!err) return null;
       const code = err.code || '';
       const msg = String(err.message || '');
-      if (code === '42P01' || code === 'PGRST205') {
+      if (code === '42P01' || code === 'PGRST205' || code === 'PGRST202') {
         return new StorageError('not_set_up',
           'PlantBook storage is not set up on this project yet (supabase/amaw_lots.sql has not been applied)', err);
       }
@@ -20063,6 +20067,16 @@ const PB_LOT = (() => {
     // permission error, which reads as a conflict it is not. A technician who
     // filled a whole lot offline and then pressed Submit is exactly the case,
     // and it is not a rare one.
+    // Whether this project has lot storage at all, when that decides something
+    // (seal()'s one-slot rule). Usually already known - boot, the door and every
+    // open ask the server - and asked once more here if not, because "no signal"
+    // and "no lot storage" want opposite answers.
+    async function notSetUpHere() {
+      if (state.notSetUp) return true;
+      if (!remote || !online()) return false;
+      try { return (await api.available()).notSetUp === true; } catch (_) { return false; }
+    }
+
     // Written back here rather than left to the caller, because a failure is
     // exactly when the caller does not write the lot again.
     async function keep(lot, by) {
@@ -20230,9 +20244,14 @@ const PB_LOT = (() => {
         const saved = await local.save(incoming, { by });
         if (sync && remote) {
           try {
-            await pushOne(saved, by);
+            // A sealed lot with nothing to send makes no call at all, and
+            // "nothing was sent" is not "the server answered": noteOk() there
+            // wiped the notSetUp a load() had just found, and the page then told
+            // a reviewer on a project with no lot storage that it was live.
+            const reached = await pushOne(saved, by);
             await local.save(saved, { by, bump: false });   // record synced_revision
-            noteOk(); state.lastSyncAt = saved.synced_at;
+            if (reached) noteOk();
+            state.lastSyncAt = saved.synced_at;
           } catch (err) {
             noteFailure(err);
             // A real disagreement, not a dropped connection. The local copy is
@@ -20320,8 +20339,13 @@ const PB_LOT = (() => {
         // ONE SLOT, so an Accept stamped over a submission still waiting for a
         // signal would drop the submission's hash on the floor - and the record
         // refuses to accept a lot it does not yet hold as Submitted anyway.
-        // Refused here, before anything is stamped.
-        if (status === 'Accepted' && waiting && waiting.status === 'Submitted') {
+        // Refused here, before anything is stamped - UNLESS this project has no
+        // lot storage at all. Then nothing will ever send the waiting
+        // submission, the file is the record (and every sentence on the page
+        // says so), and refusing would only stop a reviewer accepting a lot on
+        // the device it was submitted from - which is what the page let them do
+        // before lot storage existed.
+        if (status === 'Accepted' && waiting && waiting.status === 'Submitted' && !(await notSetUpHere())) {
           throw new StorageError('sealed',
             `lot ${lot.lot_number}'s submission has not reached KYTC's lot record yet, so it cannot be accepted until it has`);
         }
@@ -20337,9 +20361,9 @@ const PB_LOT = (() => {
         const saved = await local.save(lot, { by, bump: false });
         if (remote && online()) {
           try {
-            await pushOne(saved, by);
+            const reached = await pushOne(saved, by);
             await local.save(saved, { by, bump: false });
-            noteOk();
+            if (reached) noteOk();
           } catch (err) {
             noteFailure(err);
             // "only KYTC accepts a lot" is an answer, not a delay. The outbox is
@@ -20373,13 +20397,13 @@ const PB_LOT = (() => {
       async flush({ by = null } = {}) {
         if (!remote) return { pushed: 0, pending: 0 };
         const uids = await local.outbox();
-        let pushed = 0;
+        let pushed = 0, reached = 0;
         const failures = [];
         for (const uid of uids) {
           const lot = await local.load(uid);
           if (!lot) continue;
           try {
-            await pushOne(lot, by);
+            if (await pushOne(lot, by)) reached++;
             await local.save(lot, { by, bump: false });
             pushed++;
           } catch (err) {
@@ -20389,7 +20413,7 @@ const PB_LOT = (() => {
         }
         state.pending = (await local.outbox()).length;
         state.lastSyncAt = new Date().toISOString();
-        if (pushed) noteOk();
+        if (reached) noteOk();
         else if (failures.length) noteFailure(failures[0].error);
         announce();
         return { pushed, pending: state.pending, failures };
