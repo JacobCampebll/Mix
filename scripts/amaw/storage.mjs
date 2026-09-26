@@ -1110,13 +1110,18 @@ export function syncedLotStore(opts = {}) {
         revision: held.revision,
         server_revision: held.server_revision,
         synced_revision: held.synced_revision,
-        // A seal the caller is making wins; otherwise one already waiting on
-        // disk must not be dropped by an ordinary save.
-        pending_seal: lot.pending_seal || held.pending_seal || null,
+        // A SEAL IS MADE BY seal() AND NOWHERE ELSE - which writes through
+        // local.save(), never through here - so the one this device holds is
+        // kept and a caller's is ignored. Taking the caller's re-offered a
+        // stale one: a .json saved while a submission was still waiting
+        // carries it long after the record sealed it, and a reviewer who
+        // opened that file and pressed Accept was refused, falsely, for a
+        // submission that "has not reached KYTC's lot record yet".
+        pending_seal: held.pending_seal || null,
         // And the record's last refusal is the store's to keep and to clear
         // (acknowledge()), never an envelope field a caller carries in.
         seal_refused: held.seal_refused || null,
-      } : { ...lot, seal_refused: null };
+      } : { ...lot, pending_seal: null, seal_refused: null };
       const saved = await local.save(incoming, { by });
       if (sync && remote) {
         try {

@@ -607,6 +607,57 @@ head('a refusal is the store\'s to keep and the page\'s to acknowledge');
 }
 
 // =====================================================================
+head('a pending seal is made by seal() and nowhere else');
+// =====================================================================
+{
+  // The stale-file case, end to end. A contractor submits with no signal and
+  // saves the .json with the seal still waiting; the flush then seals it. A
+  // reviewer opens that .json and presses Accept - and was refused, because
+  // save() let the file's old seal back in and the one-slot rule read it as a
+  // submission "not yet on the record".
+  const server = fakeServer();
+  const contractor = newStore(server);
+  const saved = await contractor.save(blankLot(IDENT), { by: BY });
+  server.net.up = false;
+  await contractor.seal(saved.uid, 'Submitted', { sha256: 'a'.repeat(64), by: BY });
+  const file = JSON.parse(JSON.stringify(await contractor.local.load(saved.uid)));
+  server.net.up = true;
+  await contractor.flush({ by: BY });
+  ok('(the record has sealed it, and the file still carries the old waiting seal)',
+     server.db.lots.get(saved.uid).status === 'Submitted' && !!file.pending_seal);
+  server.net.reviewer = true;
+  // WITH NO SIGNAL, which is where it bites: online, the record's own answer
+  // (it holds that very hash) heals it at the first push, since the refusal is
+  // asked about now - so the case that proves save() is the one where the
+  // record cannot be asked.
+  const kytc = newStore(server, fakeStorage());
+  server.net.up = false;
+  const first = await kytc.save(file, { by: BY });
+  ok('a first save does not take the file\'s waiting seal', first.pending_seal === null, first.pending_seal);
+  const again = await kytc.save(file, { by: BY });
+  ok('…nor does a later one', again.pending_seal === null, again.pending_seal);
+  let accepted = null, err = null;
+  try { accepted = await kytc.seal(saved.uid, 'Accepted', { by: BY }); } catch (e) { err = e; }
+  ok('…so the reviewer\'s Accept is not refused for a submission "not yet on the record"',
+     !err && accepted.status === 'Accepted', err ? [err.code, err.message] : accepted.status);
+  server.net.up = true;
+  await kytc.flush({ by: BY });
+  ok('…and it seals Accepted once there is a signal', server.db.lots.get(saved.uid).status === 'Accepted',
+     server.db.lots.get(saved.uid).status);
+
+  // And the seal this device IS holding is not dropped by a save that does
+  // not carry it.
+  const dev = newStore(server);
+  const l2 = await dev.save(blankLot({ ...IDENT, lot_number: 2 }), { by: BY });
+  server.net.up = false;
+  await dev.seal(l2.uid, 'Submitted', { sha256: 'c'.repeat(64), by: BY });
+  const plain = await dev.save({ ...(await dev.local.load(l2.uid)), pending_seal: null }, { by: BY });
+  ok('a seal this device holds survives an ordinary save that does not carry it',
+     !!plain.pending_seal && plain.pending_seal.sha256 === 'c'.repeat(64), plain.pending_seal);
+  server.net.up = true;
+}
+
+// =====================================================================
 head('the chain is the record\'s, and it moves without the data moving');
 // =====================================================================
 {

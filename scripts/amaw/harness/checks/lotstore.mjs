@@ -323,6 +323,20 @@ const OFFLINE_SUBMIT = async ({ approval }) => {
   const offline = { msg: $("saveMsg").textContent, cls: $("saveMsg").className,
                     chip: $("syncChip").textContent, chipCls: $("syncChip").className,
                     ledger: (server.amaw_lots[uid] || {}).status || null, stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key };
+  // Reopened from the list while the seal still waits: the store hands the
+  // page a lot carrying its pending seal - which must not travel on into the
+  // .json or the lot PDF, where it outlives the seal it describes.
+  state.lot = null;
+  await openLotFromStore(uid);
+  await sleep(600);
+  let json = null;
+  const s2 = window.saveBytes;
+  window.saveBytes = (bytes) => { json = JSON.parse(new TextDecoder().decode(bytes)); };
+  try { downloadLotFile(); } finally { window.saveBytes = s2; }
+  offline.reopenedChip = $("syncChip").textContent;
+  offline.heldSeal = !!(state.lot && state.lot.pending_seal);
+  offline.snapshotSeal = lotSnapshot().pending_seal;
+  offline.fileSeal = json ? json.pending_seal : "no file";
   window.__HARNESS_OFFLINE = false;
   await flushLots();
   const flushed = { chip: $("syncChip").textContent, ledger: (server.amaw_lots[uid] || {}).status || null };
@@ -354,14 +368,22 @@ const SUBMIT_ON_A = async ({ approval }) => {
            msg: $("saveMsg").textContent, chip: $("syncChip").textContent,
            server: JSON.parse(JSON.stringify(window.__HARNESS_AMAW)), local: keep };
 };
-const REVIEW_ON_B = async ({ submitted, server, ledgerPatch }) => {
+const REVIEW_ON_B = async ({ submitted, server, ledgerPatch, stalePending, offline }) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const S = window.__HARNESS_AMAW;
   if (server) { Object.assign(S.amaw_lots, server.amaw_lots); Object.assign(S.amaw_lot_data, server.amaw_lot_data); }
   const uid = submitted.lot.uid;
   if (ledgerPatch && S.amaw_lots[uid]) Object.assign(S.amaw_lots[uid], ledgerPatch);
+  const lot = JSON.parse(JSON.stringify(submitted.lot));
+  // An OLD .json, saved while the submission was still waiting for a signal:
+  // it carries that seal long after the record took it.
+  if (stalePending) {
+    lot.pending_seal = { status: "Submitted", sha256: (S.amaw_lots[uid] || {}).submittal_sha256 || null,
+                         prev: null, at: "2026-09-26T00:00:00.000Z" };
+  }
+  if (offline) window.__HARNESS_OFFLINE = true;
   // The PDF door: startLotFromPDF() routes a lot PDF to exactly this call.
-  openLotEnvelope(submitted.lot, "the submittal");
+  openLotEnvelope(lot, "the submittal");
   await sleep(1500);
   const facts = () => {
     const row = S.amaw_lots[uid] || {};
@@ -388,7 +410,14 @@ const REVIEW_ON_B = async ({ submitted, server, ledgerPatch }) => {
     await sleep(400);
     accepted = facts();
   }
-  return { opened, accepted };
+  let flushed = null;
+  if (offline) {
+    window.__HARNESS_OFFLINE = false;
+    await flushLots();
+    await sleep(300);
+    flushed = facts();
+  }
+  return { opened, accepted, flushed };
 };
 
 export async function run({ browser, results }) {
@@ -534,7 +563,41 @@ export async function run({ browser, results }) {
     ok("…and once the signal is back the seal goes and the chip says so",
        o.flushed.ledger === "Submitted" && /submitted/.test(o.flushed.chip) && !/waiting/.test(o.flushed.chip),
        `ledger=${o.flushed.ledger} chip="${o.flushed.chip}"`);
+    ok("reopened from the list while it waits, the chip still says so",
+       o.offline.heldSeal === true && /waiting to be sealed/.test(o.offline.reopenedChip),
+       `held a seal=${o.offline.heldSeal} chip="${o.offline.reopenedChip}"`);
+    ok("…but the waiting seal is not put into the lot a file carries (snapshot and .json)",
+       o.offline.snapshotSeal === null && o.offline.fileSeal === null,
+       `snapshot=${JSON.stringify(o.offline.snapshotSeal)} .json=${JSON.stringify(o.offline.fileSeal)}`);
     ok("the offline run is clean", os.value.errs.length === 0, os.value.errs.slice(0, 3).join(" | ") || "clean");
+  }
+
+  // ---- a reviewer opening an OLD file that still carries a waiting seal ----
+  // The record sealed that submission long ago; the file's seal must not be
+  // offered again. With no signal - where it bites - the Accept used to be
+  // refused as "lot 1's submission has not reached KYTC's lot record yet".
+  const st = await withBook(browser, PLANT, { width: 1440, height: 1000, query: "&sublots=open" },
+    async (h) => ({ a: await h.page.evaluate(SUBMIT_ON_A, { approval: APPROVAL }), errs: realErrors(h.errs || []) }));
+  if (st.skipped) { results.skip(id, BOOK, "a reviewer opening an old file", st.skipped); }
+  else {
+    const sr = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true },
+      async (h) => ({ b: await h.page.evaluate(REVIEW_ON_B, { submitted: st.value.a.submitted, server: st.value.a.server,
+                                                             stalePending: true, offline: true }),
+                      errs: realErrors(h.errs || []) }));
+    if (sr.skipped) { results.skip(id, BOOK, "a reviewer opening an old file", sr.skipped); }
+    else {
+      const b = sr.value.b, acc = b.accepted || {};
+      ok("an old file's waiting seal is not offered again: the chip does not say “waiting to be sealed”",
+         b.opened.chip !== "waiting to be sealed" && b.opened.pending === null,
+         `chip=${JSON.stringify(b.opened.chip)} this device's seal=${JSON.stringify(b.opened.pending)}`);
+      ok("…so a reviewer with no signal can Accept it - it waits, it is not refused",
+         acc.stage === "Accepted" && /no signal/.test(acc.msg || "") && !/did not go through/.test(acc.msg || ""),
+         acc.msg);
+      ok("…and it seals Accepted once the signal is back",
+         !!b.flushed && b.flushed.ledger === "Accepted", b.flushed && b.flushed.ledger);
+      ok("…both devices clean", st.value.errs.length === 0 && sr.value.errs.length === 0,
+         [...st.value.errs, ...sr.value.errs].slice(0, 3).join(" | ") || "clean");
+    }
   }
 
   // ---- and the same page on a project without the schema ----
