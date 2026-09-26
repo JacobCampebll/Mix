@@ -111,6 +111,10 @@ const READ = async ({ approval }) => {
   const flushedWedge = (server.amaw_lot_data[uid] || {}).values
     ? server.amaw_lot_data[uid].values.lot_wedge_tons : undefined;
   const afterFlushOutbox = (await state.store.local.outbox()).length;
+  // In step and online: the chip is the save, so the appbar's saved-state line
+  // must not sit beside it saying "Not downloaded yet" (renderSavedState()).
+  const savedChrome = { chip: $("syncChip").textContent, savedHidden: $("savedstate").hidden,
+                        savedText: $("savedstate").textContent };
 
   // ---- sealing, through the REAL Submit button ----------------------
   // submitLotToKYTC() is what a technician presses, and calling the function
@@ -142,7 +146,28 @@ const READ = async ({ approval }) => {
   const afterSealWedge = (server.amaw_lot_data[uid] || {}).values
     ? server.amaw_lot_data[uid].values.lot_wedge_tons : undefined;
 
+  // ---- a contractor pressing Accept, on the REAL button ---------------
+  // Reviewer-only (Andrew, 2026-09-23): the button is hidden from a
+  // contractor AND the click handler refuses. The button is clicked anyway -
+  // hidden is UX, and every page here is directly linkable - and the seal
+  // calls are COUNTED, because the server would refuse too ("only KYTC
+  // accepts a lot") and a ledger that did not move proves nothing about the
+  // page's own refusal.
+  const acceptHidden = $("advanceStage").classList.contains("hidden");
+  const realRpc = sb.rpc;
+  let sealCalls = 0;
+  sb.rpc = function () { sealCalls++; return realRpc.apply(this, arguments); };
+  document.getElementById("advanceStage").click();
+  await sleep(800);
+  sb.rpc = realRpc;
+  const contractorAccept = {
+    hidden: acceptHidden, sealCalls, msg: $("saveMsg").textContent, cls: $("saveMsg").className,
+    stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key,
+    ledger: (server.amaw_lots[uid] || {}).status, acceptedAt: (server.amaw_lots[uid] || {}).accepted_at || null,
+  };
+
   return {
+    contractorAccept, savedChrome,
     uid, ledgerOnOpen, tonsAtOpen, tonsBeforeDebounce, downloaded, submitError,
     ledgerWritten: !!ledger,
     ledgerIdentity: ledger ? { contract_id: ledger.contract_id, amp_number: ledger.amp_number,
@@ -202,6 +227,106 @@ const UNAPPLIED = async ({ approval }) => {
     listSaysNotYetSent: /not yet sent/.test(listText),
     formAlive: document.querySelectorAll("#sections .section").length,
   };
+};
+
+/* KYTC'S SIDE OF THE DOOR, as a reviewer (can_review). Until 2026-09-26 Accept
+ * was a local stage change: the pill read Accepted, the ledger row stayed
+ * Submitted with no accepted_at, and the contractor's list still said
+ * Submitted. Every step here is the REAL #advanceStage button; the only
+ * things stubbed are the confirm dialog, the download and - for the refusal -
+ * the seal RPC's answer. */
+const REVIEW = async ({ approval }) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const server = window.__HARNESS_AMAW;
+  const open = async (n) => {
+    const out = PB_LOT.lotFromApproval(approval, { lotNumber: n, verification: PB_LOT.notChecked("harness") });
+    openLotEnvelope(out.lot, "the harness");
+    await sleep(CONFIG.STORAGE.AUTOSAVE_MS + 700);
+    return state.lot.uid;
+  };
+  const submit = async () => {
+    const c = window.confirm, s = window.saveBytes;
+    window.confirm = () => true; window.saveBytes = () => {};
+    try { await submitLotToKYTC(); } finally { window.confirm = c; window.saveBytes = s; }
+  };
+  const pressAccept = async () => {
+    const before = $("saveMsg").textContent;
+    document.getElementById("advanceStage").click();
+    for (let i = 0; i < 80 && ($("saveMsg").textContent === before
+                               || $("advanceStage").textContent === "Accepting..."); i++) await sleep(100);
+    await sleep(300);
+  };
+  const snap = (uid) => {
+    const row = server.amaw_lots[uid] || {};
+    const local = JSON.parse(localStorage.getItem("amaw_lot:" + uid) || "null") || {};
+    return { stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key, pill: $("statuspill").textContent,
+             msg: $("saveMsg").textContent, cls: $("saveMsg").className, chip: $("syncChip").textContent,
+             ledger: row.status || null, acceptedAt: row.accepted_at || null, acceptedName: row.accepted_name || null,
+             local: local.status || null, pending: local.pending_seal || null,
+             audit: ($("auditlog") || {}).textContent || "" };
+  };
+  const listRow = (uid) => {
+    const el = document.querySelector(`#lotListWrap [data-lot-uid="${uid}"]`);
+    return el ? el.textContent.replace(/\s+/g, " ").trim() : null;
+  };
+
+  // A lot nobody has typed into, straight from the approval: its count.
+  const u1 = await open(1);
+  await paintLotList();
+  const listUntouched = listRow(u1);
+
+  // Accepted, and sealed.
+  await submit();
+  const offered = !$("advanceStage").classList.contains("hidden") ? $("advanceStage").textContent : null;
+  await pressAccept();
+  const accepted = snap(u1);
+  accepted.listStatus = ((await state.store.list()).find((r) => r.uid === u1) || {}).status || null;
+
+  // Refused by the record: nothing moves, and it says why.
+  const u2 = await open(2);
+  await submit();
+  const realRpc = sb.rpc;
+  sb.rpc = (fn, a) => (a && a.p_status === "Accepted")
+    ? Promise.resolve({ data: null, error: { message: "lot 2 is Open, and only a submitted lot can be accepted" } })
+    : realRpc(fn, a);
+  await pressAccept();
+  sb.rpc = realRpc;
+  const refused = snap(u2);
+  // ...and it is left clean, so the next Accept simply works.
+  await pressAccept();
+  const retried = snap(u2);
+
+  // A lot this device no longer holds, known only from the server.
+  const u3 = await open(3);
+  await state.store.local.remove(u3);
+  await paintLotList();
+  const listServerOnly = listRow(u3);
+
+  return { offered, accepted, refused, retried, listUntouched, listServerOnly };
+};
+
+/* A plant with no signal, pressing Submit. The PDF downloads and the lot is
+ * Submitted here; the seal waits in the outbox. The page used to print the
+ * same success line as a sealed one and the chip read "submitted - KYTC holds
+ * the copy" while the ledger row was still Open. */
+const OFFLINE_SUBMIT = async ({ approval }) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const server = window.__HARNESS_AMAW;
+  const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+  openLotEnvelope(out.lot, "the harness");
+  const uid = state.lot.uid;
+  await sleep(CONFIG.STORAGE.AUTOSAVE_MS + 700);
+  window.__HARNESS_OFFLINE = true;
+  const c = window.confirm, s = window.saveBytes;
+  window.confirm = () => true; window.saveBytes = () => {};
+  try { await submitLotToKYTC(); } finally { window.confirm = c; window.saveBytes = s; }
+  const offline = { msg: $("saveMsg").textContent, cls: $("saveMsg").className,
+                    chip: $("syncChip").textContent, chipCls: $("syncChip").className,
+                    ledger: (server.amaw_lots[uid] || {}).status || null, stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key };
+  window.__HARNESS_OFFLINE = false;
+  await flushLots();
+  const flushed = { chip: $("syncChip").textContent, ledger: (server.amaw_lots[uid] || {}).status || null };
+  return { offline, flushed };
 };
 
 export async function run({ browser, results }) {
@@ -271,8 +396,84 @@ export async function run({ browser, results }) {
   ok("a submitted lot stops writing, so nothing edits what KYTC received",
      r.afterSealWedge !== "999", `server lot_wedge_tons=${JSON.stringify(r.afterSealWedge)}`);
 
+  // ---- the saved-state line, beside a live chip ----
+  ok("with lot storage live the appbar does not say “Not downloaded yet” beside “saved”",
+     /saved/.test(r.savedChrome.chip) && r.savedChrome.savedHidden === true,
+     `chip="${r.savedChrome.chip}" saved-state hidden=${r.savedChrome.savedHidden} ("${r.savedChrome.savedText}")`);
+
+  // ---- a contractor cannot Accept ----
+  const ca = r.contractorAccept;
+  ok("a contractor is not offered Accept", ca.hidden === true, `button hidden=${ca.hidden}`);
+  ok("…and pressing the hidden button anyway is refused by the page, before the record is asked",
+     ca.sealCalls === 0 && /Only KYTC accepts a lot/.test(ca.msg) && /warn/.test(ca.cls),
+     `seal calls=${ca.sealCalls} msg="${ca.msg}"`);
+  ok("…and nothing moved: still Submitted here and in the ledger, no accepted_at",
+     ca.stage === "Submitted" && ca.ledger === "Submitted" && !ca.acceptedAt,
+     `stage=${ca.stage} ledger=${ca.ledger} accepted_at=${ca.acceptedAt}`);
+
   ok("no console errors through any of it",
      out.value.errs.length === 0, out.value.errs.slice(0, 3).join(" | ") || "clean");
+
+  // ---- KYTC accepting, through the real button ----
+  const rv = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true, query: "&sublots=open" },
+    async (h) => {
+      const v = await h.page.evaluate(REVIEW, { approval: APPROVAL });
+      return { v, errs: realErrors(h.errs || []) };
+    });
+  if (rv.skipped) { results.skip(id, BOOK, "a reviewer's Accept", rv.skipped); }
+  else {
+    const v = rv.value.v;
+    ok("a lot nobody has typed into lists as 0 of 4 sublots, not 4",
+       !!v.listUntouched && /0 of 4 sublots/.test(v.listUntouched), v.listUntouched);
+    ok("a reviewer is offered Accept on a submitted lot", /Accept/.test(v.offered || ""), `button="${v.offered}"`);
+    const a = v.accepted;
+    ok("Accept seals the ledger row Accepted", a.ledger === "Accepted", `ledger=${a.ledger}`);
+    ok("…stamped with when and by whom, as amaw_seal_lot() stamps it",
+       !!a.acceptedAt && !!a.acceptedName, `accepted_at=${a.acceptedAt} accepted_name=${a.acceptedName}`);
+    ok("…and the page, the chip, this device and the lot list all agree",
+       a.stage === "Accepted" && a.pill === "Accepted" && /accepted/.test(a.chip)
+         && a.local === "Accepted" && a.pending === null && a.listStatus === "Accepted",
+       `stage=${a.stage} pill=${a.pill} chip="${a.chip}" local=${a.local} pending=${JSON.stringify(a.pending)} list=${a.listStatus}`);
+    ok("…and the audit log carries the accept line", /Lot accepted/.test(a.audit), a.audit.slice(0, 120));
+    ok("…and the sentence says the record took it", /record now says so/.test(a.msg) && /\bok\b/.test(a.cls), a.msg);
+
+    const f = v.refused;
+    ok("a refused Accept leaves the stage Submitted", f.stage === "Submitted" && f.pill === "Submitted",
+       `stage=${f.stage} pill=${f.pill}`);
+    ok("…prints the record's reason as an error",
+       /did not go through/.test(f.msg) && /only a submitted lot can be accepted/.test(f.msg) && /error/.test(f.cls), f.msg);
+    ok("…the ledger never moved", f.ledger === "Submitted" && !f.acceptedAt, `ledger=${f.ledger} accepted_at=${f.acceptedAt}`);
+    ok("…and this device took its stamp back off: Submitted, nothing pending",
+       f.local === "Submitted" && f.pending === null, `local=${f.local} pending=${JSON.stringify(f.pending)}`);
+    ok("…so pressing Accept again simply works", v.retried.ledger === "Accepted" && v.retried.stage === "Accepted",
+       `ledger=${v.retried.ledger} stage=${v.retried.stage}`);
+
+    ok("a lot known only from the server shows no sublot count rather than “0 of 4”",
+       !!v.listServerOnly && !/of 4 sublots/.test(v.listServerOnly), v.listServerOnly);
+    ok("the reviewer's run is clean", rv.value.errs.length === 0, rv.value.errs.slice(0, 3).join(" | ") || "clean");
+  }
+
+  // ---- Submit with no signal ----
+  const os = await withBook(browser, PLANT, { width: 1440, height: 1000, query: "&sublots=open" },
+    async (h) => {
+      const v = await h.page.evaluate(OFFLINE_SUBMIT, { approval: APPROVAL });
+      return { v, errs: realErrors(h.errs || []) };
+    });
+  if (os.skipped) { results.skip(id, BOOK, "Submit with no signal", os.skipped); }
+  else {
+    const o = os.value.v;
+    ok("offline Submit: the sentence says the seal is WAITING, not that KYTC has it",
+       /no signal/.test(o.offline.msg) && /when the connection is back/.test(o.offline.msg) && /warn/.test(o.offline.cls),
+       o.offline.msg);
+    ok("…and the chip says “waiting to be sealed”, not “submitted”",
+       /waiting to be sealed/.test(o.offline.chip) && /warn/.test(o.offline.chipCls), `chip="${o.offline.chip}"`);
+    ok("…while the lot is Submitted here and the ledger is not yet",
+       o.offline.stage === "Submitted" && o.offline.ledger !== "Submitted", `stage=${o.offline.stage} ledger=${o.offline.ledger}`);
+    ok("…and once the signal is back the seal goes and the chip says so",
+       o.flushed.ledger === "Submitted" && /submitted/.test(o.flushed.chip) && !/waiting/.test(o.flushed.chip),
+       `ledger=${o.flushed.ledger} chip="${o.flushed.chip}"`);
+    ok("the offline run is clean", os.value.errs.length === 0, os.value.errs.slice(0, 3).join(" | ") || "clean");
+  }
 
   // ---- and the same page on a project without the schema ----
   const un = await withBook(browser, PLANT,

@@ -197,7 +197,7 @@ export function stubScript() {
       } else {
         var l = {}; for (var p in row) l[p] = row[p];
         l.status = "Open"; l.submitted_at = null; l.submitted_name = null;
-        l.accepted_at = null; l.accepted_name = null;
+        l.accepted_at = null; l.accepted_by = null; l.accepted_name = null;
         l.submittal_sha256 = null; l.prev_sha256 = null;
         l.purge_after = null; l.purged_at = null;
         l.plant_name = null; l.updated_at = new Date().toISOString();
@@ -268,8 +268,17 @@ export function stubScript() {
             lot.purge_after = new Date(Date.now() + 7 * 864e5).toISOString();
           } else if (args.p_status === "Accepted") {
             if (!TECH.can_review) return Promise.resolve({ data: null, error: { message: "only KYTC accepts a lot" } });
-            if (lot.status !== "Submitted") return Promise.resolve({ data: null, error: { message: "only a submitted lot can be accepted" } });
+            if (lot.status !== "Submitted") return Promise.resolve({ data: null, error: { message:
+              "lot " + lot.lot_number + " is " + lot.status + ", and only a submitted lot can be accepted" } });
+            // amaw_seal_lot()'s Accepted branch stamps who and when, the same
+            // way its Submitted branch does - accepted_by is the caller's
+            // auth.uid(), accepted_name their technicians name. Without them
+            // "the ledger reads Accepted" could only ever be asserted on the
+            // status word, which is half of what KYTC reads off the row.
             lot.status = "Accepted";
+            lot.accepted_at = new Date().toISOString();
+            lot.accepted_by = "u1";
+            lot.accepted_name = TECH.first_name + " " + TECH.last_name;
           }
           return Promise.resolve({ data: lot, error: null });
         },
