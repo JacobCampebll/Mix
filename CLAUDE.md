@@ -5497,3 +5497,30 @@ commit where possible.
   None of this touches the site. Pages and Netlify functions use only the
   URL and the anon key, which are in each page's `CONFIG` and Netlify's
   environment variables.
+
+- **Row figures open the number pad; a sublot ticket's Date and Time are
+  pickers whose values reach MEDL or are reported, never written wrong**
+  (2026-09-26). `rowHTML()` gives every editable `number` row column
+  `inputmode="decimal"` (327 cells a lot, 63 a design), `type` still "text".
+  All 54 are non-negative; a figure that can go negative declares
+  `signed: true` and keeps the full keyboard, since iOS's decimal pad has no
+  minus (`lot_setup_ac_adjust` only). **The mapper refuses what it cannot
+  convert**: parseFloat wrote a paper '9/24/26' as serial 9 (9 January 1900)
+  into MEDL's Date (`Superpave!I`, sn 36). A number still passes through, ISO
+  converts as before, and anything else writes nothing and is `need()`ed with
+  the cell and the value. **A picker blanks a value not in its own shape**, so
+  `nativeInputType()` asks the BROWSER whether it would keep a stored value -
+  a regex copy of its rule could only drift towards data loss - and draws a
+  text box showing it as typed if not; the rail says it will not reach the
+  AMAW. **Chromium reports `scrollWidth === clientWidth` for a squeezed date or
+  time input**, so the viewports sweep now measures pickers by intrinsic width;
+  their tracks floor at 144/124px by column TYPE (`rowGridTemplate()`), and
+  `grid` stays pure `fr` because `gridWeights()` sizes the lot PDF from it (the
+  date's 1.4fr prints an ISO date whole; at 1fr it read "2026-..."). **Open,
+  for Jake**: at 1100/1366px eleven columns plus two pickers do not fit, and
+  Tech, Binder lot and AC method now clip with 8-character values that fitted
+  before. No weighting can make room; hiding Lot-sublot, which repeats the tab
+  title as `blend_pct`'s did, frees 71px - enough for both by the arithmetic
+  that predicted the measured widths, not yet measured itself. Harness
+  gap: PlantBook's default round trip never fills a sublot tab (locked while
+  the fill runs), so the pickers round-trip in a `?sublots=open` pass.
