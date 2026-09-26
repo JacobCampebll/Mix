@@ -755,7 +755,7 @@ export function readVerifyResponse(res) {
   const at = new Date().toISOString();
   if (!res || res.networkError)
     return { state: VERIFICATION.UNAVAILABLE, checked_at: at,
-             reason: 'The approval could not be checked - the verification service did not answer.',
+             reason: 'The verification service did not answer.',
              detail: res && res.networkError ? String(res.networkError.message || res.networkError) : null };
 
   const status = Number(res.status);

@@ -675,6 +675,10 @@ ok('verificationText() is the label, then the reason',
 ok('...closing a reason that has no full stop, so the next sentence starts cleanly',
    verificationText({ state: VERIFICATION.NOT_CHECKED, reason: 'Failed to fetch' })
      === `${VERIFICATION_LABELS[VERIFICATION.NOT_CHECKED]} - Failed to fetch.`);
+ok('...and does not say it twice when the reason is our own "no answer" sentence',
+   verificationText(readVerifyResponse({ networkError: new Error('fetch failed') }))
+     === `${VERIFICATION_LABELS[VERIFICATION.UNAVAILABLE]} - The verification service did not answer.`,
+   verificationText(readVerifyResponse({ networkError: new Error('fetch failed') })));
 ok('...and the label alone, as a sentence, when there is no reason',
    verificationText({ state: VERIFICATION.VERIFIED }) === `${VERIFICATION_LABELS[VERIFICATION.VERIFIED]}.`);
 
