@@ -9639,8 +9639,14 @@ function jumpTo(id, focusFirstEmpty, focusEl) {
   if (i < 0) return;
   const sec = $(id);
   let target = focusEl || null;
+  // The first empty required box a person can FILL. A disabled one - every
+  // box on a locked sublot - takes no focus, and go() brings whatever it is
+  // handed on screen, which on a phone scrolled a locked sublot's greyed
+  // blend box into the middle and its lock card, the one thing there saying
+  // why, up under the header (2026-09-26). With nothing to fill, go() lands
+  // on the step's start, where that card is.
   if (!target && focusFirstEmpty && sec) {
-    target = Array.from(sec.querySelectorAll(".req")).find((f) => !String(f.value || "").trim()) || null;
+    target = Array.from(sec.querySelectorAll(".req")).find((f) => !f.disabled && !String(f.value || "").trim()) || null;
   }
   go(i, target);
 }

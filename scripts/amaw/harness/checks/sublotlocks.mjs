@@ -385,4 +385,44 @@ export async function run({ browser, results }) {
     ok("at 1366x768 a LOCKED sublot's ticket box is shown, though it takes no focus",
        !v.none && v.disabled && v.onScreen, v.none || `disabled=${v.disabled} at ${v.at}`);
   }
+
+  /* ...BUT A LOCKED SUBLOT'S "N field(s) missing" LANDS ON ITS LOCK CARD.
+   * That line names no box, so jumpTo() falls back to the section's first
+   * empty required one - which on a locked sublot is disabled. Since go()
+   * brings its target on screen (the case above), handing it that greyed box
+   * scrolled the card saying why the sublot is shut up under the header: on a
+   * phone, and on a laptop short enough that the box sits below the action
+   * bar. The fallback skips a box nobody can fill, so the jump lands on the
+   * step's start, where the card is. Every contractor's rail carries these
+   * lines on every lot - sublots 2-4, and sublot 1 from lot 2 on. */
+  const cardSeen = async (width, height) => withBook(browser, PLANT, { width, height }, async (h) => {
+    await h.page.evaluate(async (approval) => {
+      const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+      openLotEnvelope(out.lot, "the harness");
+      await new Promise((res) => setTimeout(res, 400));
+      go(0, null, false);
+    }, APPROVAL);
+    await h.page.waitForTimeout(200);
+    const item = h.page.locator("#vallist .vitem", { hasText: /Sublot 2 —.*field\(s\) missing/ }).first();
+    if (!(await item.count())) return { none: "no \"Sublot 2 — N field(s) missing\" line on the rail" };
+    await item.scrollIntoViewIfNeeded();
+    await item.click();
+    await h.page.waitForTimeout(1500);
+    return h.page.evaluate(() => {
+      const card = document.querySelector('[data-section="sublot-2"] .steplock');
+      const head = document.querySelector(".appbar"), bar = document.getElementById("actionBar");
+      const top = head ? head.getBoundingClientRect().bottom : 0;
+      const bottom = bar && bar.getClientRects().length ? bar.getBoundingClientRect().top : innerHeight;
+      if (!card || card.hidden) return { none: "sublot 2 shows no lock card" };
+      const r = card.getBoundingClientRect();
+      return { onScreen: r.top >= top && r.bottom <= bottom,
+               at: `${Math.round(r.top)}..${Math.round(r.bottom)} in ${Math.round(top)}..${Math.round(bottom)}` };
+    });
+  });
+  for (const [w, hgt] of [[390, 844], [1280, 600]]) {
+    const c = await cardSeen(w, hgt);
+    const name = `at ${w}x${hgt} a locked sublot's "field(s) missing" line lands on its lock card`;
+    if (c.skipped) results.skip(id, BOOK, name, c.skipped);
+    else ok(name, !c.value.none && c.value.onScreen, c.value.none || `card at ${c.value.at}`);
+  }
 }

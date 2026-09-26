@@ -5530,7 +5530,12 @@ commit where possible.
   locked instead of telling a contractor to fix what they cannot edit.
   `go()` then brings the box on screen: below 700px it used to focus with
   preventScroll after scrolling only to the section's start (2678px short on a
-  phone), and a disabled box takes no focus-scroll at all.
+  phone), and a disabled box takes no focus-scroll at all. **So a jump must
+  not hand it a box nobody can fill**: `jumpTo()`'s fallback (a line naming
+  no box, like "Sublot 2 — 37 field(s) missing") takes the first empty
+  required box that is not disabled, else lands on the step's start. Handed
+  a locked sublot's greyed blend box, `go()` centred it and put the lock card
+  saying why up under the header, on a phone and on a 1280x600 laptop.
   **Chromium reports `scrollWidth === clientWidth` for a squeezed date or time
   input**, so the viewports sweep measures pickers by intrinsic width; their
   tracks floor at 144/124px by column TYPE (`rowGridTemplate()`), and a picker
