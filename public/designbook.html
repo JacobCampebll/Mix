@@ -1391,6 +1391,18 @@
   /* Start lot n+1 refused on an INVALID approval (renderLotStage()): its own
      line, in the page's "out of limit" colour, where the button would be. */
   .handoffnote .refused{display:block; color:var(--bad); margin-top:4px;}
+  /* After a submission: where it goes, the file to attach, and two controls
+     (paintSendRow()). The file name is one long token, so it may break
+     anywhere rather than push the page sideways on a phone. */
+  .sendrow{display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; margin:0 0 12px;
+           font-size:12.5px; line-height:1.5; color:var(--ink);}
+  .sendtext{flex:1 1 300px; min-width:0; overflow-wrap:anywhere;}
+  .sendfile{font-family:'Roboto Mono',monospace; font-size:11.5px;}
+  .sendbtn{display:inline-flex; align-items:center; padding:5px 11px; border:1px solid var(--accent);
+           border-radius:var(--radius); background:none; color:var(--accent); font-family:inherit;
+           font-size:12px; line-height:1.4; text-decoration:none; cursor:pointer; white-space:nowrap;}
+  .sendbtn:hover{background:var(--wash);}
+  @media (max-width:700px){ .sendbtn{min-height:40px; padding:0 14px;} }
   .refstatus{font-family:'Roboto Mono',monospace; font-size:11px; color:var(--muted); margin-top:6px;}
   .refstatus.error{color:var(--bad);}
   .auditrow.local .ts{color:var(--muted);}
@@ -6764,6 +6776,7 @@ function designStatusHTML() {
         along with the design so it cannot be altered afterwards.</div>
     </div>
     <div class="handoff">
+      <div class="sendrow hidden" id="sendRow"></div>
       <button class="stagebtn hidden" id="approvalPdfBtn">Download approval</button>
       <button class="stagebtn hidden" id="mixpackBtn">Download MixPack for SiteManager</button>
       <button class="stagebtn hidden" id="submittalPdfBtn">Download submittal PDF</button>
@@ -9933,7 +9946,7 @@ function renderStage() {
     // Anyone holding the file who can use DesignBook may submit it. Whoever
     // is signed in gets stamped on the package, and that stamp is the whole
     // evidence of who reviewed it internally.
-    why = "Submitting stamps your SM ID on the package and downloads it, for you to email to KYTC.";
+    why = `Submitting stamps your SM ID on the package and downloads it, for you to email to ${kytcAddressText() || "KYTC"}.`;
   } else if (s.key === "Submitted") {
     // A reviewer who did not submit it approves. Everyone else - the
     // contractor, or a reviewer who did submit it - can only send it again.
@@ -9984,6 +9997,7 @@ function renderStage() {
   // step, where it would rebuild and print as a design.
   const spdf = $("submittalPdfBtn");
   if (spdf) spdf.classList.toggle("hidden", !submittedFor("designbook"));
+  paintSendRow("designbook");
   const rpdf = $("pdfBtn");
   if (rpdf) rpdf.textContent = state.approval ? "Download full design sheet" : "Download review PDF";
   back.disabled = state.saving;
@@ -12013,6 +12027,95 @@ function submittedFor(book) {
   const p = state.submitted;
   if (!p) return null;
   return (p.book || "designbook") === book ? p : null;
+}
+
+/* Where the submittal goes, said beside the button that made it (F1,
+ * 2026-09-26). The site downloads it and the person emails it - the server
+ * left the mail path on 2026-09-10 and stays out of it: "Email it now" is a
+ * mailto, which opens the person's OWN mail app with the subject and body
+ * filled in, and sends nothing. A mailto cannot attach a file, so the body
+ * names the file to attach.
+ *
+ * CONFIG.SUBMIT.KYTC_EMAIL is "A, B". Null (or blank) renders none of this:
+ * the CONFIG comment's "never invent an address" is kept by drawing nothing,
+ * not by drawing a placeholder. */
+function kytcAddresses() {
+  const raw = CONFIG.SUBMIT.KYTC_EMAIL;
+  return raw ? String(raw).split(",").map((a) => a.trim()).filter(Boolean) : [];
+}
+function kytcAddressText() { return kytcAddresses().join(", "); }
+
+// Subject and body for the frozen submittal. Read off the PAYLOAD, not the
+// form, so the email describes the file that downloaded even after an edit.
+// Andrew and Tate file by the subject, so it is the same shape every time:
+// book - contract - (lot n -) mix - plant.
+function submittalMail(book, payload, name) {
+  const sub_ = (payload.history || []).filter((h) => h.action === CONFIG.SUBMIT.ACTION.submitted).slice(-1)[0] || {};
+  const who = sub_.name && sub_.sm_id ? `${sub_.name} (${sub_.sm_id})` : (sub_.sm_id || sub_.name || "");
+  const plantOf = (nm, amp) => (nm && amp && nm !== amp ? `${nm} (${amp})` : (nm || amp || ""));
+  let label, parts;
+  if (book === "plantbook") {
+    const lot = payload.lot || {};
+    label = "PlantBook submittal";
+    parts = [lot.contract_id, lot.lot_number != null && lot.lot_number !== "" ? `lot ${lot.lot_number}` : "",
+             lot.mix_id, plantOf(lot.plant_name, lot.amp_number)];
+  } else {
+    const j = payload.job || {}, v = payload.values || {};
+    const mix = (payload.mix && payload.mix.signature) || `${v.nominal_size || ""}${v.mix_type || ""}`;
+    label = "DesignBook submittal";
+    parts = [j.cid, mix, plantOf(payload.plant_name, j.plant)];
+  }
+  parts = parts.filter((x) => x != null && String(x).trim() !== "");
+  return {
+    subject: [label].concat(parts).join(" - "),
+    body: [`Attached: ${name}`, "", `${label}${parts.length ? " - " + parts.join(", ") : ""}.`]
+      .concat(who ? [`Submitted by ${who}.`] : []).join("\n"),
+  };
+}
+
+function sendRowHTML(book) {
+  const payload = submittedFor(book), to = kytcAddresses();
+  if (!payload || !to.length) return "";
+  const name = book === "plantbook" ? lotFileName(payload) : handoffFileName(payload);
+  const m = submittalMail(book, payload, name);
+  const href = `mailto:${to.join(",")}?subject=${encodeURIComponent(m.subject)}&body=${encodeURIComponent(m.body)}`;
+  return `<span class="sendtext">Email <strong>${esc(to.join(", "))}</strong> the file that just downloaded: ` +
+    `<span class="sendfile" id="sendFile">${esc(name)}</span></span>` +
+    `<button type="button" class="sendbtn" id="sendCopyBtn">Copy address</button>` +
+    `<a class="sendbtn" id="sendMailLink" href="${esc(href)}">Email it now</a>`;
+}
+// Gated on submittedFor(book), so it is gone whenever there is no submittal
+// of THIS book in hand. Rewritten only when its content changed, so a
+// re-render does not wipe a "Copied" the person just saw. Returns whether it
+// is showing.
+function paintSendRow(book) {
+  const el = $("sendRow");
+  if (!el) return false;
+  const html = sendRowHTML(book);
+  if (el.__html !== html) { el.innerHTML = html; el.__html = html; }
+  el.classList.toggle("hidden", !html);
+  return !!html;
+}
+async function copyKytcAddress(btn) {
+  const text = kytcAddressText();
+  if (!text || !btn) return;
+  let done = false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); done = true; }
+  } catch (_) { /* fall through to the old way */ }
+  if (!done) {
+    // No async clipboard (an insecure context, an older browser): a selected
+    // off-screen textarea and execCommand, which still works nearly everywhere.
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
+    document.body.appendChild(ta); ta.select();
+    try { done = document.execCommand("copy"); } catch (_) { done = false; }
+    ta.remove();
+  }
+  btn.textContent = done ? "Copied" : "Copy failed";
+  clearTimeout(btn.__t);
+  btn.__t = setTimeout(() => { btn.textContent = "Copy address"; }, 1600);
 }
 
 function designParts(payload) {
@@ -23810,6 +23913,7 @@ function lotStatusHTML() {
     <div class="lookupnote" id="itemsLookupNoteStatus"></div>
     <div class="stagewarn hidden" id="stageWarn"></div>
     <div class="handoff">
+      <div class="sendrow hidden" id="sendRow"></div>
       <button class="stagebtn hidden" id="amawBtn">Download AMAW for MEDL</button>
       <button class="stagebtn hidden" id="lotSubmittalBtn">Download submittal PDF</button>
       <button class="stagebtn" id="lotPdfBtn">Download lot PDF</button>
@@ -23860,6 +23964,7 @@ function renderLotStage() {
   // from the one KYTC was given.
   const sb_ = $("lotSubmittalBtn");
   if (sb_) sb_.classList.toggle("hidden", !submittedFor("plantbook"));
+  const sending = paintSendRow("plantbook");
   // The MEDL workbook is KYTC's to load, so it is a reviewer's button -
   // reversed 2026-09-14, see the note in CONFIG.PLANTBOOK_SECTIONS' status
   // step. A contractor sees the two PDFs instead, and the line below says
@@ -23897,9 +24002,12 @@ function renderLotStage() {
       : "";
   }
   const medl = $("medlNote");
+  // The address, named before Submit; once the send row is up it says the
+  // same thing about the file that actually downloaded, so this goes.
   if (medl) medl.innerHTML = state.canReview
     ? " You can also build the <strong>AMAW for MEDL</strong> from this lot."
-    : " Submit downloads the <strong>submittal PDF</strong> to email to KYTC.";
+    : sending ? ""
+    : ` Submit downloads the <strong>submittal PDF</strong> to email to ${esc(kytcAddressText() || "KYTC")}.`;
   // renderForm() re-creates #stageMsg empty, and a refused Accept's #stageWarn
   // decides whether the echo shows: both are settled above.
   echoStageMsg();
@@ -27106,6 +27214,7 @@ document.addEventListener("click", (e) => {
   if (e.target.id === "lotFileBtn") downloadLotFile();
   if (e.target.id === "lotPdfBtn") downloadLotPdf();
   if (e.target.id === "nextLotBtn") startNextLot();
+  if (e.target.id === "sendCopyBtn") copyKytcAddress(e.target);
   // A Lot Pay working line, clicked: go to the control it was measured on.
   const jump = e.target.closest ? e.target.closest("[data-goto]") : null;
   if (jump) { gotoLotSource(jump.dataset.goto); return; }
