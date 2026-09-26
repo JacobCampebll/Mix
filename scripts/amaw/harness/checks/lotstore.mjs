@@ -494,7 +494,7 @@ const ACCEPT_OFFLINE = async ({ approval, refuse, door, beaten }) => {
  * beside a green chip, on a device with a signal the whole time; only a flush
  * replaced the sentence. The record COMMITS and the reply is dropped - the
  * stub's own rpc runs first. */
-const LOST_REPLY = async ({ approval, which }) => {
+const LOST_REPLY = async ({ approval, which, acceptedMeanwhile }) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const S = window.__HARNESS_AMAW;
   const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
@@ -537,6 +537,10 @@ const LOST_REPLY = async ({ approval, which }) => {
       scheduleLotSave();
       await submitLotToKYTC();
       ledgerAtWait = (S.amaw_lots[uid] || {}).status || null;
+      // KYTC accepts it on its own device before this one's save finds the
+      // submission on the record.
+      if (acceptedMeanwhile) Object.assign(S.amaw_lots[uid], { status: "Accepted",
+        accepted_at: "2026-09-26T06:03:53.000Z", accepted_name: "Tate Salle" });
       for (let i = 0; i < 90 && facts().pending; i++) await sleep(100);
     } else {
       await submitLotToKYTC();
@@ -1086,6 +1090,24 @@ export async function run({ browser, results }) {
        x.after.chip === which.toLowerCase() && /\(by Harness Runner on \d{4}-\d\d-\d\d \d\d:\d\d\)/.test(x.after.chipTitle),
        `chip=${x.after.chip} title="${x.after.chipTitle}"`);
     ok(`a lost ${which} reply: clean`, lr.value.errs.length === 0, lr.value.errs.slice(0, 3).join(" | ") || "clean");
+  }
+  // The same lost submission reply, found by the save only after KYTC has
+  // accepted the lot: the answer is worded by the seal this device made (a
+  // submission), and the page follows the record on to Accepted - a save has
+  // no reconcileLotSeal() after it to do that.
+  const lm = await withBook(browser, PLANT, { width: 1366, height: 768, query: "&sublots=open" },
+    async (h) => ({ v: await h.page.evaluate(LOST_REPLY, { approval: APPROVAL, which: "Submitted", acceptedMeanwhile: true }),
+                    errs: realErrors(h.errs || []) }));
+  if (lm.skipped) { results.skip(id, BOOK, "a lost Submit reply, accepted meanwhile", lm.skipped); }
+  else {
+    const x = lm.value.v;
+    ok("a lost Submit reply found after KYTC accepted: never told “your Accept is now sealed” - it pressed Submit",
+       x.noSignalAt >= 0 && !x.said.some((t) => /Accept is now sealed/.test(t)), x.said.join(" >> "));
+    ok("…and the page follows the record on to Accepted, saying who accepted it",
+       x.after.stage === "Accepted" && /was accepted in KYTC's lot record \(by Tate Salle on 2026-09-26 06:03\)/.test(x.after.msg)
+         && x.after.local === "Accepted" && x.after.pending === null,
+       `stage=${x.after.stage} local=${x.after.local} msg="${x.after.msg}"`);
+    ok("…clean", lm.value.errs.length === 0, lm.value.errs.slice(0, 3).join(" | ") || "clean");
   }
 
   // ---- a Submit the record refuses, and the next session ----

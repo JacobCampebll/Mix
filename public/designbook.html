@@ -25376,13 +25376,19 @@ async function sealAnswered(held, wasWaiting) {
     await saveLotNow();
     return false;
   }
+  // Worded by the seal THIS device had waiting, never by the record's status:
+  // a contractor's submission whose reply was lost can be found on a record
+  // KYTC has since accepted, and "your Accept is now sealed" to a device that
+  // never pressed Accept is false. The record being further along is then
+  // followed forward here as well - a save has no reconcileLotSeal() after it.
   if (state.lot.waitingSaid) {
     const n = state.lot.lot_number;
-    msg($("saveMsg"), held.status === "Accepted"
+    msg($("saveMsg"), state.lot.status === "Accepted"
       ? `Lot ${n}'s Accept is now sealed in KYTC's lot record.`
       : `Lot ${n} is now sealed in KYTC's lot record as submitted.`, "ok");
     state.lot.waitingSaid = null;
   }
+  takeHeldChain(held);
   return false;
 }
 
