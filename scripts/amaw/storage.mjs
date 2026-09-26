@@ -620,6 +620,15 @@ export function supabaseLotStore(opts = {}) {
     if (code === '42501' || code === 'PGRST301') {
       return new StorageError('denied', msg || `you do not have access to ${what}`, err);
     }
+    // amaw_seal_lot()'s "no such lot". An ANSWER, not a dropped connection:
+    // the ledger has no row for this lot - typically a reviewer accepting a
+    // lot whose submission never reached the server. Left as 'backend' it was
+    // transient, so the store marked itself OFFLINE and queued the Accept to
+    // be refused again on every flush, and the page told a reviewer with a
+    // perfectly good connection that there was no signal.
+    if (code === 'P0002') {
+      return new StorageError('not_found', 'there is no such lot in KYTC\'s lot record', err);
+    }
     return new StorageError('backend', msg || `${what} failed`, err);
   }
 
@@ -854,7 +863,28 @@ export function syncedLotStore(opts = {}) {
       lot.frozen = 'this lot was submitted, so the copy KYTC holds can no longer be changed';
     }
     if (seal) {
-      await remote.seal(lot.uid, seal.status, { sha256: seal.sha256, prev: seal.prev });
+      try {
+        await remote.seal(lot.uid, seal.status, { sha256: seal.sha256, prev: seal.prev });
+      } catch (err) {
+        // A REFUSED ACCEPT IS PUT BACK. A refused submission is not, and the
+        // difference is deliberate. A Submit is the technician's act and the
+        // PDF has already downloaded and gone to KYTC, so the lot stays
+        // Submitted on this device whatever the record says, and says so. An
+        // Accept is KYTC's act on a lot the RECORD must already hold as
+        // Submitted: stamped here and refused there, it would read Accepted
+        // on this device while the ledger reads Submitted, and - still
+        // pending - be retried and refused on every flush after. So the stamp
+        // comes off, written back here because this is the one place seal(),
+        // save() and flush() all reach the server through. A transient
+        // failure (no signal, lot storage not set up) keeps the stamp: that
+        // Accept is waiting, not refused.
+        if (seal.status === 'Accepted' && !isTransient(err)) {
+          lot.status = seal.was || 'Submitted';
+          lot.pending_seal = null;
+          try { await local.save(lot, { by, bump: false }); } catch (_) { /* the throw below still says what happened */ }
+        }
+        throw err;
+      }
       lot.pending_seal = null;
       lot.status = seal.status;
     }
@@ -999,7 +1029,10 @@ export function syncedLotStore(opts = {}) {
      * Seal. Works offline: the seal is stamped on the local lot and pushed
      * with everything else when there is a connection. A submitted lot is
      * frozen locally the moment the button is pressed, whatever the network
-     * is doing — which is what a technician means by "I submitted it".
+     * is doing — which is what a technician means by "I submitted it". An
+     * Accept waits the same way with no signal, but one the record REFUSES
+     * comes back off this device (pushOne()), because KYTC's Accept is only
+     * real once the record holds it.
      */
     async seal(uid, status, { sha256 = null, prev = null, by = null } = {}) {
       const lot = await local.load(uid);
@@ -1007,7 +1040,22 @@ export function syncedLotStore(opts = {}) {
       if (status === 'Submitted' && lot.status !== 'Open') {
         throw new StorageError('sealed', `lot ${lot.lot_number} is already ${lot.status}, and a lot is never reopened once submitted`);
       }
+      const waiting = lot.pending_seal || null;
+      // ONE SLOT, so an Accept stamped over a submission still waiting for a
+      // signal would drop the submission's hash on the floor - and the record
+      // refuses to accept a lot it does not yet hold as Submitted anyway.
+      // Refused here, before anything is stamped.
+      if (status === 'Accepted' && waiting && waiting.status === 'Submitted') {
+        throw new StorageError('sealed',
+          `lot ${lot.lot_number}'s submission has not reached KYTC's lot record yet, so it cannot be accepted until it has`);
+      }
       lot.pending_seal = { status, sha256, prev, at: new Date().toISOString() };
+      // What a REFUSED Accept puts back (pushOne()). Carried on the seal
+      // itself rather than held in this call, because an Accept made with no
+      // signal is refused - if it is refused - by a later flush.
+      if (status === 'Accepted') {
+        lot.pending_seal.was = waiting && waiting.status === 'Accepted' ? (waiting.was || 'Submitted') : lot.status;
+      }
       lot.status = status;
       const saved = await local.save(lot, { by, bump: false });
       if (remote && online()) {
@@ -1017,7 +1065,15 @@ export function syncedLotStore(opts = {}) {
           noteOk();
         } catch (err) {
           noteFailure(err);
-          if (!isTransient(err)) throw err;   // "only KYTC accepts a lot" is an answer, not a delay
+          // "only KYTC accepts a lot" is an answer, not a delay. The outbox is
+          // counted and announced first all the same: a refused Accept has
+          // just come OFF it (pushOne() put the stamp back), and a chip still
+          // counting it would be the page and the store disagreeing.
+          if (!isTransient(err)) {
+            state.pending = (await local.outbox()).length;
+            announce();
+            throw err;
+          }
         }
         state.pending = (await local.outbox()).length;
         announce();

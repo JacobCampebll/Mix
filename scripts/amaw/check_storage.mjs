@@ -164,6 +164,10 @@ function fakeServer() {
   const client = {
     from: table,
     async rpc(fn, args) {
+      // Counted, so "a refused Accept is not retried on every flush" can be
+      // asserted as a call that did not happen rather than inferred from a
+      // status that happens to match.
+      net.rpcCalls = (net.rpcCalls || 0) + 1;
       if (!net.up) throw netErr();
       if (net.unapplied) return { data: null, error: unappliedErr() };
       if (fn !== 'amaw_seal_lot') return { data: null, error: { message: 'no such function' } };
@@ -182,8 +186,13 @@ function fakeServer() {
         lot.purge_after = new Date(Date.now() + 7 * 864e5).toISOString();
       } else if (args.p_status === 'Accepted') {
         if (!net.reviewer) return { data: null, error: { message: 'only KYTC accepts a lot' } };
-        if (lot.status !== 'Submitted') return { data: null, error: { message: 'only a submitted lot can be accepted' } };
+        if (lot.status !== 'Submitted') return { data: null, error: { message: `lot ${lot.lot_number} is ${lot.status}, and only a submitted lot can be accepted` } };
+        // amaw_seal_lot()'s Accepted branch stamps who and when, as the
+        // Submitted one does - so "the ledger reads Accepted" can be asserted
+        // on the same columns the real row carries.
         lot.status = 'Accepted';
+        lot.accepted_at = new Date().toISOString();
+        lot.accepted_name = 'KYTC Reviewer';
       }
       db.events.push({ lot_id: args.p_lot_id, kind: 'status', to_status: args.p_status });
       return { data: lot, error: null };
@@ -372,9 +381,119 @@ head('who may accept');
   const r = await raises(() => store.seal(saved.uid, 'Accepted', { by: BY }));
   ok('a contractor cannot accept their own lot, and it is an ANSWER not a delay',
      r.raised && /only KYTC/.test(r.message) && r.code === 'sealed', r);
+
+  // THE REFUSED ACCEPT COMES BACK OFF. seal() stamps before it pushes, which
+  // is right for a Submit and wrong for an Accept: left stamped, this device
+  // reads Accepted while the ledger reads Submitted, and the pending seal is
+  // retried - and refused - on every flush after.
+  const back = await store.local.load(saved.uid);
+  ok('…and this device does NOT keep the refused Accept: it reads Submitted again',
+     back.status === 'Submitted', back.status);
+  ok('…with no seal left pending', back.pending_seal === null, back.pending_seal);
+  ok('…so it is not in the outbox', (await store.local.outbox()).length === 0);
+  const callsBefore = server.net.rpcCalls;
+  await store.flush({ by: BY });
+  ok('…and a flush does not send it again', server.net.rpcCalls === callsBefore,
+     `${server.net.rpcCalls - callsBefore} seal call(s) on the flush`);
+  ok('a refusal is not a lost signal: the store still says online',
+     store.state().online === true && store.state().notSetUp === false, store.state());
+  ok('the ledger never moved', server.db.lots.get(saved.uid).status === 'Submitted'
+     && !server.db.lots.get(saved.uid).accepted_at);
+
   server.net.reviewer = true;
   await store.seal(saved.uid, 'Accepted', { by: BY });
   ok('KYTC can', server.db.lots.get(saved.uid).status === 'Accepted');
+  ok('…and the record says when', !!server.db.lots.get(saved.uid).accepted_at);
+  const mine = await store.local.load(saved.uid);
+  ok('…and this device agrees, with nothing pending',
+     mine.status === 'Accepted' && mine.pending_seal === null, [mine.status, mine.pending_seal]);
+}
+
+// =====================================================================
+head('an Accept with no signal');
+// =====================================================================
+{
+  const server = fakeServer();
+  server.net.reviewer = true;
+  const store = newStore(server);
+  const saved = await store.save(blankLot(IDENT), { by: BY });
+  await store.seal(saved.uid, 'Submitted', { sha256: 'a'.repeat(64), by: BY });
+  server.net.up = false;
+
+  const accepted = await store.seal(saved.uid, 'Accepted', { by: BY });
+  ok('with no signal an Accept is stamped on this device and waits',
+     accepted.status === 'Accepted' && accepted.pending_seal && accepted.pending_seal.status === 'Accepted',
+     [accepted.status, accepted.pending_seal]);
+  ok('…remembering what it would put back if the record refused it',
+     accepted.pending_seal && accepted.pending_seal.was === 'Submitted', accepted.pending_seal);
+  ok('…the record still says Submitted', server.db.lots.get(saved.uid).status === 'Submitted');
+  server.net.up = true;
+  await store.flush({ by: BY });
+  ok('the flush seals it Accepted', server.db.lots.get(saved.uid).status === 'Accepted');
+  ok('…and nothing is left pending', (await store.local.load(saved.uid)).pending_seal === null);
+}
+
+// =====================================================================
+head('an Accept the record refuses at a LATER flush');
+// =====================================================================
+{
+  // The other door to the same stray seal: an Accept made with no signal,
+  // refused when the connection comes back. Put back there too.
+  const server = fakeServer();
+  const store = newStore(server);
+  const saved = await store.save(blankLot(IDENT), { by: BY });
+  await store.seal(saved.uid, 'Submitted', { sha256: 'a'.repeat(64), by: BY });
+  server.net.up = false;
+  await store.seal(saved.uid, 'Accepted', { by: BY });   // not a reviewer: refused once it can be asked
+  server.net.up = true;
+  const res = await store.flush({ by: BY });
+  ok('the flush reports the refusal', res.failures.length === 1 && /only KYTC/.test(String(res.failures[0].error.message)), res.failures);
+  const back = await store.local.load(saved.uid);
+  ok('…and the stamp comes off: Submitted, nothing pending',
+     back.status === 'Submitted' && back.pending_seal === null, [back.status, back.pending_seal]);
+  const callsBefore = server.net.rpcCalls;
+  await store.flush({ by: BY });
+  ok('…so the next flush does not ask again', server.net.rpcCalls === callsBefore,
+     `${server.net.rpcCalls - callsBefore} seal call(s)`);
+}
+
+// =====================================================================
+head('an Accept over a submission still waiting for a signal');
+// =====================================================================
+{
+  const server = fakeServer();
+  server.net.reviewer = true;
+  const store = newStore(server);
+  const saved = await store.save(blankLot(IDENT), { by: BY });
+  server.net.up = false;
+  await store.seal(saved.uid, 'Submitted', { sha256: 'c'.repeat(64), by: BY });
+  const r = await raises(() => store.seal(saved.uid, 'Accepted', { by: BY }), 'sealed');
+  ok('is refused before anything is stamped', r.ok && /has not reached/.test(r.message || ''), r);
+  const held = await store.local.load(saved.uid);
+  ok('…and the waiting submission keeps its hash - one slot, not overwritten',
+     held.pending_seal && held.pending_seal.status === 'Submitted' && held.pending_seal.sha256 === 'c'.repeat(64),
+     held.pending_seal);
+}
+
+// =====================================================================
+head('an Accept on a lot the record has never seen');
+// =====================================================================
+{
+  // A reviewer holding a lot from its submittal PDF whose plant never synced
+  // it. The record's "no such lot" is an answer: it used to classify as a
+  // backend hiccup, which marked the store offline and queued the Accept.
+  const server = fakeServer();
+  server.net.reviewer = true;
+  const store = newStore(server);
+  const fromFile = normaliseLot({ ...blankLot(IDENT), status: 'Submitted' });
+  await store.local.save(fromFile, { by: BY });
+  const r = await raises(() => store.seal(fromFile.uid, 'Accepted', { by: BY }), 'not_found');
+  ok('"no such lot" is refused as not_found, not queued as a lost signal', r.ok, r);
+  ok('…the store does not claim to be offline', store.state().online === true, store.state());
+  const back = await store.local.load(fromFile.uid);
+  ok('…and the stamp comes off', back.status === 'Submitted' && back.pending_seal === null,
+     [back.status, back.pending_seal]);
+  ok('not_found is not transient', !isTransient(new StorageError('not_found', 'x')));
 }
 
 // =====================================================================

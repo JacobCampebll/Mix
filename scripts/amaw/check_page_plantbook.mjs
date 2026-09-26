@@ -1459,6 +1459,103 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
   ok('StorageError is an Error in both copies — each against its own realm\'s Error',
      ea instanceof vm.runInContext('Error', CTX) && eb instanceof Error,
      [ea instanceof vm.runInContext('Error', CTX), eb instanceof Error]);
+
+  // ---- the synced store's one-way door ---------------------------------
+  // What a seal does to THIS device's copy when the record says yes, says no,
+  // or cannot be reached - the half of storage.mjs a page user actually meets
+  // (a refused Accept must come back off; a waiting one must stay; "no such
+  // lot" is an answer, not a lost signal). Each copy gets its own store and
+  // its own fake ledger, driven through the same steps, and the two traces
+  // must agree. The fake is the smallest one those steps need; the rules it
+  // reproduces are amaw_seal_lot()'s own, as check_storage.mjs's fuller one is.
+  const fakeLedger = () => {
+    const lots = new Map(), data = new Map();
+    const f = { up: true, reviewer: false, calls: 0, lots };
+    const netErr = () => Object.assign(new Error('Failed to fetch'), { code: '' });
+    const settle = (d, e) => { const p = Promise.resolve({ data: d, error: e }); p.select = () => p; p.single = () => p; return p; };
+    const refuse = () => { const p = Promise.reject(netErr()); p.select = () => p; p.single = () => p; return p; };
+    f.client = {
+      from: (table) => ({
+        upsert: (row) => {
+          if (!f.up) return refuse();
+          if (table === 'amaw_lots') {
+            if (!lots.has(row.id)) lots.set(row.id, { ...row, status: 'Open' });
+            return settle({ id: row.id }, null);
+          }
+          const l = lots.get(row.lot_id);
+          if (l && l.status !== 'Open') return settle(null, { code: '42501', message: 'new row violates row-level security policy' });
+          const prev = data.get(row.lot_id), rev = prev ? prev.revision + 1 : 0;
+          data.set(row.lot_id, { revision: rev });
+          return settle({ revision: rev, updated_at: '2026-09-26T00:00:00.000Z' }, null);
+        },
+      }),
+      rpc: async (fn, a) => {
+        f.calls++;
+        if (!f.up) throw netErr();
+        const l = lots.get(a.p_lot_id);
+        if (!l) return { data: null, error: { code: 'P0002', message: 'no such lot' } };
+        if (a.p_status === 'Submitted') {
+          if (l.status !== 'Open') return { data: null, error: { message: `lot ${l.lot_number} is already ${l.status}, and a lot is never reopened once submitted` } };
+          l.status = 'Submitted';
+        } else {
+          if (!f.reviewer) return { data: null, error: { message: 'only KYTC accepts a lot' } };
+          if (l.status !== 'Submitted') return { data: null, error: { message: `lot ${l.lot_number} is ${l.status}, and only a submitted lot can be accepted` } };
+          l.status = 'Accepted';
+        }
+        return { data: l, error: null };
+      },
+    };
+    return f;
+  };
+  const sealTrace = async (impl) => {
+    const f = fakeLedger();
+    const by = { sm_id: 'jcavanah', name: 'Jo Cavanah' };
+    const store = impl.syncedLotStore({ storage: stubStorage(), client: f.client });
+    const trace = [];
+    const attempt = async (fn) => {
+      try { const l = await fn(); return { ok: true, status: l && l.status }; }
+      catch (err) { return { ok: false, code: err && err.code, message: err && err.message }; }
+    };
+    const snap = async (label, uid) => {
+      const l = await store.local.load(uid);
+      const st = store.state();
+      trace.push({ label, status: l && l.status,
+                   pending: l && l.pending_seal ? { status: l.pending_seal.status, was: l.pending_seal.was || null } : null,
+                   outbox: (await store.local.outbox()).length, online: st.online, notSetUp: st.notSetUp,
+                   lastError: st.lastError || null, ledger: (f.lots.get(uid) || {}).status || null, calls: f.calls });
+    };
+    const lot = M.blankLot(identities[0]);
+    await store.save(JSON.parse(JSON.stringify(lot)), { by });                             await snap('saved', lot.uid);
+    trace.push(await attempt(() => store.seal(lot.uid, 'Submitted', { sha256: 'a'.repeat(64), by }))); await snap('submitted', lot.uid);
+    trace.push(await attempt(() => store.seal(lot.uid, 'Accepted', { by })));                         await snap('refused accept', lot.uid);
+    await store.flush({ by });                                                              await snap('flush after refusal', lot.uid);
+    f.up = false; f.reviewer = true;
+    trace.push(await attempt(() => store.seal(lot.uid, 'Accepted', { by })));                         await snap('accept with no signal', lot.uid);
+    f.up = true;
+    await store.flush({ by });                                                              await snap('flushed', lot.uid);
+    // A lot the record never saw, as a reviewer holding it from a file would.
+    const orphan = M.normaliseLot({ ...M.blankLot(identities[1]), status: 'Submitted' });
+    await store.local.save(JSON.parse(JSON.stringify(orphan)), { by });
+    trace.push(await attempt(() => store.seal(orphan.uid, 'Accepted', { by })));                      await snap('no such lot', orphan.uid);
+    // An Accept over a submission still waiting for a signal.
+    const third = M.blankLot({ ...identities[0], lot_number: 5 });
+    await store.save(JSON.parse(JSON.stringify(third)), { by });
+    f.up = false;
+    trace.push(await attempt(() => store.seal(third.uid, 'Submitted', { sha256: 'c'.repeat(64), by })));
+    trace.push(await attempt(() => store.seal(third.uid, 'Accepted', { by })));                       await snap('accept over a waiting submission', third.uid);
+    return trace;
+  };
+  let pageTrace, modTrace;
+  try { pageTrace = await sealTrace(P); } catch (err) { pageTrace = `threw: ${err && err.message}`; }
+  try { modTrace = await sealTrace(M); } catch (err) { modTrace = `threw: ${err && err.message}`; }
+  same('syncedLotStore().seal()/flush() leave the same trace on both copies (refused, waiting, sealed, no such lot, one slot)',
+       pageTrace, modTrace);
+  // Agreement is not enough on its own - two copies can agree on nothing. The
+  // module's trace has to actually contain the rollback it is guarding.
+  const refused = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'refused accept') : null;
+  ok('…and that trace does put a refused Accept back (Submitted, nothing pending, nothing retried)',
+     !!refused && refused.status === 'Submitted' && refused.pending === null && refused.outbox === 0,
+     refused);
 }
 
 // =====================================================================
