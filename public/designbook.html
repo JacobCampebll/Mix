@@ -5752,6 +5752,7 @@ const state = {
                      // afterwards can never change what the submittal says
   justSubmitted: null, // the book whose Submit ran on THIS page - the send row's
                        // gate, since a reopened file fills `submitted` too
+  saveMsgBook: null,   // the book whose msg() last wrote #saveMsg - the echo's gate
   savedExtractedFrom: null, // extracted_from as carried in a reopened review PDF
   downloadedAt: null, // when the last review PDF was taken - the only "saved" there is
   canReview: false,  // technicians.can_review - may move past Internal Review, send back to Draft
@@ -5803,7 +5804,7 @@ const sb = window.supabase.createClient(
 function msg(el, text, kind) {
   el.textContent = text || "";
   el.className = "msg" + (kind ? " " + kind : "");
-  if (el.id === "saveMsg") echoStageMsg();
+  if (el.id === "saveMsg") { state.saveMsgBook = state.book; echoStageMsg(); }
 }
 // #saveMsg's line, echoed under the stage button (F1, 2026-09-26). #saveMsg
 // lives in #valBlock and neither node moves (both decided 2026-09-11), which
@@ -5821,8 +5822,13 @@ function msg(el, text, kind) {
 function echoStageMsg() {
   const src = $("saveMsg"), el = $("stageMsg");
   if (!src || !el) return;
-  const text = src.textContent || "";
-  const kind = (src.className.match(/\b(ok|warn|error)\b/) || [])[1] || "";
+  // #saveMsg is one node for both books and a book switch leaves it alone, so
+  // a line the OTHER book wrote ("Reopened lot 1...", a lot's submittal) would
+  // sit under this book's stage button reading as its result. msg() records
+  // which book wrote it; the echo shows only that book's line.
+  const mine = state.saveMsgBook === state.book;
+  const text = mine ? src.textContent || "" : "";
+  const kind = mine ? (src.className.match(/\b(ok|warn|error)\b/) || [])[1] || "" : "";
   // A refused Accept is painted into #stageWarn, directly under the same
   // button and in full. Shown twice there it reads as two problems, so the
   // echo keeps it for a screen reader (#stageWarn is not a live region) and

@@ -5753,6 +5753,10 @@ commit where possible.
   line, the whole text in `title`, same ok/warn/error. **It mirrors
   `#saveMsg` rather than keeping a copy**, and `renderStage()` /
   `renderLotStage()` re-echo because `renderForm()` re-creates the node.
+  `#saveMsg` is one node for both books and a book switch leaves it alone,
+  so `msg()` records which book wrote it (`state.saveMsgBook`) and the echo
+  shows only the current book's line. Without that, a lot's "Reopened lot
+  1..." or its submittal line sat under DesignBook's Submit button.
   `#valBlock` and `#saveMsg` do not move (2026-09-11), and `#saveMsg` keeps
   the full text and the long reports. **The echo is the only live region**,
   and it stays rendered while empty (zero margin, never `display:none`):
