@@ -7087,6 +7087,18 @@ function setStageBusy(on) {
 // door goes through enterForm(), which closes it.
 function switchBook(key) {
   if (!CONFIG.BOOKS[key] || key === state.book || !bookAllowed(key) || state.saving) return;
+  // Leaving a lot with a keystroke still on the autosave timer: the timer
+  // would fire with DesignBook on screen, and collectForm() reads the schema
+  // ON SCREEN, so the lot was written - locally and to the server - holding
+  // DesignBook's tables and none of its own (measured 2026-09-26). Flushed
+  // here instead, while PlantBook is still the book: saveLotNow() takes its
+  // snapshot synchronously, before its first await, so it is the lot's. The
+  // same flush startNextLot() and toPortal() already make. Not awaited: the
+  // store saves local-first, and the switch happens either way.
+  if (isPlantBook() && lotSaveTimer) {
+    clearTimeout(lotSaveTimer); lotSaveTimer = null;
+    if (state.lot && (!state.lot.status || state.lot.status === "Open")) saveLotNow();
+  }
   if (!state.bookDoor) bookStash();
   const from = state.book;
   state.book = key;
@@ -25045,6 +25057,12 @@ function scheduleLotSave() {
 }
 
 async function saveLotNow() {
+  // Only ever with PlantBook on screen. lotSnapshot() reads the form through
+  // activeSections(), so a save made while DesignBook shows - a flush or a
+  // seal answered after a book switch - would store DesignBook's form as the
+  // lot. switchBook() flushes a pending save before it leaves; this is the
+  // second guard, and the lot's next save on PlantBook carries it instead.
+  if (!isPlantBook()) return null;
   const store = lotStore();
   if (!store || !state.lot) return null;
   let snap;

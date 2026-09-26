@@ -268,6 +268,46 @@ export async function run({ browser, results }) {
   } finally {
     await h3.close();
   }
+
+  // ---- a keystroke on the autosave timer, then the switch ----------------
+  // The autosave is debounced, and the timer used to fire after the switch:
+  // saveLotNow() -> lotSnapshot() -> collectForm() read the schema ON SCREEN,
+  // so the stored lot - here and on the server - became DesignBook's tables,
+  // with the tickets gone and the tonnage back at its seed (measured
+  // 2026-09-26). The switch flushes the pending save first now.
+  const h4 = await openPage(browser, { width: 1440, height: 1000, query: "&sublots=open" });
+  try {
+    await h4.page.click("#bookPlant");
+    await h4.page.waitForTimeout(400);
+    const out = await h4.page.evaluate(async (approval) => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const o = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+      openLotEnvelope(o.lot, "the harness");
+      await sleep(1500);
+      const uid = state.lot.uid;
+      const tons = document.querySelector('[data-field="lot_tons"]');
+      tons.value = "4123";
+      tons.dispatchEvent(new Event("input", { bubbles: true }));
+      tons.dispatchEvent(new Event("change", { bubbles: true }));
+      const truck = document.querySelector('[data-row="sublot_tickets"][data-col="truck"]');
+      truck.value = "T-SWITCH";
+      truck.dispatchEvent(new Event("input", { bubbles: true }));
+      const pending = !!lotSaveTimer;
+      switchBook("designbook");
+      await sleep(CONFIG.STORAGE.AUTOSAVE_MS + 1500);
+      const pick = (x) => x ? { tons: x.values && x.values.lot_tons,
+                                tickets: ((x.rows || {}).sublot_tickets || []).map((t) => t.truck),
+                                designTable: !!(x.rows || {}).tsr_specimens } : null;
+      const local = state.store && state.store.local ? await state.store.local.load(uid) : null;
+      return { pending, book: state.book, server: pick(window.__HARNESS_AMAW.amaw_lot_data[uid]), local: pick(local) };
+    }, CHIP_APPROVAL);
+    const good = (x) => !!x && String(x.tons) === "4123" && x.tickets.includes("T-SWITCH") && !x.designTable;
+    results.ok(id, BOOK, "a switch inside the autosave debounce saves the LOT, not DesignBook's form",
+               out.pending && out.book === "designbook" && good(out.server) && good(out.local),
+               `pending=${out.pending} book=${out.book} server=${JSON.stringify(out.server)} local=${JSON.stringify(out.local)}`);
+  } finally {
+    await h4.close();
+  }
 }
 
 // Just enough of an approval for PB_LOT.lotFromApproval() to open a lot.
