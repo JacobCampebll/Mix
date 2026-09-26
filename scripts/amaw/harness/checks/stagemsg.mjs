@@ -1,6 +1,6 @@
 /* CHECK 12 — the Submit confirmation is where the Submit button is.
  *
- * F1, 2026-09-26. The sentence a Submit writes - which file was made, that it
+ * 2026-09-26. The sentence a Submit writes - which file was made, that it
  * has to be emailed to KYTC - went only into #saveMsg, which lives in
  * #valBlock and does not move (decided 2026-09-11). Measured before the fix:
  * on a phone that is ~12,000px above the button (~62,000 on a lot), and at

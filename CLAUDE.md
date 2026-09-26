@@ -5745,7 +5745,7 @@ commit where possible.
 
 - **The Submit / Approve line is echoed under the stage button, and after a
   submission a send row says who to email, which file, with Copy and a
-  mailto** (F1, 2026-09-26). Measured before: the sentence a Submit writes
+  mailto** (2026-09-26). Measured before: the sentence a Submit writes
   went only into `#saveMsg`, ~12,000px above the button on a phone (~62,000
   on a lot) and under the fixed action bar on a 1366x768 lot. `#stageMsg`
   sits after the stage button's row, before `#stageNote`, in both books.

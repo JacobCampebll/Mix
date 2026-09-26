@@ -1366,8 +1366,8 @@
   .stagebtn:disabled{opacity:.5; cursor:not-allowed;}
   .stagebtn.ghost{background:none; color:var(--accent); border-color:var(--accent); margin-left:8px;}
   .stagebtn.ghost:disabled{color:var(--muted); border-color:var(--line); background:none;}
-  /* #saveMsg's line, echoed under the stage button (echoStageMsg()). One line
-     on purpose: the whole text is in its title and in #saveMsg. */
+  /* #saveMsg's line, echoed under the stage button (echoStageMsg()). Short on
+     purpose: the whole text is in its title and in #saveMsg. */
   .stagemsg{font-size:12.5px; line-height:1.5; margin-top:8px; max-width:100%;
             white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
             scroll-margin:140px 0 76px;}
@@ -5817,13 +5817,14 @@ function msg(el, text, kind) {
   el.className = "msg" + (kind ? " " + kind : "");
   if (el.id === "saveMsg") { state.saveMsgBook = state.book; echoStageMsg(); }
 }
-// #saveMsg's line, echoed under the stage button (F1, 2026-09-26). #saveMsg
+// #saveMsg's line, echoed under the stage button (2026-09-26). #saveMsg
 // lives in #valBlock and neither node moves (both decided 2026-09-11), which
 // puts the sentence a Submit, an Approve or a download writes about 12,000px
 // above the button on a phone, and under the fixed action bar on a laptop -
 // the one place a person cannot read it, at the one moment they must. So the
-// line is REPEATED where the button is: one line, ellipsised, the whole text
-// in its title and in full in #saveMsg, which keeps the long import and
+// line is REPEATED where the button is: short (one line on a desktop, a few
+// on a phone or for a warning - see .stagemsg), the whole text in its title
+// and in full in #saveMsg, which keeps the long import and
 // MixPack/AMAW reports exactly as before. It MIRRORS #saveMsg rather than
 // holding a copy of its own, so the two cannot disagree - renderStage() and
 // renderLotStage() call this again after renderForm() has re-created the node.
@@ -12051,8 +12052,8 @@ function submittedFor(book) {
   return (p.book || "designbook") === book ? p : null;
 }
 
-/* Where the submittal goes, said beside the button that made it (F1,
- * 2026-09-26). The site downloads it and the person emails it - the server
+/* Where the submittal goes, said beside the button that made it
+ * (2026-09-26). The site downloads it and the person emails it - the server
  * left the mail path on 2026-09-10 and stays out of it: "Email it now" is a
  * mailto, which opens the person's OWN mail app with the subject and body
  * filled in, and sends nothing. A mailto cannot attach a file, so the body
