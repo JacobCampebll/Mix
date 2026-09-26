@@ -23228,7 +23228,16 @@ async function downloadAmaw() {
     // the LOADER refuses a file without as well as the ones the mapper could
     // not fill, which is the difference between a workbook that downloads and
     // one MEDL will take.
-    const gaps = report.missing || [];
+    // A value someone TYPED that the workbook could not hold goes FIRST
+    // (report.refused - a ticket date in a shape it refuses, a year before
+    // 1900). The message shows four lines and counts the rest, and a real lot
+    // carries twenty-odd untyped gaps (the sample id prefix, the density
+    // option, the JMF gradation, ...) that are known and expected, so behind
+    // them a typed value that silently left its cell blank was only ever a
+    // number in "and 26 more". Taken from the mapper's own list, never matched
+    // on its wording.
+    const refused = report.refused || [];
+    const gaps = [...refused, ...(report.missing || []).filter((m) => !refused.includes(m))];
     msg($("saveMsg"),
         `${name} downloaded.` + (gaps.length
           ? ` ${gaps.length} thing(s) the lot has nothing for: ` +

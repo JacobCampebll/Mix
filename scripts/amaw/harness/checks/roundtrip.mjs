@@ -30,6 +30,7 @@
  * The review-PDF round trip is a second case and SKIPS unless pdf-lib is
  * available (set HARNESS_LIBS to a node_modules that has it).
  */
+import fs from "node:fs";
 import { fillForm } from "../lib/inpage.mjs";
 import { withBook } from "../lib/books.mjs";
 import { realErrors, findLibs } from "../lib/page.mjs";
@@ -371,9 +372,70 @@ export async function run({ browser, results, books }) {
                      : r.missing.length ? `cut or missing: ${r.missing.join(", ")}` : `${r.want}/${r.want} drawn as typed`);
         results.ok(id, book.label, "lot PDF tickets: clean console", e4.length === 0, e4.slice(0, 2).join(" | ") || "0 errors");
       }
+
+      // ---- the AMAW download puts a refused TYPED value first (2026-09-26)
+      // The message shows four lines of what the lot lacks and counts the
+      // rest, and a real lot carries twenty-odd untyped gaps, so a ticket date
+      // the workbook could not hold was a number in "and 26 more" until
+      // report.refused was listed ahead of them. A reviewer builds the AMAW
+      // through the real button; the rewritten page is offline, so the real
+      // template's bytes are handed to fetch.
+      if (!libs.fflate || !fs.existsSync(AMAW_TEMPLATE)) {
+        results.skip(id, book.label, "the AMAW download shows a refused ticket value",
+                     !libs.fflate ? "fflate not found - set HARNESS_LIBS" : `no template at ${AMAW_TEMPLATE.pathname}`);
+      } else {
+        const tplB64 = fs.readFileSync(AMAW_TEMPLATE).toString("base64");
+        const am = await withBook(browser, book, { width: 1366, height: 768, canReview: true },
+          async ({ page, errs: e5 }) => {
+            await page.evaluate((b64) => {
+              const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+              const orig = window.fetch.bind(window);
+              window.fetch = async (u, o) => (String(u).includes("AMAW_VER14_01")
+                ? new Response(bytes.slice().buffer, { status: 200 }) : orig(u, o));
+              window.saveBytes = (_b, name) => { window.__savedAmaw = name; };
+            }, tplB64);
+            await page.evaluate(async (approval) => {
+              const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+              const t = out.lot.rows.sublot_tickets;
+              t[1] = { ...t[1], date: "9/24/26", time: "14:15", truck: "10427", tons_cum: "5390", technician: "jcavanah" };
+              openLotEnvelope(out.lot, "the harness");
+              await new Promise((res) => setTimeout(res, 400));
+              go(topSections().findIndex((s) => s.id === "lot-status"), null, false);
+            }, AMAW_APPROVAL);
+            await page.waitForTimeout(200);
+            await page.click("#amawBtn");
+            await page.waitForFunction(() => /downloaded|Couldn't|could not/i.test(
+              (document.getElementById("saveMsg") || {}).textContent || ""), null, { timeout: 60000 });
+            const r = await page.evaluate(() => ({
+              msg: ((document.getElementById("saveMsg") || {}).textContent || "").replace(/\s+/g, " ").trim(),
+              saved: window.__savedAmaw || null,
+            }));
+            return { r, errs: realErrors(e5) };
+          });
+        if (!am.skipped) {
+          const { r, errs: e5 } = am.value;
+          const shown = r.msg.split(/; and \d+ more/)[0];
+          results.ok(id, book.label, "the AMAW download shows a refused ticket value among its lines",
+                     !!r.saved && shown.includes('"9/24/26"'),
+                     r.saved ? (shown.includes('"9/24/26"') ? `${r.saved}: named ahead of the untyped gaps`
+                       : `not among the lines shown: ${r.msg.slice(0, 220)}`) : `nothing downloaded: ${r.msg.slice(0, 200)}`);
+          results.ok(id, book.label, "AMAW download: clean console", e5.length === 0, e5.slice(0, 2).join(" | ") || "0 errors");
+        }
+      }
     }
   }
 }
+
+// The blank AMAW the page builds from, beside the real page in public/.
+const AMAW_TEMPLATE = new URL("../../../../public/AMAW_VER14_01.xlsm", import.meta.url);
+const AMAW_APPROVAL = {
+  format: "kytc-designbook", version: 1, book: "designbook", stage: "Approved",
+  job: { cid: "262120", plant: "AMP070301", letting: "2026-02-19" },
+  mix: { signature: "CL3 ASPH SURF 0.38B PG64-22", nominal_size: "0.38B", layer: "SURF" },
+  values: { jmf_ac: "5.9", min_vma: "15" }, rows: {},
+  approval: { approval_no: "#467", code: "HARNESS", issued_at: "2026-09-01T00:00:00.000Z",
+              approved_by: "HARNESS", submitted_by: "HARNESS", mix_id: "00260467" },
+};
 
 // Two tickets of real shape for the lot PDF check above: an eight-character
 // binder lot and SM ID, a 4- and a 5-digit tonnage. Fixtures, not real data.
