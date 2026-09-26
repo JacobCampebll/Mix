@@ -5821,3 +5821,22 @@ commit where possible.
   `finally`, which re-echoes, so a check that only submits passes with
   `msg()`'s echo deleted. `checks/stagemsg.mjs` re-downloads the submittal
   (a `msg()` with no render after it) for that reason.
+
+- **Where the checkers stood after all of 2026-09-26's changes**, since each
+  entry above quotes its own lane's counts at the time it landed (the lot-
+  ledger entry's "page checker 223 ... harness 522" is that lane's, not the
+  end state): page checker 251 pass / 0 fail / 4 skip, check_storage 211,
+  check_bridge 101, check_intake 63 / 0 / 6, check_rollforward 40,
+  check_verify 53, check_notes 26 / 0 / 1, and the full browser harness 768
+  passed / 0 failed / 3 skipped. The last round of that day added the
+  autosave flush on a book switch (a pending lot save used to fire with
+  DesignBook on screen and store DesignBook's form as the lot), downloads
+  holding the switch, "Downloaded" in DesignBook's appbar after Submit, and
+  the sealed lot's save note. **Still open from that review, deliberately:**
+  the sublot ticket table scrolls below ~1410px (the layout call recorded in
+  the ticket entry); a reviewer is still offered Start lot n+1 on a
+  contractor's lot (Open (F9) above - it needs a custody field the envelope
+  does not carry); and PlantBook's pre-Submit note says "KYTC" rather than
+  the two addresses, to stay one line at 1440 - the one point of the Submit
+  echo spec taken differently, for Jake to overrule if he wants the second
+  line.
