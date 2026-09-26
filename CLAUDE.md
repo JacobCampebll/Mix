@@ -5613,7 +5613,10 @@ commit where possible.
   signature" readout on Contract & Mix. That readout is `approval_signature`,
   not `lot_`-prefixed (check_sections.mjs holds every `lot_` scalar to an AMAW
   alias), and on the ledger it needs its own `.field.readout` rule or its
-  caption lands in column one. Checked rather than assumed: `readHandoffPDF()`
+  caption lands in column one. It is SHADED like every other value read from
+  the approval, in the ledger's own weight, and a check nobody could make is
+  ink behind a warning glyph rather than the page's amber, because on the
+  ledger amber-and-gold means "still to fill in" and nobody can fill this in. Checked rather than assumed: `readHandoffPDF()`
   returns the embedded JSON as parsed and `verifyRequest()` passes it on by
   reference, so no page-side change can make a genuine older approval read
   INVALID; harness `approvalgate` asserts the request body equals the file.

@@ -631,20 +631,26 @@
      third child, the caption, lands in column one under the label. Back to
      auto where the field is one column, or grid-column:2 would conjure a
      second one. The value is a sentence rather than a figure, so it takes the
-     ledger's own type instead of a readout's 30px mono, and the state's
-     colour: .ok / .bad are the base .rvalue's, .warn is a check nobody could
-     make. The 16px below 700 matches the ledger's own values there. */
+     ledger's own type and weight instead of a readout's 30px bold mono, and
+     the ledger's "read from the approval" wash, since that is where it comes
+     from. The state is the colour: .ok / .bad are the base .rvalue's; .warn,
+     a check nobody could make, stays in ink behind a warning glyph rather
+     than the page's amber - on this ledger amber-and-gold means "still to fill
+     in", and nobody can fill this in. The glyph is ::before, so it is not in
+     textContent. The 16px below 700 matches the ledger's own values there. */
   .section[data-layout="ledger"] .field.readout .rvalue,
   .section[data-layout="ledger"] .field.readout .rsub{grid-column:2;}
   @media (max-width:560px){
     .section[data-layout="ledger"] .field.readout .rvalue,
     .section[data-layout="ledger"] .field.readout .rsub{grid-column:auto;}
   }
-  .section[data-layout="ledger"] .field.readout .rvalue{font-family:inherit; font-size:14px; line-height:1.35;
-       letter-spacing:0; margin:0; padding:3px 2px 0;}
+  .section[data-layout="ledger"] .field.readout .rvalue{font-family:inherit; font-size:14px; font-weight:400;
+       line-height:1.35; letter-spacing:0; margin:4px 0 0; padding:4px 8px; border-radius:4px;
+       background-color:var(--accent-soft);}
   @media (max-width:700px){ .section[data-layout="ledger"] .field.readout .rvalue{font-size:16px;} }
-  .section[data-layout="ledger"] .field.readout .rvalue.warn{color:var(--flag);}
-  .section[data-layout="ledger"] .field.readout .rsub{padding:0 2px 3px;}
+  .section[data-layout="ledger"] .field.readout .rvalue.warn{color:var(--ink);}
+  .section[data-layout="ledger"] .field.readout .rvalue.warn::before{content:"\26A0\FE0E\00A0";}
+  .section[data-layout="ledger"] .field.readout .rsub{padding:2px 8px 3px;}
   /* The phone restatements (see the block comment). 150px labels below 700
      leave the approved-mix line its 346px at 16px mono down to 560, where the
      label moves above the value and the rule runs the full width. */

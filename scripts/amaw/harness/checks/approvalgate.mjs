@@ -138,6 +138,12 @@ const READ = async () => {
     labels: PB_LOT.VERIFICATION_LABELS,
     audit: (document.querySelector("#auditlog .auditrow") || {}).textContent || "",
     readout: sig ? { text: sig.textContent, cls: sig.className, caption: cap ? cap.textContent : "",
+                     color: getComputedStyle(sig).color, bg: getComputedStyle(sig).backgroundColor,
+                     tokens: (() => { const t = document.createElement("span"); document.body.appendChild(t);
+                       const read = (v) => { t.style.color = `var(${v})`; return getComputedStyle(t).color; };
+                       const o = { flag: read("--flag"), gold: read("--gold"), accentSoft: (() => {
+                         t.style.backgroundColor = "var(--accent-soft)"; return getComputedStyle(t).backgroundColor; })() };
+                       t.remove(); return o; })(),
                      label: box(field.querySelector("label")), value: box(sig), cap: box(cap) } : null,
     rail: Array.from(document.querySelectorAll("#vallist .vitem")).map((e) => e.textContent.replace(/\s+/g, " ").trim()),
     overflow: document.documentElement.scrollWidth - window.innerWidth,
@@ -275,6 +281,9 @@ export async function run({ browser, results }) {
     ok("no signal: the readout reads not checked, in the warning colour, the reason under it",
        nr.text === L["not-checked"] && /\bwarn\b/.test(nr.cls || "") && /could not be reached/.test(nr.caption || ""),
        clip(`"${nr.text}" [${nr.cls}] ${nr.caption}`));
+    ok("no signal: the readout is shaded as read from the approval, and not in the ledger's amber/gold \"still to fill in\" hue",
+       nr.tokens && nr.bg === nr.tokens.accentSoft && nr.color !== nr.tokens.flag && nr.color !== nr.tokens.gold,
+       `color ${nr.color} bg ${nr.bg}; tokens ${JSON.stringify(nr.tokens)}`);
     ok("no signal: the rail says so, on Contract & Mix - and that the lot keeps that answer, not that verify.html clears it",
        n.rail.some((t) => t.startsWith("Contract & Mix") && t.includes(`${L["not-checked"]} - `)
          && /keeps that answer/.test(t) && /neither changes what the lot shows/.test(t)),
