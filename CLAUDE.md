@@ -5647,7 +5647,12 @@ commit where possible.
   sealed, naming who) / waiting for a signal / lot storage not set up (the
   file wording, then true) / refused, with the reason and where the record has
   the lot. A refused Accept also shows in `#stageWarn` under the button:
-  `#saveMsg` is in the rail, off-screen at most widths when it is pressed. The
+  `#saveMsg` is in the rail, off-screen at most widths when it is pressed.
+  And it is scrolled clear of the header and the fixed action bar
+  (`revealClear()`): pressed at the bottom of a phone, or just above the bar,
+  it landed out of sight. Not `scrollIntoView({block:"nearest"})`, which
+  Chromium treats as a no-op for a line under a FIXED bar - it is inside the
+  viewport, so "already visible" - measured at 1000x800. The
   chip reads "waiting to be sealed" while a seal is in the outbox, and "not
   sealed" after a refused Submit - across a reload too. Whatever answers a
   waiting seal - a flush, or a SAVE: the trailing save after an Accept whose

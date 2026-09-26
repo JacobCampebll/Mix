@@ -24472,6 +24472,23 @@ async function submitLotToKYTC() {
   }
 }
 
+// Scroll the least that puts `el` between the sticky header and the fixed
+// action bar (or the bottom of the screen, below 700px where there is no bar).
+// scrollIntoView({block: "nearest"}) is not enough: it counts a line UNDER the
+// fixed bar as already on screen, and does nothing - measured at 1000x800,
+// where a refusal sat at 747-783 behind a bar whose top was 737.
+function revealClear(el, gap = 12) {
+  if (!el || !el.getBoundingClientRect) return;
+  const r = el.getBoundingClientRect();
+  if (!r.height) return;                          // a hidden step measures zero
+  const head = document.querySelector(".appbar");
+  const top = Math.max(0, head ? head.getBoundingClientRect().bottom : 0) + gap;
+  const bar = document.querySelector(".actionbar:not(.hidden)");
+  const floor = bar && getComputedStyle(bar).display !== "none" ? bar.getBoundingClientRect().top : window.innerHeight;
+  if (r.bottom > floor - gap) window.scrollBy(0, Math.min(r.bottom - (floor - gap), r.top - top));
+  else if (r.top < top) window.scrollBy(0, r.top - top);
+}
+
 /* Accepting a lot - KYTC's act, and the one thing a reviewer does to a lot.
  *
  * IT SEALS, the way Submit does. Until 2026-09-26 it was a local stage change:
@@ -24561,6 +24578,11 @@ async function acceptLotForKYTC() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = was; }
     renderLotStage();
+    // A refusal painted under the button is brought into view: pressed at the
+    // bottom of a phone screen, or just above the fixed action bar, the line
+    // lands below the fold and nothing a person can see changes - the pill,
+    // the chip and the button all read as they did before the press.
+    if (state.lot && state.lot.stageWarn) revealClear($("stageWarn"));
     // sealLotAccepted() painted the chip while the lot still read Submitted;
     // an outcome that saves nothing afterwards (already accepted, refused)
     // would otherwise leave it there.

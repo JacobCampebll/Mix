@@ -336,6 +336,47 @@ const REVIEW = async ({ approval }) => {
   return { offered, accepted, refused, reopened, retried, listUntouched, listServerOnly };
 };
 
+/* A REFUSED ACCEPT PRESSED AT THE EDGE OF WHAT A PERSON CAN SEE - the bottom
+ * of a phone screen, or just above the fixed action bar. The refusal is
+ * painted under the button, and used to land below the fold, where nothing a
+ * person could see changed (the pill, the chip and the button all read as
+ * before). It is scrolled into view now; measured, at three widths. */
+const WARN_IN_VIEW = async ({ approval }) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+  openLotEnvelope(out.lot, "the harness");
+  await sleep(CONFIG.STORAGE.AUTOSAVE_MS + 700);
+  const c = window.confirm, s = window.saveBytes;
+  window.confirm = () => true; window.saveBytes = () => {};
+  try { await submitLotToKYTC(); } finally { window.confirm = c; window.saveBytes = s; }
+  const realRpc = sb.rpc;
+  sb.rpc = (fn, a) => (a && a.p_status === "Accepted")
+    ? Promise.resolve({ data: null, error: { code: "42501", message: "only KYTC accepts a lot" } })
+    : realRpc(fn, a);
+  go(stepIndexOf("lot-status"));
+  await sleep(1200);                        // below 700px go() scrolls, smoothly
+  const limit = () => {
+    const bar = document.getElementById("actionBar");
+    const on = bar && !bar.classList.contains("hidden") && getComputedStyle(bar).display !== "none";
+    return on ? bar.getBoundingClientRect().top : window.innerHeight;
+  };
+  // The button's bottom edge 4px above the visible edge, where a thumb or a
+  // pointer has it at the end of a scroll.
+  window.scrollBy(0, $("advanceStage").getBoundingClientRect().bottom - (limit() - 4));
+  await sleep(200);
+  const placed = { btnBottom: Math.round($("advanceStage").getBoundingClientRect().bottom), limit: Math.round(limit()) };
+  document.getElementById("advanceStage").click();
+  for (let i = 0; i < 60 && $("stageWarn").classList.contains("hidden"); i++) await sleep(100);
+  await sleep(300);
+  sb.rpc = realRpc;
+  const w = $("stageWarn").getBoundingClientRect();
+  const head = document.querySelector(".appbar").getBoundingClientRect().bottom;
+  return { placed, shown: !$("stageWarn").classList.contains("hidden"), text: $("stageWarn").textContent,
+           top: Math.round(w.top), bottom: Math.round(w.bottom), head: Math.round(head), limit: Math.round(limit()),
+           inView: w.height > 0 && w.top >= head && w.bottom <= limit(),
+           overflowX: document.documentElement.scrollWidth - window.innerWidth };
+};
+
 /* A plant with no signal, pressing Submit. The PDF downloads and the lot is
  * Submitted here; the seal waits in the outbox. The page used to print the
  * same success line as a sealed one and the chip read "submitted - KYTC holds
@@ -922,6 +963,22 @@ export async function run({ browser, results }) {
     ok("a lot known only from the server shows no sublot count rather than “0 of 4” - it says Open",
        !!v.listServerOnly && !/of 4 sublots/.test(v.listServerOnly) && /· Open ·/.test(v.listServerOnly), v.listServerOnly);
     ok("the reviewer's run is clean", rv.value.errs.length === 0, rv.value.errs.slice(0, 3).join(" | ") || "clean");
+  }
+
+  // ---- a refused Accept pressed at the bottom edge of the screen ----
+  for (const [width, height] of [[390, 844], [1000, 800], [1366, 768]]) {
+    const wv = await withBook(browser, PLANT, { width, height, canReview: true, query: "&sublots=open" },
+      async (h) => ({ v: await h.page.evaluate(WARN_IN_VIEW, { approval: APPROVAL }), errs: realErrors(h.errs || []) }));
+    if (wv.skipped) { results.skip(id, BOOK, `a refusal at the screen's edge (${width}px)`, wv.skipped); continue; }
+    const x = wv.value.v;
+    // At 1366x768 the Submit step fits without scrolling, so the button cannot
+    // be put at the edge - there the line is simply on screen already.
+    const atEdge = width < 1366;
+    ok(`${width}x${height}: a refused Accept pressed ${atEdge ? "at the bottom edge" : "on a step that does not scroll"} shows its warning, clear of the header and the action bar`,
+       x.shown && /did not go through/.test(x.text) && x.inView && x.overflowX <= 0
+         && (!atEdge || (x.placed.btnBottom <= x.placed.limit && x.placed.btnBottom >= x.placed.limit - 8)),
+       `warning ${x.top}-${x.bottom} against ${x.head}-${x.limit} (button placed at ${x.placed.btnBottom}/${x.placed.limit})`);
+    ok(`${width}x${height}: …clean`, wv.value.errs.length === 0, wv.value.errs.slice(0, 3).join(" | ") || "clean");
   }
 
   // ---- Submit with no signal ----
