@@ -5543,6 +5543,15 @@ commit where possible.
   cut bought the date's 1.4fr from "Tons today before sample", which then
   printed a 4-digit figure as "1..." in the submittal KYTC reads - caught in
   review by capturing pdf-lib's `drawText`.
+  **A PDF column heading WRAPS rather than being cut**, in both books' review
+  PDFs (`table()` in `buildReviewPDF`, up to `CONFIG.HANDOFF.ROW.headMaxLines`
+  lines, bottom-aligned, the band growing with the tallest). Cutting had put
+  "Tons ..." beside "Ton..." over the two tonnage columns, twenty other lot
+  headings ("Wt in wa...", "% dens...") and DesignBook's "% blend" and
+  "Abs. (%)". A table whose headings fit draws exactly as before - checked by
+  diffing every drawn string of a design: only those two headings changed,
+  and column 1 below them moved 7.2pt. A single word wider than its column is
+  still cut ("Lot-sublot" on the ticket).
   **The ticket table SCROLLS below 1440px rather than squeezing** - corrected
   the same day, after review measured the first cut clipping Binder lot, Tack
   lot and Tech (8-character values) from 1000 to 1440px, and AC method's

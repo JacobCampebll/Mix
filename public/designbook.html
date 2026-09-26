@@ -1896,7 +1896,9 @@ const CONFIG = {
     LOGO: { src: "assets/kytc-logo.png", w: 78, ratio: 1.76 },
 
     TYPE: { title: 16, sec: 8.5, sub: 7, lab: 6.2, val: 8.4, cell: 7.6, foot: 6.2 },
-    ROW: { pairH: 16, pairGap: 11, rowH: 10.5, headH: 10,
+    // headMaxLines: how many lines a table's column heading may wrap onto
+    // before its last line is cut (table() in buildReviewPDF).
+    ROW: { pairH: 16, pairGap: 11, rowH: 10.5, headH: 10, headMaxLines: 4,
            secGap: 3, afterSec: 6, afterTable: 3, headerGap: 7 },
 
     // Fields and row columns deliberately not PRINTED. They stay in the
@@ -10948,6 +10950,18 @@ async function buildReviewPDF(payload) {
     if (line) out.push(line);
     return out.length ? out : [""];
   }
+  // A table's column heading, wrapped like a value but in the heading's own
+  // type, onto at most RW.headMaxLines lines. Past that the words left over are
+  // cut on the last line, counted off the lines kept rather than re-fitted
+  // from them, so a word wrap() already cut is not cut a second time.
+  function headingLines(s, max) {
+    const ls = wrap(s, max, bold, T.lab);
+    if (ls.length <= RW.headMaxLines) return ls;
+    const kept = ls.slice(0, RW.headMaxLines - 1);
+    const used = kept.join(" ").split(" ").length;
+    const rest = wa(s).split(/\s+/).filter(Boolean).slice(used).join(" ");
+    return kept.concat([fit(rest, max, bold, T.lab)]);
+  }
 
   /* --- primitives, all resolving x per row so a mid-block column change
          does not draw the overflow back on top of the column we left --- */
@@ -10981,17 +10995,33 @@ async function buildReviewPDF(payload) {
       const x0 = (o.x != null ? o.x : colX) + x0off;
       return { x0, cw: wts.map((k) => W * k / sum) };
     };
-    if (t.heading) { need(RW.rowH + 6); const g = geom();
+    // A column heading too wide for its column WRAPS at its spaces, as a text
+    // value already does, rather than being cut: in eleven columns of 345pt,
+    // cutting put "Tons ..." over the cumulative tonnage and "Ton..." over the
+    // 50-ton figure beside it, in the submittal KYTC reads (2026-09-26). At
+    // most RW.headMaxLines lines, the last cut if the words run on;
+    // bottom-aligned so every heading's last line sits over its values; the
+    // band grows with the tallest. A table whose headings all fit draws
+    // exactly as before. Column widths do not depend on where the table lands,
+    // so the lines are known before need() is asked for the room they take -
+    // and the table's own heading asks for the band's extra lines too, so a
+    // taller band is no likelier than a one-line one to leave that heading
+    // alone at the foot of a column.
+    const heads = t.head.map((h, i) => headingLines(h, geom().cw[i] - 6));
+    const nl = Math.max(1, ...heads.map((ls) => ls.length));
+    const lh = T.lab + 1, headExtra = (nl - 1) * lh;
+    if (t.heading) { need(RW.rowH + 6 + headExtra); const g = geom();
       page.drawText(fit(t.heading, W, bold, T.sub), { x: g.x0, y, size: T.sub, font: bold, color: col(C.ink) });
       y -= T.sub + 4; }
     // Keep the header with at least one body row - a header alone at the
     // foot of a column reads as a table with no data.
-    need(RW.rowH * 2 + 8);
+    need(RW.rowH * 2 + 8 + headExtra);
     let g = geom();
-    page.drawRectangle({ x: g.x0, y: y - 3, width: W, height: RW.headH, color: col(C.wash) });
-    t.head.forEach((h, i) => page.drawText(fit(h, g.cw[i] - 6, bold, T.lab),
-      { x: g.x0 + g.cw.slice(0, i).reduce((a, b) => a + b, 0) + 3, y: y + 0.5, size: T.lab, font: bold, color: col(C.muted) }));
-    y -= RW.headH + 2;
+    page.drawRectangle({ x: g.x0, y: y - 3 - headExtra, width: W, height: RW.headH + headExtra, color: col(C.wash) });
+    heads.forEach((ls, i) => ls.forEach((ln, li) => page.drawText(ln,
+      { x: g.x0 + g.cw.slice(0, i).reduce((a, b) => a + b, 0) + 3, y: y + 0.5 - (nl - ls.length + li) * lh,
+        size: T.lab, font: bold, color: col(C.muted) })));
+    y -= RW.headH + 2 + headExtra;
     t.body.forEach((r) => {
       g = geom();
       const lines = r.map((cell, i) => {

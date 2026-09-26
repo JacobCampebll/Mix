@@ -335,12 +335,22 @@ export async function run({ browser, results, books }) {
       await page.waitForTimeout(200);
       const r = await page.evaluate(async () => {
         const pay = handoffPayload();
-        const bytes = await buildReviewPDF(pay);
+        // Every column heading line drawn (bold, at the heading size), so a
+        // cut one - "% ble..." - can be asked about.
+        const heads = [];
+        const orig = PDFLib.PDFPage.prototype.drawText;
+        PDFLib.PDFPage.prototype.drawText = function (t, o) {
+          if (o && o.size === CONFIG.HANDOFF.TYPE.lab && o.font && /Bold/.test(o.font.name)) heads.push(String(t));
+          return orig.call(this, t, o);
+        };
+        let bytes;
+        try { bytes = await buildReviewPDF(pay); } finally { PDFLib.PDFPage.prototype.drawText = orig; }
         const back = await readHandoffPDF(bytes);
         return {
           values: JSON.stringify(back.values) === JSON.stringify(pay.values),
           rows: JSON.stringify(back.rows) === JSON.stringify(pay.rows),
           bytes: bytes.length,
+          heads: heads.length, cut: heads.filter((h) => h.endsWith("...")),
         };
       });
       return { r, errs: realErrors(errs) };
@@ -349,6 +359,16 @@ export async function run({ browser, results, books }) {
       const { r, errs: e2 } = pdf.value;
       results.ok(id, book.label, "review PDF carries values back", r.values, `${r.bytes} bytes`);
       results.ok(id, book.label, "review PDF carries rows back", r.rows, `${r.bytes} bytes`);
+      // A column heading too wide for its column wraps rather than being cut
+      // (table() in buildReviewPDF, 2026-09-26). DesignBook's filled design
+      // cut two, "% blend" and "Abs. (%)", both of which fit on two lines. A
+      // lot is not asked the same: a few of its headings are one word wider
+      // than the column (see the ticket assertion below).
+      if (book.label === "DesignBook") {
+        results.ok(id, book.label, "review PDF: no column heading is cut - a long one wraps",
+                   r.heads > 0 && r.cut.length === 0,
+                   r.cut.length ? `cut: ${r.cut.join(", ")}` : `${r.heads} heading lines drawn, none cut`);
+      }
       results.ok(id, book.label, "review PDF: clean console", e2.length === 0, e2.slice(0, 2).join(" | ") || "0 errors");
     }
 
@@ -373,14 +393,18 @@ export async function run({ browser, results, books }) {
               }
             });
             await new Promise((res) => setTimeout(res, 200));
-            const drawn = [];
+            const drawn = [], sizes = [];
             const orig = PDFLib.PDFPage.prototype.drawText;
-            PDFLib.PDFPage.prototype.drawText = function (t, o) { drawn.push(String(t)); return orig.call(this, t, o); };
+            PDFLib.PDFPage.prototype.drawText = function (t, o) { drawn.push(String(t)); sizes.push(o && o.size); return orig.call(this, t, o); };
             try { await buildReviewPDF(handoffPayload()); } finally { PDFLib.PDFPage.prototype.drawText = orig; }
             const at = drawn.indexOf("Sublot ticket");
             const table = at < 0 ? [] : drawn.slice(at, at + 80);
             const want = tickets.flatMap((t) => Object.values(t));
-            return { typed, want: want.length, missing: want.filter((v) => !table.includes(v)), found: at >= 0 };
+            // The heading band: every line drawn at the heading size between
+            // the table's title and its first value.
+            const band = [];
+            for (let i = at + 1; at >= 0 && i < drawn.length && sizes[i] === CONFIG.HANDOFF.TYPE.lab; i++) band.push(drawn[i]);
+            return { typed, want: want.length, missing: want.filter((v) => !table.includes(v)), found: at >= 0, band };
           }, PDF_TICKETS);
           return { r, errs: realErrors(e4) };
         });
@@ -392,6 +416,14 @@ export async function run({ browser, results, books }) {
                    !r.found ? "no \"Sublot ticket\" table was drawn"
                      : r.typed !== expected ? `only ${r.typed}/${expected} values could be typed - the sublots did not open`
                      : r.missing.length ? `cut or missing: ${r.missing.join(", ")}` : `${r.want}/${r.want} drawn as typed`);
+        // ...and the cumulative tonnage says so over its column. Cut to fit,
+        // it printed "Tons ..." beside "Ton..." over the 50-ton figure, and a
+        // reader of the submittal could not tell the two apart; wrapped, it
+        // prints both of its words whole.
+        const band = r.band || [];
+        results.ok(id, book.label, "lot PDF: the cumulative tonnage heading reads whole",
+                   band.includes("Tons") && band.includes("(cum.)"),
+                   band.length ? band.join(" / ") : "no heading lines found under \"Sublot ticket\"");
         results.ok(id, book.label, "lot PDF tickets: clean console", e4.length === 0, e4.slice(0, 2).join(" | ") || "0 errors");
       }
 
