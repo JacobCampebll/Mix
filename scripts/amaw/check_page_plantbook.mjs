@@ -932,6 +932,15 @@ namespace('PB_AMAW', '5. PB_AMAW vs scripts/amaw/addresses.mjs + mapper.mjs + ge
   sweep('amTimeFraction()', P.amTimeFraction, MOD_MAPPER.amTimeFraction,
         [['21:54'], ['09:05'], ['2154'], [0.9125], [0], [1], [''], [null], [undefined], ['nope'],
          ['2:15 PM'], ['2:15pm'], ['1415'], ['2:15'], ['9:30'], ['24:00'], ['14:60'], ['23:59:59'], ['09:30:15.5'], [' 14:15 ']]);
+  // The REASON a value is refused, which the page's rail prints beside the
+  // mapper's report - one definition, so the two cannot name different
+  // causes. The year is its own case: it is what the date picker produces
+  // when a two-digit year is typed ('0026-09-24').
+  sweep('amDateRefusal()', P.amDateRefusal, MOD_MAPPER.amDateRefusal,
+        [['2026-09-24'], ['0026-09-24'], ['0002-09-24'], ['1899-12-31'], ['1900-01-01'], ['2026-02-30'],
+         ['9/24/26'], ['20266-09-24'], ['2026-09-13T14:00:00Z'], [46289], [NaN], [''], ['  '], [null], [undefined]]);
+  sweep('amTimeRefusal()', P.amTimeRefusal, MOD_MAPPER.amTimeRefusal,
+        [['14:15'], ['14:15:30'], ['2:15 PM'], ['1415'], ['2:15'], ['24:00'], [0.5], [''], [null], [undefined]]);
 
   // The seam between the form's field keys and the workbook's own names.
   // Both copies have to agree about it or a lot built in the browser reaches

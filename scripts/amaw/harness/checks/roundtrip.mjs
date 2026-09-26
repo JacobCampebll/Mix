@@ -254,10 +254,32 @@ export async function run({ browser, results, books }) {
               .map((el) => `${el.getAttribute("min")}..${el.getAttribute("max")}`);
             return { before: pick(b.rows), after: pick(a.rows), kinds, bounds };
           });
-          return { reach, held, rt, errs: realErrors(e3) };
+          /* A TWO-DIGIT YEAR, TYPED. The paper writes "9/24/26", and typed
+           * into the picker from the keyboard that is "0026-09-24" - a real
+           * YYYY-MM-DD the browser keeps and the mapper refuses, because the
+           * workbook's dates start in 1900. The rail must name the YEAR, not
+           * the format the value is already in. Typed rather than set, because
+           * the keyboard is how the value gets there; the step is opened first
+           * because a focus inside a hidden step does nothing. */
+          await page.evaluate(() => go(topSections().findIndex((s) => s.id === "sublot-1"), null, false));
+          await page.waitForTimeout(150);
+          const dsel = '[data-section="sublot-1"] [data-rowlist="sublot_tickets"] [data-col="date"]';
+          await page.evaluate((sel) => { const el = document.querySelector(sel); el.value = ""; el.dispatchEvent(new Event("input", { bubbles: true })); }, dsel);
+          await page.focus(dsel);
+          await page.keyboard.type("092426");
+          await page.keyboard.press("Tab");
+          await page.waitForTimeout(150);
+          const year = await page.evaluate((sel) => {
+            const el = document.querySelector(sel);
+            // The ticket line alone, whitespace folded, so a failure shows it.
+            const rail = Array.from(document.querySelectorAll("#vallist .vitem"))
+              .map((v) => v.textContent.replace(/\s+/g, " ").trim()).filter((t) => /Ticket sublot/.test(t)).join(" | ");
+            return { type: el.type, value: el.value, rail };
+          }, dsel);
+          return { reach, held, rt, year, errs: realErrors(e3) };
         });
       if (!open.skipped) {
-        const { held, rt, errs: e3 } = open.value;
+        const { held, rt, year, errs: e3 } = open.value;
         results.ok(id, book.label, "with the sublots open, all 8 ticket pickers take the fill's values",
                    held.count === 8 && held.empty.length === 0,
                    `${held.count - held.empty.length}/${held.count} hold a value` +
@@ -270,6 +292,11 @@ export async function run({ browser, results, books }) {
         results.ok(id, book.label, "every ticket date picker is bounded 1900-01-01..9999-12-31",
                    rt.bounds.length === 4 && rt.bounds.every((x) => x === "1900-01-01..9999-12-31"),
                    rt.bounds.join(" ") || "no date pickers");
+        const namesYear = year.rail.includes('sublot 1 date "0026-09-24" (the year reads 0026');
+        results.ok(id, book.label, "a two-digit year typed into the picker: kept, and the rail names the year",
+                   year.type === "date" && year.value === "0026-09-24" && namesYear,
+                   `picker holds ${JSON.stringify(year.value)}` + (namesYear ? ", the rail names the year"
+                     : ` | the rail says: ${year.rail.slice(0, 220) || "(no ticket line)"}`));
         results.ok(id, book.label, "sublots-open pass: clean console", e3.length === 0, e3.slice(0, 2).join(" | ") || "0 errors");
       }
     }

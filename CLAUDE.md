@@ -5506,9 +5506,17 @@ commit where possible.
   `signed: true` and keeps the full keyboard, since iOS's decimal pad has no
   minus (`lot_setup_ac_adjust` only). **The mapper refuses what it cannot
   convert**: parseFloat wrote a paper '9/24/26' as serial 9 (9 January 1900)
-  into MEDL's Date (`Superpave!I`, sn 36). A number still passes through, ISO
-  converts as before, and anything else writes nothing and is `need()`ed with
-  the cell and the value. **A picker blanks a value not in its own shape**, so
+  into MEDL's Date (`Superpave!I`, sn 36). A number still passes through, a
+  YYYY-MM-DD date and a 24-hour HH:MM time convert as before (an ISO
+  date-time like `2026-09-13T14:00:00Z` no longer does; nothing produces
+  one), and anything else writes nothing and is `need()`ed with the cell, the
+  value and the reason from `amDateRefusal()`/`amTimeRefusal()` - which the
+  rail prints too, so the two cannot disagree. **The year is its own reason**:
+  Chromium's year field keeps what is typed, so the paper's "9/24/26" becomes
+  `0026-09-24`, a real YYYY-MM-DD, and "it takes YYYY-MM-DD" would ask for
+  exactly what was typed. The lines also go to `report.refused`, so a value
+  someone TYPED can be listed ahead of the cells nobody filled.
+  **A picker blanks a value not in its own shape**, so
   `nativeInputType()` asks the BROWSER whether it would keep a stored value -
   a regex copy of its rule could only drift towards data loss - and draws a
   text box showing it as typed if not; the rail says it will not reach the

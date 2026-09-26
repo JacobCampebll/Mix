@@ -497,6 +497,27 @@ for (const [col, typed] of [['date', '9/24/26'], ['date', '09/24/2026'], ['time'
   is(`ticket ${col} "${typed}" writes nothing to ${tCell(col, 1)} and is reported`,
     c[tCell(col, 1)] === undefined && lines.length === 1, { cell: c[tCell(col, 1)], lines });
 }
+// The line gives its REASON - amDateRefusal()/amTimeRefusal(), the same
+// words the page's rail prints. A two-digit year off the date picker is a
+// real YYYY-MM-DD ('0026-09-24'), so "it takes YYYY-MM-DD" would ask for what
+// was typed: the line names the year instead. Each refused line is also in
+// `report.refused`, apart from the cells nobody filled, so a caller can put a
+// typed value first.
+for (const [col, typed, reason] of [
+  ['date', '9/24/26', '(it takes YYYY-MM-DD)'],
+  ['date', '0026-09-24', "(the year reads 0026 - type all four digits of the year; the workbook's dates start in 1900)"],
+  ['date', '2026-02-30', '(there is no such day)'],
+  ['time', '2:15 PM', '(it takes HH:MM, 24-hour)'],
+]) {
+  const o = ticketLot({ [col]: typed }), c = cellsOf(o);
+  const lines = (o.report.missing || []).filter((m) => m.includes(`"${typed}"`));
+  is(`ticket ${col} "${typed}" is refused with its reason ${reason}`,
+    c[tCell(col, 1)] === undefined && lines.length === 1 && lines[0].includes(reason), lines);
+  is(`...and that line, and only it, is in report.refused`,
+    JSON.stringify(o.report.refused) === JSON.stringify(lines), o.report.refused);
+}
+is('a ticket that converts refuses nothing', Array.isArray(iso.report.refused) && iso.report.refused.length === 0,
+  iso.report.refused);
 // A refused ticket date leaves the two cells that copy it empty as well -
 // and says so ONCE: three lines for one typo read like three problems.
 const refused = ticketLot({ date: '9/24/26' }), refC = cellsOf(refused);
