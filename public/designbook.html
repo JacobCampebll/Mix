@@ -25386,6 +25386,13 @@ function submitRefusedReason(n, out) {
 const LOT_SAVE_NOTE = {
   file: "The lot PDF is your saved copy &mdash; upload it to carry on.",
   live: "Your lot saves as you go; the lot PDF is your backup copy.",
+  // A submitted or accepted lot is frozen - scheduleLotSave() stops, and the
+  // server refuses the write - so "saves as you go" was false on it, for the
+  // reviewer reading it and the contractor alike. Says nothing about the seal,
+  // which the sync chip carries (it may be waiting, or refused).
+  // Shorter than `live`: this shares one line with the Submit and Start-lot
+  // sentences, which it has to keep at 1366 on a reviewer's step (measured).
+  sealed: (status) => `This lot is ${esc(String(status).toLowerCase())} and no longer saves.`,
 };
 // ONE ANSWER to "is this lot being kept with KYTC as it is typed?" - the gate
 // the save note below has used since 2026-09-24, factored out so that nothing
@@ -25405,7 +25412,10 @@ function lotStorageLive() {
 function paintLotSaveNote() {
   const el = $("lotSaveNote");
   if (!el) return;
-  el.innerHTML = lotStorageLive() ? LOT_SAVE_NOTE.live : LOT_SAVE_NOTE.file;
+  const st = state.lot && state.lot.status;
+  el.innerHTML = !lotStorageLive() ? LOT_SAVE_NOTE.file
+    : st === "Submitted" || st === "Accepted" ? LOT_SAVE_NOTE.sealed(st)
+    : LOT_SAVE_NOTE.live;
 }
 
 function syncChipState() {

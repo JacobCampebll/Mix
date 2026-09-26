@@ -5479,6 +5479,13 @@ commit where possible.
   and "Start lot n+1 carries this design over and clears the measurements."
   still follow it, all three on one line at 1440px.
   Browser-checked against the harness stub both ways.
+  **A third wording, 2026-09-26: a Submitted or Accepted lot "is submitted
+  and no longer saves."** It is frozen - `scheduleLotSave()` stops and the
+  server refuses the write - so "saves as you go" was false on it, for the
+  reviewer reading it and the contractor alike. It says nothing about the
+  seal (the chip does: it may be waiting or refused), and it is shorter than
+  the live sentence on purpose: the longer first cut took a reviewer's line
+  (with the AMAW sentence) to two lines at 1366, measured.
 
 - **Supabase roles: Andrew is the only Owner of the org that holds
   `iwysxhcmvhkcjxmjarkd`, and Jake is a Developer** (changed 2026-09-25,

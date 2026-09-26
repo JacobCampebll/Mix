@@ -1159,6 +1159,10 @@ export async function run({ browser, results }) {
          rowA.status === "Submitted" && o.stage === "Submitted" && /Accept/.test(o.btn) && !o.btnDisabled
            && o.local === "Submitted" && o.pending === null,
          `record=${rowA.status} stage=${o.stage} btn="${o.btn}" local=${o.local} pending=${o.pending}`);
+      // A sealed lot no longer saves (scheduleLotSave() stops, the server
+      // refuses), so "Your lot saves as you go" was false on it.
+      ok("…and its save note says a submitted lot no longer saves, not that it saves as you go",
+         /submitted and no longer saves/.test(o.note) && !/saves as you go/.test(o.note), `note="${o.note}"`);
       ok("…opening it wrote nothing into the contractor's data",
          o.dataRevision === ((A.server.amaw_lot_data[A.uid] || {}).revision), `revision ${o.dataRevision}`);
       ok("…the real Accept seals the record Accepted, stamped with the reviewer",
@@ -1168,6 +1172,8 @@ export async function run({ browser, results }) {
            && acc.local === "Accepted" && acc.pending === null && /Lot accepted/.test(acc.audit)
            && /record now says so/.test(acc.msg),
          `stage=${acc.stage} chip=${acc.chip} local=${acc.local} msg="${acc.msg}"`);
+      ok("…and the save note says accepted, and no longer saves",
+         /accepted and no longer saves/.test(acc.note || ""), `note="${acc.note}"`);
       // The reviewer reopens that same submittal to build the AMAW. The file
       // says Submitted; this device and the record say Accepted - and it used
       // to offer Accept again, which the record then refused.
