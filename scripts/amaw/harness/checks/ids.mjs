@@ -21,10 +21,13 @@
  *    two books in one document that stops being hypothetical: PlantBook's
  *    fields must not be collected while DesignBook is the live view.
  *
+ *  - Every figure typed into a row opens the phone's number pad and nothing
+ *    else does (rowHTML(), 2026-09-26) - keypadAudit(), asked of the schema.
+ *
  * Run for a contractor AND a reviewer, because statusHTML() renders different
  * markup for each and the reviewer's is the one with the extra buttons.
  */
-import { domAudit, fillForm } from "../lib/inpage.mjs";
+import { domAudit, fillForm, keypadAudit } from "../lib/inpage.mjs";
 import { withBook } from "../lib/books.mjs";
 import { realErrors } from "../lib/page.mjs";
 
@@ -52,19 +55,35 @@ export async function run({ browser, results, books }) {
           });
           await page.waitForTimeout(150);
           const after = await page.evaluate(domAudit);
+          // After the re-render, so it reads markup rowHTML() has just
+          // rebuilt rather than whatever the first paint happened to leave.
+          const keypad = await page.evaluate(keypadAudit);
           const kept = await page.evaluate(() => {
             const v = document.getElementById("valBlock");
             return { present: !!v, tagged: !!(v && v.dataset.harnessTag === "kept"),
                      parent: v && v.parentElement ? v.parentElement.id || v.parentElement.className : null };
           });
-          return { before, after, kept, errs: realErrors(errs) };
+          return { before, after, kept, keypad, errs: realErrors(errs) };
         });
 
       if (out.skipped) {
         if (!skippedOnce) { results.skip(id, book.label, "both roles", out.skipped); skippedOnce = true; }
         continue;
       }
-      const { before, after, kept, errs } = out.value;
+      const { before, after, kept, keypad, errs } = out.value;
+      // The phone's number pad on every figure typed into a row (rowHTML(),
+      // 2026-09-26). Once per book: a role changes the Status step, not a row.
+      // A cell the audit could not resolve to a schema column is a failure
+      // too - an audit that judged nothing would otherwise read as a pass.
+      if (c.name === "contractor") {
+        results.ok(id, book.label, "every editable number row cell opens the decimal pad",
+                   keypad.cells > 0 && keypad.padded === keypad.cells && keypad.unresolved.length === 0,
+                   `${keypad.padded}/${keypad.cells}` +
+                   (keypad.missing.length ? ` — no pad: ${keypad.missing.slice(0, 6).join(",")}` : "") +
+                   (keypad.unresolved.length ? ` — unresolved: ${keypad.unresolved.slice(0, 6).join(",")}` : ""));
+        results.ok(id, book.label, "no other row cell carries an inputmode", keypad.stray.length === 0,
+                   keypad.stray.slice(0, 6).join(",") || "none");
+      }
       results.ok(id, book.label, `${c.name} no duplicate ids (first paint)`, before.dup.length === 0,
                  before.dup.join(",") || "0 duplicates");
       results.ok(id, book.label, `${c.name} no duplicate ids (after re-render)`, after.dup.length === 0,

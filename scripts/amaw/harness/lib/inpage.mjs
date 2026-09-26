@@ -68,11 +68,17 @@ export function fillForm(overrides) {
 
   /* The schema, not the markup, says whether a control is a number.
    *
-   * A row cell renders as a plain <input type="text"> with no inputmode — the
-   * numeric-ness lives in CONFIG.SECTIONS, and rowHTML() re-applies
+   * A row cell renders as a plain <input type="text"> — the numeric-ness
+   * lives in CONFIG.SECTIONS, and rowHTML() re-applies
    * roundTo(v, CONFIG.DP[key]) on every re-render. So typing "H4725" into a
    * number column and then re-rendering gives back "4725.00", which is the
-   * page behaving correctly and the harness lying. Ask the schema. */
+   * page behaving correctly and the harness lying. Ask the schema.
+   *
+   * Since 2026-09-26 an EDITABLE row number cell also carries
+   * inputmode="decimal" (the phone's number pad - inputFor() always gave it
+   * to scalars), so the `inputmode` test below agrees with the schema. The
+   * schema is still asked first: the attribute is rendered FROM it, so the
+   * schema is the answer and the attribute only its echo. */
   const colDef = (el) => {
     // Bare `CONFIG` for the same reason as `state` above.
     const C = typeof CONFIG !== "undefined" ? CONFIG : null;
@@ -259,6 +265,46 @@ export function domAudit() {
     hasSaveMsg: !!document.getElementById("saveMsg"),
     hasVallist: !!document.getElementById("vallist"),
   };
+}
+
+/* Which row cells open the phone's number pad, asked of the schema.
+ *
+ * rowHTML() gives an EDITABLE `number` column inputmode="decimal" and nothing
+ * else gets it (2026-09-26): without it a phone opens the full keyboard on
+ * each of the 327 weighings a lot asks for. The column is resolved from the
+ * cell's OWN section - the four Sublot tabs each declare their own blend_pct
+ * spec (BOD is editable on tab 1 only), so a spec looked up by row key alone
+ * answers for the wrong tab - and a sub-block drawn `into` a host is found by
+ * its data-subsection before the host's data-section. Both mistakes were
+ * made, in that order, by the probe this came from. */
+export function keypadAudit() {
+  const rowsOf = (s) => (Array.isArray(s.rows) ? s.rows : s.rows ? [s.rows] : []);
+  const secs = typeof activeSections === "function" ? activeSections() : [];
+  const specOf = (el) => {
+    const sub = el.closest("[data-subsection]"), sec = el.closest("[data-section]");
+    const id = sub ? sub.dataset.subsection : sec && sec.dataset.section;
+    const s = id && secs.find((x) => x.id === id);
+    return s ? rowsOf(s).find((r) => r.key === el.dataset.row) || null : null;
+  };
+  let cells = 0, padded = 0;
+  const missing = new Set(), stray = new Set(), unresolved = new Set();
+  document.querySelectorAll("input[data-row][data-col]").forEach((el) => {
+    const where = `${el.dataset.row}.${el.dataset.col}`;
+    const spec = specOf(el);
+    const c0 = spec && (spec.columns || []).find((c) => c.key === el.dataset.col);
+    if (!c0) { unresolved.add(where); return; }
+    const c = typeof effectiveColDef === "function"
+      ? effectiveColDef(c0, rowValuesOf(el.closest(".rowitem"))) : c0;
+    const pad = el.getAttribute("inputmode") === "decimal";
+    if (c.type === "number" && !c.readonly && !c.source) {
+      cells++;
+      if (pad) padded++; else missing.add(where);
+    } else if (el.hasAttribute("inputmode")) {
+      stray.add(`${where}(${c.type}${c.readonly ? ", readonly" : ""})`);
+    }
+  });
+  return { cells, padded, missing: Array.from(missing), stray: Array.from(stray),
+           unresolved: Array.from(unresolved) };
 }
 
 /* The step numerals, read the way a person reads them.

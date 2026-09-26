@@ -5883,11 +5883,25 @@ function rowHTML(spec, values, idx) {
     // to a tenth ("2460" -> "2460.0") the moment they tab off, matching the
     // precision CONFIG.DP now gives every one of these keys on render/import.
     const wt = c.type === "number" && /\(g\)$/.test(c.label || "") ? ' data-weight="1"' : "";
+    // THE DECIMAL KEYPAD for every figure a person types into a row. Without
+    // it a phone opens the full keyboard on each of the 327 weighings a lot
+    // asks for, while the gradation grams on the same tab (sievesHTML()) and
+    // every scalar (inputFor()) already get the pad. EDITABLE figures only: a
+    // readonly cell is computed and takes no typing. `type` stays "text" on
+    // purpose - collectForm() reads the string, roundTo() re-applies CONFIG.DP
+    // on every render, the data-weight focusout snap rewrites it, and a
+    // type=number input reads a half-typed "2460." back as "2460" and blanks
+    // a stored value it will not parse (both measured in Chromium).
+    // SIGN: every editable row `number` column in both schemas is a
+    // non-negative quantity (weights, tons, temperatures, percentages,
+    // specific gravities - all 54 checked 2026-09-26), and iOS's decimal pad
+    // has NO minus key. A signed column needs a different answer than this.
+    const im = c.type === "number" && !c.readonly ? ' inputmode="decimal"' : "";
     const ctrl = c.source ? refControlHTML(c, cls, attrs, v, c.readonly)
       : c.type === "select"
         ? selectHTML(cls, attrs, (c.options || []).map((o) =>
             (typeof o === "string" ? { value: o, label: o } : o)), v, c.readonly)
-        : `<input type="text"${ro}${wt} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
+        : `<input type="text"${im}${ro}${wt} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
     // `num` is what lets a phone pack three figures onto one line instead of
     // giving each its own. A number column holds a figure - four or five
     // characters - where a text column can hold a 48-character producer name,
