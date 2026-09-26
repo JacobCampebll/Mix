@@ -1122,6 +1122,32 @@ head('how many sublots have anything in them');
 }
 
 // =====================================================================
+head('an index entry an older version wrote is recounted, not trusted');
+// =====================================================================
+{
+  // The local index is a cache of lotSummary(). An entry written before the
+  // count was asked of the schema said "4 of 4" on every untouched lot, and
+  // kept saying it until that lot happened to be saved again.
+  const storage = fakeStorage();
+  const s = localLotStore({ storage });
+  const saved = await s.save(blankLot(IDENT), { by: BY });
+  const idx = JSON.parse(storage.getItem('amaw_lot:index'));
+  idx[saved.uid] = { ...idx[saved.uid], sublots_entered: 4 };
+  delete idx[saved.uid].summary_version;
+  storage.setItem('amaw_lot:index', JSON.stringify(idx));
+  const rows = await s.list();
+  ok('an old entry\'s "4 of 4" is recounted from the lot itself', rows[0] && rows[0].sublots_entered === 0, rows[0]);
+  ok('…and the index is current afterwards',
+     JSON.parse(storage.getItem('amaw_lot:index'))[saved.uid].summary_version === 2);
+  let writes = 0;
+  const setItem = storage.setItem;
+  storage.setItem = (k, v) => { if (k === 'amaw_lot:index') writes++; return setItem(k, v); };
+  await s.list();
+  storage.setItem = setItem;
+  ok('…and a current index is read, not rebuilt on every list', writes === 0, `${writes} index write(s)`);
+}
+
+// =====================================================================
 head('merging two files');
 // =====================================================================
 {

@@ -5657,7 +5657,8 @@ commit where possible.
   `rowHoldsMeasurement()`, from readonly flags, seeds, the lot-level lists and
   the blend %'s new `seedFrom: "design_pct"`. It read 4 of 4 on every untouched
   lot and took "1-3" for sublot 1; a server-only row has no count, and an index
-  entry written earlier keeps its old count until that lot is next saved.
+  entry an older `lotSummary()` wrote (no `summary_version`) makes the first
+  list() rebuild the index from the lots themselves.
   `.jobstrip[hidden]{display:none}`: under `display:flex` the attribute did
   nothing, so the door, DesignBook's gate and its upload card showed empty
   chips. **Trap:** lotstore/lotremoved/nextlot read `h.errors`, which

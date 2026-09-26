@@ -19481,6 +19481,12 @@ const PB_LOT = (() => {
     return lot;
   }
 
+  // What lotSummary() says, versioned, because the local index is a CACHE of
+  // it: an entry written by an older version keeps saying what that version
+  // said until its lot is next saved (localLotStore().list() rebuilds instead).
+  // 2 = the sublot count asked of the schema, and the who/when stamps.
+  const SUMMARY_VERSION = 2;
+
   /** The row a list() returns. Identical from both layers so a queue screen does
    *  not care which one it is talking to. */
   function lotSummary(lot) {
@@ -19515,6 +19521,7 @@ const PB_LOT = (() => {
       has_data: true,
       purge_after: lot.purge_after || null,
       purged_at: lot.purged_at || null,
+      summary_version: SUMMARY_VERSION,
     };
   }
 
@@ -19740,7 +19747,14 @@ const PB_LOT = (() => {
       },
 
       async list(filter = {}) {
-        const idx = index.read();
+        let idx = index.read();
+        // An entry an older lotSummary() wrote still says what it said - "4 of 4
+        // sublots" on every untouched lot saved before the count was asked of
+        // the schema - until that lot is next saved. The index is a cache of the
+        // lots themselves, so it is rebuilt from them, once.
+        if (Object.keys(idx).some((k) => idx[k] && idx[k].summary_version !== SUMMARY_VERSION)) {
+          try { await api.rebuildIndex(); idx = index.read(); } catch (_) { /* the old entries still list */ }
+        }
         let out = Object.keys(idx).map((k) => idx[k]).filter(Boolean);
         out = applyFilter(out, filter);
         out.sort(byRecency);
