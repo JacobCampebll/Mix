@@ -238,7 +238,8 @@ export async function run({ browser, results }) {
     // ...and the answer stays on the form, for the life of the lot.
     const ro = g.readout || {};
     ok("verified: Contract & Mix keeps it - the readout reads the label, in the ok colour, the reason under it",
-       ro.text === L.verified && /\bok\b/.test(ro.cls || "") && /KYTC signed this approval/.test(ro.caption || ""),
+       ro.text === L.verified && /\bok\b/.test(ro.cls || "") && /KYTC signed this approval/.test(ro.caption || "")
+         && /Checked when the lot was opened \(/.test(ro.caption || ""),
        clip(`"${ro.text}" [${ro.cls}] ${ro.caption}`));
     ok("the readout's value and caption sit in the ledger's value column, not under its label",
        ro.value && ro.value.l >= ro.label.r && ro.cap.l === ro.value.l && ro.cap.t >= ro.value.b,
@@ -279,7 +280,8 @@ export async function run({ browser, results }) {
        n.lot && n.lot.state === "not-checked", n.lot && n.lot.state);
     const nr = n.readout || {};
     ok("no signal: the readout reads not checked, in the warning colour, the reason under it",
-       nr.text === L["not-checked"] && /\bwarn\b/.test(nr.cls || "") && /could not be reached/.test(nr.caption || ""),
+       nr.text === L["not-checked"] && /\bwarn\b/.test(nr.cls || "") && /could not be reached/.test(nr.caption || "")
+         && /Recorded when the lot was opened\./.test(nr.caption || ""),
        clip(`"${nr.text}" [${nr.cls}] ${nr.caption}`));
     ok("no signal: the readout is shaded as read from the approval, and not in the ledger's amber/gold \"still to fill in\" hue",
        nr.tokens && nr.bg === nr.tokens.accentSoft && nr.color !== nr.tokens.flag && nr.color !== nr.tokens.gold,

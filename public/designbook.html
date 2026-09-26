@@ -21903,10 +21903,16 @@ function paintLotReadouts() {
     sig.classList.toggle("warn", !!a && !good && !invalid);
     const reason = v && v.reason != null ? String(v.reason).trim() : "";
     const at = v && v.checked_at ? new Date(v.checked_at) : null;
-    sig.title = !a ? "" : `${reason}${at && Number.isFinite(at.getTime())
-      ? `${reason ? " " : ""}Checked ${at.toLocaleString()}.` : ""}`;
+    const when = at && Number.isFinite(at.getTime()) ? at.toLocaleString() : "";
+    sig.title = !a ? "" : `${reason}${when ? `${reason ? " " : ""}Checked ${when}.` : ""}`;
+    // The caption says WHEN this answer was given, on screen and not only in
+    // the tooltip: it is the state recorded when the lot was opened, carried
+    // in an unsigned file - not a fresh check - and a reviewer reopening the
+    // submittal should not read a green "verified" as one.
     const sub = document.querySelector('[data-outsub="approval_signature"]');
-    if (sub) sub.textContent = !a ? from : reason || "No reason was recorded with this check.";
+    if (sub) sub.textContent = !a ? from
+      : `${reason ? `${/[.!?]$/.test(reason) ? reason : `${reason}.`} ` : ""}`
+        + (when ? `Checked when the lot was opened (${when}).` : "Recorded when the lot was opened.");
   }
 
   // Combined Gsb, by sublot (2026-09-14): Andrew's ask that the Gsb readout
