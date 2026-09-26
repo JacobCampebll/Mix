@@ -21913,15 +21913,23 @@ function paintLotReadouts() {
     const reason = v && v.reason != null ? String(v.reason).trim() : "";
     const at = v && v.checked_at ? new Date(v.checked_at) : null;
     const when = at && Number.isFinite(at.getTime()) ? at.toLocaleString() : "";
-    sig.title = !a ? "" : `${reason}${when ? `${reason ? " " : ""}Checked ${when}.` : ""}`;
+    // "Checked" only where a check was made (verified, or a signature that
+    // does not match); where the service could not answer it was attempted.
+    // And the moment is the one the door recorded - the lot that FIRST opened
+    // on this approval - not this lot's own: roll-forward carries the answer
+    // whole, so lot 2 shows lot 1's time and was never checked itself.
+    const made = good || invalid;
+    const verb = made ? "Checked" : "Check attempted";
+    sig.title = !a ? "" : `${reason}${when ? `${reason ? " " : ""}${verb} ${when}.` : ""}`;
     // The caption says WHEN this answer was given, on screen and not only in
-    // the tooltip: it is the state recorded when the lot was opened, carried
+    // the tooltip: it is the state recorded when a lot was first opened, carried
     // in an unsigned file - not a fresh check - and a reviewer reopening the
     // submittal should not read a green "verified" as one.
     const sub = document.querySelector('[data-outsub="approval_signature"]');
     if (sub) sub.textContent = !a ? from
       : `${reason ? `${/[.!?]$/.test(reason) ? reason : `${reason}.`} ` : ""}`
-        + (when ? `Checked when the lot was opened (${when}).` : "Recorded when the lot was opened.");
+        + (when ? `${verb} when a lot was first opened on this approval (${when}).`
+                : "Recorded when a lot was first opened on this approval.");
   }
 
   // Combined Gsb, by sublot (2026-09-14): Andrew's ask that the Gsb readout

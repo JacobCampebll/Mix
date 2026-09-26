@@ -267,7 +267,7 @@ export async function run({ browser, results }) {
     const ro = g.readout || {};
     ok("verified: Contract & Mix keeps it - the readout reads the label, in the ok colour, the reason under it",
        ro.text === L.verified && /\bok\b/.test(ro.cls || "") && /KYTC signed this approval/.test(ro.caption || "")
-         && /Checked when the lot was opened \(/.test(ro.caption || ""),
+         && /Checked when a lot was first opened on this approval \(/.test(ro.caption || ""),
        clip(`"${ro.text}" [${ro.cls}] ${ro.caption}`));
     // AA for normal text: the readout is 14px/16px at weight 400 on the wash,
     // where --ok itself is 4.45:1 - the state a reviewer most needs to trust.
@@ -313,7 +313,7 @@ export async function run({ browser, results }) {
     const nr = n.readout || {};
     ok("no signal: the readout reads not checked, in the warning colour, the reason under it",
        nr.text === L["not-checked"] && /\bwarn\b/.test(nr.cls || "") && /could not be reached/.test(nr.caption || "")
-         && /Recorded when the lot was opened\./.test(nr.caption || ""),
+         && /Recorded when a lot was first opened on this approval\./.test(nr.caption || ""),
        clip(`"${nr.text}" [${nr.cls}] ${nr.caption}`));
     ok("no signal: the readout is shaded as read from the approval, and not in the ledger's amber/gold \"still to fill in\" hue",
        nr.tokens && nr.bg === nr.tokens.accentSoft && nr.color !== nr.tokens.flag && nr.color !== nr.tokens.gold,
@@ -343,6 +343,11 @@ export async function run({ browser, results }) {
          o.r.lot && o.r.lot.state === mode && o.r.save.text.startsWith(`${L[mode]} - `)
            && o.r.save.text.includes(why) && /\bwarn\b/.test(o.r.save.cls),
          clip(`lot=${o.r.lot && o.r.lot.state} [${o.r.save.cls}] ${o.r.save.text}`));
+      // No check was made, so the caption must not say one was.
+      const oc = (o.r.readout || {}).caption || "";
+      ok(`${mode}: the readout's caption says the check was attempted, never "Checked"`,
+         /Check attempted when a lot was first opened on this approval \(/.test(oc) && !/\bChecked\b/.test(oc),
+         clip(oc));
     }
   }
 
