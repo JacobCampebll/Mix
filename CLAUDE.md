@@ -5589,3 +5589,29 @@ commit where possible.
   condition, aggregate type & size and a polish class; PlantBook's type &
   size, binder terminal and equipment verified - each a layout question of
   its own, and none of them in the baseline.
+
+- **PlantBook's front door refuses an INVALID approval, and every verification
+  prints as words** (2026-09-26). Extends "PlantBook's front door is the
+  approval upload" (2026-09-13), whose promise that an edited design "is
+  refused there" was not kept: `openApprovalForLot()` tested a
+  `PB_LOT.VERIFICATION.FAILED` that does not exist, so an invalid signature
+  opened a lot, shown as the bare token "invalid." in the colour of an
+  unreachable server. It now throws before `state.lot` is set - red on the
+  door, verify-approval's reason, "check with KYTC Central Office", nothing
+  saved and no ledger row. **Only INVALID refuses**: the other three
+  non-verified states are checks that could not be made and open, labelled
+  (a plant with no signal must still start a lot); **a saved lot is never
+  refused**, whatever it carries; and `lotFromApproval()` still builds a lot
+  on INVALID, because refusing is the page's call. `VERIFICATION_LABELS` and
+  `verificationText()` ("label - reason") in intake.mjs are the one wording -
+  anything unknown reads as not checked, never as verified - for the door,
+  the reopen and audit lines, the rail, the lot PDF header and an "Approval
+  signature" readout on Contract & Mix. That readout is `approval_signature`,
+  not `lot_`-prefixed (check_sections.mjs holds every `lot_` scalar to an AMAW
+  alias), and on the ledger it needs its own `.field.readout` rule or its
+  caption lands in column one. Checked rather than assumed: `readHandoffPDF()`
+  returns the embedded JSON as parsed and `verifyRequest()` passes it on by
+  reference, so no page-side change can make a genuine older approval read
+  INVALID; harness `approvalgate` asserts the request body equals the file.
+  check_page_plantbook.mjs now holds PB_LOT's surface to the two modules'
+  exports exactly, as it already did PB_VOL's and PB_PAY's.
