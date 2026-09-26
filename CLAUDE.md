@@ -5663,7 +5663,7 @@ commit where possible.
   made, never by the record's status (a contractor's lost Submit reply can be
   found on a lot KYTC has since accepted), and follows the record forward,
   since a save has no reconcileLotSeal() after it. An Accept made with no
-  signal that another reviewer's beat to the record is said as "already said
+  signal that another reviewer beat to the record is said as "already said
   so (by ...)", like the online case, and its "Lot accepted" line gets a "Lot
   already accepted in KYTC's lot record" line after it - whose Accept it was
   is read off the record's `accepted_name` against this reviewer's, since the
@@ -5740,5 +5740,5 @@ commit where possible.
   amaw_seal_lot() inserts every `amaw_lot_events` row with `from_status
   'Open'`, so an Accept's event reads Open -> Accepted; nothing reads it yet,
   and a fix is a migration.
-  Measured: page checker 221 pass (was 214), check_storage 192 (was 94), full
-  harness 489 passed / 0 failed / 3 skipped (was 404).
+  Measured: page checker 223 pass (was 214), check_storage 211 (was 94), full
+  harness 522 passed / 0 failed / 3 skipped (was 404).
