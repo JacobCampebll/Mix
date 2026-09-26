@@ -760,6 +760,14 @@
      both row paddings above. */
   .rowitem select.box{padding-right:22px;
                       background-position:calc(100% - 12px) calc(50% + 1px), calc(100% - 7px) calc(50% + 1px);}
+  /* A native date or time picker (the sublot ticket's Date and Time) lays out
+     taller than a text box of the same padding - its calendar or clock icon
+     sets the line - so above 700px it stood 30px and 31px beside 28px boxes,
+     and 1-2px higher (measured, 2026-09-26). A height, not a min-height, pins
+     it to the row; the icon and the fields stay whole inside 28px (checked at
+     1x, 2x and 3x). No phone restatement needed: below 700px the rule above
+     sets min-height:44px, and a min-height beats a smaller height. */
+  .rowitem input[type="date"].box, .rowitem input[type="time"].box{height:28px;}
   .rowitem{gap:7px;}
   .rmbtn{border:1px solid transparent; background:transparent; color:var(--muted);
          border-radius:var(--radius); width:26px; height:26px; cursor:pointer; font-size:14px;

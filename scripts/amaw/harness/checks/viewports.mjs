@@ -105,10 +105,13 @@ async function measureTicketRow({ approval, values }) {
     return w + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) +
            parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
   };
-  const clipped = [], empty = [];
+  const clipped = [], empty = [], heights = new Set();
   let ac = null;
   row.querySelectorAll("[data-col]").forEach((el) => {
     if (getComputedStyle(el.closest(".cell") || el).display === "none") return;
+    // One row, one height: a picker lays out taller than a text box unless
+    // the stylesheet pins it (30/31px beside 28px until 2026-09-26).
+    heights.add(Math.round(el.getBoundingClientRect().height * 2) / 2);
     let need;
     if (el.type === "date" || el.type === "time") {
       const c = el.cloneNode(true);
@@ -128,7 +131,8 @@ async function measureTicketRow({ approval, values }) {
     if (need > have + 0.5) clipped.push(`${el.dataset.col}(${need.toFixed(1)}>${have.toFixed(1)})`);
   });
   const sc = list.closest(".rowscroll");
-  return { clipped, empty, ac, scrolls: sc ? sc.scrollWidth > sc.clientWidth + 1 : false,
+  return { clipped, empty, ac, heights: Array.from(heights).sort((a, b) => a - b),
+           scrolls: sc ? sc.scrollWidth > sc.clientWidth + 1 : false,
            page: document.documentElement.scrollWidth };
 }
 
@@ -309,6 +313,8 @@ export async function run({ browser, results, books, bless }) {
                    : r.ac !== TICKET_AC_SEED ? `AC method reads "${r.ac}", not its seed "${TICKET_AC_SEED}" - measured nothing there`
                    : r.empty.length ? `still blank after the fill: ${r.empty.join(",")} - measured nothing there`
                    : `11 cells whole${r.scrolls ? ", the table scrolls" : ", the table fits"}`);
+      results.ok(id, plant.label, `${tag} ticket row: every box one height`, r.heights.length === 1,
+                 `${r.heights.join("px / ")}px`);
       results.ok(id, plant.label, `${tag} ticket row: no sideways page scroll, clean console`,
                  r.page <= width && errs.length === 0,
                  `scrollWidth ${r.page} vs viewport ${width}` + (errs.length ? ` | ${errs.slice(0, 2).join(" | ")}` : ""));
