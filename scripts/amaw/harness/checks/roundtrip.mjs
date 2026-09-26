@@ -50,14 +50,53 @@ const XSS_PROBE = `A"B'C<D&E>F`;
  * with nowhere to park this is a book whose escaping is untested. */
 const PROBE_FIELD = { DesignBook: "rap_note", PlantBook: "lot_additive" };
 
+/* A native date or time picker blanks any value that is not in its own shape,
+ * the moment it is set, with nothing said. So a fill that spoke the wrong
+ * language leaves "" behind, and a round trip then compares "" with "" - a
+ * pass that tested nothing (inpage.mjs's fill gives these controls ISO values
+ * for exactly that reason). These two ask the question directly: which
+ * pickers could the fill reach, and does each hold a value afterwards. Keys,
+ * not element handles or markers, so a re-render in between cannot hide one.
+ * Both run IN the page and close over nothing. */
+function nativeReachable() {
+  const out = [];
+  document.querySelectorAll('input[type="date"], input[type="time"]').forEach((el) => {
+    if (el.disabled || el.readOnly || !(el.dataset.field || el.dataset.col)) return;
+    const host = el.closest("[data-subsection]") || el.closest("[data-section]");
+    const row = el.closest(".rowitem");
+    const i = row && row.parentElement ? Array.prototype.indexOf.call(row.parentElement.children, row) : -1;
+    out.push(el.dataset.field ? `f|${el.dataset.field}`
+      : `c|${host ? host.dataset.subsection || host.dataset.section : ""}|${el.dataset.row}|${el.dataset.col}|${i}`);
+  });
+  return out;
+}
+function nativeHolding(keys) {
+  const find = (k) => {
+    const p = k.split("|");
+    if (p[0] === "f") return document.querySelector(`[data-field="${p[1]}"]`);
+    const host = document.querySelector(`[data-subsection="${p[1]}"]`) || document.querySelector(`[data-section="${p[1]}"]`);
+    const list = host && host.querySelector(`[data-rowlist="${p[2]}"]`);
+    const row = list && list.children[Number(p[4])];
+    return row ? row.querySelector(`[data-col="${p[3]}"]`) : null;
+  };
+  const empty = keys.filter((k) => { const el = find(k); return !el || el.value === ""; });
+  return { count: keys.length, empty };
+}
+
 export async function run({ browser, results, books }) {
   const libs = findLibs();
   for (const book of books) {
     const out = await withBook(browser, book, { width: 1440, height: 1000 }, async ({ page, errs }) => {
       const probeField = PROBE_FIELD[book.label];
+      // The native pickers the fill can reach - the ones enabled BEFORE it
+      // runs. PlantBook's sublot tabs are locked in this empty form until the
+      // fill's own last step sets a lot number, so its ticket pickers are
+      // exercised by the ?sublots=open pass below rather than here.
+      const reachable = await page.evaluate(nativeReachable);
       const filled = await page.evaluate(fillForm,
         { nominal_size: "0.38", mix_type: "B", [probeField]: XSS_PROBE });
       await page.waitForTimeout(200);
+      const native = await page.evaluate(nativeHolding, reachable);
       const r = await page.evaluate(() => {
         const before = collectForm();
         // Exactly what applyHandoff() does with a reopened file.
@@ -88,14 +127,69 @@ export async function run({ browser, results, books }) {
         const el = document.querySelector(`[data-field="${f}"]`);
         return el ? el.value : "(no such field on this book)";
       }, probeField);
-      return { before: r.before, after, filled, emptyRows, collectedRows, probe, errs: realErrors(errs) };
+      /* THE STORED-VALUE GUARD (2026-09-26). A file saved with "9/24/26" in a
+       * date - DesignBook's referenced design date, or a lot's ticket Date and
+       * Time from before they were pickers - must reopen showing it as typed,
+       * in a text box, not as an empty picker the next save would store. The
+       * same reopen applyHandoff() and openLotEnvelope() do, with the value
+       * swapped in; PlantBook's rail must also say it will not reach the AMAW. */
+      const guard = await page.evaluate((isPlant) => {
+        const b = collectForm();
+        const typed = isPlant ? ["9/24/26", "2:15 PM"] : ["9/24/26"];
+        if (isPlant) {
+          const t = (b.rows.sublot_tickets || [])[0];
+          if (!t) return { none: "no sublot ticket row was collected" };
+          t.date = typed[0]; t.time = typed[1];
+        } else {
+          b.values.reference_design_date = typed[0];
+        }
+        state.extracted = { scalars: b.values, tables: b.rows };
+        renderForm();
+        const q = (sel) => document.querySelector(sel);
+        const els = isPlant
+          ? [q('[data-section="sublot-1"] [data-rowlist="sublot_tickets"] [data-col="date"]'),
+             q('[data-section="sublot-1"] [data-rowlist="sublot_tickets"] [data-col="time"]')]
+          : [q('[data-field="reference_design_date"]')];
+        const back = collectForm();
+        const t0 = (back.rows.sublot_tickets || [])[0] || {};
+        return {
+          typed,
+          controls: els.map((el) => (el ? { type: el.type, value: el.value } : null)),
+          collected: isPlant ? [t0.date, t0.time] : [back.values.reference_design_date],
+          rail: (document.getElementById("vallist") || {}).textContent || "",
+        };
+      }, book.label === "PlantBook");
+      return { before: r.before, after, filled, native, emptyRows, collectedRows, probe, guard, errs: realErrors(errs) };
     });
 
     if (out.skipped) { results.skip(id, book.label, "collectForm round trip", out.skipped); continue; }
-    const { before, after, filled, emptyRows, collectedRows, probe, errs } = out.value;
+    const { before, after, filled, native, emptyRows, collectedRows, probe, guard, errs } = out.value;
 
     results.ok(id, book.label, "something was actually filled", filled > 40,
                `${filled} controls filled` + (filled > 40 ? "" : " — too few to prove anything"));
+    // DesignBook's referenced design date is reachable here. PlantBook has no
+    // picker this empty form's fill can reach (its sublot tabs are locked
+    // while the fill runs), so its pickers are asserted in the open pass below.
+    if (book.label !== "PlantBook") {
+      results.ok(id, book.label, "every native date/time control holds what the fill gave it",
+                 native.count > 0 && native.empty.length === 0,
+                 `${native.count - native.empty.length}/${native.count} hold a value` +
+                 (native.empty.length ? ` — blanked: ${native.empty.join(",")}` : ""));
+    }
+    if (guard.none) {
+      results.fail(id, book.label, "an off-format date or time reopens as typed", guard.none);
+    } else {
+      results.ok(id, book.label, "an off-format date or time reopens in a text box, as typed",
+                 guard.controls.every((c, i) => c && c.type === "text" && c.value === guard.typed[i]),
+                 JSON.stringify(guard.controls));
+      results.ok(id, book.label, "...and collectForm() carries it back unchanged, never blank",
+                 guard.collected.every((v, i) => v === guard.typed[i]), JSON.stringify(guard.collected));
+      if (book.label === "PlantBook") {
+        const says = guard.typed.every((v, i) => guard.rail.includes(`sublot 1 ${i ? "time" : "date"} "${v}"`));
+        results.ok(id, book.label, "the rail names the sublot and the value that will not reach the AMAW", says,
+                   says ? "named in #vallist" : `#vallist: ${guard.rail.slice(0, 160)}`);
+      }
+    }
 
     // Compared in parts so a failure names the part. design_values is the
     // computed column and is compared too: re-rendering must re-derive the
@@ -131,6 +225,47 @@ export async function run({ browser, results, books }) {
                dropped.length ? dropped.join(",") : Object.entries(collectedRows).map(([k, n]) => `${k}:${n}`).join(" "));
 
     results.ok(id, book.label, "clean console", errs.length === 0, errs.slice(0, 2).join(" | ") || "0 errors");
+
+    // ---- PlantBook's ticket Date and Time, through the pickers ---------------
+    // The pass above cannot reach them: in this empty form every sublot tab is
+    // locked while the fill runs, so no sublot table is round-tripped with a
+    // value in it. ?sublots=open is the page's own bypass and opens all four,
+    // so the four tickets' pickers take the fill's ISO values, and the same
+    // reopen as above must bring every one back as a picker holding it.
+    if (book.label === "PlantBook") {
+      const open = await withBook(browser, book, { width: 1440, height: 1000, query: "&sublots=open" },
+        async ({ page, errs: e3 }) => {
+          const reach = await page.evaluate(nativeReachable);
+          await page.evaluate(fillForm, { nominal_size: "0.38", mix_type: "B" });
+          await page.waitForTimeout(200);
+          const held = await page.evaluate(nativeHolding, reach);
+          const rt = await page.evaluate(() => {
+            const pick = (rows) => (rows.sublot_tickets || []).map((r) => [r.sublot, r.date, r.time]);
+            const b = collectForm();
+            state.extracted = { scalars: b.values, tables: b.rows };
+            renderForm();
+            const a = collectForm();
+            const kinds = Array.from(document.querySelectorAll(
+              '[data-rowlist="sublot_tickets"] [data-col="date"], [data-rowlist="sublot_tickets"] [data-col="time"]'))
+              .map((el) => el.type);
+            return { before: pick(b.rows), after: pick(a.rows), kinds };
+          });
+          return { reach, held, rt, errs: realErrors(e3) };
+        });
+      if (!open.skipped) {
+        const { held, rt, errs: e3 } = open.value;
+        results.ok(id, book.label, "with the sublots open, all 8 ticket pickers take the fill's values",
+                   held.count === 8 && held.empty.length === 0,
+                   `${held.count - held.empty.length}/${held.count} hold a value` +
+                   (held.empty.length ? ` — blanked: ${held.empty.slice(0, 4).join(",")}` : ""));
+        const whole = rt.before.length === 4 && rt.before.every((r) => r[1] && r[2]);
+        results.ok(id, book.label, "ticket Date and Time round-trip through the pickers",
+                   whole && JSON.stringify(rt.before) === JSON.stringify(rt.after)
+                     && rt.kinds.length === 8 && rt.kinds.every((k) => k === "date" || k === "time"),
+                   `before ${JSON.stringify(rt.before)} | after ${JSON.stringify(rt.after)} | reopened as ${rt.kinds.join(",")}`);
+        results.ok(id, book.label, "sublots-open pass: clean console", e3.length === 0, e3.slice(0, 2).join(" | ") || "0 errors");
+      }
+    }
 
     // ---- the review PDF, when the library is there -------------------------
     if (!libs["pdf-lib"]) {

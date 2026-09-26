@@ -666,21 +666,38 @@ const sixOf4 = (n) => [0, 1, 2, 3, 4, 5].map((i) => 6 * (n - 1) + i);
 // the section(s) wrapping them changed.
 const SUBLOT_TICKETS_SPEC = {
   key: "sublot_tickets", heading: "Sublot ticket", banded: true, fixed: true,
-  grid: ".7fr 1fr .8fr .9fr .9fr .9fr .8fr 1fr 1fr 1.1fr 1.5fr",
+  // Re-weighted 2026-09-26 when Date and Time became native pickers. On
+  // screen the two sit on their own floors (144px/124px, rowGridTemplate())
+  // at every width, so their `fr` only sizes them in the lot PDF, which
+  // reads this string too (gridWeights()): 1.4 is the smallest step that
+  // prints an ISO date whole in the PDF's 345pt table - every date is the
+  // same 44.9pt there, and at 1fr each printed as "2026-...". The total
+  // stays 10.6, so every PDF column not named here keeps its width. The
+  // 1.4 comes from the three short number columns, which sit on the 64px
+  // screen floor anyway and still print a 5-digit truck number and a
+  // 3-digit tonnage or temperature whole; what is left goes to AC method,
+  // whose seeded "Ignition Furnace" needs 121px on screen. Measured, not
+  // picked: nothing clips at 1500px; below that the pickers' extra width
+  // comes out of Tech, Binder lot and AC method.
+  grid: ".7fr 1.4fr .8fr .85fr .9fr .6fr .6fr 1fr 1fr 1.1fr 1.65fr",
   seed: TICKET_SEED,
   columns: [
     { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
-    // A row column is rendered as a plain text input whatever its
-    // `type` — rowHTML() only branches on `select` and `source` — so
-    // `type: "date"` would NOT give a date picker here the way it does
-    // on a grid field. Left as text on purpose rather than declaring a
-    // type the renderer ignores.
-    { key: "date", label: "Date", type: "text", req: true, mono: true },
-    // Superpave!J. STORED AS AN EXCEL TIME FRACTION (0.9125 = 21:54),
-    // whatever the stale AMAMAW sheet says about HHMM. Typed here as
-    // HH:MM, converted by the mapper — not the other way round, and
-    // never typed as 0.9125.
-    { key: "time", label: "Time", type: "text", req: true, mono: true },
+    // Superpave!I, MEDL's staged Date (sn 36). A native date picker -
+    // rowHTML() honours `date` and `time` the way inputFor() does - so
+    // what reaches the mapper is YYYY-MM-DD, which amDateSerial() turns
+    // into the Excel serial the sheet holds. A value saved in any other
+    // shape ('9/24/26', typed before this was a picker) is shown as typed
+    // in a text box rather than blanked, and the rail says it will not
+    // reach the workbook - the mapper refuses it rather than guessing.
+    { key: "date", label: "Date", type: "date", req: true, mono: true },
+    // Superpave!J, MEDL's staged Time (sn 37). STORED AS AN EXCEL TIME
+    // FRACTION (0.9125 = 21:54), whatever the stale AMAMAW sheet says
+    // about HHMM. A native time picker: whatever clock it shows (2:15 PM
+    // on a US phone), its value is HH:MM on a 24-hour clock, converted by
+    // amTimeFraction() - not the other way round, and never typed as
+    // 0.9125.
+    { key: "time", label: "Time", type: "time", req: true, mono: true },
     { key: "truck", label: "Truck", type: "text", req: true, mono: true },
     // CUMULATIVE ticket tonnage, not this sublot's own: lot 2 runs
     // 4955 -> 5390 -> 6693 -> 7530. The label says so, because a

@@ -137,7 +137,13 @@ export function fillForm(overrides) {
       if (v != null) { setVal(el, v); filled++; }
       return;
     }
+    // A native date or time picker holds a value only in its own shape and
+    // silently blanks anything else - the junk string below would read back
+    // "" and the round trip would then compare "" with "", passing while
+    // testing nothing. Filled in that shape instead: DesignBook's referenced
+    // design date, and PlantBook's sublot ticket Date and Time (2026-09-26).
     if (el.type === "date") { setVal(el, "2026-02-19"); filled++; return; }
+    if (el.type === "time") { setVal(el, "14:15"); filled++; return; }
     const def = colDef(el);
     const numeric = (def && def.type === "number") || el.getAttribute("inputmode") === "decimal";
     // CONFIG.DP is the page's claim about precision, and rowHTML() re-applies

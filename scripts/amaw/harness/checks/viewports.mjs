@@ -64,9 +64,23 @@ export async function run({ browser, results, books, bless }) {
             if (h <= 0) { deadSteps.push(active.dataset.section); continue; }
             measured++;
             active.querySelectorAll("[data-field], [data-col], [data-fp], [data-pr]").forEach((el) => {
-              if (el.scrollWidth > el.clientWidth + 1) {
+              let need = el.scrollWidth, have = el.clientWidth;
+              // A native date or time picker NEVER reports its own overflow:
+              // Chromium gives scrollWidth === clientWidth however far its
+              // fields are clipped (measured 2026-09-26), so a scrollWidth
+              // test passes a squeezed one by measuring nothing. Its need is its
+              // intrinsic width instead - a clone at width:auto in the same
+              // cell, so the same row-box CSS applies - against its own box.
+              if (el.type === "date" || el.type === "time") {
+                const c = el.cloneNode(true);
+                c.style.cssText = "position:absolute; visibility:hidden; width:auto; left:0; top:0";
+                el.parentElement.appendChild(c);
+                need = c.offsetWidth; have = el.offsetWidth;
+                c.remove();
+              }
+              if (need > have + 1) {
                 clipped.push((el.dataset.field || el.dataset.col || el.dataset.fp || el.dataset.pr) +
-                             `(${el.scrollWidth}>${el.clientWidth})`);
+                             `(${need}>${have})`);
               }
             });
             /* EVERY COLUMN HEADING OVER ITS OWN VALUES.

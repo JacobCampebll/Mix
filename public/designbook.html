@@ -4146,21 +4146,38 @@ const verifySpecimenOf4 = (n) =>
   // the section(s) wrapping them changed.
   const SUBLOT_TICKETS_SPEC = {
     key: "sublot_tickets", heading: "Sublot ticket", banded: true, fixed: true,
-    grid: ".7fr 1fr .8fr .9fr .9fr .9fr .8fr 1fr 1fr 1.1fr 1.5fr",
+    // Re-weighted 2026-09-26 when Date and Time became native pickers. On
+    // screen the two sit on their own floors (144px/124px, rowGridTemplate())
+    // at every width, so their `fr` only sizes them in the lot PDF, which
+    // reads this string too (gridWeights()): 1.4 is the smallest step that
+    // prints an ISO date whole in the PDF's 345pt table - every date is the
+    // same 44.9pt there, and at 1fr each printed as "2026-...". The total
+    // stays 10.6, so every PDF column not named here keeps its width. The
+    // 1.4 comes from the three short number columns, which sit on the 64px
+    // screen floor anyway and still print a 5-digit truck number and a
+    // 3-digit tonnage or temperature whole; what is left goes to AC method,
+    // whose seeded "Ignition Furnace" needs 121px on screen. Measured, not
+    // picked: nothing clips at 1500px; below that the pickers' extra width
+    // comes out of Tech, Binder lot and AC method.
+    grid: ".7fr 1.4fr .8fr .85fr .9fr .6fr .6fr 1fr 1fr 1.1fr 1.65fr",
     seed: TICKET_SEED,
     columns: [
       { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
-      // A row column is rendered as a plain text input whatever its
-      // `type` — rowHTML() only branches on `select` and `source` — so
-      // `type: "date"` would NOT give a date picker here the way it does
-      // on a grid field. Left as text on purpose rather than declaring a
-      // type the renderer ignores.
-      { key: "date", label: "Date", type: "text", req: true, mono: true },
-      // Superpave!J. STORED AS AN EXCEL TIME FRACTION (0.9125 = 21:54),
-      // whatever the stale AMAMAW sheet says about HHMM. Typed here as
-      // HH:MM, converted by the mapper — not the other way round, and
-      // never typed as 0.9125.
-      { key: "time", label: "Time", type: "text", req: true, mono: true },
+      // Superpave!I, MEDL's staged Date (sn 36). A native date picker -
+      // rowHTML() honours `date` and `time` the way inputFor() does - so
+      // what reaches the mapper is YYYY-MM-DD, which amDateSerial() turns
+      // into the Excel serial the sheet holds. A value saved in any other
+      // shape ('9/24/26', typed before this was a picker) is shown as typed
+      // in a text box rather than blanked, and the rail says it will not
+      // reach the workbook - the mapper refuses it rather than guessing.
+      { key: "date", label: "Date", type: "date", req: true, mono: true },
+      // Superpave!J, MEDL's staged Time (sn 37). STORED AS AN EXCEL TIME
+      // FRACTION (0.9125 = 21:54), whatever the stale AMAMAW sheet says
+      // about HHMM. A native time picker: whatever clock it shows (2:15 PM
+      // on a US phone), its value is HH:MM on a 24-hour clock, converted by
+      // amTimeFraction() - not the other way round, and never typed as
+      // 0.9125.
+      { key: "time", label: "Time", type: "time", req: true, mono: true },
       { key: "truck", label: "Truck", type: "text", req: true, mono: true },
       // CUMULATIVE ticket tonnage, not this sublot's own: lot 2 runs
       // 4955 -> 5390 -> 6693 -> 7530. The label says so, because a
@@ -5726,6 +5743,37 @@ function refControlHTML(def, cls, attrs, value, disabled) {
   return `<input type="text" class="${cls}" data-source="${def.source}" ${attrs}${comboAttrs}${disabled ? " disabled" : ""} autocomplete="off" value="${esc(v)}">`;
 }
 
+/* A NATIVE DATE OR TIME PICKER - but only for a value the browser will keep.
+ *
+ * A type=date/time input sanitises any value that is not a valid date or time
+ * string to "" the moment it is set, with nothing said. So a lot saved with
+ * "9/24/26" in its ticket date (typed before the column was a picker), reopened
+ * into a picker, would show an empty box - and the next autosave would store
+ * that emptiness over the value. CLAUDE.md's provisional-value rule is that an
+ * off-format value is kept and flagged, never blanked, so a stored value the
+ * browser would refuse renders as a plain text box showing it exactly as
+ * typed, and the rail says it will not reach the workbook.
+ *
+ * "Would the browser keep it" is asked OF THE BROWSER, not of a regex written
+ * to imitate it: a copy of the rule could drift from the real one, and the
+ * direction it would drift in is data loss. A blank has nothing to lose and
+ * always gets the picker. Measured in Chromium: "9/24/26", "2:15 PM", "9:30",
+ * "2026-02-30" and " 2026-09-24" are all blanked; "2026-09-24", "14:15" and
+ * "09:30:15" are kept. Anything that is not a date or time column is "text".
+ */
+function nativeInputType(type, value) {
+  if (type !== "date" && type !== "time") return "text";
+  const s = value == null ? "" : String(value);
+  if (s === "") return type;
+  const probes = nativeInputType.probes || (nativeInputType.probes = {});
+  const el = probes[type] || (probes[type] = Object.assign(document.createElement("input"), { type }));
+  el.value = s;
+  return el.value === s ? type : "text";
+}
+// Where a browser has no picker a date/time input is a text box, so it says
+// what shape to type. Browsers with a picker ignore a placeholder on one.
+const NATIVE_PLACEHOLDER = { date: "YYYY-MM-DD", time: "HH:MM" };
+
 function inputFor(f, value, src) {
   const cls = "box req-marker" + (f.mono ? " mono" : "") + (f.req ? " req" : "");
   // WHERE A PREFILLED VALUE CAME FROM IS ON THE CONTROL, NOT UNDER IT.
@@ -5748,13 +5796,16 @@ function inputFor(f, value, src) {
     return selectHTML(cls, attrs, (f.options || []).map((o) =>
       (typeof o === "string" ? { value: o, label: o } : o)), value);
   }
-  const type = f.type === "date" ? "date" : "text";
+  // A picker for a date or time field, unless the stored value is one the
+  // browser would blank - then a text box showing it as typed (above).
+  const type = nativeInputType(f.type, value);
+  const ph = NATIVE_PLACEHOLDER[f.type] ? ` placeholder="${NATIVE_PLACEHOLDER[f.type]}"` : "";
   // The number pad for a figure - except a `signed` one: iOS's decimal pad
   // has no minus key, so a field that can go negative (the setup AC
   // adjustment, -0.10 to +0.3) keeps the full keyboard, whose number layer
   // has the minus sign.
   const im = f.type === "number" && !f.signed ? ' inputmode="decimal"' : "";
-  return `<input type="${type}"${im} class="${cls}" ${attrs} value="${esc(value == null ? "" : value)}">`;
+  return `<input type="${type}"${im}${ph} class="${cls}" ${attrs} value="${esc(value == null ? "" : value)}">`;
 }
 
 /* ---------- a section-head lookup ----------
@@ -5853,11 +5904,32 @@ function gridHTML(fields) {
  * that need 44-52px. 64px is measured rather than picked - it is what leaves
  * a 62px input, which clears the widest real value these narrow columns hold
  * (a joint core id like "1-1-J1" at 59px, a five-figure Gmb at 52px). Verified
- * at 1500px with a real lot number: zero clipped inputs in either book. */
+ * at 1500px with a real lot number: zero clipped inputs in either book.
+ *
+ * A NATIVE DATE OR TIME PICKER GETS ITS OWN FLOOR, keyed on the column's type
+ * rather than written into each table's `grid` (2026-09-26, the sublot
+ * ticket's Date and Time). A picker lays its fields out at a fixed intrinsic
+ * width and clips them inside a narrower box - and it clips SILENTLY:
+ * Chromium reports scrollWidth === clientWidth for a squeezed date or time
+ * input, so a scrollWidth test cannot see it (the harness's viewports sweep
+ * measures a picker by its intrinsic width for that reason). Measured as the page
+ * styles a row box (12.5px mono, 5px/7px padding), at 1x/2x/3x density: a
+ * date needs 130/136/142px, a time 110/116/122px. The floors are the 3x
+ * figures plus 2px, because a phone held sideways is wider than 700px and
+ * lands here rather than in the card layout. Still pixels, for the reason
+ * above: the header and every row are handed the same string, so the tracks
+ * cannot disagree. The `grid` string stays pure `fr` because gridWeights()
+ * reads it for the review PDF and drops a track it cannot parse. */
 const ROW_TRACK_MIN = "64px";
-function rowGridTemplate(grid) {
-  return String(grid == null ? "" : grid).trim().split(/\s+/).filter(Boolean)
-    .map((t) => (/^\d*\.?\d+fr$/.test(t) ? `minmax(${ROW_TRACK_MIN},${t})` : t))
+const NATIVE_TRACK_MIN = { date: "144px", time: "124px" };
+function rowGridTemplate(spec) {
+  // Track i is visible column i: check_sections.mjs (D) holds `grid` to one
+  // track per VISIBLE column (plus `auto` for a remove button, which is not
+  // an fr track and passes through), and a hidden column is display:none.
+  const cols = ((spec && spec.columns) || []).filter((c) => !c.hidden);
+  return String(spec && spec.grid != null ? spec.grid : "").trim().split(/\s+/).filter(Boolean)
+    .map((t, i) => (/^\d*\.?\d+fr$/.test(t)
+      ? `minmax(${NATIVE_TRACK_MIN[(cols[i] || {}).type] || ROW_TRACK_MIN},${t})` : t))
     .join(" ");
 }
 
@@ -5905,11 +5977,19 @@ function rowHTML(spec, values, idx) {
     // has NO minus key. A column that can go negative declares `signed: true`
     // and keeps the full keyboard, the same flag inputFor() honours.
     const im = c.type === "number" && !c.readonly && !c.signed ? ' inputmode="decimal"' : "";
+    // A `date` or `time` column is a native picker, the way inputFor() has
+    // always drawn a date field - the sublot ticket's Date and Time, which
+    // are MEDL's staged sn 36/37. Same guard as there: a stored value the
+    // browser would blank (a "9/24/26" saved before the column was a picker)
+    // renders as a text box showing it as typed, never as an empty picker the
+    // next autosave would save. Never the number pad - `im` needs `number`.
+    const kind = nativeInputType(c.type, v);
+    const ph = NATIVE_PLACEHOLDER[c.type] ? ` placeholder="${NATIVE_PLACEHOLDER[c.type]}"` : "";
     const ctrl = c.source ? refControlHTML(c, cls, attrs, v, c.readonly)
       : c.type === "select"
         ? selectHTML(cls, attrs, (c.options || []).map((o) =>
             (typeof o === "string" ? { value: o, label: o } : o)), v, c.readonly)
-        : `<input type="text"${im}${ro}${wt} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
+        : `<input type="${kind}"${im}${ph}${ro}${wt} class="${cls}" ${attrs}${t} value="${esc(v == null ? "" : v)}">`;
     // `num` is what lets a phone pack three figures onto one line instead of
     // giving each its own. A number column holds a figure - four or five
     // characters - where a text column can hold a 48-character producer name,
@@ -5938,7 +6018,7 @@ function rowHTML(spec, values, idx) {
   // Fixed tables (e.g. the Hamburg pass-count grid) have no remove button.
   // Chip mode lays out with CSS flex (.rowitem.chips), not this inline grid
   // template, so the template is skipped rather than left inert.
-  const gridStyle = spec.chips ? "" : ` style="grid-template-columns:${rowGridTemplate(spec.grid)}"`;
+  const gridStyle = spec.chips ? "" : ` style="grid-template-columns:${rowGridTemplate(spec)}"`;
   return `<div class="rowitem${spec.chips ? " chips" : ""}"${gridStyle}>
     ${cells}${spec.fixed ? "" : '<button class="rmbtn" title="Remove">×</button>'}</div>`;
 }
@@ -5962,7 +6042,7 @@ function rowHeadHTML(spec) {
   // zero-width spacer hands 26px back to the fr tracks in the header that the
   // row keeps for its button, and every column drifts a little further left
   // than its own values. 26px is .rmbtn's width, named once in the CSS.
-  return `<div class="rowhead" style="grid-template-columns:${rowGridTemplate(spec.grid)}">
+  return `<div class="rowhead" style="grid-template-columns:${rowGridTemplate(spec)}">
     ${cells}${spec.fixed ? "" : '<div class="rowspacer"></div>'}</div>`;
 }
 
@@ -22156,6 +22236,32 @@ function sampleTimingWarnings() {
       + `number falls inside the first ${min}, sample the first loaded truck after the one carrying the ${min}th ton.` }];
 }
 
+/** A ticket date or time the AMAW will not carry. MEDL's staged Date and Time
+ *  (sn 36/37) come off Superpave!I/J, and the mapper REFUSES anything that is
+ *  not a YYYY-MM-DD date or a 24-hour HH:MM time rather than guessing at it -
+ *  "9/24/26" used to be written as 9 January 1900. The pickers cannot produce
+ *  such a value; a lot saved before the columns were pickers can hold one,
+ *  and rowHTML() shows it as typed in a text box rather than blanking it. This
+ *  is the line that says it will not reach the workbook. Asked of PB_AMAW's
+ *  own helpers, so the rail and the mapper cannot disagree about what
+ *  converts. One line for the lot, pointing at the first sublot's tab. */
+function ticketDateTimeWarnings() {
+  const bad = [];
+  lotRows("sublot_tickets").forEach((r) => {
+    const n = sublotIndexOf(r.sublot);
+    if (!n) return;
+    const d = String(r.date == null ? "" : r.date).trim();
+    const t = String(r.time == null ? "" : r.time).trim();
+    if (d && PB_AMAW.amDateSerial(d) == null) bad.push({ n, what: `date "${d}"` });
+    if (t && PB_AMAW.amTimeFraction(t) == null) bad.push({ n, what: `time "${t}"` });
+  });
+  if (!bad.length) return [];
+  return [{ sectionId: `sublot-${bad[0].n}`,
+    text: `Ticket ${bad.map((b) => `sublot ${b.n} ${b.what}`).join(", ")} will not reach the AMAW: MEDL's `
+      + `Date and Time (Superpave!I/J) take a date as YYYY-MM-DD and a time as HH:MM on a 24-hour clock, and `
+      + `anything else is left blank rather than guessed at. Retype it in that shape - 2026-09-24, 14:15.` }];
+}
+
 /** Every helper above, pooled - recompute() reads this once. Empty on
  *  DesignBook, where none of the fields exist. */
 function productionSpecWarnings(vol, ver) {
@@ -22163,7 +22269,7 @@ function productionSpecWarnings(vol, ver) {
   return [
     ...dustRatioWarnings(vol), ...mixTempWarnings(), ...coreCountWarnings(vol),
     ...binderSupplierWarnings(), ...verificationToleranceWarnings(vol, ver),
-    ...setupAcAdjustWarnings(), ...sampleTimingWarnings(),
+    ...setupAcAdjustWarnings(), ...sampleTimingWarnings(), ...ticketDateTimeWarnings(),
   ];
 }
 

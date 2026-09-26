@@ -359,6 +359,16 @@ is('QC04 moisture reaches its own column',
   cells[A(MO.sheet, `${MO.cols[3]}${MO.rows.pan}`)] != null);
 is('QC01 truck ticket tonnage',
   cells[A(SUBLOT.sheet, `${SUBLOT.ticket.cols.tons}${SUBLOT.ticket.first}`)] != null);
+// The schema's ticket Date and Time are `date`/`time` pickers since
+// 2026-09-26, so valueFor() fills them in ISO shape and the lot built from the
+// FORM reaches MEDL's staged Date and Time (sn 36/37). While the schema said
+// `text` it got "date-12", and neither cell was ever written by this fixture.
+const schemaDate = cells[A(SUBLOT.sheet, `${SUBLOT.ticket.cols.date}${SUBLOT.ticket.first}`)];
+const schemaTime = cells[A(SUBLOT.sheet, `${SUBLOT.ticket.cols.time}${SUBLOT.ticket.first}`)];
+is("QC01 ticket date from the schema-built lot reaches Superpave!I3 (2026-09-02 = 46267)",
+  schemaDate === 46267, schemaDate);
+is('QC01 ticket time from the schema-built lot reaches Superpave!J3 (09:30)',
+  schemaTime === (9 * 3600 + 30 * 60) / 86400, schemaTime);
 
 // ---------------------------------------------------------------------
 //  B2. the three constants the pay schedule is measured against
