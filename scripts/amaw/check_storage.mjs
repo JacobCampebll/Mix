@@ -175,8 +175,15 @@ function fakeServer() {
       if (!net.up) throw netErr();
       if (net.unapplied) return { data: null, error: unappliedErr() };
       if (fn !== 'amaw_seal_lot') return { data: null, error: { message: 'no such function' } };
+      // The connection drops BEFORE the call lands: nothing changed server-side.
+      if (net.failSealOnce) { net.failSealOnce = false; throw netErr(); }
       const lot = db.lots.get(args.p_lot_id);
       if (!lot) return { data: null, error: { code: 'P0002', message: 'no such lot' } };
+      // amaw_seal_lot()'s other refusals, by the real message (e.g. "this lot is
+      // not at a plant you hold PlantBook for"), for the status named.
+      if (net.refuse && net.refuse[args.p_status]) {
+        return { data: null, error: { code: '42501', message: net.refuse[args.p_status] } };
+      }
       if (args.p_status === 'Submitted') {
         if (lot.status !== 'Open') {
           return { data: null, error: { message: `lot ${lot.lot_number} is already ${lot.status}, and a lot is never reopened once submitted` } };
@@ -199,6 +206,9 @@ function fakeServer() {
         lot.accepted_name = 'KYTC Reviewer';
       }
       db.events.push({ lot_id: args.p_lot_id, kind: 'status', to_status: args.p_status });
+      // The transaction COMMITTED and the answer is lost on the way back - the
+      // case a seal refused as "already Accepted" really is.
+      if (net.dropNext === args.p_status) { net.dropNext = null; throw netErr(); }
       return { data: lot, error: null };
     },
   };
@@ -394,6 +404,11 @@ head('who may accept');
   ok('…and this device does NOT keep the refused Accept: it reads Submitted again',
      back.status === 'Submitted', back.status);
   ok('…with no seal left pending', back.pending_seal === null, back.pending_seal);
+  // Asked, not assumed: the record is read before anything is put back, and
+  // what it said is KEPT on the lot so a reload still knows.
+  ok('…and it keeps what the record said, and where the record has the lot',
+     !!back.seal_refused && back.seal_refused.status === 'Accepted' && /only KYTC/.test(back.seal_refused.reason)
+       && !!back.seal_refused.record && back.seal_refused.record.status === 'Submitted', back.seal_refused);
   ok('…so it is not in the outbox', (await store.local.outbox()).length === 0);
   const callsBefore = server.net.rpcCalls;
   await store.flush({ by: BY });
@@ -411,6 +426,181 @@ head('who may accept');
   const mine = await store.local.load(saved.uid);
   ok('…and this device agrees, with nothing pending',
      mine.status === 'Accepted' && mine.pending_seal === null, [mine.status, mine.pending_seal]);
+  ok('…carrying the record\'s own who and when',
+     mine.accepted_name === 'KYTC Reviewer' && !!mine.accepted_at, [mine.accepted_name, mine.accepted_at]);
+  ok('…and the new seal superseded the old refusal', mine.seal_refused == null, mine.seal_refused);
+}
+
+// =====================================================================
+head('an Accept that TOOK, its answer lost on the way back');
+// =====================================================================
+{
+  // amaw_seal_lot() commits and the connection drops before the reply. The
+  // retry is then refused - "lot 3 is Accepted, and only a submitted lot can
+  // be accepted" - which is the record AGREEING. Rolled back on that wording,
+  // this device read Submitted over an Accepted ledger and every retry failed.
+  const server = fakeServer();
+  server.net.reviewer = true;
+  const store = newStore(server);
+  const saved = await store.save(blankLot(IDENT), { by: BY });
+  await store.seal(saved.uid, 'Submitted', { sha256: 'a'.repeat(64), by: BY });
+  server.net.dropNext = 'Accepted';
+  const first = await store.seal(saved.uid, 'Accepted', { by: BY });
+  ok('(the reply was lost: the Accept waits, and the record already says Accepted)',
+     !!first.pending_seal && server.db.lots.get(saved.uid).status === 'Accepted',
+     [first.pending_seal, server.db.lots.get(saved.uid).status]);
+  const res = await store.flush({ by: BY });
+  ok('the retry finds it already on the record, and is not a failure', res.failures.length === 0,
+     res.failures.map((f) => f.error.message));
+  const back = await store.local.load(saved.uid);
+  ok('…so this device reads Accepted, nothing pending - not put back to Submitted',
+     back.status === 'Accepted' && back.pending_seal === null, [back.status, back.pending_seal]);
+  ok('…with the record\'s who and when', back.accepted_name === 'KYTC Reviewer' && !!back.accepted_at,
+     [back.accepted_name, back.accepted_at]);
+  ok('…and no refusal kept', back.seal_refused == null, back.seal_refused);
+  const calls = server.net.rpcCalls;
+  await store.flush({ by: BY });
+  ok('…and it is not asked again', server.net.rpcCalls === calls, `${server.net.rpcCalls - calls} seal call(s)`);
+}
+
+// =====================================================================
+head('a second reviewer: the record already reads Accepted');
+// =====================================================================
+{
+  // Both reviewers get the submittal email, so the second one to press Accept
+  // meeting a lot the first already accepted is ORDINARY. The record's "no"
+  // means the lot is Accepted, and this device says so, naming who.
+  const server = fakeServer();
+  server.net.reviewer = true;
+  const store = newStore(server);
+  const saved = await store.save(blankLot(IDENT), { by: BY });
+  await store.seal(saved.uid, 'Submitted', { sha256: 'a'.repeat(64), by: BY });
+  Object.assign(server.db.lots.get(saved.uid),
+    { status: 'Accepted', accepted_at: '2026-09-26T06:03:53.000Z', accepted_name: 'Tate Salle' });
+  let got = null, thrown = null;
+  try { got = await store.seal(saved.uid, 'Accepted', { by: BY }); } catch (e) { thrown = e; }
+  ok('pressing Accept is not an error', !thrown, thrown && [thrown.code, thrown.message]);
+  ok('…the lot handed back says it was ALREADY on the record (adopted), not newly sealed',
+     got && got.adopted === true && got.status === 'Accepted' && got.pending_seal === null,
+     got && [got.adopted, got.status, got.pending_seal]);
+  const back = await store.local.load(saved.uid);
+  ok('…this device reads Accepted, by the reviewer who did it',
+     back.status === 'Accepted' && back.accepted_name === 'Tate Salle' && back.accepted_at === '2026-09-26T06:03:53.000Z',
+     [back.status, back.accepted_name, back.accepted_at]);
+  ok('…and the record was not touched', server.db.lots.get(saved.uid).accepted_name === 'Tate Salle');
+}
+
+// =====================================================================
+head('a Submit that TOOK, its answer lost on the way back');
+// =====================================================================
+{
+  // The seal commits and the reply is lost, so the Submit waits. At the next
+  // flush its data push is refused (the lot is no longer Open) - forever, in
+  // every version before this one, with the chip saying "when there is a
+  // signal". The record holds THIS submission's hash, so it is done.
+  const server = fakeServer();
+  const store = newStore(server);
+  const saved = await store.save(blankLot(IDENT), { by: BY });
+  server.net.dropNext = 'Submitted';
+  const s = await store.seal(saved.uid, 'Submitted', { sha256: 'a'.repeat(64), by: BY });
+  ok('(the reply was lost: the seal waits, and the record already says Submitted)',
+     !!s.pending_seal && server.db.lots.get(saved.uid).status === 'Submitted',
+     [s.pending_seal, server.db.lots.get(saved.uid).status]);
+  const res = await store.flush({ by: BY });
+  ok('the flush finds this very submission on the record, and is not a failure', res.failures.length === 0,
+     res.failures.map((f) => f.error.message));
+  const back = await store.local.load(saved.uid);
+  ok('…nothing is left pending and the outbox is empty',
+     back.status === 'Submitted' && back.pending_seal === null && (await store.local.outbox()).length === 0,
+     [back.status, back.pending_seal]);
+  ok('…carrying the hash and the stamp the record holds',
+     back.submittal_sha256 === 'a'.repeat(64) && !!back.submitted_at, [back.submittal_sha256, back.submitted_at]);
+  const calls = server.net.rpcCalls;
+  await store.flush({ by: BY });
+  ok('…and it is not retried', server.net.rpcCalls === calls, `${server.net.rpcCalls - calls} seal call(s)`);
+}
+
+// =====================================================================
+head('a Submit the record REFUSES: a different submission is already there');
+// =====================================================================
+{
+  // Another device submitted this lot first, with a different payload. This
+  // device's submission is real - the PDF has gone to KYTC - so the lot stays
+  // Submitted here and its seal stays in the outbox. What changed is that the
+  // refusal is KEPT: it used to be one session's memory, and reopening the lot
+  // showed "waiting to be sealed ... when there is a signal" on a device that
+  // was online the whole time.
+  const server = fakeServer();
+  const storage = fakeStorage();
+  const store = newStore(server, storage);
+  const saved = await store.save(blankLot(IDENT), { by: BY });
+  server.net.up = false;
+  await store.seal(saved.uid, 'Submitted', { sha256: 'a'.repeat(64), by: BY });
+  server.net.up = true;
+  Object.assign(server.db.lots.get(saved.uid), { status: 'Submitted', submittal_sha256: 'b'.repeat(64),
+    submitted_name: 'Night Shift', submitted_at: '2026-09-26T02:00:00.000Z' });
+  const res = await store.flush({ by: BY });
+  ok('the flush reports the refusal', res.failures.length === 1, res.failures.map((f) => f.error.message));
+  ok('…carrying where the record has the lot, for the page to say',
+     !!res.failures[0] && !!res.failures[0].error.record && res.failures[0].error.record.submittal_sha256 === 'b'.repeat(64),
+     res.failures[0] && res.failures[0].error.record);
+  const back = await store.local.load(saved.uid);
+  ok('…the lot stays Submitted here, its own seal still waiting',
+     back.status === 'Submitted' && back.pending_seal && back.pending_seal.sha256 === 'a'.repeat(64),
+     [back.status, back.pending_seal]);
+  ok('…with the refusal kept, naming the other submission',
+     !!back.seal_refused && back.seal_refused.status === 'Submitted'
+       && back.seal_refused.record && back.seal_refused.record.submitted_name === 'Night Shift', back.seal_refused);
+  const reloaded = await newStore(server, storage).local.load(saved.uid);
+  ok('…and a reload still knows it was refused', !!reloaded.seal_refused, reloaded.seal_refused);
+  const plain = await store.save({ ...back, seal_refused: null }, { by: BY });
+  ok('an ordinary save cannot clear it', !!(await store.local.load(saved.uid)).seal_refused, plain.seal_refused);
+}
+
+// =====================================================================
+head('a seal that fails AFTER its data push went');
+// =====================================================================
+{
+  // The data goes first and moves the server's counter; the seal then fails.
+  // The new counter was held only in memory, so the next push presented the
+  // old one and read as a colleague's stale-revision conflict.
+  for (const how of ['refused', 'no signal']) {
+    const server = fakeServer();
+    const store = newStore(server);
+    const saved = await store.save(blankLot(IDENT), { by: BY });
+    await store.save({ ...saved, values: { lot_tons: 4000 } }, { by: BY });
+    if (how === 'refused') server.net.refuse = { Submitted: 'this lot is not at a plant you hold PlantBook for' };
+    else server.net.failSealOnce = true;
+    await store.seal(saved.uid, 'Submitted', { sha256: 'a'.repeat(64), by: BY }).catch(() => null);
+    const held = await store.local.load(saved.uid);
+    ok(`${how}: this device kept the server's new counter`,
+       held.server_revision === server.db.data.get(saved.uid).revision,
+       [held.server_revision, server.db.data.get(saved.uid).revision]);
+    server.net.refuse = null;
+    const res = await store.flush({ by: BY });
+    ok(`${how}: …so the retry seals it, with no false conflict`,
+       res.failures.length === 0 && server.db.lots.get(saved.uid).status === 'Submitted',
+       [res.failures.map((f) => f.error.message), server.db.lots.get(saved.uid).status]);
+  }
+}
+
+// =====================================================================
+head('a refusal is the store\'s to keep and the page\'s to acknowledge');
+// =====================================================================
+{
+  const server = fakeServer();
+  const store = newStore(server);
+  const saved = await store.save(blankLot(IDENT), { by: BY });
+  await store.seal(saved.uid, 'Submitted', { sha256: 'a'.repeat(64), by: BY });
+  await store.seal(saved.uid, 'Accepted', { by: BY }).catch(() => null);   // a contractor: refused
+  ok('(a refused Accept is kept on the lot)', !!(await store.local.load(saved.uid)).seal_refused);
+  const forged = await store.save({ ...(await store.local.load(saved.uid)), seal_refused: null }, { by: BY });
+  ok('an ordinary save neither clears nor replaces it', !!(await store.local.load(saved.uid)).seal_refused, forged.seal_refused);
+  await store.acknowledge(saved.uid);
+  ok('acknowledge() clears it', (await store.local.load(saved.uid)).seal_refused == null);
+  const fresh = await newStore(server).save({ ...blankLot({ ...IDENT, lot_number: 8 }),
+    seal_refused: { status: 'Accepted', reason: 'forged' } }, { by: BY });
+  ok('a first save does not take one from the caller either', fresh.seal_refused == null, fresh.seal_refused);
 }
 
 // =====================================================================

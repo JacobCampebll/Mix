@@ -71,6 +71,46 @@ export const isDepartmentBlock = (block) => DEPARTMENT_BLOCKS.indexOf(block) >= 
 // opened by a contractor or kytc after it has been submitted to the state."
 export const LOT_STATUSES = ['Open', 'Submitted', 'Accepted'];
 
+// THE CHAIN BLOCK: what the record stamps on a lot and the client never
+// writes - the status, and the who, when and hash beside it. One list, read
+// off the seal's own returned row (amaw_lots) and off amaw_lot_summaries
+// alike, so "take the record's chain" means the same columns wherever it
+// happens.
+const CHAIN_FIELDS = ['status', 'submitted_at', 'submitted_name', 'accepted_at', 'accepted_name',
+                      'submittal_sha256', 'prev_sha256', 'purge_after', 'purged_at'];
+const statusRank = (s) => LOT_STATUSES.indexOf(s);
+
+function chainOf(row) {
+  const out = {};
+  for (const k of CHAIN_FIELDS) out[k] = row && row[k] != null ? row[k] : null;
+  return out;
+}
+
+// Copy the record's chain onto a lot. Only ever FROM the record: the client
+// takes these and never writes them, which amaw_lots_guard() enforces
+// server-side.
+function takeChain(lot, row) {
+  if (!lot || !row || typeof row !== 'object') return lot;
+  const c = chainOf(row);
+  if (statusRank(c.status) >= 0) lot.status = c.status;
+  for (const k of CHAIN_FIELDS) if (k !== 'status' && c[k] != null) lot[k] = c[k];
+  return lot;
+}
+
+// Does the record already hold what this seal asked for? An Accept is held
+// by a record that reads Accepted, whoever pressed it - which is the point:
+// both reviewers get the submittal email, so a second reviewer finding the lot
+// already accepted is the ordinary case, and so is an Accept whose response
+// was lost on the way back. A SUBMISSION is held only by a record carrying
+// this submission's own hash: another device's submission of the same lot is
+// a different document, and that is a refusal, not an agreement.
+function holdsSeal(rec, seal) {
+  if (!rec || !seal) return false;
+  if (seal.status === 'Accepted') return rec.status === 'Accepted';
+  return statusRank(rec.status) >= statusRank('Submitted') &&
+         !!seal.sha256 && rec.submittal_sha256 === seal.sha256;
+}
+
 // ---------------------------------------------------------------------
 // Identity
 // ---------------------------------------------------------------------
@@ -262,6 +302,10 @@ export function normaliseLot(raw) {
   for (const k of ['values', 'rows', 'records', 'extracted_from']) {
     if (raw[k] && typeof raw[k] === 'object') lot[k] = raw[k];
   }
+  // What the record said when it last REFUSED a seal from this device (see
+  // pushOne()). Store bookkeeping, like pending_seal, and carried only when
+  // there is one, so an ordinary lot's shape does not change.
+  if (raw.seal_refused && typeof raw.seal_refused === 'object') lot.seal_refused = raw.seal_refused;
   lot.history = Array.isArray(raw.history) ? raw.history : [];
   lot.revision = Number(raw.revision || 0);
   lot.synced_revision = raw.synced_revision == null ? null : Number(raw.synced_revision);
@@ -711,6 +755,15 @@ export function supabaseLotStore(opts = {}) {
       return { revision: data.revision, updated_at: data.updated_at };
     },
 
+    /** Where the RECORD has this lot on the chain, and nothing else - the
+     *  ledger row, without the payload. Read when a seal is refused, to tell
+     *  "the record already holds it" from "the record said no". */
+    async chain(uid) {
+      const { data: row, error } = await sb.from(V_SUMMARIES).select('*').eq('id', String(uid)).maybeSingle();
+      if (error) throw fail(error, 'this lot');
+      return row ? chainOf(row) : null;
+    },
+
     /** Move a lot along the chain. The one call a client cannot fake. */
     async seal(uid, status, { sha256 = null, prev = null } = {}) {
       const { data, error } = await sb.rpc(RPC_SEAL, {
@@ -868,8 +921,24 @@ export function syncedLotStore(opts = {}) {
   // permission error, which reads as a conflict it is not. A technician who
   // filled a whole lot offline and then pressed Submit is exactly the case,
   // and it is not a rare one.
+  // Written back here rather than left to the caller, because a failure is
+  // exactly when the caller does not write the lot again.
+  async function keep(lot, by) {
+    try { await local.save(lot, { by, bump: false }); } catch (_) { /* the throw that follows still says what happened */ }
+  }
+
+  // The record's own answer about one lot, or null when it cannot be had. A
+  // null here only means "not known", never "not held".
+  async function recordOf(uid) {
+    if (!remote || typeof remote.chain !== 'function') return null;
+    try { return await remote.chain(uid); } catch (_) { return null; }
+  }
+
+  // Returns whether it reached the server at all - a lot already sealed with
+  // nothing to send makes no call, and "nothing was sent" must not read as
+  // "the server answered" (the caller's noteOk()).
   async function pushOne(lot, by) {
-    if (!remote) return null;
+    if (!remote) return false;
     if (!online()) throw new StorageError('offline', 'no connection — this lot is saved on this device and will sync when you are back online');
     const seal = lot.pending_seal;
     // The server treats a lot as Open until it has been sealed to SUBMITTED,
@@ -877,46 +946,82 @@ export function syncedLotStore(opts = {}) {
     // by then KYTC already holds the copy the hash on the PDF covers, and its
     // data window shut when it was submitted.
     const serverOpen = seal ? seal.status === 'Submitted' : (lot.status === 'Open');
-    let res = null;
-    if (serverOpen) {
-      res = await remote.push(lot, { by });
-      lot.server_revision = Number(res.revision);
-    } else if (!seal && isUnsynced(lot)) {
-      // Already sealed server-side and still holding local changes: they
-      // cannot reach KYTC and never will, because the copy KYTC holds is the
-      // one the hash on the PDF covers. The lot stops asking, and says why
-      // rather than retrying forever or pretending it went.
-      lot.frozen = 'this lot was submitted, so the copy KYTC holds can no longer be changed';
-    }
-    if (seal) {
-      try {
-        await remote.seal(lot.uid, seal.status, { sha256: seal.sha256, prev: seal.prev });
-      } catch (err) {
-        // A REFUSED ACCEPT IS PUT BACK. A refused submission is not, and the
-        // difference is deliberate. A Submit is the technician's act and the
-        // PDF has already downloaded and gone to KYTC, so the lot stays
-        // Submitted on this device whatever the record says, and says so. An
-        // Accept is KYTC's act on a lot the RECORD must already hold as
-        // Submitted: stamped here and refused there, it would read Accepted
-        // on this device while the ledger reads Submitted, and - still
-        // pending - be retried and refused on every flush after. So the stamp
-        // comes off, written back here because this is the one place seal(),
-        // save() and flush() all reach the server through. A transient
-        // failure (no signal, lot storage not set up) keeps the stamp: that
-        // Accept is waiting, not refused.
-        if (seal.status === 'Accepted' && !isTransient(err)) {
-          lot.status = seal.was || 'Submitted';
-          lot.pending_seal = null;
-          try { await local.save(lot, { by, bump: false }); } catch (_) { /* the throw below still says what happened */ }
-        }
+    let reached = false;
+    try {
+      if (serverOpen) {
+        const res = await remote.push(lot, { by });
+        lot.server_revision = Number(res.revision);
+        reached = true;
+      } else if (!seal && isUnsynced(lot)) {
+        // Already sealed server-side and still holding local changes: they
+        // cannot reach KYTC and never will, because the copy KYTC holds is the
+        // one the hash on the PDF covers. The lot stops asking, and says why
+        // rather than retrying forever or pretending it went.
+        lot.frozen = 'this lot was submitted, so the copy KYTC holds can no longer be changed';
+      }
+      if (seal) {
+        const row = await remote.seal(lot.uid, seal.status, { sha256: seal.sha256, prev: seal.prev });
+        reached = true;
+        lot.status = seal.status;
+        takeChain(lot, row);          // the record's own who and when
+      }
+    } catch (err) {
+      if (!seal || isTransient(err)) {
+        // No signal, or no lot storage: the seal waits. But the data push may
+        // already have gone and moved the server's counter - kept, or the next
+        // push presents the old token and reads as a colleague's conflict.
+        if (reached) await keep(lot, by);
         throw err;
       }
+      // REFUSED - OR ALREADY DONE. Before anything is put back, the record is
+      // asked where it has this lot, because "no" from amaw_seal_lot() is also
+      // what an Accept or a Submit that ALREADY TOOK sounds like: its response
+      // lost on the way back, or another reviewer first. Rolled back on the
+      // wording alone, this device read Submitted over an Accepted ledger, said
+      // the Accept had failed, and every retry failed the same way.
+      const rec = await recordOf(lot.uid);
+      if (!holdsSeal(rec, seal)) {
+        // Refused for real, and kept, so a reload still knows (it used to be
+        // one session's memory). A REFUSED ACCEPT IS PUT BACK and a refused
+        // submission is not, deliberately. A Submit is the technician's act
+        // and the PDF has already downloaded and gone to KYTC, so the lot stays
+        // Submitted on this device whatever the record says, and its seal stays
+        // in the outbox. An Accept is KYTC's act on a lot the record must
+        // already hold as Submitted: stamped here and refused there, it would
+        // read Accepted on this device while the ledger reads Submitted, and -
+        // still pending - be retried and refused on every flush after. So the
+        // stamp comes off, here, because this is the one place seal(), save()
+        // and flush() all reach the server through. A transient failure (above)
+        // keeps the stamp: that Accept is waiting, not refused.
+        lot.seal_refused = {
+          status: seal.status,
+          reason: String((err && err.message) || 'no reason was given'),
+          code: (err && err.code) || null,
+          record: rec,
+          at: new Date().toISOString(),
+        };
+        if (seal.status === 'Accepted') {
+          lot.status = seal.was || 'Submitted';
+          lot.pending_seal = null;
+        }
+        await keep(lot, by);
+        if (err && typeof err === 'object') err.record = rec;
+        throw err;
+      }
+      // The record holds it: this device takes the record's chain, and the
+      // seal is done rather than refused. `adopted` rides on the object handed
+      // back (not the stored copy), so a caller can say "already".
+      takeChain(lot, rec);
+      lot.adopted = true;
+      reached = true;
+    }
+    if (seal) {
       lot.pending_seal = null;
-      lot.status = seal.status;
+      lot.seal_refused = null;
     }
     lot.synced_revision = Number(lot.revision || 0);
     lot.synced_at = new Date().toISOString();
-    return res;
+    return reached;
   }
 
   const api = {
@@ -976,7 +1081,10 @@ export function syncedLotStore(opts = {}) {
         // A seal the caller is making wins; otherwise one already waiting on
         // disk must not be dropped by an ordinary save.
         pending_seal: lot.pending_seal || held.pending_seal || null,
-      } : lot;
+        // And the record's last refusal is the store's to keep and to clear
+        // (acknowledge()), never an envelope field a caller carries in.
+        seal_refused: held.seal_refused || null,
+      } : { ...lot, seal_refused: null };
       const saved = await local.save(incoming, { by });
       if (sync && remote) {
         try {
@@ -1076,6 +1184,7 @@ export function syncedLotStore(opts = {}) {
           `lot ${lot.lot_number}'s submission has not reached KYTC's lot record yet, so it cannot be accepted until it has`);
       }
       lot.pending_seal = { status, sha256, prev, at: new Date().toISOString() };
+      lot.seal_refused = null;          // a new seal supersedes the last refusal
       // What a REFUSED Accept puts back (pushOne()). Carried on the seal
       // itself rather than held in this call, because an Accept made with no
       // signal is refused - if it is refused - by a later flush.
@@ -1105,6 +1214,16 @@ export function syncedLotStore(opts = {}) {
         announce();
       }
       return saved;
+    },
+
+    /** The record REFUSED a seal from this device (pushOne() keeps that on
+     *  the lot) and the caller has now said so out loud - on screen and in
+     *  the lot's own history - so this device stops carrying it. */
+    async acknowledge(uid) {
+      const lot = await local.load(uid);
+      if (!lot || !lot.seal_refused) return lot;
+      lot.seal_refused = null;
+      return local.save(lot, { bump: false });
     },
 
     /** Send everything the server has not confirmed. Safe to call often —

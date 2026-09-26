@@ -1535,12 +1535,27 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
   // reproduces are amaw_seal_lot()'s own, as check_storage.mjs's fuller one is.
   const fakeLedger = () => {
     const lots = new Map(), data = new Map();
-    const f = { up: true, reviewer: false, calls: 0, lots };
+    const f = { up: true, reviewer: false, calls: 0, lots, dropNext: null };
     const netErr = () => Object.assign(new Error('Failed to fetch'), { code: '' });
     const settle = (d, e) => { const p = Promise.resolve({ data: d, error: e }); p.select = () => p; p.single = () => p; return p; };
     const refuse = () => { const p = Promise.reject(netErr()); p.select = () => p; p.single = () => p; return p; };
     f.client = {
       from: (table) => ({
+        // The one ledger row a REFUSED seal asks for (supabaseLotStore().chain()),
+        // so "the record already holds it" is exercised on both copies rather
+        // than falling back to "not known" on both.
+        select: () => {
+          let id = null;
+          const q = {
+            eq: (k, v) => { if (k === 'id') id = v; return q; },
+            maybeSingle: () => {
+              if (!f.up) return Promise.reject(netErr());
+              const l = lots.get(id);
+              return Promise.resolve({ data: l ? { ...l } : null, error: null });
+            },
+          };
+          return q;
+        },
         upsert: (row) => {
           if (!f.up) return refuse();
           if (table === 'amaw_lots') {
@@ -1566,7 +1581,10 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
           if (!f.reviewer) return { data: null, error: { message: 'only KYTC accepts a lot' } };
           if (l.status !== 'Submitted') return { data: null, error: { message: `lot ${l.lot_number} is ${l.status}, and only a submitted lot can be accepted` } };
           l.status = 'Accepted';
+          l.accepted_name = 'KYTC Reviewer';
         }
+        // Committed, and the reply lost on the way back.
+        if (f.dropNext === a.p_status) { f.dropNext = null; throw netErr(); }
         return { data: l, error: null };
       },
     };
@@ -1578,14 +1596,18 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
     const store = impl.syncedLotStore({ storage: stubStorage(), client: f.client });
     const trace = [];
     const attempt = async (fn) => {
-      try { const l = await fn(); return { ok: true, status: l && l.status }; }
-      catch (err) { return { ok: false, code: err && err.code, message: err && err.message }; }
+      try { const l = await fn(); return { ok: true, status: l && l.status, adopted: !!(l && l.adopted) }; }
+      catch (err) { return { ok: false, code: err && err.code, message: err && err.message,
+                             record: err && err.record ? err.record.status : null }; }
     };
     const snap = async (label, uid) => {
       const l = await store.local.load(uid);
       const st = store.state();
       trace.push({ label, status: l && l.status,
                    pending: l && l.pending_seal ? { status: l.pending_seal.status, was: l.pending_seal.was || null } : null,
+                   refused: l && l.seal_refused ? { status: l.seal_refused.status,
+                                                    record: l.seal_refused.record ? l.seal_refused.record.status : null } : null,
+                   accepted_name: (l && l.accepted_name) || null,
                    outbox: (await store.local.outbox()).length, online: st.online, notSetUp: st.notSetUp,
                    lastError: st.lastError || null, ledger: (f.lots.get(uid) || {}).status || null, calls: f.calls });
     };
@@ -1608,6 +1630,21 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
     f.up = false;
     trace.push(await attempt(() => store.seal(third.uid, 'Submitted', { sha256: 'c'.repeat(64), by })));
     trace.push(await attempt(() => store.seal(third.uid, 'Accepted', { by })));                       await snap('accept over a waiting submission', third.uid);
+    f.up = true;
+    // An Accept that TOOK, its reply lost: the retry is refused as "already
+    // Accepted", which is the record agreeing - adopted, not put back.
+    const fourth = M.blankLot({ ...identities[0], lot_number: 6 });
+    await store.save(JSON.parse(JSON.stringify(fourth)), { by });
+    trace.push(await attempt(() => store.seal(fourth.uid, 'Submitted', { sha256: 'd'.repeat(64), by })));
+    f.dropNext = 'Accepted';
+    trace.push(await attempt(() => store.seal(fourth.uid, 'Accepted', { by })));                      await snap('accept whose reply was lost', fourth.uid);
+    await store.flush({ by });                                                              await snap('accept that took, found on the record', fourth.uid);
+    // A second reviewer: the record already reads Accepted.
+    const fifth = M.blankLot({ ...identities[0], lot_number: 7 });
+    await store.save(JSON.parse(JSON.stringify(fifth)), { by });
+    trace.push(await attempt(() => store.seal(fifth.uid, 'Submitted', { sha256: 'e'.repeat(64), by })));
+    Object.assign(f.lots.get(fifth.uid), { status: 'Accepted', accepted_name: 'Tate Salle' });
+    trace.push(await attempt(() => store.seal(fifth.uid, 'Accepted', { by })));                       await snap('second reviewer', fifth.uid);
     return trace;
   };
   let pageTrace, modTrace;
@@ -1621,6 +1658,15 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
   ok('…and that trace does put a refused Accept back (Submitted, nothing pending, nothing retried)',
      !!refused && refused.status === 'Submitted' && refused.pending === null && refused.outbox === 0,
      refused);
+  ok('…keeping what the record said, and where it has the lot',
+     !!refused && !!refused.refused && refused.refused.status === 'Accepted' && refused.refused.record === 'Submitted',
+     refused && refused.refused);
+  const tookIt = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'accept that took, found on the record') : null;
+  const second = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'second reviewer') : null;
+  ok('…and ADOPTS an Accept the record already holds - a lost reply, or a second reviewer - rather than putting it back',
+     !!tookIt && tookIt.status === 'Accepted' && tookIt.pending === null && tookIt.refused === null
+       && !!second && second.status === 'Accepted' && second.accepted_name === 'Tate Salle' && second.refused === null,
+     [tookIt, second]);
 }
 
 // =====================================================================
