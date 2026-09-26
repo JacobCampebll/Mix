@@ -5610,8 +5610,9 @@ commit where possible.
   refusal written only to `#saveMsg` lands in the rail, off-screen at every
   width, and the click looked dead - and the rail line says the lot reopened
   only so its measurements are not lost; and `lotFromApproval()` still builds
-  a lot on INVALID, because refusing is the page's call. `VERIFICATION_LABELS` and
-  `verificationText()` ("label - reason") in intake.mjs are the one wording -
+  a lot on INVALID, because refusing is the page's call.
+  `VERIFICATION_LABELS` and `verificationText()` ("label - reason") in
+  intake.mjs are the one wording -
   anything unknown reads as not checked, never as verified - for the door, the
   reopen and audit lines, the rail, the lot PDF header and an "Approval
   signature" readout on Contract & Mix. That readout is `approval_signature`,
