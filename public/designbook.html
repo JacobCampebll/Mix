@@ -1992,12 +1992,21 @@ const CONFIG = {
   ],
 
   // ---- PlantBook ----
-  // A lot's own ladder, which is not a design's. `Closed` is the lot as
-  // placed - 4,000 tons down and every sublot tested - before it is handed to
-  // KYTC, and it is a real state rather than a courtesy: amaw_lots.sql only
-  // lets the author delete a lot while it is Open. The four spellings are
-  // that table's own check constraint, so a lot written here and a lot
-  // written there cannot disagree about what stage means.
+  // A lot's own ladder, which is not a design's: FOUR stages on this page over
+  // THREE statuses in the ledger. amaw_lots' check constraint is Open /
+  // Submitted / Accepted and nothing else (storage.mjs's LOT_STATUSES says the
+  // same), and only Submitted and Accepted SEAL - both go through
+  // amaw_seal_lot(), the one call a client cannot fake (sealLotSubmitted() and
+  // sealLotAccepted()).
+  //
+  // `Closed` is the lot as placed - 4,000 tons down and every sublot tested -
+  // before it is handed to KYTC, and it is a LOCAL step only. Nothing stores
+  // it: the store keeps the ledger's status, so a Closed lot is Open to the
+  // server (its data still writable, the author still able to delete it), and
+  // normaliseLot() reads the word back as Open, so a lot reopened from the list
+  // or from its own .json or PDF comes back Open. An earlier version of this
+  // comment called the four spellings that table's check constraint; the
+  // constraint has three.
   LOT_STAGES: [
     { key: "Open",      css: "draft",    next: "Close the lot →",
       note: "The lot is being produced. Add each sublot's tickets, volumetrics, gradation and cores as they come off the plant." },
