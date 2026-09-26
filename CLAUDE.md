@@ -5520,7 +5520,9 @@ commit where possible.
   `nativeInputType()` asks the BROWSER whether it would keep a stored value -
   a regex copy of its rule could only drift towards data loss - and draws a
   text box showing it as typed if not; the rail says it will not reach the
-  AMAW. **Chromium reports `scrollWidth === clientWidth` for a squeezed date or
+  AMAW. A time WITH seconds is kept but its picker outgrows the HH:MM track
+  (130-150px against 124), so it shows in a text box too - it still converts,
+  and the picker never makes seconds itself. **Chromium reports `scrollWidth === clientWidth` for a squeezed date or
   time input**, so the viewports sweep now measures pickers by intrinsic width;
   their tracks floor at 144/124px by column TYPE (`rowGridTemplate()`), and
   `grid` stays pure `fr` because `gridWeights()` sizes the lot PDF from it.

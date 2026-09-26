@@ -5803,7 +5803,17 @@ function nativeInputType(type, value) {
   const probes = nativeInputType.probes || (nativeInputType.probes = {});
   const el = probes[type] || (probes[type] = Object.assign(document.createElement("input"), { type }));
   el.value = s;
-  return el.value === s ? type : "text";
+  if (el.value !== s) return "text";
+  // A TIME WITH SECONDS is kept by the browser, but its picker then draws the
+  // seconds as well and outgrows a track sized for HH:MM - 130-150px against
+  // the 124px floor, measured at 1x-3x (2026-09-26) - and the picker never
+  // makes seconds itself (its step is a minute), so only a lot typed before
+  // the pickers carries them. Widening every ticket table 28px for that would
+  // make it scroll at 1440px too; instead the value shows as typed in a text
+  // box, where eight characters need half the width. It still converts
+  // (amTimeFraction() takes HH:MM:SS), so nothing is flagged.
+  if (type === "time" && /^\d{2}:\d{2}:\d{2}/.test(s)) return "text";
+  return type;
 }
 // Where a browser has no picker a date/time input is a text box, so it says
 // what shape to type. Browsers with a picker ignore a placeholder on one.

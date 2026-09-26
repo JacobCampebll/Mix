@@ -277,10 +277,27 @@ export async function run({ browser, results, books }) {
               .map((v) => v.textContent.replace(/\s+/g, " ").trim()).filter((t) => /Ticket sublot/.test(t)).join(" | ");
             return { type: el.type, value: el.value, rail };
           }, dsel);
-          return { reach, held, rt, year, errs: realErrors(e3) };
+          /* A TIME WITH SECONDS, from a lot typed before the pickers. The
+           * browser keeps "14:15:30", but its picker draws the seconds and
+           * outgrows the 124px track, so it reopens as typed in a text box -
+           * which reports its own overflow honestly, unlike a picker - and it
+           * still converts, so the rail says nothing about it. */
+          const secs = await page.evaluate(async () => {
+            const b = collectForm();
+            b.rows.sublot_tickets[1] = { ...b.rows.sublot_tickets[1], date: "2026-09-25", time: "14:15:30" };
+            state.extracted = { scalars: b.values, tables: b.rows };
+            renderForm();
+            go(topSections().findIndex((s) => s.id === "sublot-2"), null, false);
+            await new Promise((res) => setTimeout(res, 150));
+            const el = document.querySelector('[data-section="sublot-2"] [data-rowlist="sublot_tickets"] [data-col="time"]');
+            const railed = Array.from(document.querySelectorAll("#vallist .vitem")).some((v) => /14:15:30/.test(v.textContent));
+            return { type: el.type, value: el.value, sw: el.scrollWidth, cw: el.clientWidth,
+                     collected: (collectForm().rows.sublot_tickets[1] || {}).time, railed };
+          });
+          return { reach, held, rt, year, secs, errs: realErrors(e3) };
         });
       if (!open.skipped) {
-        const { held, rt, year, errs: e3 } = open.value;
+        const { held, rt, year, secs, errs: e3 } = open.value;
         results.ok(id, book.label, "with the sublots open, all 8 ticket pickers take the fill's values",
                    held.count === 8 && held.empty.length === 0,
                    `${held.count - held.empty.length}/${held.count} hold a value` +
@@ -298,6 +315,11 @@ export async function run({ browser, results, books }) {
                    year.type === "date" && year.value === "0026-09-24" && namesYear,
                    `picker holds ${JSON.stringify(year.value)}` + (namesYear ? ", the rail names the year"
                      : ` | the rail says: ${year.rail.slice(0, 220) || "(no ticket line)"}`));
+        results.ok(id, book.label, "a time with seconds reopens whole in a text box, kept, and unflagged",
+                   secs.type === "text" && secs.value === "14:15:30" && secs.cw > 0 && secs.sw <= secs.cw + 1
+                     && secs.collected === "14:15:30" && !secs.railed,
+                   `${secs.type} "${secs.value}" ${secs.sw}/${secs.cw}px, collected ${JSON.stringify(secs.collected)}` +
+                   (secs.railed ? ", but the rail flags it" : ""));
         results.ok(id, book.label, "sublots-open pass: clean console", e3.length === 0, e3.slice(0, 2).join(" | ") || "0 errors");
       }
     }
