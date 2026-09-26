@@ -5561,7 +5561,7 @@ commit where possible.
   diffing every drawn string of a design: only those two headings changed,
   and column 1 below them moved 7.2pt. A single word wider than its column is
   still cut ("Lot-sublot" and "Temp" on the ticket).
-  **The ticket table SCROLLS below 1440px rather than squeezing** - corrected
+  **The ticket table SCROLLS below about 1410px rather than squeezing** - corrected
   the same day, after review measured the first cut clipping Binder lot, Tack
   lot and Tech (8-character values) from 1000 to 1440px, and AC method's
   seeded "Ignition Furnace" on every lot: the pickers' width had come out of
