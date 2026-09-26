@@ -5514,25 +5514,35 @@ commit where possible.
   rail prints too, so the two cannot disagree. **The year is its own reason**:
   Chromium's year field keeps what is typed, so the paper's "9/24/26" becomes
   `0026-09-24`, a real YYYY-MM-DD, and "it takes YYYY-MM-DD" would ask for
-  exactly what was typed. The lines also go to `report.refused`, so a value
-  someone TYPED can be listed ahead of the cells nobody filled.
-  **A picker blanks a value not in its own shape**, so
-  `nativeInputType()` asks the BROWSER whether it would keep a stored value -
-  a regex copy of its rule could only drift towards data loss - and draws a
-  text box showing it as typed if not; the rail says it will not reach the
-  AMAW. A time WITH seconds is kept but its picker outgrows the HH:MM track
-  (130-150px against 124), so it shows in a text box too - it still converts,
-  and the picker never makes seconds itself. **Chromium reports `scrollWidth === clientWidth` for a squeezed date or
-  time input**, so the viewports sweep now measures pickers by intrinsic width;
-  their tracks floor at 144/124px by column TYPE (`rowGridTemplate()`), and
-  `grid` stays pure `fr` because `gridWeights()` sizes the lot PDF from it.
-  **That makes the ticket's `fr` a PDF measurement**: the table is 345pt for
-  eleven columns, and each weight is its column's widest ordinary value in
-  pdf-lib's Helvetica plus the cell's padding (337pt of the 345), so an ISO
-  date, a 4- or 5-digit tonnage, both lot numbers and an SM ID all print
-  whole. The first cut bought the date's 1.4fr from "Tons today before
-  sample", which then printed a 4-digit figure as "1..." in the submittal
-  KYTC reads - caught in review by capturing pdf-lib's `drawText`.
+  exactly what was typed. The picker's `max="9999-12-31"` stops a fifth digit;
+  its `min="1900-01-01"` cannot stop a short year. Refused lines also go to
+  `report.refused`, and the AMAW download lists them ahead of the untyped
+  gaps - it shows four lines and counts the rest, and a real lot has twenty-odd.
+  **A picker blanks a value not in its own shape**, so `nativeInputType()` asks
+  the BROWSER whether it would keep a stored value - a regex copy of its rule
+  could only drift towards data loss - and draws a text box showing it as
+  typed if not; the rail says it will not reach the AMAW. A time WITH seconds
+  is kept but its picker outgrows the HH:MM track (130-150px against 124), so
+  it shows in a text box too; it still converts, and the picker never makes
+  seconds itself. The rail line carries its box as `focus` (passed through
+  `productionSpecWarnings()`' pooling), so a click lands in it rather than in
+  the section's first empty field, and it says when a sublot it names is
+  locked instead of telling a contractor to fix what they cannot edit.
+  `go()` then brings the box on screen: below 700px it used to focus with
+  preventScroll after scrolling only to the section's start (2678px short on a
+  phone), and a disabled box takes no focus-scroll at all.
+  **Chromium reports `scrollWidth === clientWidth` for a squeezed date or time
+  input**, so the viewports sweep measures pickers by intrinsic width; their
+  tracks floor at 144/124px by column TYPE (`rowGridTemplate()`), and a picker
+  is pinned to the row's 28px height (it lays out 2-3px taller). `grid` stays
+  pure `fr` because `gridWeights()` sizes the lot PDF from it, **which makes
+  the ticket's `fr` a PDF measurement**: the table is 345pt for eleven
+  columns, and each weight is its column's widest ordinary value in pdf-lib's
+  Helvetica plus the cell's padding (337pt of the 345), so an ISO date, a 4-
+  or 5-digit tonnage, both lot numbers and an SM ID all print whole. The first
+  cut bought the date's 1.4fr from "Tons today before sample", which then
+  printed a 4-digit figure as "1..." in the submittal KYTC reads - caught in
+  review by capturing pdf-lib's `drawText`.
   **The ticket table SCROLLS below 1440px rather than squeezing** - corrected
   the same day, after review measured the first cut clipping Binder lot, Tack
   lot and Tech (8-character values) from 1000 to 1440px, and AC method's
@@ -5541,19 +5551,19 @@ commit where possible.
   pickers by type, the rest by a `minPx` the schema declares (78px for the lot
   numbers and SM ID, 128px for AC method, 56px for the lot-sublot id and the
   temperature, which need less than the 64px default) - 1014px in all: whole
-  at 1440, scrolling 28-180px below it (58px at 1366). **Measure a floor in
-  the REAL fonts**: the harness is offline and falls back to DejaVu, where
-  "Ignition Furnace" needs 121px; in Public Sans it needs 125, so a floor
-  measured in the harness alone clips on the live site (the fonts install
-  from @fontsource into a scratch dir and inject as @font-face). **Open, for
-  Jake**: hiding Lot-sublot, which repeats the tab title as `blend_pct`'s did,
-  would let it fit at 1100 and 1366 too (measured with the floors; 1244 and
-  1280 still scroll) - a layout call, not taken here. **Harness gaps.**
-  PlantBook's default round trip and viewports sweep never fill a sublot tab
-  (locked while the fill runs), so the pickers round-trip in a
-  `?sublots=open` pass, and the viewports check has a ticket pass that opens
-  a real lot with the sublots open, types real-shaped values and measures
-  each control by what it NEEDS - a select by its selected label, because a
+  at 1440 and up, scrolling below it (58px at 1366, 28px at 1100). **Measure a
+  floor in the REAL fonts**: the harness is offline and falls back to DejaVu,
+  where "Ignition Furnace" needs 121px; in Public Sans it needs 125, so a
+  floor measured in the harness alone clips on the live site (the fonts
+  install from @fontsource into a scratch dir and inject as @font-face).
+  **Open, for Jake**: hiding Lot-sublot, which repeats the tab title as
+  `blend_pct`'s did, would let it fit at 1100 and 1366 too (measured with the
+  floors; 1244 and 1280 still scroll) - a layout call, not taken here.
+  **Harness gaps.** PlantBook's default round trip and viewports sweep never
+  fill a sublot tab (locked while the fill runs), so the pickers round-trip in
+  a `?sublots=open` pass, and the viewports check has a ticket pass that opens
+  a real lot with the sublots open, types real-shaped values and measures each
+  control by what it NEEDS - a select by its selected label, because a
   `<select>` too reports `scrollWidth === clientWidth` however far its label
   is cut (watched failing on fa03510 at eleven widths). The generic sweep
   still does not measure selects that way, deliberately: doing so reveals
