@@ -126,7 +126,7 @@ export async function run({ browser, results }) {
       await h.page.waitForFunction(() => state.book === "plantbook" && state.bookDoor === true,
         null, { timeout: 15000 });
       const c = await h.page.evaluate(PHASE_C, { uid: ab.uid });
-      return { ab, c, errs: realErrors(h.errors || []) };
+      return { ab, c, errs: realErrors(h.errs || []) };
     });
   if (out.skipped) { results.skip(id, BOOK, "the lot store after its tables are removed", out.skipped); return; }
   const { ab, c } = out.value;

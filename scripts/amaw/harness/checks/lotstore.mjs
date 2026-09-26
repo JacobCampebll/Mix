@@ -336,7 +336,7 @@ export async function run({ browser, results }) {
     async (h) => {
       await h.page.addScriptTag({ content: `window.fillFormFn = ${fillForm.toString()};` });
       const r = await h.page.evaluate(READ, { approval: APPROVAL });
-      return { r, errs: realErrors(h.errors || []) };
+      return { r, errs: realErrors(h.errs || []) };
     });
 
   if (out.skipped) { results.skip(id, BOOK, "the lot store", out.skipped); return; }
@@ -480,7 +480,7 @@ export async function run({ browser, results }) {
     { width: 1440, height: 1000, query: "&sublots=open", unapplied: true },
     async (h) => {
       const r = await h.page.evaluate(UNAPPLIED, { approval: APPROVAL });
-      return { r, errs: realErrors(h.errors || []) };
+      return { r, errs: realErrors(h.errs || []) };
     });
   if (un.skipped) { results.skip(id, BOOK, "with the schema unapplied", un.skipped); return; }
   const u = un.value.r;
