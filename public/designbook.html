@@ -24024,12 +24024,15 @@ function renderLotStage() {
       : "";
   }
   const medl = $("medlNote");
-  // The address, named before Submit; once the send row is up it says the
-  // same thing about the file that actually downloaded, so this goes.
+  // Says KYTC, not the two addresses: this note is one line at 1440 beside
+  // the save note and the Start lot sentence (Jake, 2026-09-24), and the
+  // addresses took it to two. The confirm dialog names them before Submit and
+  // the send row after it. Once the row is up it says the same thing about
+  // the file that actually downloaded, so this goes.
   if (medl) medl.innerHTML = state.canReview
     ? " You can also build the <strong>AMAW for MEDL</strong> from this lot."
     : sending ? ""
-    : ` Submit downloads the <strong>submittal PDF</strong> to email to ${esc(kytcAddressText() || "KYTC")}.`;
+    : " Submit downloads the <strong>submittal PDF</strong> to email to KYTC.";
   // renderForm() re-creates #stageMsg empty, and a refused Accept's #stageWarn
   // decides whether the echo shows: both are settled above.
   echoStageMsg();

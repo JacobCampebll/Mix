@@ -5777,7 +5777,13 @@ commit where possible.
   to send it again. "Email it now" is a mailto, so the server stays
   out of the mail path (2026-09-10). A mailto cannot attach, so the body
   starts "Attached: <file>". With `CONFIG.SUBMIT.KYTC_EMAIL` null nothing
-  new renders. **Trap for the harness**: Submit re-renders the stage in its
+  new renders. **The note before Submit names both addresses on DesignBook
+  only.** DesignBook's `#stageNote` has a line to itself. PlantBook's
+  Submit sentence shares one line with the save note and Start lot n+1,
+  which the 2026-09-24 entry records as one line at 1440, and the two
+  addresses took it to two lines. So it still says "KYTC". The confirm
+  dialog names the addresses before Submit and the send row names them
+  after it. `stagemsg` measures that line at 1440. **Trap for the harness**: Submit re-renders the stage in its
   `finally`, which re-echoes, so a check that only submits passes with
   `msg()`'s echo deleted. `checks/stagemsg.mjs` re-downloads the submittal
   (a `msg()` with no render after it) for that reason.

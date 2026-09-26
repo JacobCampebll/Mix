@@ -348,8 +348,12 @@ export async function run({ browser, results }) {
       const out = await submitCase(browser, book, w, h);
       if (out.skipped) { results.skip(id, book.label, at, out.skipped); continue; }
       const { before, after, downloaded, copied, errs } = out.value;
+      // DesignBook's stage note has a line to itself and names both. PlantBook's
+      // shares one line with the save note and Start lot n+1 and says KYTC:
+      // with the addresses it wrapped at 1440 (lineCase below).
       const pre = book === PLANT ? before.medl : before.note;
-      ok("the note before Submit names both addresses", pre.includes(A) && pre.includes(T), pre);
+      if (book === PLANT) ok("the note before Submit says KYTC and no address", /KYTC/.test(pre) && !pre.includes("@"), pre);
+      else ok("the note before Submit names both addresses", pre.includes(A) && pre.includes(T), pre);
       ok("…and nothing of the send row is there before a submission",
          !before.rowShown && before.mails.length === 0 && !before.copyBtn,
          `row shown=${before.rowShown} mailtos=${before.mails.length}`);
@@ -408,4 +412,31 @@ export async function run({ browser, results }) {
     ok("clean console", errs.length === 0, errs.join(" | ") || "clean");
   }
   await custodyCases(browser, results);
+  await lineCase(browser, results);
+}
+
+/* PlantBook's Submit step note is ONE line at 1440 - the save note, the
+ * Submit sentence and Start lot n+1 (Jake, 2026-09-24). Naming both KYTC
+ * addresses in it took it to two. Measured on a fresh lot, before Submit. */
+async function lineCase(browser, results) {
+  const out = await withBook(browser, PLANT, { width: 1440, height: 1000 }, async ({ page, errs }) => {
+    await page.addStyleTag({ content: ".section{animation:none!important;opacity:1!important}" });
+    await page.evaluate((approval) => {
+      const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+      openLotEnvelope(out.lot, "the harness");
+    }, APPROVAL);
+    await page.waitForTimeout(500);
+    await page.evaluate(TO_STATUS);
+    await page.waitForTimeout(300);
+    return page.evaluate(() => {
+      const el = document.querySelector(".handoffnote.one"), cs = getComputedStyle(el);
+      return { lines: el.getBoundingClientRect().height / parseFloat(cs.lineHeight), text: el.textContent,
+               errs: 0 };
+    }).then((r) => ({ ...r, errs: realErrors(errs) }));
+  });
+  if (out.skipped) { results.skip(id, "PlantBook", "1440 save note", out.skipped); return; }
+  const r = out.value;
+  results.ok(id, "PlantBook", "1440 the Submit step's note is one line before Submit", r.lines < 1.6,
+             `lines=${r.lines.toFixed(2)} ${r.text.slice(0, 80)}`);
+  results.ok(id, "PlantBook", "1440 clean console", r.errs.length === 0, r.errs.join(" | ") || "clean");
 }
