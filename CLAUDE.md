@@ -5563,7 +5563,7 @@ commit where possible.
   still cut ("Lot-sublot" and "Temp" on the ticket).
   **The ticket table SCROLLS below about 1410px rather than squeezing** - corrected
   the same day, after review measured the first cut clipping Binder lot, Tack
-  lot and Tech (8-character values) from 1000 to 1440px, and AC method's
+  lot and Tech (7- and 8-character values) from 701 to 1440px, and AC method's
   seeded "Ignition Furnace" on every lot: the pickers' width had come out of
   the longest strings. Every ticket column now sits on a pixel floor - the
   pickers by type, the rest by a `minPx` the schema declares (78px for the lot
