@@ -93,6 +93,9 @@ export async function run({ browser, results }) {
         "switching leaves no orphan controls",
         "DesignBook's values survive a round trip through PlantBook",
         "switching raises no console or page error",
+        // The case below the early return runs in its own context, so it
+        // vanishes on this path unless it is named here.
+        "back from the door to DesignBook's upload card, its appbar is as it was",
       ]) results.skip(id, BOOK, kase, entered.why);
       return;
     }
