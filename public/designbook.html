@@ -10729,7 +10729,11 @@ function wireForm() {
       state.stageIdx += 1;
       state.history = (state.history || []).concat([custodyEntry(`Lot ${next.key.toLowerCase()}`)]);
       renderLotStage();
-      msg($("saveMsg"), `Lot is ${next.key}. Download the lot PDF - the site keeps nothing.`, "ok");
+      // Where the lot is kept, said the way the save note under the Submit
+      // step's buttons says it - lotStorageLive() is that note's own gate.
+      msg($("saveMsg"), lotStorageLive()
+        ? `Lot is ${next.key}. It stays saved as you go.`
+        : `Lot is ${next.key}. Download the lot PDF - the site keeps nothing.`, "ok");
       return;
     }
     const s = CONFIG.STAGES[state.stageIdx];
@@ -23873,10 +23877,12 @@ function gotoLotSource(spec) {
  * forward, and making them save first to get it would be a trap rather than a
  * rule.
  *
- * It CONFIRMS, because this replaces what is on screen and nothing about a
- * lot is kept on the site - an unsaved lot 7 is gone. The note under the
- * button says to save first; the dialog is the second chance, and it names
- * the lot being left rather than asking "are you sure".
+ * It CONFIRMS, because this replaces what is on screen, and the dialog names
+ * the lot being left rather than asking "are you sure". What it says about
+ * that lot depends on lotStorageLive(), the save note's own gate: with lot
+ * storage live, lot 7 is saved as it is typed and stays on the Start a lot
+ * list; without it nothing about a lot is kept on the site, an undownloaded
+ * lot 7 is gone, and the dialog says exactly that (then true).
  *
  * PB_LOT.rollForwardLot does the work and openLotEnvelope loads the answer,
  * so this function decides nothing about what carries. That is deliberate:
@@ -23898,12 +23904,24 @@ function startNextLot() {
   }
   const current = lotSnapshot();
   const next = Number(current.lot_number) + 1;
+  const live = lotStorageLive();
   if (!window.confirm(
       `Start lot ${next} on ${current.mix_id}?\n\n`
-      + `Lot ${current.lot_number} closes here. Nothing about it is kept on this site, so if you `
-      + `have not downloaded its lot PDF or .json, it is gone.\n\n`
+      + (live
+        ? `Lot ${current.lot_number} closes here. It is saved as you go, so it stays in your lots `
+          + `on the Start a lot page.\n\n`
+        : `Lot ${current.lot_number} closes here. Nothing about it is kept on this site, so if you `
+          + `have not downloaded its lot PDF or .json, it is gone.\n\n`)
       + `The contract, plant, mix, approval, blend and project items carry over to lot ${next}. `
       + `Every measurement is cleared.`)) return;
+  // ...and "saved as you go" has to be true of the last keystroke too. The
+  // autosave is debounced, so anything typed in the last moment before this
+  // is still on its timer - which would fire after lot n+1 is on screen and
+  // save THAT instead. saveLotNow() takes its snapshot synchronously, before
+  // anything below replaces the lot, so lot n is written as it stands. Not
+  // awaited: the store saves local-first, and the next lot opens either way.
+  if (lotSaveTimer) { clearTimeout(lotSaveTimer); lotSaveTimer = null; }
+  if (state.lot && (!state.lot.status || state.lot.status === "Open")) saveLotNow();
 
   const r = PB_LOT.rollForwardLot(current, {
     sm_id: state.tech ? state.tech.sm_id : null,
@@ -24009,7 +24027,13 @@ async function submitLotToKYTC() {
   if (!state.tech) { msg($("saveMsg"), "Sign in before submitting.", "error"); return; }
   const who = state.tech.sm_id;
   const to = CONFIG.SUBMIT.KYTC_EMAIL;
-  if (!confirm(`Submit this lot to KYTC as ${who}?\n\nThe submittal PDF downloads now. Email it to ${to || "KYTC Central Office Materials"} yourself - the site does not send it, and keeps no copy.`)) return;
+  // "keeps no copy" stopped being true on 2026-09-24 wherever lot storage is
+  // live; lotStorageLive() is the save note's own gate, so this dialog and the
+  // note under the button cannot disagree about where the lot is kept.
+  const kept = lotStorageLive()
+    ? "the site does not send it. Submitting also seals this lot in KYTC's lot record, so it cannot be changed afterwards."
+    : "the site does not send it, and keeps no copy.";
+  if (!confirm(`Submit this lot to KYTC as ${who}?\n\nThe submittal PDF downloads now. Email it to ${to || "KYTC Central Office Materials"} yourself - ${kept}`)) return;
 
   const btn = $("advanceStage"), was = btn ? btn.textContent : "";
   const prevIdx = state.stageIdx;
