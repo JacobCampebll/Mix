@@ -5666,12 +5666,16 @@ commit where possible.
   with a history line written at reopen time. Refused by a flush, with nobody
   watching, it is said on the door if no lot is open, and on the lot with a
   history line "Accept refused by KYTC's lot record" after its "Lot accepted"
-  (history only grows). A refused Submit stays, deliberately, its seal still
-  in the outbox. Only the store's own refusal record puts a page back, with
-  that lot's reason: never a disagreement between two statuses, never
+  (history only grows) - saying why that Accept had waited (`seal()` writes
+  `waited`, `no_signal` or `not_set_up`, on a seal it leaves waiting, and the
+  refusal keeps it: "made without a signal" only of one that did), and where
+  the record had the lot WHEN it refused, in the past tense, because the lot
+  may be opened days later. A refused Submit stays, deliberately, its seal
+  still in the outbox. Only the store's own refusal record puts a page back,
+  with that lot's reason: never a disagreement between two statuses, never
   `lastError`, and never over a lot this device holds as Accepted
-  (`acceptRefusalToSay()`). The rollback is in
-  storage.mjs's `pushOne()`, the one door `seal()`/`save()`/`flush()` share;
+  (`acceptRefusalToSay()`). The rollback is in storage.mjs's `pushOne()`, the
+  one door `seal()`/`save()`/`flush()` share;
   "no such lot" (P0002) is an answer, not a lost signal, and a missing seal
   function (PGRST202) is not set up, not no signal.
   **The chain is the record's.** It moves without the data moving, so load()

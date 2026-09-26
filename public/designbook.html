@@ -20184,6 +20184,9 @@ const PB_LOT = (() => {
             code: (err && err.code) || null,
             record: rec,
             at: new Date().toISOString(),
+            // Why that seal had waited, when it had (seal() writes it): the page
+            // says "made without a signal" only of an Accept that did.
+            waited: seal.waited || null,
           };
           if (seal.status === 'Accepted') {
             lot.status = seal.was || 'Submitted';
@@ -20430,6 +20433,13 @@ const PB_LOT = (() => {
         }
         lot.status = status;
         const saved = await local.save(lot, { by, bump: false });
+        // WHY IT WAITS, when it does - no signal, or no lot storage - written on
+        // the waiting seal itself, so a refusal a later flush meets can say which
+        // Accept it was. The page used to call every refusal it said after the
+        // fact an Accept "made without a signal", including one made online and
+        // one made before lot storage existed. A refusal met here needs none: it
+        // is thrown to the caller, which says it at once.
+        let waits = remote && !online() ? 'no_signal' : null;
         if (remote && online()) {
           try {
             const reached = await pushOne(saved, by);
@@ -20446,9 +20456,14 @@ const PB_LOT = (() => {
               announce();
               throw err;
             }
+            waits = err && err.code === 'not_set_up' ? 'not_set_up' : 'no_signal';
           }
           state.pending = (await local.outbox()).length;
           announce();
+        }
+        if (waits && saved.pending_seal) {
+          saved.pending_seal.waited = waits;
+          await keep(saved, by);
         }
         return saved;
       },
@@ -24932,12 +24947,30 @@ function acceptRefusedText(n, out) {
   return `The Accept did not go through: ${out.reason}.${recordWhere(n, out.record)}`;
 }
 // Where the record has the lot, as a sentence - or nothing when it could not
-// be asked. One wording for a refusal met at the button and one met at a
-// later flush.
+// be asked. The present tense, for a refusal met at the button, where the
+// record was read a moment ago.
 function recordWhere(n, rec) {
   return !rec ? ""
     : rec.status === "Open" ? ` KYTC's lot record still has lot ${n} Open - its submission has not reached the record yet.`
     : ` KYTC's lot record still reads lot ${n} as ${rec.status}.`;
+}
+// ...and the past tense, for a refusal said AFTER the fact (sayAcceptRefused()).
+// The store kept what the record said when it refused, and a lot can be
+// reopened days later over a record that has moved since - the contractor's
+// seal landing - so "still has lot 1 Open" beside a ledger reading Submitted
+// was the page contradicting the record.
+function recordThen(n, rec) {
+  return !rec ? ""
+    : rec.status === "Open" ? ` When it refused, the record had lot ${n} Open - its submission had not reached it yet.`
+    : ` When it refused, the record read lot ${n} as ${rec.status}.`;
+}
+// Which Accept a refusal said after the fact was, off why its seal had waited
+// (storage.mjs's seal() writes that on the seal): " made without a signal" only
+// of one that waited for a signal. A refusal met at the button is said there
+// and never needs it; one kept before the store wrote it reads plainly.
+function acceptMadeHow(r) {
+  return !r ? "" : r.waited === "no_signal" ? " made without a signal"
+    : r.waited === "not_set_up" ? " made before lot storage was set up here" : "";
 }
 
 // The record's refusal of THIS device's submission, as the store keeps it on
@@ -25234,9 +25267,12 @@ function acceptRefusalToSay(held) {
 }
 
 // THIS device's own Accept, refused by the record once it could be asked (an
-// Accept made with no signal). Said where the lot is: the stage goes back to
-// where this device now has it (the store already put its own stamp back),
-// the lot's own reason is printed beside the button and in the rail, and a
+// Accept that waited - for a signal, or for lot storage - and was refused by a
+// later flush or save; one refused at the button is said there instead). Said
+// where the lot is: the stage goes back to where this device now has it (the
+// store already put its own stamp back), the lot's own reason is printed
+// beside the button and in the rail - with why it had waited and where the
+// record had the lot when it refused, both as the store kept them - and a
 // history line records the refusal. The "Lot accepted" line written when it
 // was pressed stays - history only grows - and this one says what became of
 // it, so a lot PDF made afterwards carries both. Then the store stops carrying
@@ -25247,8 +25283,8 @@ async function sayAcceptRefused(held) {
   const reason = r.reason || "no reason was given";
   const at = CONFIG.LOT_STAGES.findIndex((x) => x.key === held.status);
   if (at >= 0 && at < state.stageIdx) { state.stageIdx = at; state.lot.status = held.status; }
-  const said = `KYTC's lot record did not take lot ${n}'s Accept made without a signal: ${reason}.` +
-               recordWhere(n, r.record);
+  const said = `KYTC's lot record did not take lot ${n}'s Accept${acceptMadeHow(r)}: ${reason}.` +
+               recordThen(n, r.record);
   state.lot.stageWarn = said;
   state.lot.waitingSaid = null;
   state.history = (state.history || []).concat([custodyEntry("Accept refused by KYTC's lot record", { reason })]);
@@ -25277,11 +25313,12 @@ async function sayDoorRefusals(failures) {
     let lot = null;
     try { lot = await store.local.load(f.uid); } catch (_) { continue; }
     const r = lot && lot.seal_refused;
-    if (r && r.status === "Accepted") lots.push(`lot ${lot.lot_number} on ${lot.mix_id} (${r.reason || "no reason was given"})`);
+    if (r && r.status === "Accepted") {
+      lots.push(`the Accept${acceptMadeHow(r)} of lot ${lot.lot_number} on ${lot.mix_id} (${r.reason || "no reason was given"})`);
+    }
   }
   if (!lots.length) return;
-  msg($("uploadMsg"), `KYTC's lot record did not take the Accept made without a signal of ${lots.join("; ")}. ` +
-      `Open the lot to see where it stands.`, "error");
+  msg($("uploadMsg"), `KYTC's lot record did not take ${lots.join("; ")}. Open the lot to see where it stands.`, "error");
 }
 
 if (typeof window !== "undefined" && window.addEventListener) {

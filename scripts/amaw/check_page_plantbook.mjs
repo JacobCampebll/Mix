@@ -1604,9 +1604,11 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
       const l = await store.local.load(uid);
       const st = store.state();
       trace.push({ label, status: l && l.status,
-                   pending: l && l.pending_seal ? { status: l.pending_seal.status, was: l.pending_seal.was || null } : null,
+                   pending: l && l.pending_seal ? { status: l.pending_seal.status, was: l.pending_seal.was || null,
+                                                    waited: l.pending_seal.waited || null } : null,
                    refused: l && l.seal_refused ? { status: l.seal_refused.status,
-                                                    record: l.seal_refused.record ? l.seal_refused.record.status : null } : null,
+                                                    record: l.seal_refused.record ? l.seal_refused.record.status : null,
+                                                    waited: l.seal_refused.waited || null } : null,
                    accepted_name: (l && l.accepted_name) || null,
                    outbox: (await store.local.outbox()).length, online: st.online, notSetUp: st.notSetUp,
                    lastError: st.lastError || null, ledger: (f.lots.get(uid) || {}).status || null, calls: f.calls });
@@ -1645,6 +1647,16 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
     trace.push(await attempt(() => store.seal(fifth.uid, 'Submitted', { sha256: 'e'.repeat(64), by })));
     Object.assign(f.lots.get(fifth.uid), { status: 'Accepted', accepted_name: 'Tate Salle' });
     trace.push(await attempt(() => store.seal(fifth.uid, 'Accepted', { by })));                       await snap('second reviewer', fifth.uid);
+    // An Accept made with no signal and REFUSED by the flush that sends it:
+    // the refusal keeps why the seal had waited, which is what the page words
+    // a refusal said after the fact by.
+    const sixth = M.blankLot({ ...identities[0], lot_number: 8 });
+    await store.save(JSON.parse(JSON.stringify(sixth)), { by });
+    trace.push(await attempt(() => store.seal(sixth.uid, 'Submitted', { sha256: 'f'.repeat(64), by })));
+    f.up = false; f.reviewer = false;
+    trace.push(await attempt(() => store.seal(sixth.uid, 'Accepted', { by })));
+    f.up = true;
+    await store.flush({ by });                                                              await snap('offline accept refused by the flush', sixth.uid);
     return trace;
   };
   let pageTrace, modTrace;
@@ -1661,6 +1673,15 @@ namespace('PB_LOT', '6. PB_LOT vs scripts/amaw/storage.mjs + intake.mjs');
   ok('…keeping what the record said, and where it has the lot',
      !!refused && !!refused.refused && refused.refused.status === 'Accepted' && refused.refused.record === 'Submitted',
      refused && refused.refused);
+  // Why a seal waited is what a refusal said after the fact is worded by, so
+  // both copies must write it - and the trace must actually contain it.
+  const waitedOn = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'accept with no signal') : null;
+  const laterNo = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'offline accept refused by the flush') : null;
+  ok('…and an Accept that waits for a signal says so on its seal and on a refusal a flush meets, while one refused at once records no wait',
+     !!waitedOn && !!waitedOn.pending && waitedOn.pending.waited === 'no_signal'
+       && !!laterNo && !!laterNo.refused && laterNo.refused.waited === 'no_signal' && laterNo.status === 'Submitted'
+       && !!refused && !!refused.refused && refused.refused.waited === null,
+     [waitedOn && waitedOn.pending, laterNo && laterNo.refused, refused && refused.refused]);
   const tookIt = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'accept that took, found on the record') : null;
   const second = Array.isArray(modTrace) ? modTrace.find((t) => t.label === 'second reviewer') : null;
   ok('…and ADOPTS an Accept the record already holds - a lost reply, or a second reviewer - rather than putting it back',

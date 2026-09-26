@@ -541,7 +541,7 @@ const SUBMIT_ON_A = async ({ approval, offline }) => {
            server: JSON.parse(JSON.stringify(window.__HARNESS_AMAW)), local: keep };
 };
 const REVIEW_ON_B = async ({ submitted, server, ledgerPatch, ledgerPatchAfterOpen, stalePending, offline, reopen,
-                             reopenFromList }) => {
+                             reopenFromList, applyAfter }) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const S = window.__HARNESS_AMAW;
   if (server) { Object.assign(S.amaw_lots, server.amaw_lots); Object.assign(S.amaw_lot_data, server.amaw_lot_data); }
@@ -595,6 +595,15 @@ const REVIEW_ON_B = async ({ submitted, server, ledgerPatch, ledgerPatchAfterOpe
     await sleep(300);
     flushed = facts();
   }
+  // Lot storage arrives (amaw_lots.sql applied) after an Accept made without
+  // it, and the next flush sends that Accept to a record that answers.
+  let applied = null;
+  if (applyAfter) {
+    window.__HARNESS_UNAPPLIED = false;
+    await flushLots();
+    await sleep(400);
+    applied = facts();
+  }
   // The same submittal opened again on the device that accepted it - which
   // is how a reviewer builds the AMAW - once the record reads Accepted.
   let reopened = null;
@@ -619,7 +628,7 @@ const REVIEW_ON_B = async ({ submitted, server, ledgerPatch, ledgerPatchAfterOpe
     await sleep(400);
     listReopened = facts();
   }
-  return { opened, accepted, flushed, reopened, listReopened, server: JSON.parse(JSON.stringify(S)) };
+  return { opened, accepted, flushed, applied, reopened, listReopened, server: JSON.parse(JSON.stringify(S)) };
 };
 
 /* The contractor's own device, later: its localStorage as it was left, and
@@ -847,6 +856,9 @@ export async function run({ browser, results }) {
       ok("…saying that lot's OWN reason, beside the button as well as in the rail",
          /did not take lot 1's Accept made without a signal: only KYTC accepts a lot\./.test(x.after.msg)
            && x.after.warn === x.after.msg && /error/.test(x.after.cls), x.after.msg);
+      ok("…and where the record had the lot WHEN IT REFUSED, in the past tense - the lot may be opened days later",
+         /When it refused, the record read lot 1 as Submitted\./.test(x.after.msg) && !/still reads/.test(x.after.msg),
+         x.after.msg);
       ok("…with a history line saying what became of the Accept, after the one written when it was pressed - kept on this device too",
          refusedAt > x.after.history.indexOf("Lot accepted") && x.after.history.indexOf("Lot accepted") >= 0
            && x.held.history.lastIndexOf("Accept refused by KYTC's lot record") > x.held.history.indexOf("Lot accepted"),
@@ -1105,7 +1117,7 @@ export async function run({ browser, results }) {
     async (h) => ({ a: await h.page.evaluate(SUBMIT_ON_A, { approval: APPROVAL }), errs: realErrors(h.errs || []) }));
   if (ua.skipped) { results.skip(id, BOOK, "a reviewer's Accept with the schema unapplied", ua.skipped); return; }
   const ub = await withBook(browser, PLANT, { width: 1440, height: 1000, canReview: true, unapplied: true },
-    async (h) => ({ b: await h.page.evaluate(REVIEW_ON_B, { submitted: ua.value.a.submitted, server: null }),
+    async (h) => ({ b: await h.page.evaluate(REVIEW_ON_B, { submitted: ua.value.a.submitted, server: null, applyAfter: true }),
                     errs: realErrors(h.errs || []) }));
   if (ub.skipped) { results.skip(id, BOOK, "a reviewer's Accept with the schema unapplied", ub.skipped); return; }
   const uo = ub.value.b.opened, uacc = ub.value.b.accepted || {};
@@ -1120,6 +1132,15 @@ export async function run({ browser, results }) {
   ok("unapplied: …the lot reads Accepted, still with no chip and the file's save note",
      uacc.stage === "Accepted" && uacc.chip === null && /saved copy/.test(uacc.note || ""),
      `stage=${uacc.stage} chip=${JSON.stringify(uacc.chip)} note="${uacc.note}"`);
+  // The record arrives, has never seen this lot (the contractor's device never
+  // sent it), and refuses the Accept. That Accept waited for LOT STORAGE, not
+  // for a signal, and the sentence has to say which - it called every refusal
+  // it said after the fact an Accept "made without a signal".
+  const uap = ub.value.b.applied || {};
+  ok("unapplied, then lot storage arrives: the refused Accept is put back and said as one made before lot storage - not “without a signal”",
+     uap.stage === "Submitted" && /did not take lot 1's Accept made before lot storage was set up here: there is no such lot/.test(uap.msg || "")
+       && !/without a signal/.test(uap.msg || "") && uap.warn === uap.msg,
+     `stage=${uap.stage} msg="${uap.msg}"`);
   ok("unapplied: both devices ran clean", ua.value.errs.length === 0 && ub.value.errs.length === 0,
      [...ua.value.errs, ...ub.value.errs].slice(0, 3).join(" | ") || "clean");
 }

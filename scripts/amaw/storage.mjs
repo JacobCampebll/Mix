@@ -1037,6 +1037,9 @@ export function syncedLotStore(opts = {}) {
           code: (err && err.code) || null,
           record: rec,
           at: new Date().toISOString(),
+          // Why that seal had waited, when it had (seal() writes it): the page
+          // says "made without a signal" only of an Accept that did.
+          waited: seal.waited || null,
         };
         if (seal.status === 'Accepted') {
           lot.status = seal.was || 'Submitted';
@@ -1283,6 +1286,13 @@ export function syncedLotStore(opts = {}) {
       }
       lot.status = status;
       const saved = await local.save(lot, { by, bump: false });
+      // WHY IT WAITS, when it does - no signal, or no lot storage - written on
+      // the waiting seal itself, so a refusal a later flush meets can say which
+      // Accept it was. The page used to call every refusal it said after the
+      // fact an Accept "made without a signal", including one made online and
+      // one made before lot storage existed. A refusal met here needs none: it
+      // is thrown to the caller, which says it at once.
+      let waits = remote && !online() ? 'no_signal' : null;
       if (remote && online()) {
         try {
           const reached = await pushOne(saved, by);
@@ -1299,9 +1309,14 @@ export function syncedLotStore(opts = {}) {
             announce();
             throw err;
           }
+          waits = err && err.code === 'not_set_up' ? 'not_set_up' : 'no_signal';
         }
         state.pending = (await local.outbox()).length;
         announce();
+      }
+      if (waits && saved.pending_seal) {
+        saved.pending_seal.waited = waits;
+        await keep(saved, by);
       }
       return saved;
     },

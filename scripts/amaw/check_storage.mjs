@@ -412,6 +412,8 @@ head('who may accept');
   ok('…and it keeps what the record said, and where the record has the lot',
      !!back.seal_refused && back.seal_refused.status === 'Accepted' && /only KYTC/.test(back.seal_refused.reason)
        && !!back.seal_refused.record && back.seal_refused.record.status === 'Submitted', back.seal_refused);
+  ok('…recording no wait: it never waited, and was said to the caller at once',
+     !!back.seal_refused && back.seal_refused.waited === null, back.seal_refused && back.seal_refused.waited);
   ok('…so it is not in the outbox', (await store.local.outbox()).length === 0);
   const callsBefore = server.net.rpcCalls;
   await store.flush({ by: BY });
@@ -464,6 +466,69 @@ head('an Accept that TOOK, its answer lost on the way back');
   const calls = server.net.rpcCalls;
   await store.flush({ by: BY });
   ok('…and it is not asked again', server.net.rpcCalls === calls, `${server.net.rpcCalls - calls} seal call(s)`);
+}
+
+// =====================================================================
+head('a waiting seal says why it waits, and a refusal met later carries it');
+// =====================================================================
+{
+  // The page says "made without a signal" of a refusal it says after the
+  // fact, and it said that of EVERY one - including an Accept made online and
+  // one made before lot storage existed. So seal() writes the reason on the
+  // seal when it starts to wait, and pushOne() keeps it on a later refusal.
+  const noSignal = async (fn) => {
+    const d = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(globalThis, 'navigator', { value: { onLine: false }, configurable: true, writable: true });
+    try { return await fn(); }
+    finally { if (d) Object.defineProperty(globalThis, 'navigator', d); else delete globalThis.navigator; }
+  };
+  const server = fakeServer();
+  const store = newStore(server);
+  const a = await store.save(blankLot(IDENT), { by: BY });
+  await store.seal(a.uid, 'Submitted', { sha256: 'a'.repeat(64), by: BY });
+  const callsA = server.net.rpcCalls;
+  // The browser says there is no signal: the seal is not even tried.
+  await noSignal(() => store.seal(a.uid, 'Accepted', { by: BY }));
+  let held = await store.local.load(a.uid);
+  ok('an Accept made with no signal waits, and its seal says why',
+     !!held.pending_seal && held.pending_seal.waited === 'no_signal' && server.net.rpcCalls === callsA, held.pending_seal);
+  await store.flush({ by: BY });                                   // "only KYTC accepts a lot"
+  held = await store.local.load(a.uid);
+  ok('…and the refusal a later flush meets carries it',
+     !!held.seal_refused && held.seal_refused.status === 'Accepted' && held.seal_refused.waited === 'no_signal',
+     held.seal_refused);
+
+  // A connection that drops mid-call is the same answer.
+  const b = await store.save(blankLot({ ...IDENT, lot_number: 2 }), { by: BY });
+  await store.seal(b.uid, 'Submitted', { sha256: 'b'.repeat(64), by: BY });
+  server.net.up = false;
+  await store.seal(b.uid, 'Accepted', { by: BY });
+  server.net.up = true;
+  held = await store.local.load(b.uid);
+  ok('a connection that drops mid-call waits as no signal too',
+     !!held.pending_seal && held.pending_seal.waited === 'no_signal', held.pending_seal);
+
+  // No lot storage: the Accept waits as NOT SET UP, and says so once the
+  // record exists and refuses it - here because the record never saw the lot.
+  const c = normaliseLot({ ...blankLot({ ...IDENT, lot_number: 3 }), status: 'Submitted' });
+  await store.local.save(c, { by: BY });
+  server.net.unapplied = true;
+  await store.seal(c.uid, 'Accepted', { by: BY });
+  held = await store.local.load(c.uid);
+  ok('an Accept made with no lot storage waits as not set up',
+     !!held.pending_seal && held.pending_seal.waited === 'not_set_up', held.pending_seal);
+  server.net.unapplied = false;
+  await store.flush({ by: BY });
+  held = await store.local.load(c.uid);
+  ok('…and its refusal, once lot storage exists, carries that - not "no signal"',
+     !!held.seal_refused && held.seal_refused.waited === 'not_set_up' && held.seal_refused.code === 'not_found',
+     held.seal_refused);
+
+  // One that goes through at once never waited, and records nothing.
+  const d = await store.save(blankLot({ ...IDENT, lot_number: 4 }), { by: BY });
+  const sd = await store.seal(d.uid, 'Submitted', { sha256: 'd'.repeat(64), by: BY });
+  ok('a seal that goes through at once records no wait',
+     sd.pending_seal === null && (await store.local.load(d.uid)).pending_seal === null, sd.pending_seal);
 }
 
 // =====================================================================
