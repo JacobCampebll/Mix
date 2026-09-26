@@ -1648,8 +1648,11 @@ export const PLANTBOOK_SECTIONS = [
       // reads the same sum (effectiveJmfAc()). Frame, so it rolls forward with
       // the lot - after setup the adjusted figure IS the JMF. Optional: no
       // adjustment is the ordinary case, and a blank is zero.
+      // `signed`: the one number on either book that can be NEGATIVE, and
+      // iOS's decimal pad has no minus key - so the renderer leaves it the
+      // full keyboard rather than the number pad every other figure gets.
       { key: "lot_setup_ac_adjust", label: "Setup AC adjustment (± % from JMF)", type: "number",
-        req: false, mono: true },
+        req: false, mono: true, signed: true },
     ],
   },
 

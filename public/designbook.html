@@ -5128,8 +5128,11 @@ const verifySpecimenOf4 = (n) =>
         // reads the same sum (effectiveJmfAc()). Frame, so it rolls forward with
         // the lot - after setup the adjusted figure IS the JMF. Optional: no
         // adjustment is the ordinary case, and a blank is zero.
+        // `signed`: the one number on either book that can be NEGATIVE, and
+        // iOS's decimal pad has no minus key - so the renderer leaves it the
+        // full keyboard rather than the number pad every other figure gets.
         { key: "lot_setup_ac_adjust", label: "Setup AC adjustment (± % from JMF)", type: "number",
-          req: false, mono: true },
+          req: false, mono: true, signed: true },
       ],
     },
 
@@ -5746,7 +5749,11 @@ function inputFor(f, value, src) {
       (typeof o === "string" ? { value: o, label: o } : o)), value);
   }
   const type = f.type === "date" ? "date" : "text";
-  const im = f.type === "number" ? ' inputmode="decimal"' : "";
+  // The number pad for a figure - except a `signed` one: iOS's decimal pad
+  // has no minus key, so a field that can go negative (the setup AC
+  // adjustment, -0.10 to +0.3) keeps the full keyboard, whose number layer
+  // has the minus sign.
+  const im = f.type === "number" && !f.signed ? ' inputmode="decimal"' : "";
   return `<input type="${type}"${im} class="${cls}" ${attrs} value="${esc(value == null ? "" : value)}">`;
 }
 
@@ -5895,8 +5902,9 @@ function rowHTML(spec, values, idx) {
     // SIGN: every editable row `number` column in both schemas is a
     // non-negative quantity (weights, tons, temperatures, percentages,
     // specific gravities - all 54 checked 2026-09-26), and iOS's decimal pad
-    // has NO minus key. A signed column needs a different answer than this.
-    const im = c.type === "number" && !c.readonly ? ' inputmode="decimal"' : "";
+    // has NO minus key. A column that can go negative declares `signed: true`
+    // and keeps the full keyboard, the same flag inputFor() honours.
+    const im = c.type === "number" && !c.readonly && !c.signed ? ' inputmode="decimal"' : "";
     const ctrl = c.source ? refControlHTML(c, cls, attrs, v, c.readonly)
       : c.type === "select"
         ? selectHTML(cls, attrs, (c.options || []).map((o) =>

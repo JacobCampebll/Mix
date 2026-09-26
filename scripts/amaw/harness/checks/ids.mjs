@@ -83,6 +83,15 @@ export async function run({ browser, results, books }) {
                    (keypad.unresolved.length ? ` — unresolved: ${keypad.unresolved.slice(0, 6).join(",")}` : ""));
         results.ok(id, book.label, "no other row cell carries an inputmode", keypad.stray.length === 0,
                    keypad.stray.slice(0, 6).join(",") || "none");
+        // inputFor()'s half: the pad on every number field, and the full
+        // keyboard on a `signed` one - iOS's decimal pad has no minus key.
+        const sc = keypad.scalar;
+        results.ok(id, book.label, "number fields get the pad, a signed one the full keyboard",
+                   sc.cells > 0 && sc.padded === sc.cells && sc.signedPadded.length === 0,
+                   `${sc.padded}/${sc.cells} padded` +
+                   (sc.signed.length ? `; signed, no pad: ${sc.signed.filter((k) => !sc.signedPadded.includes(k)).join(",") || "none"}` : "") +
+                   (sc.missing.length ? ` — no pad: ${sc.missing.slice(0, 6).join(",")}` : "") +
+                   (sc.signedPadded.length ? ` — signed but padded: ${sc.signedPadded.join(",")}` : ""));
       }
       results.ok(id, book.label, `${c.name} no duplicate ids (first paint)`, before.dup.length === 0,
                  before.dup.join(",") || "0 duplicates");

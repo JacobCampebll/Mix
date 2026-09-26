@@ -296,15 +296,29 @@ export function keypadAudit() {
     const c = typeof effectiveColDef === "function"
       ? effectiveColDef(c0, rowValuesOf(el.closest(".rowitem"))) : c0;
     const pad = el.getAttribute("inputmode") === "decimal";
-    if (c.type === "number" && !c.readonly && !c.source) {
+    if (c.type === "number" && !c.readonly && !c.source && !c.signed) {
       cells++;
       if (pad) padded++; else missing.add(where);
     } else if (el.hasAttribute("inputmode")) {
-      stray.add(`${where}(${c.type}${c.readonly ? ", readonly" : ""})`);
+      stray.add(`${where}(${c.type}${c.readonly ? ", readonly" : ""}${c.signed ? ", signed" : ""})`);
     }
   });
+  // The scalars, which inputFor() renders: the pad on every number field
+  // EXCEPT a `signed` one, which keeps the full keyboard because iOS's
+  // decimal pad has no minus key (lot_setup_ac_adjust, -0.10 to +0.3).
+  const fieldDefs = {};
+  for (const s of secs) for (const f of (Array.isArray(s.fields) ? s.fields : [])) fieldDefs[f.key] = f;
+  const scalar = { cells: 0, padded: 0, missing: [], signed: [], signedPadded: [] };
+  document.querySelectorAll("input[data-field]").forEach((el) => {
+    const f = fieldDefs[el.dataset.field];
+    if (!f || f.type !== "number" || f.readonly || f.source) return;
+    const pad = el.getAttribute("inputmode") === "decimal";
+    if (f.signed) { scalar.signed.push(f.key); if (el.hasAttribute("inputmode")) scalar.signedPadded.push(f.key); return; }
+    scalar.cells++;
+    if (pad) scalar.padded++; else scalar.missing.push(f.key);
+  });
   return { cells, padded, missing: Array.from(missing), stray: Array.from(stray),
-           unresolved: Array.from(unresolved) };
+           unresolved: Array.from(unresolved), scalar };
 }
 
 /* The step numerals, read the way a person reads them.
