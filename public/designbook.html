@@ -20267,12 +20267,15 @@ const PB_LOT = (() => {
   // Five DIFFERENT labels, for the rule this module opens with: verified, "we
   // looked and it failed" and the three kinds of "we could not look" must
   // never read as one another.
+  // And no label says "refused": the one real refusal is the page's, of an
+  // INVALID signature, and a 400 - verify-approval not accepting the request -
+  // opens a lot like the other checks that could not be made.
   const VERIFICATION_LABELS = {
     [VERIFICATION.VERIFIED]: 'Approval verified by KYTC',
     [VERIFICATION.INVALID]: 'Approval signature does not match',
     [VERIFICATION.NOT_CHECKED]: 'Approval not checked',
     [VERIFICATION.UNAVAILABLE]: 'Approval could not be checked',
-    [VERIFICATION.REFUSED]: 'Approval check refused',
+    [VERIFICATION.REFUSED]: 'Approval could not be checked (request not accepted)',
   };
 
   /** The label for a verification. Anything that is not one of the five - no

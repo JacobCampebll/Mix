@@ -659,6 +659,8 @@ ok('the five labels are five different sentences',
    new Set(states.map((s) => VERIFICATION_LABELS[s])).size === states.length, VERIFICATION_LABELS);
 ok('no label is a raw state token', states.every((s) => !states.includes(VERIFICATION_LABELS[s])
    && !/[a-z]-[a-z]/.test(VERIFICATION_LABELS[s])), VERIFICATION_LABELS);
+ok('no label says "refused" - the only refusal is the page\'s, of an INVALID signature, and a 400 opens a lot',
+   states.every((s) => !/refus/i.test(VERIFICATION_LABELS[s])), VERIFICATION_LABELS);
 ok('every answer verify-approval can give reads as its own label',
    answers.every(([res, want]) => verificationLabel(readVerifyResponse(res)) === VERIFICATION_LABELS[want]));
 // A lot FILE can carry anything, and a reopened lot is never refused - so
