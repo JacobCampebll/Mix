@@ -5516,11 +5516,32 @@ commit where possible.
   time input**, so the viewports sweep now measures pickers by intrinsic width;
   their tracks floor at 144/124px by column TYPE (`rowGridTemplate()`), and
   `grid` stays pure `fr` because `gridWeights()` sizes the lot PDF from it (the
-  date's 1.4fr prints an ISO date whole; at 1fr it read "2026-..."). **Open,
-  for Jake**: at 1100/1366px eleven columns plus two pickers do not fit, and
-  Tech, Binder lot and AC method now clip with 8-character values that fitted
-  before. No weighting can make room; hiding Lot-sublot, which repeats the tab
-  title as `blend_pct`'s did, frees 71px - enough for both by the arithmetic
-  that predicted the measured widths, not yet measured itself. Harness
-  gap: PlantBook's default round trip never fills a sublot tab (locked while
-  the fill runs), so the pickers round-trip in a `?sublots=open` pass.
+  date's 1.4fr prints an ISO date whole; at 1fr it read "2026-...").
+  **The ticket table SCROLLS below 1440px rather than squeezing** - corrected
+  the same day, after review measured the first cut clipping Binder lot, Tack
+  lot and Tech (8-character values) from 1000 to 1440px, and AC method's
+  seeded "Ignition Furnace" on every lot: the pickers' width had come out of
+  the longest strings. Every ticket column now sits on a pixel floor - the
+  pickers by type, the rest by a `minPx` the schema declares (78px for the lot
+  numbers and SM ID, 128px for AC method, 56px for the lot-sublot id and the
+  temperature, which need less than the 64px default) - 1014px in all: whole
+  at 1440, scrolling 28-180px below it (58px at 1366). **Measure a floor in
+  the REAL fonts**: the harness is offline and falls back to DejaVu, where
+  "Ignition Furnace" needs 121px; in Public Sans it needs 125, so a floor
+  measured in the harness alone clips on the live site (the fonts install
+  from @fontsource into a scratch dir and inject as @font-face). **Open, for
+  Jake**: hiding Lot-sublot, which repeats the tab title as `blend_pct`'s did,
+  would let it fit at 1100 and 1366 too (measured with the floors; 1244 and
+  1280 still scroll) - a layout call, not taken here. **Harness gaps.**
+  PlantBook's default round trip and viewports sweep never fill a sublot tab
+  (locked while the fill runs), so the pickers round-trip in a
+  `?sublots=open` pass, and the viewports check has a ticket pass that opens
+  a real lot with the sublots open, types real-shaped values and measures
+  each control by what it NEEDS - a select by its selected label, because a
+  `<select>` too reports `scrollWidth === clientWidth` however far its label
+  is cut (watched failing on fa03510 at eleven widths). The generic sweep
+  still does not measure selects that way, deliberately: doing so reveals
+  clipped labels far older than this - DesignBook's binder terminal, TSR
+  condition, aggregate type & size and a polish class; PlantBook's type &
+  size, binder terminal and equipment verified - each a layout question of
+  its own, and none of them in the baseline.

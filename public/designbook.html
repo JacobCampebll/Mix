@@ -4146,23 +4146,33 @@ const verifySpecimenOf4 = (n) =>
   // the section(s) wrapping them changed.
   const SUBLOT_TICKETS_SPEC = {
     key: "sublot_tickets", heading: "Sublot ticket", banded: true, fixed: true,
-    // Re-weighted 2026-09-26 when Date and Time became native pickers. On
-    // screen the two sit on their own floors (144px/124px, rowGridTemplate())
-    // at every width, so their `fr` only sizes them in the lot PDF, which
-    // reads this string too (gridWeights()): 1.4 is the smallest step that
-    // prints an ISO date whole in the PDF's 345pt table - every date is the
-    // same 44.9pt there, and at 1fr each printed as "2026-...". The total
-    // stays 10.6, so every PDF column not named here keeps its width. The
-    // 1.4 comes from the three short number columns, which sit on the 64px
-    // screen floor anyway and still print a 5-digit truck number and a
-    // 3-digit tonnage or temperature whole; what is left goes to AC method,
-    // whose seeded "Ignition Furnace" needs 121px on screen. Measured, not
-    // picked: nothing clips at 1500px; below that the pickers' extra width
-    // comes out of Tech, Binder lot and AC method.
+    // Re-weighted 2026-09-26 when Date and Time became native pickers. ON
+    // SCREEN every column sits on a pixel floor - the two pickers on theirs
+    // by type (144px/124px, rowGridTemplate()), and the columns that hold a
+    // known string on their own `minPx` below - so the `fr` only shares out
+    // what is left over them, and a table narrower than the floors SCROLLS
+    // rather than squeezing (CLAUDE.md). It fits whole at a 1440px window
+    // and scrolls by about 60px at 1366. Before the floors the pickers'
+    // width came out of Tech, Binder lot and AC method, which then clipped
+    // their values from 1000 to 1440px - AC method's seeded "Ignition
+    // Furnace" on every lot.
+    //
+    // IN THE LOT PDF the `fr` is what sizes the columns (gridWeights()): 1.4
+    // is the smallest step that prints an ISO date whole in the PDF's 345pt
+    // table - every date is the same 44.9pt there, and at 1fr each printed as
+    // "2026-...". The total stays 10.6, so every PDF column not named here
+    // keeps its width. The 1.4 comes from the three short number columns,
+    // which still print a 5-digit truck number and a 3-digit tonnage or
+    // temperature whole; what is left goes to AC method.
     grid: ".7fr 1.4fr .8fr .85fr .9fr .6fr .6fr 1fr 1fr 1.1fr 1.65fr",
     seed: TICKET_SEED,
     columns: [
-      { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true },
+      // `minPx` (rowGridTemplate()): the floor a column's own values need on
+      // screen, where the 64px default is not the right answer. Here, 56px for
+      // a lot-sublot id ("1-1", "12-4": four characters are 30px of the 40px
+      // it leaves) - below the default on purpose, to give back room the
+      // longer strings further along need.
+      { key: "sublot", label: "Lot-sublot", type: "text", mono: true, readonly: true, minPx: 56 },
       // Superpave!I, MEDL's staged Date (sn 36). A native date picker -
       // rowHTML() honours `date` and `time` the way inputFor() does - so
       // what reaches the mapper is YYYY-MM-DD, which amDateSerial() turns
@@ -4194,16 +4204,21 @@ const verifySpecimenOf4 = (n) =>
       // On the sheet and on the printed page, but NOT in the staging
       // field map — MEDL never receives it. Kept because the Department
       // reads it, and optional because nothing downstream needs it.
-      { key: "temperature", label: "Temp (°F)", type: "number", req: false, mono: true },
-      // Pay Values rows 43/44, striding by COLUMN across B/C/D/E.
-      { key: "binder_lot", label: "Binder lot", type: "text", req: false, mono: true },
-      { key: "tack_lot", label: "Tack lot", type: "text", req: false, mono: true },
+      // Three digits of a mix temperature need far less than 64px; 56 as for
+      // the lot-sublot id, and for the same reason.
+      { key: "temperature", label: "Temp (°F)", type: "number", req: false, mono: true, minPx: 56 },
+      // Pay Values rows 43/44, striding by COLUMN across B/C/D/E. 78px holds
+      // eight characters ("224711-A"): 76px in Roboto Mono at the row's 12.5px.
+      { key: "binder_lot", label: "Binder lot", type: "text", req: false, mono: true, minPx: 78 },
+      { key: "tack_lot", label: "Tack lot", type: "text", req: false, mono: true, minPx: 78 },
       // SUBLOT.technician — a 2x2 block at B6/E6/B8/E8, NOT a stride.
       // The workbook's `Cert. Techs` sheet is an in-workbook list of SM
       // User I.D. + name; PlantBook should resolve a technician against
       // the `technicians` roster it already signs people in from rather
-      // than shipping that list, same rule as binder terminals.
-      { key: "technician", label: "Tech (SM ID)", type: "text", req: true, mono: true },
+      // than shipping that list, same rule as binder terminals. 78px, as for
+      // the lot numbers: SM IDs on the roster run to eight characters
+      // ("jcavanah", "jharmon3").
+      { key: "technician", label: "Tech (SM ID)", type: "text", req: true, mono: true, minPx: 78 },
       // Calculations!AP35:AP38 (the code) and AU35:AU38 (the label this
       // holds). HOW THE SUBLOT'S %AC WAS MEASURED - the figure typed on
       // the volumetrics table below is the only one on this step a
@@ -4214,8 +4229,13 @@ const verifySpecimenOf4 = (n) =>
       // `req: false` deliberately: a blank leaves AP/AU unwritten, which
       // is what both the template and a mid-production lot already look
       // like, and nothing in pay.mjs reads it.
+      // 128px: "Ignition Furnace", which every lot opens on, needs 125px in
+      // Public Sans at 12.5px beside the drawn caret (121px in the offline
+      // harness's fallback font, so a floor measured there alone clips on the
+      // live site). The longest option, "Back-Calculation of MSG", needs 176px
+      // and has never fit this column; a select shows it in full when opened.
       { key: "ac_method", label: "AC method", type: "select", req: false,
-        options: AC_METHODS },
+        options: AC_METHODS, minPx: 128 },
     ],
   };
   // ---- THE RAW WEIGHTS THE VOLUMETRICS ARE COMPUTED FROM ----------
