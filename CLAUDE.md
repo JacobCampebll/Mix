@@ -5601,7 +5601,11 @@ commit where possible.
   saved and no ledger row. **Only INVALID refuses**: the other three
   non-verified states are checks that could not be made and open, labelled
   (a plant with no signal must still start a lot); **a saved lot is never
-  refused**, whatever it carries; and `lotFromApproval()` still builds a lot
+  refused**, whatever it carries, **but one on an INVALID approval never seeds
+  another** - Start lot n+1 is new production under the design, so
+  `startNextLot()` refuses before its dialog in the door's own words
+  (`invalidApprovalRefusal()`), and the rail line says the lot reopened only
+  so its measurements are not lost; and `lotFromApproval()` still builds a lot
   on INVALID, because refusing is the page's call. `VERIFICATION_LABELS` and
   `verificationText()` ("label - reason") in intake.mjs are the one wording -
   anything unknown reads as not checked, never as verified - for the door,

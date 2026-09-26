@@ -22597,8 +22597,9 @@ function approvalVerificationWarnings() {
   const sig = document.querySelector('[data-out="approval_signature"]');
   const focus = sig ? sig.closest(".field") : null;
   const text = v && v.state === PB_LOT.VERIFICATION.INVALID
-    ? `${PB_LOT.verificationText(v)} PlantBook no longer opens a lot on an approval like this - check with `
-      + `KYTC Central Office before submitting this one.`
+    ? `${PB_LOT.verificationText(v)} PlantBook refuses to start a lot on an approval like this, from the `
+      + `approval or from Start lot n+1; this one reopens so its measurements are not lost. Check with `
+      + `KYTC Central Office before submitting it.`
     : `${PB_LOT.verificationText(v)} The JMF %AC, air-void target and minimum VMA this lot is paid against `
       + `come from that approval, and nothing here has confirmed KYTC signed it. Check the approval PDF on the `
       + `site's verify page (verify.html), or ask KYTC Central Office.`;
@@ -23352,6 +23353,15 @@ function approvalSampleId(lot) {
   return `${district}${dist.sampleLab}AMD${mixId.slice(2, 4)}${mixId.slice(-4)}`;
 }
 
+/* The one refusal, in one wording: the front door (openApprovalForLot) and
+ * Start lot n+1 (startNextLot) both say it, because both would start NEW
+ * production under a design whose signature does not match. */
+function invalidApprovalRefusal(v) {
+  const to = CONFIG.SUBMIT.KYTC_EMAIL;
+  return `${PB_LOT.verificationText(v)} No lot was opened - check with ` +
+         `KYTC Central Office${to ? ` (${to})` : ""} before producing anything under this design.`;
+}
+
 async function openApprovalForLot(payload, label) {
   const verification = await verifyApproval(payload);
   const out = PB_LOT.lotFromApproval(payload, { verification });
@@ -23373,12 +23383,9 @@ async function openApprovalForLot(payload, label) {
    * must still start a lot - so they open, labelled, and carry their state.
    * PB_LOT.lotFromApproval() still builds the lot for an invalid approval
    * (check_intake.mjs asserts it): refusing is this page's call, not the
-   * module's. A lot ALREADY OPENED on one reopens (openLotEnvelope()). */
-  if (verification.state === PB_LOT.VERIFICATION.INVALID) {
-    const to = CONFIG.SUBMIT.KYTC_EMAIL;
-    throw new Error(`${PB_LOT.verificationText(verification)} No lot was opened - check with ` +
-                    `KYTC Central Office${to ? ` (${to})` : ""} before producing anything under this design.`);
-  }
+   * module's. A lot ALREADY OPENED on one reopens (openLotEnvelope()), but
+   * never seeds another (startNextLot()). */
+  if (verification.state === PB_LOT.VERIFICATION.INVALID) throw new Error(invalidApprovalRefusal(verification));
   if (submittedFor("plantbook")) state.submitted = null;   // see openLotEnvelope()
   state.lot = out.lot;
   state.lotReport = out.report;
@@ -23631,6 +23638,17 @@ function gotoLotSource(spec) {
  */
 function startNextLot() {
   if (!state.lot) { msg($("saveMsg"), "There is no lot open.", "error"); return; }
+  // A lot on an INVALID approval reopens - it is a week of measurements - but
+  // it never SEEDS another: lot n+1 is new production under the design, which
+  // is exactly what the front door refuses (openApprovalForLot()). Refused
+  // before the dialog, in the door's own words, since rollForwardLot() would
+  // carry the verification whole and the new lot would simply inherit it.
+  const dv = lotDesign();
+  const vv = dv && dv.approval ? dv.approval.verification : null;
+  if (vv && vv.state === PB_LOT.VERIFICATION.INVALID) {
+    msg($("saveMsg"), invalidApprovalRefusal(vv), "error");
+    return;
+  }
   const current = lotSnapshot();
   const next = Number(current.lot_number) + 1;
   if (!window.confirm(
@@ -23828,7 +23846,8 @@ function openLotEnvelope(raw, label, opening) {
   // This is a week of somebody's measurements, not a fresh start on a design,
   // and refusing it would lose the work without undoing the production. It is
   // printed, in words, as the file carries it, and Contract & Mix keeps it on
-  // screen for the life of the lot.
+  // screen for the life of the lot. What it cannot do is seed lot n+1 -
+  // startNextLot() refuses that, as the door does.
   msg($("saveMsg"),
       (opening ? opening.line : `Reopened lot ${lot.lot_number} on ${lot.mix_id} from ${label}.`) +
       (v ? ` ${PB_LOT.verificationText(v)}` : ""),

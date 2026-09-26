@@ -24,6 +24,9 @@
  * ONLY an invalid signature refuses; the other four states open, labelled.
  * And a lot ALREADY opened on an invalid approval - saved before the door
  * refused them - still reopens: a week of measurements is not a fresh start.
+ * But it never seeds lot n+1, which is one (watched failing: with the refusal
+ * removed from startNextLot() lot 2 opens, a second ledger row is written and
+ * both roll-forward assertions fail).
  *
  * AND THE ANSWER STAYS ON THE FORM: the Approval signature readout on
  * Contract & Mix (measured in the ledger's value column at 1440, stacked at
@@ -319,9 +322,37 @@ export async function run({ browser, results }) {
     const rr = r.readout || {};
     ok("reopen: the readout keeps it on screen, in the bad colour",
        rr.text === r.labels.invalid && /\bbad\b/.test(rr.cls || ""), clip(`"${rr.text}" [${rr.cls}]`));
-    ok("reopen: …and the rail says a lot is no longer opened on one",
-       r.rail.some((t) => t.includes(`${r.labels.invalid} - `) && /no longer opens a lot/.test(t)),
+    ok("reopen: …and the rail says no lot is started on one, and why this one reopened",
+       r.rail.some((t) => t.includes(`${r.labels.invalid} - `) && /refuses to start a lot/.test(t)
+         && /Start lot n\+1/.test(t) && /reopens/.test(t)),
        clip(r.rail.filter((t) => /Approval/.test(t)).join(" | ") || "no approval warning on the rail"));
+
+    // ---- ...but it never SEEDS another lot --------------------------------
+    // Reopening is a week of measurements; Start lot n+1 is new production
+    // under the design, which is exactly what the door refuses. Driven
+    // through the real startNextLot(), confirm() answered yes, so a refusal
+    // that only lived in the dialog's wording would not pass.
+    const roll = await h.page.evaluate(async () => {
+      const before = { uid: state.lot.uid, n: state.lot.lot_number,
+                       ledger: Object.keys(window.__HARNESS_AMAW.amaw_lots).length };
+      const asked = [];
+      const realConfirm = window.confirm;
+      window.confirm = (t) => { asked.push(String(t)); return true; };
+      try { startNextLot(); } finally { window.confirm = realConfirm; }
+      await new Promise((res) => setTimeout(res, CONFIG.STORAGE.AUTOSAVE_MS + 700));
+      const sv = document.getElementById("saveMsg");
+      return { before, after: { uid: state.lot.uid, n: state.lot.lot_number,
+                                ledger: Object.keys(window.__HARNESS_AMAW.amaw_lots).length },
+               asked: asked.length, save: sv.textContent, cls: sv.className,
+               label: PB_LOT.VERIFICATION_LABELS.invalid };
+    });
+    ok("roll-forward: Start lot n+1 on an invalid approval opens no new lot and writes no ledger row",
+       roll.after.uid === roll.before.uid && roll.after.n === roll.before.n && roll.after.ledger === roll.before.ledger,
+       `before ${roll.before.n}/${roll.before.uid} (${roll.before.ledger} rows), after ${roll.after.n}/${roll.after.uid} (${roll.after.ledger} rows)`);
+    ok("roll-forward: …refused in red before the dialog, label first, and says to check with Central Office",
+       roll.asked === 0 && /\berror\b/.test(roll.cls) && roll.save.startsWith(`${roll.label} - `)
+         && /No lot was opened/.test(roll.save) && /Central Office/.test(roll.save),
+       clip(`asked ${roll.asked}; [${roll.cls}] ${roll.save}`));
   } finally {
     await h.close();
   }
