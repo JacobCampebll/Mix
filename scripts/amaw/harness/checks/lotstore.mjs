@@ -441,6 +441,81 @@ const ACCEPT_OFFLINE = async ({ approval, refuse, door }) => {
   };
 };
 
+/* A SEAL THAT TOOK, ITS REPLY LOST on the way back. The page cannot know
+ * better than "waiting", and says so; then the next SAVE finds the seal
+ * already on the record - for an Accept the trailing save, for a Submit the
+ * debounced autosave of something typed just before it was pressed. That save
+ * used to adopt it silently, leaving "there is no signal" up over a sealed lot
+ * beside a green chip, on a device with a signal the whole time; only a flush
+ * replaced the sentence. The record COMMITS and the reply is dropped - the
+ * stub's own rpc runs first. */
+const LOST_REPLY = async ({ approval, which }) => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.__HARNESS_AMAW;
+  const out = PB_LOT.lotFromApproval(approval, { verification: PB_LOT.notChecked("harness") });
+  openLotEnvelope(out.lot, "the harness");
+  const uid = state.lot.uid;
+  await sleep(CONFIG.STORAGE.AUTOSAVE_MS + 700);
+  const realRpc = sb.rpc;
+  let dropped = false;
+  sb.rpc = async (fn, a) => {
+    const r = await realRpc(fn, a);
+    if (a && a.p_status === which && !dropped) { dropped = true; throw new TypeError("Failed to fetch"); }
+    return r;
+  };
+  const facts = () => {
+    const held = JSON.parse(localStorage.getItem("amaw_lot:" + uid) || "null") || {};
+    return { msg: $("saveMsg").textContent, cls: $("saveMsg").className,
+             chip: $("syncChip").classList.contains("hidden") ? null : $("syncChip").textContent,
+             chipTitle: $("syncChip").title || "", ledger: (S.amaw_lots[uid] || {}).status || null,
+             local: held.status || null, pending: held.pending_seal ? held.pending_seal.status : null,
+             stage: (CONFIG.LOT_STAGES[state.stageIdx] || {}).key };
+  };
+  const c = window.confirm, s = window.saveBytes;
+  window.confirm = () => true; window.saveBytes = () => {};
+  const debounce = CONFIG.STORAGE.AUTOSAVE_MS;
+  // Every sentence #saveMsg shows, in order: the trailing save can answer
+  // within the same tick the Accept does, so sampling it would miss the
+  // "waiting" line it is meant to replace.
+  const said = [];
+  const mo = new MutationObserver(() => {
+    const t = $("saveMsg").textContent;
+    if (said[said.length - 1] !== t) said.push(t);
+  });
+  mo.observe($("saveMsg"), { childList: true, characterData: true, subtree: true });
+  let ledgerAtWait = null;
+  try {
+    if (which === "Submitted") {
+      // Something typed just before Submit was pressed: its debounced autosave
+      // is still on its timer when the submission goes, and fires after it.
+      CONFIG.STORAGE.AUTOSAVE_MS = 6000;
+      scheduleLotSave();
+      await submitLotToKYTC();
+      ledgerAtWait = (S.amaw_lots[uid] || {}).status || null;
+      for (let i = 0; i < 90 && facts().pending; i++) await sleep(100);
+    } else {
+      await submitLotToKYTC();
+      go(stepIndexOf("lot-status"));
+      await sleep(400);
+      said.length = 0;
+      const before = $("saveMsg").textContent;
+      document.getElementById("advanceStage").click();
+      for (let i = 0; i < 80 && ($("saveMsg").textContent === before
+                                 || $("advanceStage").textContent === "Accepting..."); i++) await sleep(100);
+      ledgerAtWait = (S.amaw_lots[uid] || {}).status || null;
+    }
+  } finally {
+    CONFIG.STORAGE.AUTOSAVE_MS = debounce;
+    window.confirm = c; window.saveBytes = s;
+  }
+  await sleep(1200);
+  mo.disconnect();
+  sb.rpc = realRpc;
+  const noSignalAt = said.findIndex((t) => /no signal/.test(t));
+  const sealedAt = said.findIndex((t) => /is now sealed in KYTC's lot record/.test(t));
+  return { dropped, ledgerAtWait, said, noSignalAt, sealedAt, after: facts() };
+};
+
 /* A SUBMIT THE RECORD REFUSES: another device already submitted this lot, with
  * a different payload. This device's submission is real - its PDF has gone -
  * so the lot stays Submitted here, and the chip says "not sealed". That used
@@ -917,6 +992,25 @@ export async function run({ browser, results }) {
       }
     }
     ok(`offline Accept (${v.name}): clean`, r.value.errs.length === 0, r.value.errs.slice(0, 3).join(" | ") || "clean");
+  }
+
+  // ---- a seal that took, its reply lost: the next SAVE says so ----
+  for (const which of ["Accepted", "Submitted"]) {
+    const lr = await withBook(browser, PLANT, { width: 1366, height: 768, canReview: true, query: "&sublots=open" },
+      async (h) => ({ v: await h.page.evaluate(LOST_REPLY, { approval: APPROVAL, which }), errs: realErrors(h.errs || []) }));
+    if (lr.skipped) { results.skip(id, BOOK, `a lost reply (${which})`, lr.skipped); continue; }
+    const x = lr.value.v;
+    const word = which === "Accepted" ? /Lot 1's Accept is now sealed in KYTC's lot record\./ : /Lot 1 is now sealed in KYTC's lot record as submitted\./;
+    ok(`a lost ${which} reply: the page says it waits (it cannot know better), while the record already took it`,
+       x.dropped && x.noSignalAt >= 0 && x.ledgerAtWait === which, `ledger=${x.ledgerAtWait} said: ${x.said.join(" >> ")}`);
+    ok(`…and the save that finds it on the record replaces “no signal” with the seal - not only a flush`,
+       x.sealedAt > x.noSignalAt && word.test(x.after.msg) && !/no signal/.test(x.after.msg) && /\bok\b/.test(x.after.cls)
+         && x.after.local === which && x.after.pending === null && x.after.stage === which,
+       `msg="${x.after.msg}" local=${x.after.local} pending=${x.after.pending} said: ${x.said.join(" >> ")}`);
+    ok(`…and the chip's title says who and when, taken there and then`,
+       x.after.chip === which.toLowerCase() && /\(by Harness Runner on \d{4}-\d\d-\d\d \d\d:\d\d\)/.test(x.after.chipTitle),
+       `chip=${x.after.chip} title="${x.after.chipTitle}"`);
+    ok(`a lost ${which} reply: clean`, lr.value.errs.length === 0, lr.value.errs.slice(0, 3).join(" | ") || "clean");
   }
 
   // ---- a Submit the record refuses, and the next session ----

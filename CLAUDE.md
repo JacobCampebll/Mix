@@ -5649,7 +5649,12 @@ commit where possible.
   the lot. A refused Accept also shows in `#stageWarn` under the button:
   `#saveMsg` is in the rail, off-screen at most widths when it is pressed. The
   chip reads "waiting to be sealed" while a seal is in the outbox, and "not
-  sealed" after a refused Submit - across a reload too. Every PlantBook
+  sealed" after a refused Submit - across a reload too. Whatever answers a
+  waiting seal - a flush, or a SAVE: the trailing save after an Accept whose
+  reply was lost, the debounced autosave after a Submit - replaces the "no
+  signal" sentence and takes the record's who and when, in one place
+  (`sealAnswered()`); from the flush alone, a seal a save took left "there is
+  no signal" up beside a green chip. Every PlantBook
   sentence about where a lot is kept reads `lotStorageLive()`, the save note's
   gate; DesignBook's own still stand (2026-09-04).
   **A refusal is asked about before anything is put back.** amaw_seal_lot()

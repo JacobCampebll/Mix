@@ -24459,7 +24459,8 @@ async function submitLotToKYTC() {
         `${name} downloaded and stamped as submitted by ${who}. Email it to ` +
         `${to || "KYTC Central Office Materials"} - that file is the submission. ` +
         `${seal[0]} You can download it again at any time.`, seal[1]);
-    // So the flush that finally seals it can replace the "no signal" line.
+    // So the save or flush that finally seals it can replace the "no signal"
+    // line (sealAnswered()).
     state.lot.waitingSaid = sealed.kind === "waiting" || null;
   } catch (err) {
     state.stageIdx = prevIdx;          // nothing left the machine, so nothing moved
@@ -24551,7 +24552,8 @@ async function acceptLotForKYTC() {
                 `download the lot PDF to keep a record of it.`, "ok"],
     }[out.kind];
     msg($("saveMsg"), said[0], said[1]);
-    // So the flush that finally seals it can replace the "no signal" line.
+    // So the save or flush that finally seals it can replace the "no signal"
+    // line (sealAnswered()).
     state.lot.waitingSaid = out.kind === "waiting" || null;
     // The accept line into this device's own copy, so the lot reopens from
     // the list with it. Not awaited: the seal above is what mattered.
@@ -24809,8 +24811,14 @@ async function saveLotNow() {
       // waiting one across ordinary saves, and a save can carry it through.
       // Read by the chip; like `conflict`, not an envelope field, so it never
       // reaches a file.
+      const wasWaiting = !!state.lot.sealPending;
       state.lot.sealPending = !!saved.pending_seal;
       state.lot.sealRefused = submitRefusalOf(saved);
+      // A save is as likely as a flush to be what answers a waiting seal - the
+      // trailing save after an Accept whose reply was lost, the debounced
+      // autosave after a Submit - so it says so the same way. Only on the
+      // change: sayAcceptRefused() saves too, after sealPending has gone.
+      if (wasWaiting && !saved.pending_seal) await sealAnswered(saved, true);
     }
     paintSyncChip();
     return saved;
@@ -25307,17 +25315,34 @@ async function reconcileLotSeal(failures) {
   const wasWaiting = !!state.lot.sealPending;
   state.lot.sealPending = !!held.pending_seal;
   state.lot.sealRefused = submitRefusalOf(held);
-  if (acceptRefusalToSay(held)) { await sayAcceptRefused(held); return; }
-  // A seal this page said was waiting has gone through: the gold "there is
-  // no signal" sentence would otherwise stay up over a sealed lot.
-  if (wasWaiting && !held.pending_seal && state.lot.waitingSaid) {
+  if (await sealAnswered(held, wasWaiting)) return;
+  takeHeldChain(held);
+}
+
+// What became of a seal this page held as WAITING, once a flush
+// (reconcileLotSeal()) or a save (saveLotNow()) has heard from the record -
+// whichever gets there first. ONE place, because the "there is no signal"
+// sentence used to be replaced from the flush alone: a seal the SAVE took - the
+// trailing save after an Accept whose reply was lost, or the debounced autosave
+// after a Submit - left it up over a sealed lot, green chip beside it, on a
+// device that had a signal all along. It takes the record's stamps too, so the
+// chip's title says who and when without waiting for a flush.
+//
+// A refused Accept kept on the lot is said here whether or not this page saw
+// it waiting (a flush, or a lot reopened, can bring one); `true` means it was.
+async function sealAnswered(held, wasWaiting) {
+  if (!held || !state.lot || state.lot.uid !== held.uid) return false;
+  if (acceptRefusalToSay(held)) { await sayAcceptRefused(held); return true; }
+  if (!wasWaiting || held.pending_seal) return false;
+  takeRecordStamps(held);
+  if (state.lot.waitingSaid) {
     const n = state.lot.lot_number;
     msg($("saveMsg"), held.status === "Accepted"
       ? `Lot ${n}'s Accept is now sealed in KYTC's lot record.`
       : `Lot ${n} is now sealed in KYTC's lot record as submitted.`, "ok");
     state.lot.waitingSaid = null;
   }
-  takeHeldChain(held);
+  return false;
 }
 
 // Whether this device holds an Accept refusal that is still worth saying: one
