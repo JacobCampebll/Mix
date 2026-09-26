@@ -661,6 +661,12 @@ ok('no label is a raw state token', states.every((s) => !states.includes(VERIFIC
    && !/[a-z]-[a-z]/.test(VERIFICATION_LABELS[s])), VERIFICATION_LABELS);
 ok('no label says "refused" - the only refusal is the page\'s, of an INVALID signature, and a 400 opens a lot',
    states.every((s) => !/refus/i.test(VERIFICATION_LABELS[s])), VERIFICATION_LABELS);
+// Distinct is not enough: "could not be checked" and "could not be checked
+// (request not accepted)" were distinct, and any startsWith/includes match on
+// the first would have caught every line of the second.
+ok('no label is a prefix of another - a match on one never catches another',
+   states.every((a) => states.every((b) => a === b || !VERIFICATION_LABELS[b].startsWith(VERIFICATION_LABELS[a]))),
+   VERIFICATION_LABELS);
 ok('every answer verify-approval can give reads as its own label',
    answers.every(([res, want]) => verificationLabel(readVerifyResponse(res)) === VERIFICATION_LABELS[want]));
 // A lot FILE can carry anything, and a reopened lot is never refused - so

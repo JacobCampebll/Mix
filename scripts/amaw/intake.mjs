@@ -168,7 +168,7 @@ export const VERIFICATION_LABELS = {
   [VERIFICATION.INVALID]: 'Approval signature does not match',
   [VERIFICATION.NOT_CHECKED]: 'Approval not checked',
   [VERIFICATION.UNAVAILABLE]: 'Approval could not be checked',
-  [VERIFICATION.REFUSED]: 'Approval could not be checked (request not accepted)',
+  [VERIFICATION.REFUSED]: 'Approval check not accepted by KYTC\'s service',
 };
 
 /** The label for a verification. Anything that is not one of the five - no
